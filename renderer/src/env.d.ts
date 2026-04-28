@@ -1,6 +1,12 @@
 /// <reference types="vite/client" />
 
 declare global {
+  type CharacterArcExportRequest = {
+    data: unknown
+    title?: string
+    defaultPath?: string
+  }
+
   interface Window {
     characterArc: {
       platform: string
@@ -25,12 +31,12 @@ declare global {
         result?: unknown
         error?: string
       }>
-      exportJson: (payload: unknown) => Promise<{
+      exportJson: (payload: CharacterArcExportRequest | unknown) => Promise<{
         success: boolean
         canceled: boolean
         filePath?: string
       }>
-      exportText: (payload: unknown) => Promise<{
+      exportText: (payload: CharacterArcExportRequest | unknown) => Promise<{
         success: boolean
         canceled: boolean
         filePath?: string

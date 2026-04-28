@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Cpu, Download, FolderOutput, FileText, Palette, Save } from 'lucide-vue-next'
+import { Cpu, Download, FileJson, FileStack, FileText, FolderOutput, Palette, Save, Users } from 'lucide-vue-next'
 import { NButton, NCard, NFormItem, NInput, NSelect, useMessage } from 'naive-ui'
 import { themePresets } from '@/theme/presets'
 import { useAppStore } from '@/stores/app'
@@ -13,6 +13,12 @@ const themeOptions = themePresets.map((preset) => ({
   value: preset.name
 }))
 
+function buildExportStem(suffix: string): string {
+  const projectTitle = appStore.currentProject?.title?.trim() || 'characterarc'
+  const safeTitle = projectTitle.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '-')
+  return `${safeTitle}-${suffix}`
+}
+
 async function handleExportJson(): Promise<void> {
   const payload = {
     project: appStore.currentProject,
@@ -23,7 +29,15 @@ async function handleExportJson(): Promise<void> {
     exportedAt: new Date().toISOString()
   }
 
-  const result = await window.characterArc.exportJson(payload)
+  const result = await window.characterArc.exportJson({
+    data: {
+      version: '1.0',
+      type: 'project',
+      ...payload
+    },
+    title: '导出完整项目 JSON',
+    defaultPath: `${buildExportStem('project')}.json`
+  })
   if (result.success) {
     message.success('项目数据已导出')
     return
@@ -44,7 +58,11 @@ async function handleExportText(): Promise<void> {
     exportedAt: new Date().toISOString()
   }
 
-  const result = await window.characterArc.exportText(payload)
+  const result = await window.characterArc.exportText({
+    data: payload,
+    title: '导出章节正文 TXT',
+    defaultPath: `${buildExportStem('chapters')}.txt`
+  })
   if (result.success) {
     message.success('章节内容已导出')
     return
@@ -52,6 +70,75 @@ async function handleExportText(): Promise<void> {
 
   if (!result.canceled) {
     message.error('导出 TXT 失败，请稍后重试')
+  }
+}
+
+async function handleExportCharacters(): Promise<void> {
+  const result = await window.characterArc.exportJson({
+    data: {
+      version: '1.0',
+      type: 'characters',
+      project: appStore.currentProject,
+      characters: appStore.characters,
+      exportedAt: new Date().toISOString()
+    },
+    title: '导出角色资料 JSON',
+    defaultPath: `${buildExportStem('characters')}.json`
+  })
+
+  if (result.success) {
+    message.success('角色资料已导出')
+    return
+  }
+
+  if (!result.canceled) {
+    message.error('导出角色资料失败，请稍后重试')
+  }
+}
+
+async function handleExportOutline(): Promise<void> {
+  const result = await window.characterArc.exportJson({
+    data: {
+      version: '1.0',
+      type: 'outline',
+      project: appStore.currentProject,
+      outlineItems: appStore.outlineItems,
+      exportedAt: new Date().toISOString()
+    },
+    title: '导出大纲节点 JSON',
+    defaultPath: `${buildExportStem('outline')}.json`
+  })
+
+  if (result.success) {
+    message.success('大纲节点已导出')
+    return
+  }
+
+  if (!result.canceled) {
+    message.error('导出大纲节点失败，请稍后重试')
+  }
+}
+
+async function handleExportChaptersJson(): Promise<void> {
+  const result = await window.characterArc.exportJson({
+    data: {
+      version: '1.0',
+      type: 'chapters',
+      project: appStore.currentProject,
+      chapters: appStore.chapters,
+      exportedAt: new Date().toISOString()
+    },
+    title: '导出章节数据 JSON',
+    defaultPath: `${buildExportStem('chapters')}.json`
+  })
+
+  if (result.success) {
+    message.success('章节数据已导出')
+    return
+  }
+
+  if (!result.canceled) {
+    message.error('导出章节数据失败，请稍后重试')
   }
 }
 
@@ -177,6 +264,29 @@ async function handleImportJson(): Promise<void> {
             导出为 TXT
           </n-button>
         </div>
+        <div class="module-export-block">
+          <div class="module-export-copy">
+            <div class="setting-name">按模块导出</div>
+            <div class="setting-hint">把角色、大纲或章节单独导出，便于分发和复用。</div>
+          </div>
+          <div class="module-export-grid">
+            <button class="module-export-card" @click="handleExportCharacters">
+              <Users :size="18" />
+              <strong>角色资料</strong>
+              <span>导出角色卡与标签</span>
+            </button>
+            <button class="module-export-card" @click="handleExportOutline">
+              <FileStack :size="18" />
+              <strong>剧情大纲</strong>
+              <span>导出大纲节点与冲突</span>
+            </button>
+            <button class="module-export-card" @click="handleExportChaptersJson">
+              <FileJson :size="18" />
+              <strong>章节 JSON</strong>
+              <span>导出正文与元信息</span>
+            </button>
+          </div>
+        </div>
       </n-card>
 
       <n-card class="setting-card" :bordered="false">
@@ -285,6 +395,61 @@ async function handleImportJson(): Promise<void> {
   margin-top: 24px;
 }
 
+.module-export-block {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(229, 231, 235, 0.88);
+}
+
+.module-export-copy {
+  margin-bottom: 14px;
+}
+
+.module-export-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.module-export-card {
+  display: flex;
+  min-height: 120px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid rgba(229, 231, 235, 0.92);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  color: #374151;
+  cursor: pointer;
+  padding: 16px;
+  text-align: left;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.module-export-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--arc-primary) 18%, white);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.05);
+}
+
+.module-export-card :deep(svg) {
+  color: var(--arc-primary);
+}
+
+.module-export-card strong {
+  font-size: 14px;
+}
+
+.module-export-card span {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .storage-status {
   display: flex;
   flex-direction: column;
@@ -364,6 +529,10 @@ async function handleImportJson(): Promise<void> {
   .setting-actions :deep(.n-button) {
     width: 100%;
     justify-content: center;
+  }
+
+  .module-export-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

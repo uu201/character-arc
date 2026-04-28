@@ -12,7 +12,6 @@ import {
   Users,
   GitMerge
 } from 'lucide-vue-next'
-import { NButton } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import OverviewPanel from '@/components/OverviewPanel.vue'
 import WorldviewPanel from '@/components/WorldviewPanel.vue'
@@ -21,6 +20,8 @@ import OutlinePanel from '@/components/OutlinePanel.vue'
 import ChaptersPanel from '@/components/ChaptersPanel.vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
 import AiAssistantPanel from '@/components/AiAssistantPanel.vue'
+import SearchResultsPanel from '@/components/SearchResultsPanel.vue'
+import type { PanelName } from '@/types/app'
 
 const appStore = useAppStore()
 const isSidebarOpen = ref(true)
@@ -47,7 +48,9 @@ const activePanelLabel = computed(
   () => sidebarItems.find((item) => item.id === appStore.activePanel)?.label ?? '项目工作台'
 )
 const normalizedSearch = computed(() => searchKeyword.value.trim())
-const shouldShowAssistant = computed(() => appStore.activePanel === 'chapters' && appStore.aiVisible)
+const isSearchMode = computed(() => normalizedSearch.value.length > 0)
+const activeViewLabel = computed(() => (isSearchMode.value ? '项目搜索' : activePanelLabel.value))
+const shouldShowAssistant = computed(() => appStore.activePanel === 'chapters' && appStore.aiVisible && !isSearchMode.value)
 
 const isCompactSidebar = computed(() => viewportWidth.value <= 1280)
 const shouldRenderSidebarLabels = computed(() => isSidebarOpen.value && !isCompactSidebar.value)
@@ -58,6 +61,23 @@ function toggleSidebar(): void {
   }
 
   isSidebarOpen.value = !isSidebarOpen.value
+}
+
+function clearSearchForPanel(panel: PanelName): void {
+  panelSearch[panel] = ''
+}
+
+function openSearchResult(payload: { panel: PanelName; chapterId?: string }): void {
+  clearSearchForPanel(appStore.activePanel)
+  clearSearchForPanel(payload.panel)
+  searchKeyword.value = ''
+
+  if (payload.chapterId) {
+    appStore.selectChapter(payload.chapterId)
+    return
+  }
+
+  appStore.setPanel(payload.panel)
 }
 
 function syncViewportState(): void {
@@ -139,7 +159,7 @@ watch(searchKeyword, (value) => {
         <div class="breadcrumb">
           <span>项目工作台</span>
           <ChevronLeft :size="14" class="crumb-sep" />
-          <span class="active-crumb">{{ activePanelLabel }}</span>
+          <span class="active-crumb">{{ activeViewLabel }}</span>
         </div>
 
         <div class="header-tools arc-no-drag">
@@ -153,7 +173,13 @@ watch(searchKeyword, (value) => {
 
       <div class="workspace-body arc-scrollbar">
         <Transition name="panel-switch" mode="out-in">
-          <OverviewPanel v-if="appStore.activePanel === 'overview'" key="overview" :search-query="normalizedSearch" />
+          <SearchResultsPanel
+            v-if="isSearchMode"
+            key="search-results"
+            :query="normalizedSearch"
+            @open-result="openSearchResult"
+          />
+          <OverviewPanel v-else-if="appStore.activePanel === 'overview'" key="overview" :search-query="normalizedSearch" />
           <WorldviewPanel v-else-if="appStore.activePanel === 'world'" key="world" :search-query="normalizedSearch" />
           <CharactersPanel v-else-if="appStore.activePanel === 'characters'" key="characters" :search-query="normalizedSearch" />
           <OutlinePanel v-else-if="appStore.activePanel === 'outline'" key="outline" :search-query="normalizedSearch" />

@@ -141,8 +141,23 @@ async function ensureWorkspaceDb(): Promise<DatabaseSync> {
     CREATE TABLE IF NOT EXISTS chapters (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      status TEXT NOT NULL,
+      word_target TEXT NOT NULL,
       content TEXT NOT NULL,
       sort_order INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS chapter_versions (
+      id TEXT PRIMARY KEY,
+      chapter_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      status TEXT NOT NULL,
+      word_target TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (chapter_id) REFERENCES chapters (id) ON DELETE CASCADE
     ) STRICT;
 
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -158,6 +173,7 @@ async function ensureWorkspaceDb(): Promise<DatabaseSync> {
   `)
 
   ensureAppSettingsColumns(workspaceDb)
+  ensureChapterColumns(workspaceDb)
 
   await migrateLegacyWorkspaceFile(workspaceDb)
   return workspaceDb
@@ -169,6 +185,23 @@ function ensureAppSettingsColumns(db: DatabaseSync): void {
 
   if (!columnNames.has('model')) {
     db.exec(`ALTER TABLE app_settings ADD COLUMN model TEXT NOT NULL DEFAULT 'deepseek-chat';`)
+  }
+}
+
+function ensureChapterColumns(db: DatabaseSync): void {
+  const columns = db.prepare(`PRAGMA table_info('chapters')`).all() as Array<{ name: string }>
+  const columnNames = new Set(columns.map((column) => column.name))
+
+  if (!columnNames.has('summary')) {
+    db.exec(`ALTER TABLE chapters ADD COLUMN summary TEXT NOT NULL DEFAULT '待补充章节摘要';`)
+  }
+
+  if (!columnNames.has('status')) {
+    db.exec(`ALTER TABLE chapters ADD COLUMN status TEXT NOT NULL DEFAULT 'draft';`)
+  }
+
+  if (!columnNames.has('word_target')) {
+    db.exec(`ALTER TABLE chapters ADD COLUMN word_target TEXT NOT NULL DEFAULT '预估 3000字';`)
   }
 }
 
@@ -223,7 +256,20 @@ type WorkspacePayload = {
   chapters: Array<{
     id: string
     title: string
+    summary: string
+    status: 'draft' | 'review' | 'polish' | 'final'
+    wordTarget: string
     content: string
+  }>
+  chapterVersions: Array<{
+    id: string
+    chapterId: string
+    title: string
+    summary: string
+    status: 'draft' | 'review' | 'polish' | 'final'
+    wordTarget: string
+    content: string
+    createdAt: string
   }>
   appSettings: {
     provider: string
@@ -271,10 +317,16 @@ function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
   `).all() as WorkspacePayload['outlineItems']
 
   const chapters = db.prepare(`
-    SELECT id, title, content
+    SELECT id, title, summary, status, word_target AS wordTarget, content
     FROM chapters
     ORDER BY sort_order ASC
   `).all() as WorkspacePayload['chapters']
+
+  const chapterVersions = db.prepare(`
+    SELECT id, chapter_id AS chapterId, title, summary, status, word_target AS wordTarget, content, created_at AS createdAt
+    FROM chapter_versions
+    ORDER BY created_at DESC, rowid DESC
+  `).all() as WorkspacePayload['chapterVersions']
 
   const settings = db.prepare(`
     SELECT theme, selected_project_id AS selectedProjectId, provider, api_key AS apiKey, base_url AS baseUrl, auto_save_interval AS autoSaveInterval
@@ -305,6 +357,7 @@ function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
     characters,
     outlineItems,
     chapters,
+    chapterVersions,
     appSettings: {
       provider: settings.provider,
       model: settings.model,
@@ -323,6 +376,7 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
       DELETE FROM worldview_entries;
       DELETE FROM characters;
       DELETE FROM outline_items;
+      DELETE FROM chapter_versions;
       DELETE FROM chapters;
       DELETE FROM app_settings;
     `)
@@ -367,11 +421,36 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
     })
 
     const insertChapter = db.prepare(`
-      INSERT INTO chapters (id, title, content, sort_order)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO chapters (id, title, summary, status, word_target, content, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
     payload.chapters.forEach((chapter, index) => {
-      insertChapter.run(chapter.id, chapter.title, chapter.content, index)
+      insertChapter.run(
+        chapter.id,
+        chapter.title,
+        chapter.summary,
+        chapter.status,
+        chapter.wordTarget,
+        chapter.content,
+        index
+      )
+    })
+
+    const insertChapterVersion = db.prepare(`
+      INSERT INTO chapter_versions (id, chapter_id, title, summary, status, word_target, content, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    ;(payload.chapterVersions ?? []).forEach((version) => {
+      insertChapterVersion.run(
+        version.id,
+        version.chapterId,
+        version.title,
+        version.summary,
+        version.status,
+        version.wordTarget,
+        version.content,
+        version.createdAt
+      )
     })
 
     db.prepare(`
@@ -413,7 +492,8 @@ function validateImportedWorkspace(payload: unknown): { valid: true } | { valid:
     ['worldviewEntries', data.worldviewEntries],
     ['characters', data.characters],
     ['outlineItems', data.outlineItems],
-    ['chapters', data.chapters]
+    ['chapters', data.chapters],
+    ['chapterVersions', data.chapterVersions]
   ]
 
   for (const [field, value] of collectionChecks) {
@@ -426,10 +506,35 @@ function validateImportedWorkspace(payload: unknown): { valid: true } | { valid:
     const invalidChapter = data.chapters.find((item) => {
       if (!item || typeof item !== 'object') return true
       const chapter = item as Record<string, unknown>
-      return typeof chapter.title !== 'string' || typeof chapter.content !== 'string'
+      return (
+        typeof chapter.title !== 'string' ||
+        typeof chapter.content !== 'string' ||
+        (chapter.summary !== undefined && typeof chapter.summary !== 'string') ||
+        (chapter.status !== undefined && typeof chapter.status !== 'string') ||
+        (chapter.wordTarget !== undefined && typeof chapter.wordTarget !== 'string')
+      )
     })
     if (invalidChapter) {
-      return { valid: false, message: 'chapters 中存在缺少 title 或 content 的章节项。' }
+      return { valid: false, message: 'chapters 中存在字段缺失或格式错误的章节项。' }
+    }
+  }
+
+  if (Array.isArray(data.chapterVersions)) {
+    const invalidVersion = data.chapterVersions.find((item) => {
+      if (!item || typeof item !== 'object') return true
+      const version = item as Record<string, unknown>
+      return (
+        typeof version.chapterId !== 'string' ||
+        typeof version.title !== 'string' ||
+        typeof version.content !== 'string' ||
+        typeof version.createdAt !== 'string' ||
+        (version.summary !== undefined && typeof version.summary !== 'string') ||
+        (version.status !== undefined && typeof version.status !== 'string') ||
+        (version.wordTarget !== undefined && typeof version.wordTarget !== 'string')
+      )
+    })
+    if (invalidVersion) {
+      return { valid: false, message: 'chapterVersions 中存在字段缺失或格式错误的版本项。' }
     }
   }
 
@@ -445,15 +550,27 @@ function resolveImageMime(filePath: string): string {
   return 'application/octet-stream'
 }
 
+type ExportRequest = {
+  data: unknown
+  title?: string
+  defaultPath?: string
+}
+
 ipcMain.handle('characterarc:export-json', async (_event, payload: unknown) => {
   const window = BrowserWindow.getFocusedWindow()
   if (!window) {
     return { success: false, canceled: true }
   }
 
+  const request = (payload && typeof payload === 'object' && 'data' in (payload as Record<string, unknown>)
+    ? payload
+    : {
+        data: payload
+      }) as ExportRequest
+
   const result = await dialog.showSaveDialog(window, {
-    title: '导出项目数据',
-    defaultPath: 'characterarc-export.json',
+    title: request.title ?? '导出项目数据',
+    defaultPath: request.defaultPath ?? 'characterarc-export.json',
     filters: [
       { name: 'JSON 文件', extensions: ['json'] }
     ]
@@ -463,7 +580,7 @@ ipcMain.handle('characterarc:export-json', async (_event, payload: unknown) => {
     return { success: false, canceled: true }
   }
 
-  await writeFile(result.filePath, JSON.stringify(payload, null, 2), 'utf-8')
+  await writeFile(result.filePath, JSON.stringify(request.data, null, 2), 'utf-8')
   return {
     success: true,
     canceled: false,
@@ -477,9 +594,15 @@ ipcMain.handle('characterarc:export-text', async (_event, payload: unknown) => {
     return { success: false, canceled: true }
   }
 
+  const request = (payload && typeof payload === 'object' && 'data' in (payload as Record<string, unknown>)
+    ? payload
+    : {
+        data: payload
+      }) as ExportRequest
+
   const result = await dialog.showSaveDialog(window, {
-    title: '导出章节文本',
-    defaultPath: 'characterarc-export.txt',
+    title: request.title ?? '导出章节文本',
+    defaultPath: request.defaultPath ?? 'characterarc-export.txt',
     filters: [
       { name: '文本文档', extensions: ['txt'] }
     ]
@@ -489,7 +612,7 @@ ipcMain.handle('characterarc:export-text', async (_event, payload: unknown) => {
     return { success: false, canceled: true }
   }
 
-  const data = payload as {
+  const data = request.data as {
     project?: { title?: string } | null
     chapters?: Array<{ title?: string; content?: string }>
   }

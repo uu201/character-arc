@@ -63,6 +63,9 @@ async function sendPrompt(promptText?: string, quickAction?: string): Promise<vo
         projectTitle: currentProject.value?.title,
         projectGenre: currentProject.value?.genre,
         chapterTitle: currentChapter.value?.title,
+        chapterSummary: currentChapter.value?.summary,
+        chapterStatus: currentChapter.value?.status,
+        chapterWordTarget: currentChapter.value?.wordTarget,
         chapterContent: currentChapter.value?.content,
         worldviewEntries: appStore.worldviewEntries.map((entry) => ({
           title: entry.title,

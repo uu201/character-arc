@@ -5,6 +5,7 @@ import type {
   AssistantPromptRequest,
   AppSettings,
   ChapterDraft,
+  ChapterVersion,
   ChatMessage,
   CharacterCard,
   OutlineItem,
@@ -22,6 +23,7 @@ interface StoredState {
   characters: CharacterCard[]
   outlineItems: OutlineItem[]
   chapters: ChapterDraft[]
+  chapterVersions: ChapterVersion[]
   appSettings: AppSettings
 }
 
@@ -122,17 +124,26 @@ const defaultChapters: ChapterDraft[] = [
   {
     id: 'chapter-1',
     title: '第1章：义体回收站的雨夜',
+    summary: '李雷在雨夜的义体回收站救下被追杀的艾达，平静生活由此被撕开缺口。',
+    status: 'draft',
+    wordTarget: '预估 3000字',
     content:
       '酸雨敲打在波纹铁皮屋顶上，发出令人烦躁的白噪音。\n\n李雷靠在生锈的工作台旁，机械右臂发出轻微的伺服电机嗡嗡声。今天晚上的收获糟透了，只有几个劣质的神经插槽，还有一条已经被格式化得干干净净的二手脊柱。\n\n就在他准备拉下卷帘门的时候，巷子尽头传来了一阵急促的脚步声。\n\n“救命……” 一个穿着高档公司制服的女人倒在了水洼里，她的后脑勺上，一个军用级的数据接口正在往外冒着蓝色的电火花。'
   },
   {
     id: 'chapter-2',
     title: '第2章：走私芯片',
+    summary: '李雷藏起艾达并请老鬼救治，同时躲避公司杀手对贫民窟的搜查。',
+    status: 'review',
+    wordTarget: '预估 3000字',
     content: ''
   },
   {
     id: 'chapter-3',
     title: '第3章：公司狗的觉醒',
+    summary: '李雷逐步意识到艾达带来的秘密不只是麻烦，也可能改变整座夜城。',
+    status: 'draft',
+    wordTarget: '预估 3200字',
     content: ''
   }
 ]
@@ -162,7 +173,27 @@ function loadStoredState(): StoredState {
     characters: defaultCharacters,
     outlineItems: defaultOutline,
     chapters: defaultChapters,
+    chapterVersions: [],
     appSettings: defaultAppSettings
+  }
+}
+
+function normalizeChapterDraft(chapter: ChapterDraft): ChapterDraft {
+  return {
+    ...chapter,
+    summary: chapter.summary?.trim() || '待补充章节摘要',
+    status: chapter.status ?? 'draft',
+    wordTarget: chapter.wordTarget?.trim() || '预估 3000字'
+  }
+}
+
+function normalizeChapterVersion(version: ChapterVersion): ChapterVersion {
+  return {
+    ...version,
+    summary: version.summary?.trim() || '待补充章节摘要',
+    status: version.status ?? 'draft',
+    wordTarget: version.wordTarget?.trim() || '预估 3000字',
+    createdAt: version.createdAt || new Date().toISOString()
   }
 }
 
@@ -181,6 +212,7 @@ export const useAppStore = defineStore('app', () => {
   const characters = ref<CharacterCard[]>(stored.characters)
   const outlineItems = ref<OutlineItem[]>(stored.outlineItems)
   const chapters = ref<ChapterDraft[]>(stored.chapters)
+  const chapterVersions = ref<ChapterVersion[]>(stored.chapterVersions)
   const appSettings = ref<AppSettings>(stored.appSettings)
   const messages = ref<ChatMessage[]>(initialMessages)
   const pendingAssistantRequest = ref<AssistantPromptRequest | null>(null)
@@ -206,7 +238,8 @@ export const useAppStore = defineStore('app', () => {
     worldviewEntries.value = payload.worldviewEntries?.length ? payload.worldviewEntries : defaultWorldview
     characters.value = payload.characters?.length ? payload.characters : defaultCharacters
     outlineItems.value = payload.outlineItems?.length ? payload.outlineItems : defaultOutline
-    chapters.value = payload.chapters?.length ? payload.chapters : defaultChapters
+    chapters.value = (payload.chapters?.length ? payload.chapters : defaultChapters).map(normalizeChapterDraft)
+    chapterVersions.value = (payload.chapterVersions ?? []).map(normalizeChapterVersion)
     appSettings.value = payload.appSettings ?? defaultAppSettings
     selectedChapterId.value = chapters.value[0].id
   }
@@ -220,6 +253,7 @@ export const useAppStore = defineStore('app', () => {
       characters: characters.value,
       outlineItems: outlineItems.value,
       chapters: chapters.value,
+      chapterVersions: chapterVersions.value,
       appSettings: appSettings.value
     }
   }
@@ -246,6 +280,7 @@ export const useAppStore = defineStore('app', () => {
     characters?: CharacterCard[]
     outlineItems?: OutlineItem[]
     chapters?: ChapterDraft[]
+    chapterVersions?: ChapterVersion[]
   }): void {
     const nextProjectId = `project-${Date.now()}`
     const project: ProjectSummary = {
@@ -263,7 +298,8 @@ export const useAppStore = defineStore('app', () => {
     worldviewEntries.value = payload.worldviewEntries?.length ? payload.worldviewEntries : defaultWorldview
     characters.value = payload.characters?.length ? payload.characters : defaultCharacters
     outlineItems.value = payload.outlineItems?.length ? payload.outlineItems : defaultOutline
-    chapters.value = payload.chapters?.length ? payload.chapters : defaultChapters
+    chapters.value = (payload.chapters?.length ? payload.chapters : defaultChapters).map(normalizeChapterDraft)
+    chapterVersions.value = (payload.chapterVersions ?? []).map(normalizeChapterVersion)
     selectedChapterId.value = chapters.value[0].id
     currentView.value = 'workbench'
     activePanel.value = 'overview'
@@ -417,6 +453,9 @@ export const useAppStore = defineStore('app', () => {
     const newChapter: ChapterDraft = {
       id: `chapter-${Date.now()}`,
       title: `第${nextIndex}章：新章节`,
+      summary: '待补充章节摘要',
+      status: 'draft',
+      wordTarget: '预估 3000字',
       content: ''
     }
 
@@ -481,6 +520,7 @@ export const useAppStore = defineStore('app', () => {
     }
 
     chapters.value = chapters.value.filter((chapter) => chapter.id !== chapterId)
+    chapterVersions.value = chapterVersions.value.filter((version) => version.chapterId !== chapterId)
 
     if (selectedChapterId.value === chapterId) {
       const fallback = chapters.value[Math.max(0, targetIndex - 1)] ?? chapters.value[0]
@@ -510,13 +550,97 @@ export const useAppStore = defineStore('app', () => {
   function updateChapter(chapterId: string, payload: Partial<ChapterDraft>): void {
     chapters.value = chapters.value.map((chapter) =>
       chapter.id === chapterId
-        ? {
+        ? normalizeChapterDraft({
             ...chapter,
             title: payload.title?.trim() || chapter.title,
+            summary: payload.summary !== undefined ? payload.summary.trim() || chapter.summary : chapter.summary,
+            status: payload.status ?? chapter.status,
+            wordTarget:
+              payload.wordTarget !== undefined ? payload.wordTarget.trim() || chapter.wordTarget : chapter.wordTarget,
             content: payload.content !== undefined ? payload.content : chapter.content
-          }
+          })
         : chapter
     )
+  }
+
+  function getChapterVersions(chapterId: string): ChapterVersion[] {
+    return chapterVersions.value
+      .filter((version) => version.chapterId === chapterId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  async function saveCurrentChapterVersion(): Promise<{ success: boolean; version?: ChapterVersion; error?: string }> {
+    const chapter = selectedChapter.value
+    if (!chapter) {
+      return {
+        success: false,
+        error: '当前没有可保存的章节。'
+      }
+    }
+
+    const version = normalizeChapterVersion({
+      id: `chapter-version-${Date.now()}`,
+      chapterId: chapter.id,
+      title: chapter.title,
+      summary: chapter.summary,
+      status: chapter.status,
+      wordTarget: chapter.wordTarget,
+      content: chapter.content,
+      createdAt: new Date().toISOString()
+    })
+
+    chapterVersions.value = [version, ...chapterVersions.value]
+
+    if (hasHydrated.value) {
+      await persistWorkspace()
+      if (persistenceError.value) {
+        return {
+          success: false,
+          error: persistenceError.value
+        }
+      }
+    }
+
+    return {
+      success: true,
+      version
+    }
+  }
+
+  async function restoreChapterVersion(versionId: string): Promise<{ success: boolean; error?: string }> {
+    const version = chapterVersions.value.find((item) => item.id === versionId)
+    if (!version) {
+      return {
+        success: false,
+        error: '未找到对应的历史版本。'
+      }
+    }
+
+    updateChapter(version.chapterId, {
+      title: version.title,
+      summary: version.summary,
+      status: version.status,
+      wordTarget: version.wordTarget,
+      content: version.content
+    })
+
+    selectedChapterId.value = version.chapterId
+    activePanel.value = 'chapters'
+    chapterSelection.value = null
+
+    if (hasHydrated.value) {
+      await persistWorkspace()
+      if (persistenceError.value) {
+        return {
+          success: false,
+          error: persistenceError.value
+        }
+      }
+    }
+
+    return {
+      success: true
+    }
   }
 
   function toggleAi(): void {
@@ -599,7 +723,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   watch(
-    [theme, selectedProjectId, projects, worldviewEntries, characters, outlineItems, chapters, appSettings],
+    [theme, selectedProjectId, projects, worldviewEntries, characters, outlineItems, chapters, chapterVersions, appSettings],
     () => {
       if (!hasHydrated.value) {
         return
@@ -622,6 +746,7 @@ export const useAppStore = defineStore('app', () => {
     aiVisible,
     appSettings,
     backToProjects,
+    chapterVersions,
     chapters,
     characters,
     closeWizard,
@@ -643,6 +768,7 @@ export const useAppStore = defineStore('app', () => {
     insertIntoChapter,
     importProjectData,
     consumeAssistantPrompt,
+    getChapterVersions,
     messages,
     moveChapter,
     openAiAssistant,
@@ -654,6 +780,8 @@ export const useAppStore = defineStore('app', () => {
     pushAssistantMessage,
     pushUserMessage,
     queueAssistantPrompt,
+    restoreChapterVersion,
+    saveCurrentChapterVersion,
     selectChapter,
     selectedChapter,
     selectedChapterId,

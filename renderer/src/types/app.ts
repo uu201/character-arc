@@ -55,7 +55,21 @@ export interface AssistantPromptRequest {
 export interface ChapterDraft {
   id: string
   title: string
+  summary: string
+  status: 'draft' | 'review' | 'polish' | 'final'
+  wordTarget: string
   content: string
+}
+
+export interface ChapterVersion {
+  id: string
+  chapterId: string
+  title: string
+  summary: string
+  status: ChapterDraft['status']
+  wordTarget: string
+  content: string
+  createdAt: string
 }
 
 export interface AppSettings {

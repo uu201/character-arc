@@ -1,10 +1,24 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Bot, FilePenLine, Globe2, GripVertical, MoreVertical, PanelRightClose, PanelRightOpen, PenTool, Plus, Sparkles, Trash2 } from 'lucide-vue-next'
-import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NTooltip, useDialog, useMessage } from 'naive-ui'
+import {
+  Bot,
+  FilePenLine,
+  Globe2,
+  GripVertical,
+  History,
+  MoreVertical,
+  PanelRightClose,
+  PanelRightOpen,
+  PenTool,
+  Plus,
+  Save,
+  Sparkles,
+  Trash2
+} from 'lucide-vue-next'
+import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTooltip, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
-import type { ChapterDraft } from '@/types/app'
-import type { DropdownOption } from 'naive-ui'
+import type { ChapterDraft, ChapterVersion } from '@/types/app'
+import type { DropdownOption, SelectOption } from 'naive-ui'
 
 const props = defineProps<{
   searchQuery?: string
@@ -15,12 +29,22 @@ const dialog = useDialog()
 const message = useMessage()
 const saveState = ref<'saved' | 'saving'>('saved')
 const editorVisible = ref(false)
+const versionHistoryVisible = ref(false)
 const draggingChapterId = ref<string | null>(null)
 const dragTargetChapterId = ref<string | null>(null)
 const chapterForm = reactive({
-  title: ''
+  title: '',
+  summary: '',
+  status: 'draft' as ChapterDraft['status'],
+  wordTarget: ''
 })
 let saveTimer: number | null = null
+const chapterStatusOptions: SelectOption[] = [
+  { label: '草稿中', value: 'draft' },
+  { label: '待检查', value: 'review' },
+  { label: '待润色', value: 'polish' },
+  { label: '已定稿', value: 'final' }
+]
 const chapterMenuOptions: DropdownOption[] = [
   { key: 'edit', label: '编辑章节信息' },
   { key: 'delete', label: '删除章节' }
@@ -34,6 +58,25 @@ const currentWordCount = computed(() => {
 
   return content.length
 })
+const currentChapterStatusLabel = computed(() => {
+  const status = appStore.selectedChapter?.status ?? 'draft'
+  return chapterStatusOptions.find((option) => option.value === status)?.label ?? '草稿中'
+})
+const currentChapterStatusTone = computed(() => {
+  switch (appStore.selectedChapter?.status) {
+    case 'final':
+      return 'success'
+    case 'polish':
+      return 'accent'
+    case 'review':
+      return 'warning'
+    default:
+      return 'neutral'
+  }
+})
+const currentChapterVersions = computed(() =>
+  appStore.selectedChapter ? appStore.getChapterVersions(appStore.selectedChapter.id) : []
+)
 
 const filteredChapters = computed(() => {
   const query = props.searchQuery?.trim().toLowerCase() ?? ''
@@ -42,7 +85,7 @@ const filteredChapters = computed(() => {
   }
 
   return appStore.chapters.filter((chapter) =>
-    `${chapter.title} ${chapter.content}`.toLowerCase().includes(query)
+    `${chapter.title} ${chapter.summary} ${chapter.status} ${chapter.wordTarget} ${chapter.content}`.toLowerCase().includes(query)
   )
 })
 
@@ -51,6 +94,20 @@ function requestAiPolish(): void {
     '请基于当前章节内容给出一版更有节奏感、氛围感和画面感的润色稿，优先输出可以直接插入正文的内容。',
     '润色段落'
   )
+}
+
+async function saveCurrentVersion(): Promise<void> {
+  const result = await appStore.saveCurrentChapterVersion()
+  if (!result.success) {
+    message.error(result.error ?? '章节版本保存失败')
+    return
+  }
+
+  message.success('已生成当前章节的历史版本快照')
+}
+
+function openVersionHistory(): void {
+  versionHistoryVisible.value = true
 }
 
 function requestWorldSupport(): void {
@@ -94,7 +151,54 @@ function openChapterMetaEditor(chapter?: ChapterDraft | null): void {
   }
 
   chapterForm.title = chapter.title
+  chapterForm.summary = chapter.summary
+  chapterForm.status = chapter.status
+  chapterForm.wordTarget = chapter.wordTarget
   editorVisible.value = true
+}
+
+function formatVersionTime(createdAt: string): string {
+  const value = new Date(createdAt)
+  if (Number.isNaN(value.getTime())) {
+    return '未知时间'
+  }
+
+  return value.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+function getVersionWordCount(version: ChapterVersion): number {
+  return version.content.trim().length
+}
+
+function buildVersionPreview(version: ChapterVersion): string {
+  const preview = version.content.trim().replace(/\s+/g, ' ')
+  return preview ? preview.slice(0, 120) : '该版本暂无正文内容。'
+}
+
+function restoreVersion(version: ChapterVersion): void {
+  dialog.warning({
+    title: '恢复历史版本',
+    content: `确定恢复 ${formatVersionTime(version.createdAt)} 的章节快照吗？当前草稿内容将被该版本覆盖。`,
+    positiveText: '确认恢复',
+    negativeText: '取消',
+    autoFocus: false,
+    closable: false,
+    onPositiveClick: async () => {
+      const result = await appStore.restoreChapterVersion(version.id)
+      if (!result.success) {
+        message.error(result.error ?? '历史版本恢复失败')
+        return
+      }
+
+      versionHistoryVisible.value = false
+      message.success('历史版本已恢复到当前章节')
+    }
+  })
 }
 
 function submitChapterMeta(): void {
@@ -109,7 +213,10 @@ function submitChapterMeta(): void {
   }
 
   appStore.updateChapter(chapter.id, {
-    title: chapterForm.title
+    title: chapterForm.title,
+    summary: chapterForm.summary,
+    status: chapterForm.status,
+    wordTarget: chapterForm.wordTarget
   })
   editorVisible.value = false
   message.success('章节信息已更新')
@@ -236,7 +343,14 @@ onBeforeUnmount(() => {
             <span class="chapter-pill-grip" @click.stop>
               <GripVertical :size="14" />
             </span>
-            <span class="chapter-pill-label">{{ chapter.title }}</span>
+            <span class="chapter-pill-main">
+              <span class="chapter-pill-label">{{ chapter.title }}</span>
+              <span class="chapter-pill-meta">
+                <span>{{ chapter.wordTarget }}</span>
+                <span class="chapter-pill-dot"></span>
+                <span>{{ chapterStatusOptions.find((option) => option.value === chapter.status)?.label ?? '草稿中' }}</span>
+              </span>
+            </span>
             <n-dropdown :options="chapterMenuOptions" placement="bottom-end" @select="(key) => handleChapterMenuSelect(key, chapter)">
               <span class="chapter-pill-action" @click.stop>
                 <MoreVertical :size="14" />
@@ -248,6 +362,22 @@ onBeforeUnmount(() => {
 
       <section class="editor-shell">
         <div class="editor-floating-actions">
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <button class="tool-badge" @click="saveCurrentVersion">
+                <Save :size="16" />
+              </button>
+            </template>
+            手动保存版本
+          </n-tooltip>
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <button class="tool-badge neutral" @click="openVersionHistory">
+                <History :size="16" />
+              </button>
+            </template>
+            历史版本
+          </n-tooltip>
           <n-tooltip trigger="hover">
             <template #trigger>
               <button
@@ -306,6 +436,14 @@ onBeforeUnmount(() => {
           @input="appStore.updateChapterTitle(($event.target as HTMLInputElement).value)"
         />
 
+        <div class="chapter-meta-strip">
+          <span class="meta-chip" :class="currentChapterStatusTone">{{ currentChapterStatusLabel }}</span>
+          <span class="meta-chip neutral">{{ appStore.selectedChapter?.wordTarget }}</span>
+          <span v-if="appStore.selectedChapter?.summary" class="meta-summary">
+            {{ appStore.selectedChapter?.summary }}
+          </span>
+        </div>
+
         <textarea
           class="chapter-editor"
           :value="appStore.selectedChapter?.content"
@@ -331,6 +469,41 @@ onBeforeUnmount(() => {
     </div>
 
     <n-modal
+      :show="versionHistoryVisible"
+      preset="card"
+      class="arc-editor-modal arc-version-modal"
+      title="章节历史版本"
+      :bordered="false"
+      @close="versionHistoryVisible = false"
+    >
+      <div v-if="currentChapterVersions.length" class="version-list">
+        <article v-for="version in currentChapterVersions" :key="version.id" class="version-card">
+          <div class="version-card-head">
+            <div>
+              <strong>{{ formatVersionTime(version.createdAt) }}</strong>
+              <p>{{ version.title }}</p>
+            </div>
+            <n-button type="primary" secondary round @click="restoreVersion(version)">恢复此版本</n-button>
+          </div>
+
+          <div class="version-meta">
+            <span class="meta-chip" :class="version.status === 'final' ? 'success' : version.status === 'polish' ? 'accent' : version.status === 'review' ? 'warning' : 'neutral'">
+              {{ chapterStatusOptions.find((option) => option.value === version.status)?.label ?? '草稿中' }}
+            </span>
+            <span class="meta-chip neutral">{{ version.wordTarget }}</span>
+            <span class="version-words">{{ getVersionWordCount(version) }} 字</span>
+          </div>
+
+          <p class="version-summary">{{ version.summary }}</p>
+          <p class="version-preview">{{ buildVersionPreview(version) }}</p>
+        </article>
+      </div>
+      <div v-else class="arc-empty-state version-empty">
+        当前章节还没有历史版本，点击右上角“手动保存版本”后会在这里看到快照。
+      </div>
+    </n-modal>
+
+    <n-modal
       :show="editorVisible"
       preset="card"
       class="arc-editor-modal"
@@ -341,6 +514,20 @@ onBeforeUnmount(() => {
       <n-form label-placement="top">
         <n-form-item label="章节标题">
           <n-input v-model:value="chapterForm.title" placeholder="例如：第4章：夜城回响" />
+        </n-form-item>
+        <n-form-item label="章节摘要">
+          <n-input
+            v-model:value="chapterForm.summary"
+            type="textarea"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+            placeholder="用 1 到 2 句话概括这一章的核心事件和推进点..."
+          />
+        </n-form-item>
+        <n-form-item label="章节状态">
+          <n-select v-model:value="chapterForm.status" :options="chapterStatusOptions" />
+        </n-form-item>
+        <n-form-item label="预估字数">
+          <n-input v-model:value="chapterForm.wordTarget" placeholder="例如：预估 3200字" />
         </n-form-item>
       </n-form>
 
@@ -496,8 +683,35 @@ onBeforeUnmount(() => {
 }
 
 .chapter-pill-label {
-  flex: 1;
+  display: block;
+  overflow: hidden;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chapter-pill-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.chapter-pill-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #9ca3af;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chapter-pill-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: #d1d5db;
 }
 
 .chapter-pill-action {
@@ -656,6 +870,49 @@ onBeforeUnmount(() => {
   color: var(--arc-primary);
 }
 
+.chapter-meta-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+}
+
+.meta-chip.neutral {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.meta-chip.warning {
+  background: rgba(250, 204, 21, 0.14);
+  color: #a16207;
+}
+
+.meta-chip.accent {
+  background: color-mix(in srgb, var(--arc-primary) 12%, white);
+  color: var(--arc-primary);
+}
+
+.meta-chip.success {
+  background: rgba(34, 197, 94, 0.14);
+  color: #15803d;
+}
+
+.meta-summary {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 .chapter-editor {
   flex: 1;
   width: 100%;
@@ -684,6 +941,79 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.arc-version-modal :deep(.n-card__content) {
+  max-height: min(72vh, 720px);
+  overflow: hidden;
+}
+
+.version-list {
+  display: flex;
+  max-height: min(64vh, 620px);
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.version-card {
+  border: 1px solid rgba(229, 231, 235, 0.9);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.98));
+  padding: 18px 18px 16px;
+}
+
+.version-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.version-card-head strong {
+  display: block;
+  color: #1f2937;
+  font-size: 15px;
+}
+
+.version-card-head p {
+  margin: 6px 0 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.version-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.version-words {
+  color: #9ca3af;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.version-summary {
+  margin: 0 0 10px;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.version-preview {
+  margin: 0;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.version-empty {
+  min-height: 220px;
 }
 
 .helper-fade-enter-active,
@@ -730,6 +1060,15 @@ onBeforeUnmount(() => {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+
+  .chapter-meta-strip {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .version-card-head {
+    flex-direction: column;
   }
 }
 </style>
