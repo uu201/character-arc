@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Cpu, Download, FileJson, FileStack, FileText, FolderOutput, Palette, Save, Users } from 'lucide-vue-next'
 import { NButton, NCard, NFormItem, NInput, NSelect, useMessage } from 'naive-ui'
+import { autoSaveOptions } from '@/features/settings/autoSave'
 import { themePresets } from '@/theme/presets'
 import { useAppStore } from '@/stores/app'
 import type { ThemeName } from '@/types/app'
@@ -12,6 +13,7 @@ const themeOptions = themePresets.map((preset) => ({
   label: preset.label,
   value: preset.name
 }))
+const autoSaveSelectOptions = [...autoSaveOptions]
 
 function buildExportStem(suffix: string): string {
   const projectTitle = appStore.currentProject?.title?.trim() || 'characterarc'
@@ -24,6 +26,7 @@ async function handleExportJson(): Promise<void> {
     project: appStore.currentProject,
     worldviewEntries: appStore.worldviewEntries,
     characters: appStore.characters,
+    outlineVolumes: appStore.outlineVolumes,
     outlineItems: appStore.outlineItems,
     chapters: appStore.chapters,
     exportedAt: new Date().toISOString()
@@ -51,7 +54,9 @@ async function handleExportJson(): Promise<void> {
 async function handleExportText(): Promise<void> {
   const payload = {
     project: appStore.currentProject,
+    outlineVolumes: appStore.outlineVolumes,
     chapters: appStore.chapters.map((chapter) => ({
+      volumeId: chapter.volumeId,
       title: chapter.title,
       content: chapter.content
     })),
@@ -102,6 +107,7 @@ async function handleExportOutline(): Promise<void> {
       version: '1.0',
       type: 'outline',
       project: appStore.currentProject,
+      outlineVolumes: appStore.outlineVolumes,
       outlineItems: appStore.outlineItems,
       exportedAt: new Date().toISOString()
     },
@@ -125,6 +131,7 @@ async function handleExportChaptersJson(): Promise<void> {
       version: '1.0',
       type: 'chapters',
       project: appStore.currentProject,
+      outlineVolumes: appStore.outlineVolumes,
       chapters: appStore.chapters,
       exportedAt: new Date().toISOString()
     },
@@ -157,6 +164,7 @@ async function handleImportJson(): Promise<void> {
     project?: import('@/types/app').ProjectSummary
     worldviewEntries?: import('@/types/app').WorldviewEntry[]
     characters?: import('@/types/app').CharacterCard[]
+    outlineVolumes?: import('@/types/app').OutlineVolume[]
     outlineItems?: import('@/types/app').OutlineItem[]
     chapters?: import('@/types/app').ChapterDraft[]
   })
@@ -231,15 +239,13 @@ async function handleImportJson(): Promise<void> {
         <div class="setting-row">
           <div>
             <div class="setting-name">自动保存时间间隔</div>
-            <div class="setting-hint">当前已开启自动保存和版本快照</div>
+            <div class="setting-hint">
+              {{ appStore.isLiveAutoSave ? '正文与工作区修改会尽快落盘。' : `正文修改会按 ${appStore.autoSaveIntervalLabel} 进入自动保存队列。` }}
+            </div>
           </div>
           <n-select
             class="compact-select"
-            :options="[
-              { label: '实时保存', value: 'live' },
-              { label: '每 5 分钟', value: '5m' },
-              { label: '每 10 分钟', value: '10m' }
-            ]"
+            :options="autoSaveSelectOptions"
             :value="appStore.appSettings.autoSaveInterval"
             @update:value="(value) => appStore.updateAppSetting('autoSaveInterval', value ?? '5m')"
           />

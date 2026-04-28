@@ -7,7 +7,7 @@ type AppSettings = {
   baseUrl: string
 }
 
-type AiTaskName = 'worldview-entry' | 'character-card' | 'outline-item' | 'chapter-assistant'
+type AiTaskName = 'worldview-entry' | 'character-card' | 'outline-item' | 'chapter-assistant' | 'project-bootstrap'
 
 export type AiTaskPayload = {
   task: AiTaskName
@@ -39,7 +39,12 @@ type ChapterAssistantResult = {
   content: string
 }
 
-type AiTaskResult = WorldviewResult | CharacterResult | OutlineResult | ChapterAssistantResult
+type ProjectBootstrapResult = {
+  worldviewEntries: WorldviewResult[]
+  outlineItems: OutlineResult[]
+}
+
+type AiTaskResult = WorldviewResult | CharacterResult | OutlineResult | ChapterAssistantResult | ProjectBootstrapResult
 
 function resolveProviderDefaults(provider: ProviderName): { baseUrl: string; model: string } {
   switch (provider) {
@@ -82,6 +87,14 @@ function buildTaskPrompt(task: AiTaskPayload): { system: string; user: string } 
       system:
         '你是小说角色设定助手。请只返回 JSON 对象，不要返回 Markdown。字段必须包含 name、role、description、tags。',
       user: `基于以下上下文，为当前小说项目生成一名新角色。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n已有角色：${JSON.stringify(context.characterNames ?? [])}\n世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}\n\n要求：\n1. 不与已有角色重名\n2. role 用短语概括角色定位\n3. description 用中文完整描述，80 到 160 字\n4. tags 返回 2 到 4 个简短标签数组\n\n返回格式：{"name":"","role":"","description":"","tags":["",""]}`
+    }
+  }
+
+  if (task.task === 'project-bootstrap') {
+    return {
+      system:
+        '你是小说项目初始化助手。请只返回 JSON 对象，不要返回 Markdown。字段必须包含 worldviewEntries、outlineItems。',
+      user: `请基于以下信息，为小说项目生成首批世界观设定和剧情大纲。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n目标字数：${String(context.projectWordTarget ?? '')}\n核心点子：${String(context.projectPremise ?? '')}\n\n要求：\n1. worldviewEntries 返回 3 条设定，每条都包含 type、title、content\n2. worldviewEntries 的 type 必须是 地理 / 法则 / 物种 / 势力 / 历史 之一\n3. outlineItems 返回 3 条章节大纲，每条都包含 title、wordTarget、conflict、summary\n4. wordTarget 使用“预估 xxxx字”格式\n5. 所有内容使用中文，紧贴题材和核心点子，不要重复\n\n返回格式：{"worldviewEntries":[{"type":"","title":"","content":""}],"outlineItems":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
     }
   }
 

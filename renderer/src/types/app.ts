@@ -32,8 +32,16 @@ export interface CharacterCard {
   tags: CharacterTag[]
 }
 
+export interface OutlineVolume {
+  id: string
+  title: string
+  wordTarget: string
+  summary: string
+}
+
 export interface OutlineItem {
   id: string
+  volumeId: string
   title: string
   wordTarget: string
   conflict: string
@@ -54,6 +62,7 @@ export interface AssistantPromptRequest {
 
 export interface ChapterDraft {
   id: string
+  volumeId: string
   title: string
   summary: string
   status: 'draft' | 'review' | 'polish' | 'final'
@@ -70,6 +79,16 @@ export interface ChapterVersion {
   wordTarget: string
   content: string
   createdAt: string
+}
+
+export interface ProjectWorkspaceData {
+  worldviewEntries: WorldviewEntry[]
+  characters: CharacterCard[]
+  outlineVolumes: OutlineVolume[]
+  outlineItems: OutlineItem[]
+  chapters: ChapterDraft[]
+  chapterVersions: ChapterVersion[]
+  messages: ChatMessage[]
 }
 
 export interface AppSettings {

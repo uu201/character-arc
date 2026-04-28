@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { GitMerge, MoreVertical, Plus, Sparkles } from 'lucide-vue-next'
-import { NButton, NDropdown, NForm, NFormItem, NInput, useDialog, useMessage, NModal } from 'naive-ui'
+import { MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
+import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
-import type { DropdownOption } from 'naive-ui'
-import type { OutlineItem } from '@/types/app'
+import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
+import type { DropdownOption, SelectOption } from 'naive-ui'
+import type { OutlineItem, OutlineVolume } from '@/types/app'
 
 const props = defineProps<{
   searchQuery?: string
@@ -15,30 +16,51 @@ const dialog = useDialog()
 const message = useMessage()
 const isExpanding = ref(false)
 const editorVisible = ref(false)
+const volumeEditorVisible = ref(false)
 const editingOutlineId = ref<string | null>(null)
+const editingVolumeId = ref<string | null>(null)
 const form = reactive({
+  volumeId: '',
   title: '',
   wordTarget: '',
   conflict: '',
+  summary: ''
+})
+const volumeForm = reactive({
+  title: '',
+  wordTarget: '',
   summary: ''
 })
 const menuOptions: DropdownOption[] = [
   { key: 'edit', label: '编辑节点' },
   { key: 'delete', label: '删除节点' }
 ]
-const filteredOutlineItems = computed(() => {
+const volumeOptions = computed<SelectOption[]>(() =>
+  appStore.outlineVolumes.map((volume, index) => ({
+    label: formatVolumeLabel(volume, index, 'formal'),
+    value: volume.id
+  }))
+)
+const filteredOutlineGroups = computed(() => {
   const query = props.searchQuery?.trim().toLowerCase() ?? ''
   if (!query) {
-    return appStore.outlineItems
+    return appStore.outlineVolumeGroups
   }
 
-  return appStore.outlineItems.filter((item) =>
-    `${item.title} ${item.conflict} ${item.summary}`.toLowerCase().includes(query)
-  )
+  return appStore.outlineVolumeGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        `${item.title} ${item.conflict} ${item.summary}`.toLowerCase().includes(query)
+      )
+    }))
+    .filter((group) => group.items.length > 0)
 })
+const totalVisibleItems = computed(() => filteredOutlineGroups.value.reduce((count, group) => count + group.items.length, 0))
 
-function handleCreateOutline(): void {
+function handleCreateOutline(volumeId = appStore.outlineVolumes[0]?.id): void {
   editingOutlineId.value = null
+  form.volumeId = volumeId || appStore.outlineVolumes[0]?.id || ''
   form.title = ''
   form.wordTarget = '预估 3000字'
   form.conflict = ''
@@ -77,7 +99,9 @@ async function handleExpandOutline(): Promise<void> {
     summary?: string
   }
 
+  const fallbackVolumeId = appStore.selectedChapterVolume?.id || appStore.outlineVolumes[0]?.id
   appStore.createOutlineItem({
+    volumeId: fallbackVolumeId,
     title: item.title ?? `第${appStore.outlineItems.length + 1}章：新剧情节点`,
     wordTarget: item.wordTarget ?? '预估 3000字',
     conflict: item.conflict ?? '新的冲突正在酝酿。',
@@ -89,6 +113,7 @@ async function handleExpandOutline(): Promise<void> {
 
 function openEditor(item?: OutlineItem): void {
   editingOutlineId.value = item?.id ?? null
+  form.volumeId = item?.volumeId ?? appStore.outlineVolumes[0]?.id ?? ''
   form.title = item?.title ?? ''
   form.wordTarget = item?.wordTarget ?? '预估 3000字'
   form.conflict = item?.conflict ?? ''
@@ -96,7 +121,20 @@ function openEditor(item?: OutlineItem): void {
   editorVisible.value = true
 }
 
+function openVolumeEditor(volume?: OutlineVolume): void {
+  editingVolumeId.value = volume?.id ?? null
+  volumeForm.title = volume?.title ?? ''
+  volumeForm.wordTarget = volume?.wordTarget ?? '目标 5万字'
+  volumeForm.summary = volume?.summary ?? ''
+  volumeEditorVisible.value = true
+}
+
 function submitOutline(): void {
+  if (!form.volumeId) {
+    message.warning('请先选择所属分卷')
+    return
+  }
+
   if (!form.title.trim() || !form.summary.trim()) {
     message.warning('请完整填写节点标题和剧情描述')
     return
@@ -111,6 +149,23 @@ function submitOutline(): void {
   }
 
   editorVisible.value = false
+}
+
+function submitVolume(): void {
+  if (!volumeForm.title.trim()) {
+    message.warning('请填写分卷标题')
+    return
+  }
+
+  if (editingVolumeId.value) {
+    appStore.updateOutlineVolume(editingVolumeId.value, volumeForm)
+    message.success('分卷信息已更新')
+  } else {
+    appStore.createOutlineVolume(volumeForm)
+    message.success('已新增分卷')
+  }
+
+  volumeEditorVisible.value = false
 }
 
 function handleMenuSelect(action: string | number, item: OutlineItem): void {
@@ -138,45 +193,71 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   <section class="outline-panel">
     <div class="section-head">
       <div>
+        <span class="section-kicker">Outline Architecture</span>
         <h2>剧情大纲</h2>
-        <p>整理篇章结构与关键冲突，让章节推进更加稳定。</p>
+        <p>按卷组织剧情骨架、冲突节拍和章节节点，方便后续创作连续推进。</p>
       </div>
-      <button class="soft-button" :disabled="isExpanding" @click="handleExpandOutline">
-        <Sparkles :size="16" />
-        <span>{{ isExpanding ? '扩写中...' : 'AI 扩写大纲' }}</span>
-      </button>
-    </div>
 
-    <div class="outline-wrap">
-      <div class="volume-title">第一卷：霓虹下的老鼠 (目标字数: 5万字)</div>
-      <div class="outline-list">
-        <article v-for="item in filteredOutlineItems" :key="item.id" class="outline-item" @click="openEditor(item)">
-          <div class="outline-header">
-            <span class="outline-title">{{ item.title }}</span>
-            <div class="outline-actions">
-              <span class="outline-word">{{ item.wordTarget }}</span>
-              <n-dropdown :options="menuOptions" placement="bottom-end" @select="(key) => handleMenuSelect(key, item)">
-                <button class="more-button" @click.stop>
-                  <MoreVertical :size="14" />
-                </button>
-              </n-dropdown>
-            </div>
-          </div>
-          <div class="outline-desc">
-            <b>核心冲突：</b>{{ item.conflict }}<br />
-            <b>剧情：</b>{{ item.summary }}
-          </div>
-        </article>
-        <button v-if="!props.searchQuery" class="outline-add" @click="handleCreateOutline">
-          <Plus :size="16" />
-          <span>新增章节节点</span>
+      <div class="section-actions">
+        <button class="soft-button neutral" @click="openVolumeEditor()">
+          <Rows3 :size="16" />
+          <span>新增分卷</span>
+        </button>
+        <button class="soft-button" :disabled="isExpanding" @click="handleExpandOutline">
+          <Sparkles :size="16" />
+          <span>{{ isExpanding ? '扩写中...' : 'AI 扩写大纲' }}</span>
         </button>
       </div>
     </div>
 
-    <div v-if="filteredOutlineItems.length === 0" class="arc-empty-state">
-      没有匹配“{{ props.searchQuery }}”的大纲节点。
+    <div class="outline-summary">
+      <span>{{ appStore.outlineVolumes.length }} 个分卷</span>
+      <span>{{ totalVisibleItems }} 个剧情节点</span>
+      <span>{{ props.searchQuery ? `搜索：${props.searchQuery}` : '支持按卷管理与章节规划' }}</span>
     </div>
+
+    <div v-if="filteredOutlineGroups.length" class="outline-groups">
+      <section v-for="group in filteredOutlineGroups" :key="group.volume.id" class="volume-section">
+        <div class="volume-header">
+          <div class="volume-copy">
+            <span class="volume-kicker">{{ group.volume.wordTarget }}</span>
+            <h3>{{ formatVolumeLabel(group.volume, group.index, 'formal') }}</h3>
+            <p>{{ group.volume.summary }}</p>
+          </div>
+          <div class="volume-actions">
+            <n-button round secondary strong @click="openVolumeEditor(group.volume)">编辑分卷</n-button>
+            <n-button round type="primary" strong @click="handleCreateOutline(group.volume.id)">新增节点</n-button>
+          </div>
+        </div>
+
+        <div class="outline-list">
+          <article v-for="item in group.items" :key="item.id" class="outline-item" @click="openEditor(item)">
+            <div class="outline-header">
+              <span class="outline-title">{{ item.title }}</span>
+              <div class="outline-actions">
+                <span class="outline-word">{{ item.wordTarget }}</span>
+                <n-dropdown :options="menuOptions" placement="bottom-end" @select="(key) => handleMenuSelect(key, item)">
+                  <button class="more-button" @click.stop>
+                    <MoreVertical :size="14" />
+                  </button>
+                </n-dropdown>
+              </div>
+            </div>
+            <div class="outline-desc">
+              <b>核心冲突：</b>{{ item.conflict }}<br />
+              <b>剧情：</b>{{ item.summary }}
+            </div>
+          </article>
+
+          <button v-if="!props.searchQuery" class="outline-add" @click="handleCreateOutline(group.volume.id)">
+            <Plus :size="16" />
+            <span>在本卷中新增章节节点</span>
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-else class="arc-empty-state">没有匹配“{{ props.searchQuery }}”的大纲节点。</div>
 
     <n-modal
       :show="editorVisible"
@@ -187,6 +268,9 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
       @close="editorVisible = false"
     >
       <n-form label-placement="top">
+        <n-form-item label="所属分卷">
+          <n-select v-model:value="form.volumeId" :options="volumeOptions" placeholder="选择这一节点所在的分卷" />
+        </n-form-item>
         <n-form-item label="节点标题">
           <n-input v-model:value="form.title" placeholder="例如：第4章：夜城回响" />
         </n-form-item>
@@ -215,12 +299,47 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
         </div>
       </template>
     </n-modal>
+
+    <n-modal
+      :show="volumeEditorVisible"
+      preset="card"
+      class="arc-editor-modal"
+      :title="editingVolumeId ? '编辑分卷' : '新建分卷'"
+      :bordered="false"
+      @close="volumeEditorVisible = false"
+    >
+      <n-form label-placement="top">
+        <n-form-item label="分卷标题">
+          <n-input v-model:value="volumeForm.title" placeholder="例如：霓虹下的老鼠" />
+        </n-form-item>
+        <n-form-item label="目标字数">
+          <n-input v-model:value="volumeForm.wordTarget" placeholder="例如：目标 5万字" />
+        </n-form-item>
+        <n-form-item label="分卷摘要">
+          <n-input
+            v-model:value="volumeForm.summary"
+            type="textarea"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+            placeholder="概括这一卷的主线、冲突和情绪走向..."
+          />
+        </n-form-item>
+      </n-form>
+
+      <template #footer>
+        <div class="arc-modal-actions">
+          <n-button round strong @click="volumeEditorVisible = false">取消</n-button>
+          <n-button type="primary" round strong @click="submitVolume">
+            {{ editingVolumeId ? '保存修改' : '创建分卷' }}
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
   </section>
 </template>
 
 <style scoped>
 .outline-panel {
-  max-width: 960px;
+  max-width: 1040px;
   margin: 0 auto;
 }
 
@@ -228,22 +347,36 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   display: flex;
   align-items: end;
   justify-content: space-between;
-  margin-bottom: 32px;
+  margin-bottom: 18px;
   gap: 16px;
   flex-wrap: wrap;
 }
 
+.section-kicker {
+  color: color-mix(in srgb, var(--arc-primary) 74%, white);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+}
+
 .section-head h2 {
-  margin: 0 0 8px;
+  margin: 8px 0;
   font-size: clamp(30px, 3.4vw, 38px);
   font-weight: 650;
   letter-spacing: -0.04em;
 }
 
 .section-head p {
+  max-width: 660px;
   margin: 0;
   color: #86868b;
   font-size: 15px;
+}
+
+.section-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .soft-button {
@@ -252,12 +385,17 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   gap: 8px;
   border: none;
   border-radius: 999px;
-  background: #f5f5f7;
-  color: #1d1d1f;
+  background: color-mix(in srgb, var(--arc-primary) 12%, white);
+  color: var(--arc-primary);
   cursor: pointer;
   font-size: 14px;
   font-weight: 650;
   padding: 12px 18px;
+}
+
+.soft-button.neutral {
+  background: #f5f5f7;
+  color: #1d1d1f;
 }
 
 .soft-button:disabled {
@@ -265,20 +403,83 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   cursor: not-allowed;
 }
 
-.soft-button :deep(svg) {
+.outline-summary {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.outline-summary span {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.9);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 9px 14px;
+}
+
+.outline-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.volume-section {
+  border: 1px solid rgba(226, 232, 240, 0.76);
+  border-radius: 30px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.92)),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--arc-primary) 8%, white), transparent 38%);
+  padding: 22px;
+}
+
+.volume-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.72);
+}
+
+.volume-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.volume-kicker {
   color: var(--arc-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
 }
 
-.outline-wrap {
-  max-width: 820px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.volume-title {
-  margin: 0 0 18px;
-  font-size: 22px;
+.volume-copy h3 {
+  margin: 0;
+  color: #111827;
+  font-size: clamp(22px, 2.6vw, 28px);
   font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.volume-copy p {
+  max-width: 720px;
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.volume-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .outline-list {
@@ -296,6 +497,10 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   background: white;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.03);
   padding: 16px 20px;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .outline-item:hover {
@@ -373,8 +578,20 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   padding: 18px 20px;
 }
 
+@media (max-width: 860px) {
+  .volume-header {
+    flex-direction: column;
+  }
+}
+
 @media (max-width: 760px) {
-  .soft-button {
+  .section-actions,
+  .volume-actions {
+    width: 100%;
+  }
+
+  .soft-button,
+  .volume-actions :deep(.n-button) {
     width: 100%;
     justify-content: center;
   }

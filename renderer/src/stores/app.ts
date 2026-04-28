@@ -1,6 +1,12 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
+import { FAST_PERSIST_DELAY_MS, formatAutoSaveIntervalLabel, isLiveAutoSaveInterval, resolveAutoSaveDelayMs } from '@/features/settings/autoSave'
+import {
+  buildVolumeGroups,
+  createOutlineVolume as createWorkspaceVolume
+} from '@/features/workspace/outlineVolumes'
 import { getThemePreset } from '@/theme/presets'
+import { createDemoWorkspace, createEmptyWorkspace, normalizeWorkspace } from '@/features/workspace/projectWorkspace'
 import type {
   AssistantPromptRequest,
   AppSettings,
@@ -9,8 +15,10 @@ import type {
   ChatMessage,
   CharacterCard,
   OutlineItem,
+  OutlineVolume,
   PanelName,
   ProjectSummary,
+  ProjectWorkspaceData,
   ThemeName,
   WorldviewEntry
 } from '@/types/app'
@@ -19,12 +27,38 @@ interface StoredState {
   theme: ThemeName
   selectedProjectId: string
   projects: ProjectSummary[]
-  worldviewEntries: WorldviewEntry[]
-  characters: CharacterCard[]
-  outlineItems: OutlineItem[]
-  chapters: ChapterDraft[]
-  chapterVersions: ChapterVersion[]
+  workspaces: Record<string, ProjectWorkspaceData>
   appSettings: AppSettings
+}
+
+interface LegacyStoredState {
+  theme?: ThemeName
+  selectedProjectId?: string
+  projects?: ProjectSummary[]
+  worldviewEntries?: WorldviewEntry[]
+  characters?: CharacterCard[]
+  outlineVolumes?: OutlineVolume[]
+  outlineItems?: OutlineItem[]
+  chapters?: ChapterDraft[]
+  chapterVersions?: ChapterVersion[]
+  messages?: ChatMessage[]
+  appSettings?: AppSettings
+}
+
+interface ProjectWorkspacePayload {
+  project: {
+    title: string
+    genre: string
+    wordCount: string
+    cover?: string
+  }
+  worldviewEntries?: WorldviewEntry[]
+  characters?: CharacterCard[]
+  outlineVolumes?: OutlineVolume[]
+  outlineItems?: OutlineItem[]
+  chapters?: ChapterDraft[]
+  chapterVersions?: ChapterVersion[]
+  messages?: ChatMessage[]
 }
 
 const defaultProjects: ProjectSummary[] = [
@@ -35,124 +69,6 @@ const defaultProjects: ProjectSummary[] = [
     wordCount: '12.5万字',
     lastEdited: '10分钟前编辑',
     cover: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)'
-  }
-]
-
-const defaultWorldview: WorldviewEntry[] = [
-  {
-    id: 'world-1',
-    type: '地理',
-    title: '时代背景',
-    content:
-      '2077年，第四次企业战争结束后，全球能源被三大寡头公司垄断。下层阶级只能生存在终日下着酸雨的贫民窟，依靠走私二手义体和黑市芯片维持生活。意识上传技术初现端倪，被称为“赛博飞升”。'
-  },
-  {
-    id: 'world-2',
-    type: '法则',
-    title: '核心规则：义体排异',
-    content:
-      '过度植入机械义体会导致神经系统崩溃，引发赛博精神病。唯一能延缓排异反应的药物“神经阻断剂”被公司严格控制，成为比货币更硬通的资源。'
-  },
-  {
-    id: 'world-3',
-    type: '物种',
-    title: '地理环境：夜城（Night City）',
-    content:
-      '建在填海造陆上的超级都市，分为上层的云端区和底层的霓虹区。云端区拥有人造阳光，霓虹区则充满全息广告、酸雨和九龙城寨式建筑群。'
-  }
-]
-
-const defaultCharacters: CharacterCard[] = [
-  {
-    id: 'char-1',
-    name: '李雷',
-    role: '男主',
-    avatar: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)',
-    description:
-      '常年在底层的义体回收站工作，性格谨慎冷漠，但内心存有底线。右臂是拼装的二手军用义体，隐藏着某种未知的黑客后门。',
-    tags: [
-      { label: '底层回收者' },
-      { label: '机械右臂', tone: 'danger' }
-    ]
-  },
-  {
-    id: 'char-2',
-    name: '艾达',
-    role: 'Ada',
-    avatar: 'linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%)',
-    description:
-      '荒坂科技前高级研究员，脑内植入了极其危险的记忆锁，掌握着意识上传的核心代码，目前正被全城通缉。',
-    tags: [
-      { label: '公司叛逃者' },
-      { label: '携带机密', tone: 'success' }
-    ]
-  },
-  {
-    id: 'char-3',
-    name: '“老鬼”',
-    role: '',
-    avatar: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
-    description:
-      '经营着一家地下诊所，为帮派分子和边缘人提供廉价手术和阻断剂。他是李雷为数不多可以信任的熟人。',
-    tags: [
-      { label: '黑市医生' },
-      { label: '中立', tone: 'warning' }
-    ]
-  }
-]
-
-const defaultOutline: OutlineItem[] = [
-  {
-    id: 'outline-1',
-    title: '第1章：义体回收站的雨夜',
-    wordTarget: '3000字',
-    conflict: '平凡生活被打破。',
-    summary:
-      '李雷在回收站关门时，救下了头部受重伤且被追杀的公司女高管艾达。发现她脑内的军用级接口，李雷面临交出她还是藏匿她的抉择。'
-  },
-  {
-    id: 'outline-2',
-    title: '第2章：走私芯片',
-    wordTarget: '预估 3000字',
-    conflict: '公司杀手搜查贫民窟。',
-    summary:
-      '李雷利用回收站的铅板密室躲避了第一波搜查，并请老鬼来为艾达稳定伤情。老鬼警告李雷惹上了大麻烦。'
-  }
-]
-
-const defaultChapters: ChapterDraft[] = [
-  {
-    id: 'chapter-1',
-    title: '第1章：义体回收站的雨夜',
-    summary: '李雷在雨夜的义体回收站救下被追杀的艾达，平静生活由此被撕开缺口。',
-    status: 'draft',
-    wordTarget: '预估 3000字',
-    content:
-      '酸雨敲打在波纹铁皮屋顶上，发出令人烦躁的白噪音。\n\n李雷靠在生锈的工作台旁，机械右臂发出轻微的伺服电机嗡嗡声。今天晚上的收获糟透了，只有几个劣质的神经插槽，还有一条已经被格式化得干干净净的二手脊柱。\n\n就在他准备拉下卷帘门的时候，巷子尽头传来了一阵急促的脚步声。\n\n“救命……” 一个穿着高档公司制服的女人倒在了水洼里，她的后脑勺上，一个军用级的数据接口正在往外冒着蓝色的电火花。'
-  },
-  {
-    id: 'chapter-2',
-    title: '第2章：走私芯片',
-    summary: '李雷藏起艾达并请老鬼救治，同时躲避公司杀手对贫民窟的搜查。',
-    status: 'review',
-    wordTarget: '预估 3000字',
-    content: ''
-  },
-  {
-    id: 'chapter-3',
-    title: '第3章：公司狗的觉醒',
-    summary: '李雷逐步意识到艾达带来的秘密不只是麻烦，也可能改变整座夜城。',
-    status: 'draft',
-    wordTarget: '预估 3200字',
-    content: ''
-  }
-]
-
-const initialMessages: ChatMessage[] = [
-  {
-    id: 'msg-1',
-    role: 'assistant',
-    content: '我是你的创作助理。已读取世界观和当前章节内容。需要我帮你润色段落，或者提供剧情建议吗？'
   }
 ]
 
@@ -169,11 +85,9 @@ function loadStoredState(): StoredState {
     theme: 'ocean',
     selectedProjectId: defaultProjects[0].id,
     projects: defaultProjects,
-    worldviewEntries: defaultWorldview,
-    characters: defaultCharacters,
-    outlineItems: defaultOutline,
-    chapters: defaultChapters,
-    chapterVersions: [],
+    workspaces: {
+      [defaultProjects[0].id]: createDemoWorkspace()
+    },
     appSettings: defaultAppSettings
   }
 }
@@ -197,51 +111,187 @@ function normalizeChapterVersion(version: ChapterVersion): ChapterVersion {
   }
 }
 
+function normalizeProjectWorkspaceData(
+  workspace?: Partial<ProjectWorkspaceData> | null,
+  options?: { fallbackToDemo?: boolean }
+): ProjectWorkspaceData {
+  const normalized = normalizeWorkspace(workspace, options)
+  return {
+    worldviewEntries: normalized.worldviewEntries,
+    characters: normalized.characters,
+    outlineVolumes: normalized.outlineVolumes,
+    outlineItems: normalized.outlineItems,
+    chapters: normalized.chapters.map(normalizeChapterDraft),
+    chapterVersions: normalized.chapterVersions.map(normalizeChapterVersion),
+    messages: normalized.messages
+  }
+}
+
+function buildStarterChapter(volumeId: string, title = '第1章：开篇'): ChapterDraft {
+  return {
+    id: `chapter-${Date.now()}`,
+    volumeId,
+    title,
+    summary: '待补充章节摘要',
+    status: 'draft',
+    wordTarget: '预估 3000字',
+    content: ''
+  }
+}
+
+function getWorkspacePrimaryVolumeId(workspace: ProjectWorkspaceData): string {
+  return workspace.outlineVolumes[0]?.id ?? createWorkspaceVolume().id
+}
+
+function getChapterSequenceInVolume(chapters: ChapterDraft[], volumeId: string): number {
+  return chapters.filter((chapter) => chapter.volumeId === volumeId).length + 1
+}
+
+function getOutlineSequenceInVolume(outlineItems: OutlineItem[], volumeId: string): number {
+  return outlineItems.filter((item) => item.volumeId === volumeId).length + 1
+}
+
+function insertIntoVolumeSection<T extends { volumeId: string }>(items: T[], nextItem: T): T[] {
+  const nextItems = [...items]
+  const lastIndexInVolume = nextItems.reduce(
+    (lastMatchIndex, item, index) => (item.volumeId === nextItem.volumeId ? index : lastMatchIndex),
+    -1
+  )
+
+  if (lastIndexInVolume === -1) {
+    nextItems.push(nextItem)
+    return nextItems
+  }
+
+  nextItems.splice(lastIndexInVolume + 1, 0, nextItem)
+  return nextItems
+}
+
+function buildWorkspaceMapFromLegacy(payload: LegacyStoredState, selectedProjectId: string): Record<string, ProjectWorkspaceData> {
+  const workspaceEntries = payload.projects?.map((project, index) => [
+    project.id,
+    normalizeProjectWorkspaceData(
+      project.id === selectedProjectId
+        ? {
+            worldviewEntries: payload.worldviewEntries,
+            characters: payload.characters,
+            outlineVolumes: payload.outlineVolumes,
+            outlineItems: payload.outlineItems,
+            chapters: payload.chapters,
+            chapterVersions: payload.chapterVersions,
+            messages: payload.messages
+          }
+        : undefined,
+      { fallbackToDemo: index === 0 && project.id === defaultProjects[0].id }
+    )
+  ]) ?? []
+
+  return Object.fromEntries(workspaceEntries)
+}
+
 export const useAppStore = defineStore('app', () => {
   const stored = loadStoredState()
   const hasHydrated = ref(false)
   const persistenceError = ref<string | null>(null)
   let saveTimer: number | null = null
+  const scheduledPersistAt = ref<number | null>(null)
   const currentView = ref<'projects' | 'wizard' | 'workbench'>('projects')
   const activePanel = ref<PanelName>('world')
   const aiVisible = ref(true)
   const theme = ref<ThemeName>(stored.theme)
   const selectedProjectId = ref(stored.selectedProjectId)
   const projects = ref<ProjectSummary[]>(stored.projects)
-  const worldviewEntries = ref<WorldviewEntry[]>(stored.worldviewEntries)
-  const characters = ref<CharacterCard[]>(stored.characters)
-  const outlineItems = ref<OutlineItem[]>(stored.outlineItems)
-  const chapters = ref<ChapterDraft[]>(stored.chapters)
-  const chapterVersions = ref<ChapterVersion[]>(stored.chapterVersions)
+  const projectWorkspaces = ref<Record<string, ProjectWorkspaceData>>(stored.workspaces)
   const appSettings = ref<AppSettings>(stored.appSettings)
-  const messages = ref<ChatMessage[]>(initialMessages)
   const pendingAssistantRequest = ref<AssistantPromptRequest | null>(null)
   const chapterSelection = ref<{ start: number; end: number } | null>(null)
-  const selectedChapterId = ref((stored.chapters[0] ?? defaultChapters[0]).id)
+  const selectedChapterId = ref(stored.workspaces[stored.selectedProjectId]?.chapters[0]?.id ?? '')
 
+  const currentWorkspace = computed(
+    () => projectWorkspaces.value[selectedProjectId.value] ?? createEmptyWorkspace()
+  )
+  const worldviewEntries = computed(() => currentWorkspace.value.worldviewEntries)
+  const characters = computed(() => currentWorkspace.value.characters)
+  const outlineItems = computed(() => currentWorkspace.value.outlineItems)
+  const chapters = computed(() => currentWorkspace.value.chapters)
+  const outlineVolumes = computed(() => currentWorkspace.value.outlineVolumes)
+  const chapterVersions = computed(() => currentWorkspace.value.chapterVersions)
+  const messages = computed(() => currentWorkspace.value.messages)
+  const autoSaveIntervalLabel = computed(() => formatAutoSaveIntervalLabel(appSettings.value.autoSaveInterval))
+  const isLiveAutoSave = computed(() => isLiveAutoSaveInterval(appSettings.value.autoSaveInterval))
+  const isPersistencePending = computed(() => scheduledPersistAt.value !== null)
   const selectedChapter = computed(
     () => chapters.value.find((chapter) => chapter.id === selectedChapterId.value) ?? chapters.value[0]
   )
+  const selectedChapterVolume = computed(
+    () => outlineVolumes.value.find((volume) => volume.id === selectedChapter.value?.volumeId) ?? outlineVolumes.value[0]
+  )
+  const outlineVolumeGroups = computed(() => buildVolumeGroups(outlineVolumes.value, outlineItems.value))
+  const chapterVolumeGroups = computed(() => buildVolumeGroups(outlineVolumes.value, chapters.value))
   const currentTheme = computed(() => getThemePreset(theme.value))
   const currentProject = computed(
     () => projects.value.find((project) => project.id === selectedProjectId.value) ?? projects.value[0]
   )
 
-  function applyWorkspaceState(payload?: Partial<StoredState> | null): void {
+  function syncSelectedChapter(projectId = selectedProjectId.value): void {
+    const chapterList = projectWorkspaces.value[projectId]?.chapters ?? []
+    const hasCurrentChapter = chapterList.some((chapter) => chapter.id === selectedChapterId.value)
+    selectedChapterId.value = hasCurrentChapter ? selectedChapterId.value : (chapterList[0]?.id ?? '')
+  }
+
+  function ensureProjectWorkspace(projectId: string, fallbackToDemo = false): void {
+    if (projectWorkspaces.value[projectId]) {
+      return
+    }
+
+    projectWorkspaces.value = {
+      ...projectWorkspaces.value,
+      [projectId]: normalizeProjectWorkspaceData(undefined, { fallbackToDemo })
+    }
+  }
+
+  function updateProjectWorkspace(projectId: string, updater: (workspace: ProjectWorkspaceData) => ProjectWorkspaceData): void {
+    const baseWorkspace = normalizeProjectWorkspaceData(projectWorkspaces.value[projectId])
+    projectWorkspaces.value = {
+      ...projectWorkspaces.value,
+      [projectId]: normalizeProjectWorkspaceData(updater(baseWorkspace))
+    }
+  }
+
+  function updateCurrentWorkspace(updater: (workspace: ProjectWorkspaceData) => ProjectWorkspaceData): void {
+    ensureProjectWorkspace(selectedProjectId.value)
+    updateProjectWorkspace(selectedProjectId.value, updater)
+    syncSelectedChapter()
+  }
+
+  function applyWorkspaceState(payload?: Partial<StoredState> | LegacyStoredState | null): void {
     if (!payload) {
       return
     }
 
     theme.value = payload.theme ?? 'ocean'
     projects.value = payload.projects?.length ? payload.projects : defaultProjects
-    selectedProjectId.value = payload.selectedProjectId ?? projects.value[0].id
-    worldviewEntries.value = payload.worldviewEntries?.length ? payload.worldviewEntries : defaultWorldview
-    characters.value = payload.characters?.length ? payload.characters : defaultCharacters
-    outlineItems.value = payload.outlineItems?.length ? payload.outlineItems : defaultOutline
-    chapters.value = (payload.chapters?.length ? payload.chapters : defaultChapters).map(normalizeChapterDraft)
-    chapterVersions.value = (payload.chapterVersions ?? []).map(normalizeChapterVersion)
+
+    const fallbackProjectId = projects.value[0]?.id ?? defaultProjects[0].id
+    selectedProjectId.value = payload.selectedProjectId ?? fallbackProjectId
+    projectWorkspaces.value =
+      'workspaces' in payload && payload.workspaces
+        ? Object.fromEntries(
+            Object.entries(payload.workspaces).map(([projectId, workspace], index) => [
+              projectId,
+              normalizeProjectWorkspaceData(workspace, {
+                fallbackToDemo: index === 0 && projectId === defaultProjects[0].id
+              })
+            ])
+          )
+        : buildWorkspaceMapFromLegacy(payload as LegacyStoredState, selectedProjectId.value)
+
+    for (const [index, project] of projects.value.entries()) {
+      ensureProjectWorkspace(project.id, index === 0 && project.id === defaultProjects[0].id)
+    }
+
     appSettings.value = payload.appSettings ?? defaultAppSettings
-    selectedChapterId.value = chapters.value[0].id
+    syncSelectedChapter()
   }
 
   function serializeWorkspaceState(): StoredState {
@@ -249,11 +299,7 @@ export const useAppStore = defineStore('app', () => {
       theme: theme.value,
       selectedProjectId: selectedProjectId.value,
       projects: projects.value,
-      worldviewEntries: worldviewEntries.value,
-      characters: characters.value,
-      outlineItems: outlineItems.value,
-      chapters: chapters.value,
-      chapterVersions: chapterVersions.value,
+      workspaces: projectWorkspaces.value,
       appSettings: appSettings.value
     }
   }
@@ -270,21 +316,48 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function persistWorkspace(): Promise<void> {
+    if (saveTimer) {
+      window.clearTimeout(saveTimer)
+      saveTimer = null
+    }
+
     const result = await window.characterArc.saveWorkspace(serializeWorkspaceState())
     persistenceError.value = result.success ? null : result.error ?? '保存失败'
+    if (result.success) {
+      scheduledPersistAt.value = null
+    }
+  }
+
+  function schedulePersist(mode: 'fast' | 'autosave' = 'autosave'): void {
+    if (!hasHydrated.value) {
+      return
+    }
+
+    const delay = mode === 'fast' ? FAST_PERSIST_DELAY_MS : resolveAutoSaveDelayMs(appSettings.value.autoSaveInterval)
+    scheduledPersistAt.value = Date.now() + delay
+
+    if (saveTimer) {
+      window.clearTimeout(saveTimer)
+    }
+
+    // Keep one active timer so the latest edit always wins and the interval can be changed on the fly.
+    saveTimer = window.setTimeout(() => {
+      void persistWorkspace()
+    }, delay)
   }
 
   function importProjectData(payload: {
     project?: Partial<ProjectSummary>
     worldviewEntries?: WorldviewEntry[]
     characters?: CharacterCard[]
+    outlineVolumes?: OutlineVolume[]
     outlineItems?: OutlineItem[]
     chapters?: ChapterDraft[]
     chapterVersions?: ChapterVersion[]
   }): void {
-    const nextProjectId = `project-${Date.now()}`
+    const projectId = `project-${Date.now()}`
     const project: ProjectSummary = {
-      id: nextProjectId,
+      id: projectId,
       title: payload.project?.title?.trim() || '导入项目',
       genre: payload.project?.genre?.trim() || '未分类',
       wordCount: payload.project?.wordCount?.trim() || '已导入',
@@ -292,21 +365,29 @@ export const useAppStore = defineStore('app', () => {
       cover: payload.project?.cover || 'linear-gradient(135deg, #9be15d 0%, #00e3ae 100%)'
     }
 
-    // Import replaces the active project workspace content so the result is predictable and easy to verify.
-    projects.value = [project, ...projects.value.filter((item) => item.id !== selectedProjectId.value)]
+    projects.value = [project, ...projects.value]
+    projectWorkspaces.value = {
+      ...projectWorkspaces.value,
+      [projectId]: normalizeProjectWorkspaceData({
+        worldviewEntries: payload.worldviewEntries,
+        characters: payload.characters,
+        outlineVolumes: payload.outlineVolumes,
+        outlineItems: payload.outlineItems,
+        chapters: payload.chapters,
+        chapterVersions: payload.chapterVersions
+      })
+    }
     selectedProjectId.value = project.id
-    worldviewEntries.value = payload.worldviewEntries?.length ? payload.worldviewEntries : defaultWorldview
-    characters.value = payload.characters?.length ? payload.characters : defaultCharacters
-    outlineItems.value = payload.outlineItems?.length ? payload.outlineItems : defaultOutline
-    chapters.value = (payload.chapters?.length ? payload.chapters : defaultChapters).map(normalizeChapterDraft)
-    chapterVersions.value = (payload.chapterVersions ?? []).map(normalizeChapterVersion)
-    selectedChapterId.value = chapters.value[0].id
+    chapterSelection.value = null
     currentView.value = 'workbench'
     activePanel.value = 'overview'
+    syncSelectedChapter(project.id)
+    schedulePersist('fast')
   }
 
   function setTheme(nextTheme: ThemeName): void {
     theme.value = nextTheme
+    schedulePersist('fast')
   }
 
   function openProject(projectId: string): void {
@@ -315,9 +396,13 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
+    ensureProjectWorkspace(projectId)
     selectedProjectId.value = projectId
+    chapterSelection.value = null
     currentView.value = 'workbench'
     activePanel.value = 'world'
+    syncSelectedChapter(projectId)
+    schedulePersist('fast')
   }
 
   function backToProjects(): void {
@@ -332,19 +417,49 @@ export const useAppStore = defineStore('app', () => {
     currentView.value = 'projects'
   }
 
-  function createProject(payload: { title: string; genre: string; wordCount: string }): void {
+  function createProjectWorkspace(payload: ProjectWorkspacePayload): void {
+    const projectId = `project-${Date.now()}`
+    const nextVolumes = payload.outlineVolumes?.length ? payload.outlineVolumes : [createWorkspaceVolume()]
+    const nextChapters = payload.chapters?.length ? payload.chapters : [buildStarterChapter(nextVolumes[0].id)]
+
     projects.value.unshift({
-      id: `project-${Date.now()}`,
-      title: payload.title,
-      genre: payload.genre,
-      wordCount: payload.wordCount,
+      id: projectId,
+      title: payload.project.title,
+      genre: payload.project.genre,
+      wordCount: payload.project.wordCount,
       lastEdited: '刚刚创建',
-      cover: 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)'
+      cover: payload.project.cover || 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)'
     })
 
-    selectedProjectId.value = projects.value[0].id
+    // A new project gets its own isolated workspace instead of reusing the previous project's draft state.
+    projectWorkspaces.value = {
+      ...projectWorkspaces.value,
+      [projectId]: normalizeProjectWorkspaceData({
+        worldviewEntries: payload.worldviewEntries,
+        characters: payload.characters,
+        outlineVolumes: nextVolumes,
+        outlineItems: payload.outlineItems,
+        chapters: nextChapters,
+        chapterVersions: payload.chapterVersions,
+        messages: payload.messages
+      })
+    }
+    selectedProjectId.value = projectId
+    chapterSelection.value = null
+    aiVisible.value = true
     currentView.value = 'workbench'
-    activePanel.value = 'world'
+    activePanel.value = payload.worldviewEntries?.length || payload.outlineItems?.length ? 'overview' : 'chapters'
+    syncSelectedChapter(projectId)
+    schedulePersist('fast')
+  }
+
+  function createProject(payload: { title: string; genre: string; wordCount: string }): void {
+    const starterVolume = createWorkspaceVolume()
+    createProjectWorkspace({
+      project: payload,
+      outlineVolumes: [starterVolume],
+      chapters: [buildStarterChapter(starterVolume.id)]
+    })
   }
 
   function deleteProject(projectId: string): void {
@@ -353,11 +468,17 @@ export const useAppStore = defineStore('app', () => {
     }
 
     projects.value = projects.value.filter((project) => project.id !== projectId)
+    const { [projectId]: _removedWorkspace, ...remainingWorkspaces } = projectWorkspaces.value
+    projectWorkspaces.value = remainingWorkspaces
 
     if (selectedProjectId.value === projectId) {
       selectedProjectId.value = projects.value[0].id
+      chapterSelection.value = null
       currentView.value = 'projects'
+      syncSelectedChapter()
     }
+
+    schedulePersist('fast')
   }
 
   function updateProject(projectId: string, payload: Partial<ProjectSummary>): void {
@@ -373,69 +494,133 @@ export const useAppStore = defineStore('app', () => {
           }
         : project
     )
+    schedulePersist('fast')
   }
 
   function createWorldviewEntry(payload?: Partial<WorldviewEntry>): void {
-    worldviewEntries.value.unshift({
-      id: `world-${Date.now()}`,
-      type: payload?.type?.trim() || '地理',
-      title: payload?.title?.trim() || `新设定条目 ${worldviewEntries.value.length + 1}`,
-      content:
-        payload?.content?.trim() ||
-        '这里是新的世界观设定草稿。你可以继续补充时代背景、法则机制或地理环境细节。'
-    })
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      worldviewEntries: [
+        {
+          id: `world-${Date.now()}`,
+          type: payload?.type?.trim() || '地理',
+          title: payload?.title?.trim() || `新设定条目 ${workspace.worldviewEntries.length + 1}`,
+          content:
+            payload?.content?.trim() ||
+            '这里是新的世界观设定草稿。你可以继续补充时代背景、法则机制或地理环境细节。'
+        },
+        ...workspace.worldviewEntries
+      ]
+    }))
+    schedulePersist('fast')
   }
 
   function updateWorldviewEntry(entryId: string, payload: Partial<WorldviewEntry>): void {
-    worldviewEntries.value = worldviewEntries.value.map((entry) =>
-      entry.id === entryId
-        ? {
-            ...entry,
-            type: payload.type?.trim() || entry.type,
-            title: payload.title?.trim() || entry.title,
-            content: payload.content?.trim() || entry.content
-          }
-        : entry
-    )
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      worldviewEntries: workspace.worldviewEntries.map((entry) =>
+        entry.id === entryId
+          ? {
+              ...entry,
+              type: payload.type?.trim() || entry.type,
+              title: payload.title?.trim() || entry.title,
+              content: payload.content?.trim() || entry.content
+            }
+          : entry
+      )
+    }))
+    schedulePersist('fast')
   }
 
   function deleteWorldviewEntry(entryId: string): void {
-    worldviewEntries.value = worldviewEntries.value.filter((entry) => entry.id !== entryId)
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      worldviewEntries: workspace.worldviewEntries.filter((entry) => entry.id !== entryId)
+    }))
+    schedulePersist('fast')
   }
 
   function createCharacter(payload?: Partial<CharacterCard>): void {
-    characters.value.unshift({
-      id: `char-${Date.now()}`,
-      name: payload?.name?.trim() || `新角色 ${characters.value.length + 1}`,
-      role: payload?.role?.trim() || '待设定',
-      avatar: payload?.avatar || 'linear-gradient(135deg, #9be15d 0%, #00e3ae 100%)',
-      description:
-        payload?.description?.trim() ||
-        '这是一名新加入项目的角色草稿。你可以继续补充身份、背景、动机与冲突。',
-      tags:
-        payload?.tags?.length
-          ? payload.tags
-          : [{ label: '待完善', tone: 'warning' }]
-    })
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      characters: [
+        {
+          id: `char-${Date.now()}`,
+          name: payload?.name?.trim() || `新角色 ${workspace.characters.length + 1}`,
+          role: payload?.role?.trim() || '待设定',
+          avatar: payload?.avatar || 'linear-gradient(135deg, #9be15d 0%, #00e3ae 100%)',
+          description:
+            payload?.description?.trim() ||
+            '这是一名新加入项目的角色草稿。你可以继续补充身份、背景、动机与冲突。',
+          tags:
+            payload?.tags?.length
+              ? payload.tags
+              : [{ label: '待完善', tone: 'warning' }]
+        },
+        ...workspace.characters
+      ]
+    }))
+    schedulePersist('fast')
   }
 
   function updateCharacter(characterId: string, payload: Partial<CharacterCard>): void {
-    characters.value = characters.value.map((character) =>
-      character.id === characterId
-        ? {
-            ...character,
-            name: payload.name?.trim() || character.name,
-            role: payload.role?.trim() ?? character.role,
-            avatar: payload.avatar || character.avatar,
-            description: payload.description?.trim() || character.description,
-            tags: payload.tags?.length ? payload.tags : character.tags
-          }
-        : character
-    )
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      characters: workspace.characters.map((character) =>
+        character.id === characterId
+          ? {
+              ...character,
+              name: payload.name?.trim() || character.name,
+              role: payload.role?.trim() ?? character.role,
+              avatar: payload.avatar || character.avatar,
+              description: payload.description?.trim() || character.description,
+              tags: payload.tags?.length ? payload.tags : character.tags
+            }
+          : character
+      )
+    }))
+    schedulePersist('fast')
   }
 
   function deleteCharacter(characterId: string): void {
-    characters.value = characters.value.filter((character) => character.id !== characterId)
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      characters: workspace.characters.filter((character) => character.id !== characterId)
+    }))
+    schedulePersist('fast')
+  }
+
+  function createOutlineVolume(payload?: Partial<OutlineVolume>): string {
+    const nextVolume = createWorkspaceVolume({
+      id: `volume-${Date.now()}`,
+      title: payload?.title?.trim() || `分卷 ${outlineVolumes.value.length + 1}`,
+      wordTarget: payload?.wordTarget?.trim(),
+      summary: payload?.summary?.trim()
+    })
+
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      outlineVolumes: [...workspace.outlineVolumes, nextVolume]
+    }))
+    schedulePersist('fast')
+    return nextVolume.id
+  }
+
+  function updateOutlineVolume(volumeId: string, payload: Partial<OutlineVolume>): void {
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      outlineVolumes: workspace.outlineVolumes.map((volume) =>
+        volume.id === volumeId
+          ? {
+              ...volume,
+              title: payload.title?.trim() || volume.title,
+              wordTarget: payload.wordTarget?.trim() || volume.wordTarget,
+              summary: payload.summary?.trim() || volume.summary
+            }
+          : volume
+      )
+    }))
+    schedulePersist('fast')
   }
 
   function setPanel(panel: PanelName): void {
@@ -448,65 +633,102 @@ export const useAppStore = defineStore('app', () => {
     activePanel.value = 'chapters'
   }
 
-  function createChapter(): void {
-    const nextIndex = chapters.value.length + 1
-    const newChapter: ChapterDraft = {
-      id: `chapter-${Date.now()}`,
-      title: `第${nextIndex}章：新章节`,
-      summary: '待补充章节摘要',
-      status: 'draft',
-      wordTarget: '预估 3000字',
-      content: ''
-    }
+  function createChapter(volumeId = selectedChapter.value?.volumeId): void {
+    let nextChapterId = ''
+    updateCurrentWorkspace((workspace) => {
+      const targetVolumeId = volumeId || getWorkspacePrimaryVolumeId(workspace)
+      const nextIndex = getChapterSequenceInVolume(workspace.chapters, targetVolumeId)
+      const nextChapter: ChapterDraft = {
+        id: `chapter-${Date.now()}`,
+        volumeId: targetVolumeId,
+        title: `第${nextIndex}章：新章节`,
+        summary: '待补充章节摘要',
+        status: 'draft',
+        wordTarget: '预估 3000字',
+        content: ''
+      }
+      nextChapterId = nextChapter.id
 
-    chapters.value.push(newChapter)
-    selectedChapterId.value = newChapter.id
+      return {
+        ...workspace,
+        chapters: insertIntoVolumeSection(workspace.chapters, nextChapter)
+      }
+    })
+
+    selectedChapterId.value = nextChapterId || selectedChapterId.value
     chapterSelection.value = null
     activePanel.value = 'chapters'
+    schedulePersist('fast')
   }
 
   function moveChapter(chapterId: string, targetChapterId: string): void {
-    const sourceIndex = chapters.value.findIndex((chapter) => chapter.id === chapterId)
-    const targetIndex = chapters.value.findIndex((chapter) => chapter.id === targetChapterId)
+    updateCurrentWorkspace((workspace) => {
+      const sourceIndex = workspace.chapters.findIndex((chapter) => chapter.id === chapterId)
+      const targetIndex = workspace.chapters.findIndex((chapter) => chapter.id === targetChapterId)
 
-    if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
-      return
-    }
+      if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+        return workspace
+      }
 
-    const nextChapters = [...chapters.value]
-    const [movedChapter] = nextChapters.splice(sourceIndex, 1)
-    nextChapters.splice(targetIndex, 0, movedChapter)
-    chapters.value = nextChapters
+      const nextChapters = [...workspace.chapters]
+      const [movedChapter] = nextChapters.splice(sourceIndex, 1)
+      nextChapters.splice(targetIndex, 0, movedChapter)
+      return {
+        ...workspace,
+        chapters: nextChapters
+      }
+    })
+    schedulePersist('fast')
   }
 
   function createOutlineItem(payload?: Partial<OutlineItem>): void {
-    outlineItems.value.push({
-      id: `outline-${Date.now()}`,
-      title: payload?.title?.trim() || `第${outlineItems.value.length + 1}章：新剧情节点`,
-      wordTarget: payload?.wordTarget?.trim() || '预估 3000字',
-      conflict: payload?.conflict?.trim() || '新的冲突正在酝酿。',
-      summary:
-        payload?.summary?.trim() ||
-        '这里是新的剧情大纲节点草稿，可以继续补充剧情推进、角色目标和关键转折。',
+    updateCurrentWorkspace((workspace) => {
+      const targetVolumeId = payload?.volumeId || selectedChapter.value?.volumeId || getWorkspacePrimaryVolumeId(workspace)
+      const nextIndex = getOutlineSequenceInVolume(workspace.outlineItems, targetVolumeId)
+      const nextItem: OutlineItem = {
+        id: `outline-${Date.now()}`,
+        volumeId: targetVolumeId,
+        title: payload?.title?.trim() || `第${nextIndex}章：新剧情节点`,
+        wordTarget: payload?.wordTarget?.trim() || '预估 3000字',
+        conflict: payload?.conflict?.trim() || '新的冲突正在酝酿。',
+        summary:
+          payload?.summary?.trim() ||
+          '这里是新的剧情大纲节点草稿，可以继续补充剧情推进、角色目标和关键转折。'
+      }
+
+      return {
+        ...workspace,
+        outlineItems: insertIntoVolumeSection(workspace.outlineItems, nextItem)
+      }
     })
+    schedulePersist('fast')
   }
 
   function updateOutlineItem(outlineId: string, payload: Partial<OutlineItem>): void {
-    outlineItems.value = outlineItems.value.map((item) =>
-      item.id === outlineId
-        ? {
-            ...item,
-            title: payload.title?.trim() || item.title,
-            wordTarget: payload.wordTarget?.trim() || item.wordTarget,
-            conflict: payload.conflict?.trim() || item.conflict,
-            summary: payload.summary?.trim() || item.summary
-          }
-        : item
-    )
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      outlineItems: workspace.outlineItems.map((item) =>
+        item.id === outlineId
+          ? {
+              ...item,
+              volumeId: payload.volumeId || item.volumeId,
+              title: payload.title?.trim() || item.title,
+              wordTarget: payload.wordTarget?.trim() || item.wordTarget,
+              conflict: payload.conflict?.trim() || item.conflict,
+              summary: payload.summary?.trim() || item.summary
+            }
+          : item
+      )
+    }))
+    schedulePersist('fast')
   }
 
   function deleteOutlineItem(outlineId: string): void {
-    outlineItems.value = outlineItems.value.filter((item) => item.id !== outlineId)
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      outlineItems: workspace.outlineItems.filter((item) => item.id !== outlineId)
+    }))
+    schedulePersist('fast')
   }
 
   function deleteChapter(chapterId: string): void {
@@ -519,14 +741,18 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
-    chapters.value = chapters.value.filter((chapter) => chapter.id !== chapterId)
-    chapterVersions.value = chapterVersions.value.filter((version) => version.chapterId !== chapterId)
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      chapters: workspace.chapters.filter((chapter) => chapter.id !== chapterId),
+      chapterVersions: workspace.chapterVersions.filter((version) => version.chapterId !== chapterId)
+    }))
 
     if (selectedChapterId.value === chapterId) {
       const fallback = chapters.value[Math.max(0, targetIndex - 1)] ?? chapters.value[0]
-      selectedChapterId.value = fallback.id
+      selectedChapterId.value = fallback?.id ?? ''
       chapterSelection.value = null
     }
+    schedulePersist('fast')
   }
 
   function updateChapterTitle(value: string): void {
@@ -535,7 +761,8 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
-    chapter.title = value
+    updateChapter(chapter.id, { title: value })
+    schedulePersist('autosave')
   }
 
   function updateChapterContent(value: string): void {
@@ -544,23 +771,28 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
-    chapter.content = value
+    updateChapter(chapter.id, { content: value })
+    schedulePersist('autosave')
   }
 
   function updateChapter(chapterId: string, payload: Partial<ChapterDraft>): void {
-    chapters.value = chapters.value.map((chapter) =>
-      chapter.id === chapterId
-        ? normalizeChapterDraft({
-            ...chapter,
-            title: payload.title?.trim() || chapter.title,
-            summary: payload.summary !== undefined ? payload.summary.trim() || chapter.summary : chapter.summary,
-            status: payload.status ?? chapter.status,
-            wordTarget:
-              payload.wordTarget !== undefined ? payload.wordTarget.trim() || chapter.wordTarget : chapter.wordTarget,
-            content: payload.content !== undefined ? payload.content : chapter.content
-          })
-        : chapter
-    )
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      chapters: workspace.chapters.map((chapter) =>
+        chapter.id === chapterId
+          ? normalizeChapterDraft({
+              ...chapter,
+              volumeId: payload.volumeId || chapter.volumeId,
+              title: payload.title?.trim() || chapter.title,
+              summary: payload.summary !== undefined ? payload.summary.trim() || chapter.summary : chapter.summary,
+              status: payload.status ?? chapter.status,
+              wordTarget:
+                payload.wordTarget !== undefined ? payload.wordTarget.trim() || chapter.wordTarget : chapter.wordTarget,
+              content: payload.content !== undefined ? payload.content : chapter.content
+            })
+          : chapter
+      )
+    }))
   }
 
   function getChapterVersions(chapterId: string): ChapterVersion[] {
@@ -589,7 +821,10 @@ export const useAppStore = defineStore('app', () => {
       createdAt: new Date().toISOString()
     })
 
-    chapterVersions.value = [version, ...chapterVersions.value]
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      chapterVersions: [version, ...workspace.chapterVersions]
+    }))
 
     if (hasHydrated.value) {
       await persistWorkspace()
@@ -675,22 +910,37 @@ export const useAppStore = defineStore('app', () => {
 
   function updateAppSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
     appSettings.value[key] = value
+    schedulePersist('fast')
   }
 
   function pushUserMessage(content: string): void {
-    messages.value.push({
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      content
-    })
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      messages: [
+        ...workspace.messages,
+        {
+          id: `msg-${Date.now()}`,
+          role: 'user',
+          content
+        }
+      ]
+    }))
+    schedulePersist('fast')
   }
 
   function pushAssistantMessage(content: string): void {
-    messages.value.push({
-      id: `msg-${Date.now()}-assistant`,
-      role: 'assistant',
-      content
-    })
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      messages: [
+        ...workspace.messages,
+        {
+          id: `msg-${Date.now()}-assistant`,
+          role: 'assistant',
+          content
+        }
+      ]
+    }))
+    schedulePersist('fast')
   }
 
   function insertIntoChapter(content: string): void {
@@ -706,7 +956,10 @@ export const useAppStore = defineStore('app', () => {
 
     const selection = chapterSelection.value
     if (!selection) {
-      chapter.content = `${chapter.content}\n\n${insertion}`.trim()
+      updateChapter(chapter.id, {
+        content: `${chapter.content}\n\n${insertion}`.trim()
+      })
+      schedulePersist('autosave')
       return
     }
 
@@ -714,7 +967,10 @@ export const useAppStore = defineStore('app', () => {
     const end = Math.max(start, Math.min(selection.end, chapter.content.length))
     const prefix = chapter.content.slice(0, start)
     const suffix = chapter.content.slice(end)
-    chapter.content = `${prefix}${insertion}${suffix}`
+    updateChapter(chapter.id, {
+      content: `${prefix}${insertion}${suffix}`
+    })
+    schedulePersist('autosave')
     const nextCursor = start + insertion.length
     chapterSelection.value = {
       start: nextCursor,
@@ -723,26 +979,17 @@ export const useAppStore = defineStore('app', () => {
   }
 
   watch(
-    [theme, selectedProjectId, projects, worldviewEntries, characters, outlineItems, chapters, chapterVersions, appSettings],
+    () => appSettings.value.autoSaveInterval,
     () => {
-      if (!hasHydrated.value) {
-        return
+      if (isPersistencePending.value) {
+        schedulePersist('fast')
       }
-
-      // Debounce disk writes so rapid edits don't hammer the file system on every keystroke.
-      if (saveTimer) {
-        window.clearTimeout(saveTimer)
-      }
-
-      saveTimer = window.setTimeout(() => {
-        void persistWorkspace()
-      }, 250)
-    },
-    { deep: true, immediate: true }
+    }
   )
 
   return {
     activePanel,
+    autoSaveIntervalLabel,
     aiVisible,
     appSettings,
     backToProjects,
@@ -751,15 +998,20 @@ export const useAppStore = defineStore('app', () => {
     characters,
     closeWizard,
     createProject,
+    createProjectWorkspace,
     createCharacter,
     createOutlineItem,
+    createOutlineVolume,
     createWorldviewEntry,
     createChapter,
+    chapterVolumeGroups,
     currentTheme,
     currentProject,
     currentView,
     hasHydrated,
     initialize,
+    isLiveAutoSave,
+    isPersistencePending,
     deleteChapter,
     deleteCharacter,
     deleteOutlineItem,
@@ -775,6 +1027,8 @@ export const useAppStore = defineStore('app', () => {
     openProject,
     openWizard,
     outlineItems,
+    outlineVolumeGroups,
+    outlineVolumes,
     pendingAssistantRequest,
     projects,
     pushAssistantMessage,
@@ -785,6 +1039,7 @@ export const useAppStore = defineStore('app', () => {
     selectChapter,
     selectedChapter,
     selectedChapterId,
+    selectedChapterVolume,
     selectedProjectId,
     setChapterSelection,
     setPanel,
@@ -798,6 +1053,7 @@ export const useAppStore = defineStore('app', () => {
     updateChapterTitle,
     updateCharacter,
     updateOutlineItem,
+    updateOutlineVolume,
     updateWorldviewEntry,
     worldviewEntries,
     persistenceError

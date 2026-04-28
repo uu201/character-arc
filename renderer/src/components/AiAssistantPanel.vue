@@ -62,6 +62,7 @@ async function sendPrompt(promptText?: string, quickAction?: string): Promise<vo
       context: {
         projectTitle: currentProject.value?.title,
         projectGenre: currentProject.value?.genre,
+        chapterVolume: appStore.selectedChapterVolume?.title,
         chapterTitle: currentChapter.value?.title,
         chapterSummary: currentChapter.value?.summary,
         chapterStatus: currentChapter.value?.status,

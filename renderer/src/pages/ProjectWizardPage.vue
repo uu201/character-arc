@@ -6,17 +6,23 @@ import {
   CheckCircle2,
   ChevronRight,
   Info,
-  Sparkles
+  Sparkles,
+  Target
 } from 'lucide-vue-next'
+import { NCheckbox, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
+import { createProjectWorkspaceSeed, type ProjectBootstrapResult } from '@/features/wizard/projectSeed'
 
 const appStore = useAppStore()
+const message = useMessage()
 const step = ref(1)
 const isGenerating = ref(false)
 const formData = reactive({
   title: '',
   genre: '科幻',
-  premise: ''
+  targetWordCount: '20万字',
+  premise: '',
+  shouldGenerate: true
 })
 
 const steps = [
@@ -27,13 +33,23 @@ const steps = [
 
 const canContinue = computed(() => {
   if (step.value === 1) {
-    return formData.title.trim().length > 0
+    return formData.title.trim().length > 0 && formData.targetWordCount.trim().length > 0
   }
   if (step.value === 2) {
     return formData.premise.trim().length > 0
   }
   return !isGenerating.value
 })
+
+function resetWizard(): void {
+  step.value = 1
+  isGenerating.value = false
+  formData.title = ''
+  formData.genre = '科幻'
+  formData.targetWordCount = '20万字'
+  formData.premise = ''
+  formData.shouldGenerate = true
+}
 
 function goBack(): void {
   if (step.value > 1 && !isGenerating.value) {
@@ -46,7 +62,7 @@ function goBack(): void {
   }
 }
 
-function goNext(): void {
+async function goNext(): Promise<void> {
   if (!canContinue.value || isGenerating.value) {
     return
   }
@@ -57,19 +73,36 @@ function goNext(): void {
   }
 
   isGenerating.value = true
+  try {
+    let bootstrapResult: ProjectBootstrapResult | null = null
 
-  window.setTimeout(() => {
-    appStore.createProject({
-      title: formData.title,
-      genre: formData.genre,
-      wordCount: '新项目'
-    })
+    // Only call AI when the user explicitly keeps bootstrap generation enabled.
+    if (formData.shouldGenerate) {
+      const result = await window.characterArc.generateAi({
+        task: 'project-bootstrap',
+        settings: appStore.appSettings,
+        context: {
+          projectTitle: formData.title,
+          projectGenre: formData.genre,
+          projectWordTarget: formData.targetWordCount,
+          projectPremise: formData.premise
+        }
+      })
+
+      if (!result.success || !result.result) {
+        throw new Error(result.error ?? 'AI 初始化项目失败')
+      }
+
+      bootstrapResult = result.result as ProjectBootstrapResult
+    }
+
+    appStore.createProjectWorkspace(createProjectWorkspaceSeed(formData, bootstrapResult))
+    resetWizard()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '创建项目失败，请稍后重试')
+  } finally {
     isGenerating.value = false
-    step.value = 1
-    formData.title = ''
-    formData.genre = '科幻'
-    formData.premise = ''
-  }, 2500)
+  }
 }
 </script>
 
@@ -119,6 +152,19 @@ function goNext(): void {
             </div>
 
             <div class="field">
+              <label>目标字数</label>
+              <div class="input-shell">
+                <Target :size="18" class="input-icon" />
+                <input
+                  v-model="formData.targetWordCount"
+                  type="text"
+                  placeholder="例如：20万字"
+                  class="wizard-input"
+                />
+              </div>
+            </div>
+
+            <div class="field">
               <label>作品题材</label>
               <div class="genre-grid">
                 <button
@@ -158,25 +204,30 @@ function goNext(): void {
               </div>
             </div>
 
-            <h3>{{ isGenerating ? 'AI 正在构建你的世界...' : '准备就绪' }}</h3>
+            <h3>{{ isGenerating ? '正在创建项目工作区...' : '准备就绪' }}</h3>
             <p>
               {{
                 isGenerating
-                  ? '正在解析核心概念，生成世界观词典、角色档案及故事大纲，这需要几秒钟时间。'
-                  : `我们将基于“${formData.title || '未命名作品'}”(${formData.genre}) 的核心理念，为你自动生成完整的世界观架构和大纲草案。`
+                  ? (formData.shouldGenerate
+                      ? '正在解析核心点子，生成初始世界观与剧情大纲，并同步创建可继续写作的章节草稿。'
+                      : '正在创建空白项目工作区，并为你准备第一个章节草稿。')
+                  : `项目名为“${formData.title || '未命名作品'}”，题材为 ${formData.genre}，目标字数 ${formData.targetWordCount}。你可以选择直接创建，或让 AI 先帮你生成初始设定与大纲。`
               }}
             </p>
 
             <div v-if="!isGenerating" class="package-card">
               <div class="package-head">
-                <span>设定集包</span>
-                <span>包含 4 个模块</span>
+                <span>初始化方式</span>
+                <span>{{ formData.shouldGenerate ? 'AI 生成初始内容' : '直接创建空白项目' }}</span>
               </div>
+              <n-checkbox v-model:checked="formData.shouldGenerate" class="bootstrap-toggle">
+                自动调用 AI 生成初始世界观与大纲
+              </n-checkbox>
               <ul>
-                <li><CheckCircle2 :size="16" /> 基础世界观与地理设定</li>
-                <li><CheckCircle2 :size="16" /> 主要势力与阵营关系</li>
-                <li><CheckCircle2 :size="16" /> 核心角色档案 (3-5名)</li>
-                <li><CheckCircle2 :size="16" /> 三幕结构剧情大纲</li>
+                <li><CheckCircle2 :size="16" /> 项目标题、题材与目标字数会直接写入项目卡片</li>
+                <li><CheckCircle2 :size="16" /> 自动生成时，会创建首批世界观词条和章节大纲</li>
+                <li><CheckCircle2 :size="16" /> 系统会同步创建可直接进入写作的章节草稿</li>
+                <li><CheckCircle2 :size="16" /> 关闭自动生成时，仅保留空白工作区和首章草稿</li>
               </ul>
             </div>
           </div>
@@ -191,7 +242,7 @@ function goNext(): void {
           </template>
           <template v-else>
             <Sparkles v-if="!isGenerating" :size="18" />
-            <span>{{ isGenerating ? '生成中...' : '开始 AI 构建' }}</span>
+            <span>{{ isGenerating ? '创建中...' : formData.shouldGenerate ? '开始 AI 构建' : '直接创建项目' }}</span>
           </template>
         </button>
       </div>
@@ -524,6 +575,14 @@ function goNext(): void {
 
 .package-head span:last-child {
   color: #374151;
+  font-weight: 600;
+}
+
+.bootstrap-toggle {
+  display: inline-flex;
+  margin-bottom: 16px;
+  color: #374151;
+  font-size: 14px;
   font-weight: 600;
 }
 

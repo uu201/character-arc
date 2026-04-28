@@ -17,6 +17,7 @@ import {
 } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTooltip, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
+import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
 import type { ChapterDraft, ChapterVersion } from '@/types/app'
 import type { DropdownOption, SelectOption } from 'naive-ui'
 
@@ -27,18 +28,20 @@ const props = defineProps<{
 const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
-const saveState = ref<'saved' | 'saving'>('saved')
+const saveState = ref<'typing' | 'idle'>('idle')
 const editorVisible = ref(false)
 const versionHistoryVisible = ref(false)
 const draggingChapterId = ref<string | null>(null)
 const dragTargetChapterId = ref<string | null>(null)
 const chapterForm = reactive({
+  volumeId: '',
   title: '',
   summary: '',
   status: 'draft' as ChapterDraft['status'],
   wordTarget: ''
 })
 let saveTimer: number | null = null
+
 const chapterStatusOptions: SelectOption[] = [
   { label: '草稿中', value: 'draft' },
   { label: '待检查', value: 'review' },
@@ -49,14 +52,15 @@ const chapterMenuOptions: DropdownOption[] = [
   { key: 'edit', label: '编辑章节信息' },
   { key: 'delete', label: '删除章节' }
 ]
-
+const volumeOptions = computed<SelectOption[]>(() =>
+  appStore.outlineVolumes.map((volume, index) => ({
+    label: formatVolumeLabel(volume, index, 'formal'),
+    value: volume.id
+  }))
+)
 const currentWordCount = computed(() => {
   const content = appStore.selectedChapter?.content.trim() ?? ''
-  if (!content) {
-    return 0
-  }
-
-  return content.length
+  return content ? content.length : 0
 })
 const currentChapterStatusLabel = computed(() => {
   const status = appStore.selectedChapter?.status ?? 'draft'
@@ -82,19 +86,56 @@ const selectedChapterIndex = computed(() => {
   const index = appStore.chapters.findIndex((chapter) => chapter.id === currentId)
   return index >= 0 ? index + 1 : 1
 })
-const chapterCountLabel = computed(() => `${appStore.chapters.length} 个章节`)
-const versionCountLabel = computed(() => `${currentChapterVersions.value.length} 个版本`)
-
-const filteredChapters = computed(() => {
-  const query = props.searchQuery?.trim().toLowerCase() ?? ''
-  if (!query) {
-    return appStore.chapters
+const selectedChapterIndexInVolume = computed(() => {
+  const selectedVolumeId = appStore.selectedChapter?.volumeId
+  if (!selectedVolumeId || !appStore.selectedChapterId) {
+    return 1
   }
 
-  return appStore.chapters.filter((chapter) =>
-    `${chapter.title} ${chapter.summary} ${chapter.status} ${chapter.wordTarget} ${chapter.content}`.toLowerCase().includes(query)
-  )
+  const chaptersInVolume = appStore.chapters.filter((chapter) => chapter.volumeId === selectedVolumeId)
+  const index = chaptersInVolume.findIndex((chapter) => chapter.id === appStore.selectedChapterId)
+  return index >= 0 ? index + 1 : 1
 })
+const currentVolumeIndex = computed(() =>
+  appStore.outlineVolumes.findIndex((volume) => volume.id === appStore.selectedChapterVolume?.id)
+)
+const currentVolumeLabel = computed(() => {
+  if (!appStore.selectedChapterVolume) {
+    return '未分卷'
+  }
+
+  return formatVolumeLabel(appStore.selectedChapterVolume, Math.max(currentVolumeIndex.value, 0), 'compact')
+})
+const chapterCountLabel = computed(() => `${appStore.chapters.length} 个章节`)
+const volumeCountLabel = computed(() => `${appStore.outlineVolumes.length} 个分卷`)
+const versionCountLabel = computed(() => `${currentChapterVersions.value.length} 个版本`)
+const saveStatusText = computed(() => {
+  if (saveState.value === 'typing') {
+    return '正在整理草稿...'
+  }
+
+  if (appStore.isPersistencePending) {
+    return appStore.isLiveAutoSave ? '自动保存排队中...' : `已加入自动保存队列（${appStore.autoSaveIntervalLabel}）`
+  }
+
+  return '已保存草稿'
+})
+const filteredChapterGroups = computed(() => {
+  const query = props.searchQuery?.trim().toLowerCase() ?? ''
+  if (!query) {
+    return appStore.chapterVolumeGroups
+  }
+
+  return appStore.chapterVolumeGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((chapter) =>
+        `${chapter.title} ${chapter.summary} ${chapter.status} ${chapter.wordTarget} ${chapter.content}`.toLowerCase().includes(query)
+      )
+    }))
+    .filter((group) => group.items.length > 0)
+})
+const totalVisibleChapters = computed(() => filteredChapterGroups.value.reduce((count, group) => count + group.items.length, 0))
 
 function requestAiPolish(): void {
   appStore.queueAssistantPrompt(
@@ -157,6 +198,7 @@ function openChapterMetaEditor(chapter?: ChapterDraft | null): void {
     return
   }
 
+  chapterForm.volumeId = chapter.volumeId
   chapterForm.title = chapter.title
   chapterForm.summary = chapter.summary
   chapterForm.status = chapter.status
@@ -214,12 +256,18 @@ function submitChapterMeta(): void {
     return
   }
 
+  if (!chapterForm.volumeId) {
+    message.warning('请选择所属分卷')
+    return
+  }
+
   if (!chapterForm.title.trim()) {
     message.warning('请填写章节标题')
     return
   }
 
   appStore.updateChapter(chapter.id, {
+    volumeId: chapterForm.volumeId,
     title: chapterForm.title,
     summary: chapterForm.summary,
     status: chapterForm.status,
@@ -273,7 +321,7 @@ function handleDrop(chapterId: string, event: DragEvent): void {
     return
   }
 
-  // Native drag-and-drop is enough for this first-stage desktop sorter and avoids adding another dependency.
+  // Native drag-and-drop keeps the sidebar light while still covering the chapter reorder use case.
   appStore.moveChapter(sourceId, chapterId)
   dragTargetChapterId.value = null
   draggingChapterId.value = null
@@ -291,15 +339,15 @@ watch(
       return
     }
 
-    saveState.value = 'saving'
+    saveState.value = 'typing'
 
-    // 用一个短防抖模拟真实的自动保存节奏，避免每个按键都刷新状态文字。
+    // Keep the typing feedback brief, then hand status messaging over to the real autosave queue state.
     if (saveTimer) {
       window.clearTimeout(saveTimer)
     }
 
     saveTimer = window.setTimeout(() => {
-      saveState.value = 'saved'
+      saveState.value = 'idle'
     }, 420)
   },
   { deep: true }
@@ -318,10 +366,11 @@ onBeforeUnmount(() => {
       <div class="section-copy">
         <span class="section-kicker">Chapter Studio</span>
         <h2>章节创作</h2>
-        <p>专注写作模式，AI 随时为你提供灵感。</p>
+        <p>按卷查看章节进度，在同一张稿纸上完成写作、版本管理和 AI 辅助。</p>
       </div>
       <div class="section-glance">
         <span class="glance-pill">{{ chapterCountLabel }}</span>
+        <span class="glance-pill soft">{{ volumeCountLabel }}</span>
         <span class="glance-pill soft">{{ versionCountLabel }}</span>
       </div>
     </div>
@@ -331,58 +380,70 @@ onBeforeUnmount(() => {
         <div class="chapter-side-head">
           <div>
             <span class="chapter-side-eyebrow">章节目录</span>
-            <strong>卷一：苏醒之日</strong>
+            <strong>按卷管理你的正文草稿</strong>
           </div>
-          <n-tooltip trigger="hover">
-            <template #trigger>
-              <button class="mini-icon" @click="appStore.createChapter()">
-                <Plus :size="15" />
-              </button>
-            </template>
-            新建章节
-          </n-tooltip>
+          <span class="chapter-side-badge">{{ totalVisibleChapters }} / {{ appStore.chapters.length }}</span>
         </div>
 
         <div class="chapter-side-summary">
           <span>{{ chapterCountLabel }}</span>
-          <span>拖拽排序</span>
+          <span>{{ volumeCountLabel }}</span>
           <span>当前第 {{ selectedChapterIndex }} 章</span>
         </div>
 
-        <div class="chapter-items arc-scrollbar">
-          <button
-            v-for="chapter in filteredChapters"
-            :key="chapter.id"
-            class="chapter-pill"
-            :class="{
-              active: appStore.selectedChapterId === chapter.id,
-              dragging: draggingChapterId === chapter.id,
-              'drop-target': dragTargetChapterId === chapter.id && draggingChapterId !== chapter.id
-            }"
-            draggable="true"
-            @click="appStore.selectChapter(chapter.id)"
-            @dragstart="handleDragStart(chapter.id, $event)"
-            @dragover="handleDragOver(chapter.id, $event)"
-            @drop="handleDrop(chapter.id, $event)"
-            @dragend="resetDragState"
-          >
-            <span class="chapter-pill-grip" @click.stop>
-              <GripVertical :size="14" />
-            </span>
-            <span class="chapter-pill-main">
-              <span class="chapter-pill-label">{{ chapter.title }}</span>
-              <span class="chapter-pill-meta">
-                <span>{{ chapter.wordTarget }}</span>
-                <span class="chapter-pill-dot"></span>
-                <span>{{ chapterStatusOptions.find((option) => option.value === chapter.status)?.label ?? '草稿中' }}</span>
-              </span>
-            </span>
-            <n-dropdown :options="chapterMenuOptions" placement="bottom-end" @select="(key) => handleChapterMenuSelect(key, chapter)">
-              <span class="chapter-pill-action" @click.stop>
-                <MoreVertical :size="14" />
-              </span>
-            </n-dropdown>
-          </button>
+        <div class="chapter-groups arc-scrollbar">
+          <section v-for="group in filteredChapterGroups" :key="group.volume.id" class="chapter-group">
+            <div class="chapter-group-head">
+              <div>
+                <strong>{{ formatVolumeLabel(group.volume, group.index, 'compact') }}</strong>
+                <p>{{ group.items.length }} 个章节 · {{ group.volume.wordTarget }}</p>
+              </div>
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <button class="mini-icon" @click="appStore.createChapter(group.volume.id)">
+                    <Plus :size="15" />
+                  </button>
+                </template>
+                在本卷中新增章节
+              </n-tooltip>
+            </div>
+
+            <div class="chapter-items">
+              <button
+                v-for="chapter in group.items"
+                :key="chapter.id"
+                class="chapter-pill"
+                :class="{
+                  active: appStore.selectedChapterId === chapter.id,
+                  dragging: draggingChapterId === chapter.id,
+                  'drop-target': dragTargetChapterId === chapter.id && draggingChapterId !== chapter.id
+                }"
+                draggable="true"
+                @click="appStore.selectChapter(chapter.id)"
+                @dragstart="handleDragStart(chapter.id, $event)"
+                @dragover="handleDragOver(chapter.id, $event)"
+                @drop="handleDrop(chapter.id, $event)"
+                @dragend="resetDragState"
+              >
+                <span class="chapter-pill-grip" @click.stop>
+                  <GripVertical :size="14" />
+                </span>
+                <span class="chapter-pill-main">
+                  <span class="chapter-pill-label">{{ chapter.title }}</span>
+                  <span class="chapter-pill-meta">
+                    <span>{{ chapter.wordTarget }}</span>
+                    <span class="chapter-pill-dot"></span>
+                    <span>{{ chapterStatusOptions.find((option) => option.value === chapter.status)?.label ?? '草稿中' }}</span>
+                  </span>
+                </span>
+                <n-dropdown :options="chapterMenuOptions" placement="bottom-end" @select="(key) => handleChapterMenuSelect(key, chapter)">
+                  <span class="chapter-pill-action" @click.stop>
+                    <MoreVertical :size="14" />
+                  </span>
+                </n-dropdown>
+              </button>
+            </div>
+          </section>
         </div>
       </aside>
 
@@ -391,8 +452,8 @@ onBeforeUnmount(() => {
           <div class="editor-context">
             <span class="editor-kicker">MANUSCRIPT DESK</span>
             <div class="editor-context-main">
-              <strong>第 {{ selectedChapterIndex }} 章</strong>
-              <span>{{ saveState === 'saving' ? '自动保存中...' : '草稿已同步到本地' }}</span>
+              <strong>{{ currentVolumeLabel }}</strong>
+              <span>{{ saveStatusText }}</span>
             </div>
           </div>
 
@@ -472,7 +533,8 @@ onBeforeUnmount(() => {
               <div class="chapter-meta-strip">
                 <span class="meta-chip" :class="currentChapterStatusTone">{{ currentChapterStatusLabel }}</span>
                 <span class="meta-chip neutral">{{ appStore.selectedChapter?.wordTarget }}</span>
-                <span class="meta-chip ghost">当前第 {{ selectedChapterIndex }} 章</span>
+                <span class="meta-chip neutral">{{ currentVolumeLabel }}</span>
+                <span class="meta-chip ghost">本卷第 {{ selectedChapterIndexInVolume }} 章</span>
               </div>
 
               <input
@@ -482,9 +544,9 @@ onBeforeUnmount(() => {
               />
             </div>
 
-            <div v-if="appStore.selectedChapter?.summary" class="summary-card">
-              <span class="summary-card-label">本章摘要</span>
-              <p>{{ appStore.selectedChapter?.summary }}</p>
+            <div class="summary-card">
+              <span class="summary-card-label">本章定位</span>
+              <p>{{ appStore.selectedChapter?.summary || '待补充章节摘要' }}</p>
             </div>
           </div>
 
@@ -504,17 +566,18 @@ onBeforeUnmount(() => {
             <div class="editor-status-group">
               <span class="status-metric">{{ currentWordCount }} 字</span>
               <span class="status-metric">{{ currentChapterVersions.length }} 个历史版本</span>
+              <span class="status-metric">全书第 {{ selectedChapterIndex }} 章</span>
             </div>
             <span class="status-pill">
               <PenTool :size="12" />
-              {{ saveState === 'saving' ? '自动保存中...' : '已保存草稿' }}
+              {{ saveStatusText }}
             </span>
           </div>
         </div>
       </section>
     </div>
 
-    <div v-if="filteredChapters.length === 0" class="arc-empty-state">
+    <div v-if="filteredChapterGroups.length === 0" class="arc-empty-state">
       没有匹配“{{ props.searchQuery }}”的章节内容。
     </div>
 
@@ -537,7 +600,18 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="version-meta">
-            <span class="meta-chip" :class="version.status === 'final' ? 'success' : version.status === 'polish' ? 'accent' : version.status === 'review' ? 'warning' : 'neutral'">
+            <span
+              class="meta-chip"
+              :class="
+                version.status === 'final'
+                  ? 'success'
+                  : version.status === 'polish'
+                    ? 'accent'
+                    : version.status === 'review'
+                      ? 'warning'
+                      : 'neutral'
+              "
+            >
               {{ chapterStatusOptions.find((option) => option.value === version.status)?.label ?? '草稿中' }}
             </span>
             <span class="meta-chip neutral">{{ version.wordTarget }}</span>
@@ -562,6 +636,9 @@ onBeforeUnmount(() => {
       @close="editorVisible = false"
     >
       <n-form label-placement="top">
+        <n-form-item label="所属分卷">
+          <n-select v-model:value="chapterForm.volumeId" :options="volumeOptions" placeholder="选择这一章所在的分卷" />
+        </n-form-item>
         <n-form-item label="章节标题">
           <n-input v-model:value="chapterForm.title" placeholder="例如：第4章：夜城回响" />
         </n-form-item>
@@ -596,7 +673,7 @@ onBeforeUnmount(() => {
   --chapter-border: rgba(226, 232, 240, 0.72);
   --chapter-surface: rgba(255, 255, 255, 0.88);
   --chapter-muted: #6b7280;
-  max-width: 1260px;
+  max-width: 1320px;
   margin: 0 auto;
 }
 
@@ -604,7 +681,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: 32px;
+  margin-bottom: 28px;
   gap: 18px;
   flex-wrap: wrap;
 }
@@ -669,9 +746,9 @@ onBeforeUnmount(() => {
 
 .chapters-shell {
   display: grid;
-  grid-template-columns: minmax(230px, 270px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
   gap: clamp(18px, 2vw, 24px);
-  min-height: clamp(520px, 60vh, 680px);
+  min-height: clamp(560px, 64vh, 720px);
   align-items: stretch;
 }
 
@@ -711,6 +788,17 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
 }
 
+.chapter-side-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
 .chapter-side-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -732,6 +820,44 @@ onBeforeUnmount(() => {
   line-height: 1.35;
   padding: 8px;
   text-align: center;
+}
+
+.chapter-groups {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.chapter-group {
+  border: 1px solid rgba(226, 232, 240, 0.84);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 12px;
+}
+
+.chapter-group-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 4px 12px;
+}
+
+.chapter-group-head strong {
+  display: block;
+  color: #111827;
+  font-size: 14px;
+}
+
+.chapter-group-head p {
+  margin: 5px 0 0;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .mini-icon {
@@ -757,11 +883,8 @@ onBeforeUnmount(() => {
 
 .chapter-items {
   display: flex;
-  flex: 1;
   flex-direction: column;
   gap: 6px;
-  overflow-y: auto;
-  padding-right: 6px;
 }
 
 .chapter-pill {
@@ -987,19 +1110,14 @@ onBeforeUnmount(() => {
   border-radius: 28px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(252, 252, 251, 1)),
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent 37px,
-      rgba(226, 232, 240, 0.36) 38px
-    );
+    repeating-linear-gradient(to bottom, transparent 0, transparent 37px, rgba(226, 232, 240, 0.36) 38px);
   padding: clamp(22px, 3vw, 34px);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
 .editor-manuscript-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
   gap: 20px;
   align-items: start;
   margin-bottom: 18px;
@@ -1222,25 +1340,14 @@ onBeforeUnmount(() => {
   min-height: 220px;
 }
 
-.helper-fade-enter-active,
-.helper-fade-leave-active {
-  transition: all 0.2s ease;
-}
-
-.helper-fade-enter-from,
-.helper-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-
-@media (max-width: 1080px) {
+@media (max-width: 1180px) {
   .chapters-shell {
     grid-template-columns: minmax(0, 1fr);
     min-height: auto;
   }
 
-  .chapter-items {
-    max-height: 220px;
+  .chapter-groups {
+    max-height: 320px;
   }
 
   .editor-manuscript-head {
@@ -1253,14 +1360,14 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
-  .editor-shell {
-    padding: 14px;
+  .chapter-group-head,
+  .editor-topbar,
+  .version-card-head {
+    flex-direction: column;
   }
 
-  .editor-topbar {
-    align-items: flex-start;
-    flex-direction: column;
-    padding-inline: 4px;
+  .editor-shell {
+    padding: 14px;
   }
 
   .editor-manuscript {
@@ -1275,10 +1382,6 @@ onBeforeUnmount(() => {
 
   .editor-floating-actions {
     gap: 8px;
-  }
-
-  .version-card-head {
-    flex-direction: column;
   }
 }
 </style>
