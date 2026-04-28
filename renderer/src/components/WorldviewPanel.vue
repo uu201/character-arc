@@ -1,10 +1,25 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { MoreVertical, Plus, Sparkles } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
+
+const props = defineProps<{
+  searchQuery?: string
+}>()
 
 const appStore = useAppStore()
 
 const entryTypes = ['地理', '法则', '物种']
+const filteredEntries = computed(() => {
+  const query = props.searchQuery?.trim().toLowerCase() ?? ''
+  if (!query) {
+    return appStore.worldviewEntries
+  }
+
+  return appStore.worldviewEntries.filter((entry) =>
+    `${entry.title} ${entry.content}`.toLowerCase().includes(query)
+  )
+})
 </script>
 
 <template>
@@ -28,7 +43,7 @@ const entryTypes = ['地理', '法则', '物种']
 
     <div class="world-grid">
       <article
-        v-for="(entry, index) in appStore.worldviewEntries"
+        v-for="(entry, index) in filteredEntries"
         :key="entry.id"
         class="world-card"
         :style="{ animationDelay: `${index * 70}ms` }"
@@ -43,10 +58,14 @@ const entryTypes = ['地理', '法则', '物种']
         <p>{{ entry.content }}</p>
       </article>
 
-      <button class="empty-card">
+      <button v-if="!props.searchQuery" class="empty-card">
         <Plus :size="28" />
         <span>添加新设定</span>
       </button>
+    </div>
+
+    <div v-if="filteredEntries.length === 0" class="empty-state">
+      没有匹配“{{ props.searchQuery }}”的世界观设定。
     </div>
   </section>
 </template>
@@ -225,6 +244,16 @@ const entryTypes = ['地理', '法则', '物种']
   background: color-mix(in srgb, var(--arc-primary) 5%, white);
   border-color: color-mix(in srgb, var(--arc-primary) 20%, white);
   color: var(--arc-primary);
+}
+
+.empty-state {
+  margin-top: 18px;
+  border: 1px dashed rgba(209, 213, 219, 0.95);
+  border-radius: 22px;
+  color: #86868b;
+  font-size: 14px;
+  padding: 22px;
+  text-align: center;
 }
 
 @media (max-width: 760px) {

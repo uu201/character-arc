@@ -1,8 +1,23 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { GitMerge, Plus, Sparkles } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
+const props = defineProps<{
+  searchQuery?: string
+}>()
+
 const appStore = useAppStore()
+const filteredOutlineItems = computed(() => {
+  const query = props.searchQuery?.trim().toLowerCase() ?? ''
+  if (!query) {
+    return appStore.outlineItems
+  }
+
+  return appStore.outlineItems.filter((item) =>
+    `${item.title} ${item.conflict} ${item.summary}`.toLowerCase().includes(query)
+  )
+})
 </script>
 
 <template>
@@ -21,7 +36,7 @@ const appStore = useAppStore()
     <div class="outline-wrap">
       <div class="volume-title">第一卷：霓虹下的老鼠 (目标字数: 5万字)</div>
       <div class="outline-list">
-        <article v-for="item in appStore.outlineItems" :key="item.id" class="outline-item">
+        <article v-for="item in filteredOutlineItems" :key="item.id" class="outline-item">
           <div class="outline-header">
             <span>{{ item.title }}</span>
             <span class="outline-word">{{ item.wordTarget }}</span>
@@ -31,11 +46,15 @@ const appStore = useAppStore()
             <b>剧情：</b>{{ item.summary }}
           </div>
         </article>
-        <div class="outline-add">
+        <div v-if="!props.searchQuery" class="outline-add">
           <Plus :size="16" />
           <span>新增章节节点</span>
         </div>
       </div>
+    </div>
+
+    <div v-if="filteredOutlineItems.length === 0" class="empty-state">
+      没有匹配“{{ props.searchQuery }}”的大纲节点。
     </div>
   </section>
 </template>
@@ -150,6 +169,16 @@ const appStore = useAppStore()
   cursor: pointer;
   font-size: 14px;
   padding: 18px 20px;
+}
+
+.empty-state {
+  margin-top: 18px;
+  border: 1px dashed rgba(209, 213, 219, 0.95);
+  border-radius: 22px;
+  color: #86868b;
+  font-size: 14px;
+  padding: 22px;
+  text-align: center;
 }
 
 @media (max-width: 760px) {

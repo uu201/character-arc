@@ -8,7 +8,9 @@ const appStore = useAppStore()
 const keyword = ref('')
 
 const filteredCharacters = computed(() => {
-  const value = keyword.value.trim().toLowerCase()
+  // Combine the local search box with the global workspace search for a simple, predictable filter model.
+  const mergedQuery = [props.searchQuery, keyword.value].filter(Boolean).join(' ').trim().toLowerCase()
+  const value = mergedQuery
   if (!value) {
     return appStore.characters
   }
@@ -18,6 +20,10 @@ const filteredCharacters = computed(() => {
     return haystack.includes(value)
   })
 })
+
+const props = defineProps<{
+  searchQuery?: string
+}>()
 
 function tagType(tone?: 'default' | 'danger' | 'success' | 'warning'): 'default' | 'error' | 'success' | 'warning' {
   switch (tone) {
@@ -75,6 +81,10 @@ function tagType(tone?: 'default' | 'danger' | 'success' | 'warning'): 'default'
           <p class="description">{{ character.description }}</p>
         </div>
       </article>
+    </div>
+
+    <div v-if="filteredCharacters.length === 0" class="empty-state">
+      没有匹配当前搜索条件的角色。
     </div>
   </section>
 </template>
@@ -220,6 +230,16 @@ function tagType(tone?: 'default' | 'danger' | 'success' | 'warning'): 'default'
   line-height: 1.5;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+.empty-state {
+  margin-top: 18px;
+  border: 1px dashed rgba(209, 213, 219, 0.95);
+  border-radius: 22px;
+  color: #86868b;
+  font-size: 14px;
+  padding: 22px;
+  text-align: center;
 }
 
 @media (max-width: 860px) {

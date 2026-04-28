@@ -3,6 +3,10 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Globe2, PenTool, Plus, Sparkles } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
+const props = defineProps<{
+  searchQuery?: string
+}>()
+
 const appStore = useAppStore()
 const activeHelper = ref<'polish' | 'world' | null>(null)
 const saveState = ref<'saved' | 'saving'>('saved')
@@ -29,6 +33,16 @@ const helperBody = computed(() =>
     ? '建议把动作句与环境句交错排布，先压低外部噪音，再推角色的身体感知。这样能让“苏醒”场景更有压迫感和电影感。'
     : '当前章节与“夜城酸雨”“义体排异”“底层回收站”三个设定关联度最高，适合在写作过程中快速复查。'
 )
+const filteredChapters = computed(() => {
+  const query = props.searchQuery?.trim().toLowerCase() ?? ''
+  if (!query) {
+    return appStore.chapters
+  }
+
+  return appStore.chapters.filter((chapter) =>
+    `${chapter.title} ${chapter.content}`.toLowerCase().includes(query)
+  )
+})
 
 function toggleHelper(panel: 'polish' | 'world'): void {
   activeHelper.value = activeHelper.value === panel ? null : panel
@@ -82,7 +96,7 @@ onBeforeUnmount(() => {
 
         <div class="chapter-items arc-scrollbar">
           <button
-            v-for="chapter in appStore.chapters"
+            v-for="chapter in filteredChapters"
             :key="chapter.id"
             class="chapter-pill"
             :class="{ active: appStore.selectedChapterId === chapter.id }"
@@ -150,6 +164,10 @@ onBeforeUnmount(() => {
           </span>
         </div>
       </section>
+    </div>
+
+    <div v-if="filteredChapters.length === 0" class="empty-state">
+      没有匹配“{{ props.searchQuery }}”的章节内容。
     </div>
   </section>
 </template>
@@ -408,6 +426,16 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.empty-state {
+  margin-top: 18px;
+  border: 1px dashed rgba(209, 213, 219, 0.95);
+  border-radius: 22px;
+  color: #86868b;
+  font-size: 14px;
+  padding: 22px;
+  text-align: center;
 }
 
 .helper-fade-enter-active,

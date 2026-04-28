@@ -37,6 +37,7 @@ const sidebarItems = [
 const activePanelLabel = computed(
   () => sidebarItems.find((item) => item.id === appStore.activePanel)?.label ?? '项目工作台'
 )
+const normalizedSearch = computed(() => searchKeyword.value.trim())
 
 const isCompactSidebar = computed(() => viewportWidth.value <= 820)
 const shouldRenderSidebarLabels = computed(() => isSidebarOpen.value && !isCompactSidebar.value)
@@ -129,11 +130,11 @@ onBeforeUnmount(() => {
 
       <div class="workspace-body arc-scrollbar">
         <Transition name="panel-switch" mode="out-in">
-          <OverviewPanel v-if="appStore.activePanel === 'overview'" key="overview" />
-          <WorldviewPanel v-else-if="appStore.activePanel === 'world'" key="world" />
-          <CharactersPanel v-else-if="appStore.activePanel === 'characters'" key="characters" />
-          <OutlinePanel v-else-if="appStore.activePanel === 'outline'" key="outline" />
-          <ChaptersPanel v-else-if="appStore.activePanel === 'chapters'" key="chapters" />
+          <OverviewPanel v-if="appStore.activePanel === 'overview'" key="overview" :search-query="normalizedSearch" />
+          <WorldviewPanel v-else-if="appStore.activePanel === 'world'" key="world" :search-query="normalizedSearch" />
+          <CharactersPanel v-else-if="appStore.activePanel === 'characters'" key="characters" :search-query="normalizedSearch" />
+          <OutlinePanel v-else-if="appStore.activePanel === 'outline'" key="outline" :search-query="normalizedSearch" />
+          <ChaptersPanel v-else-if="appStore.activePanel === 'chapters'" key="chapters" :search-query="normalizedSearch" />
           <SettingsPanel v-else key="settings" />
         </Transition>
       </div>
