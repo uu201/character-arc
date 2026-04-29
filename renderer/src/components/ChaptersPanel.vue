@@ -948,6 +948,7 @@ onBeforeUnmount(() => {
   --chapter-muted: #667085;
   --chapter-ink: #18212f;
   --chapter-accent-soft: color-mix(in srgb, var(--arc-primary) 8%, white);
+  --chapter-editor-width: 880px;
   display: flex;
   min-height: 0;
   max-width: none;
@@ -1490,10 +1491,8 @@ onBeforeUnmount(() => {
 }
 
 .editor-meta-stack {
-  /* Keep the chapter title block aligned with the fixed-width writing column on wide screens. */
   min-width: 0;
   flex: 1;
-  width: min(100%, 880px);
 }
 
 .manuscript-heading {
@@ -1980,7 +1979,6 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(248px, 300px);
   align-items: stretch;
-  justify-content: space-between;
   gap: 18px;
   flex: 1;
   min-height: 0;
@@ -1989,19 +1987,14 @@ onBeforeUnmount(() => {
 
 .editor-column {
   display: flex;
+  align-items: stretch;
   min-height: 0;
   min-width: 0;
-  width: min(100%, 880px);
-  max-width: 880px;
   margin: 0;
-  justify-self: start;
 }
 
 .editor-insights {
   min-width: 0;
-  width: 300px;
-  max-width: 300px;
-  justify-self: end;
 }
 
 .editor-insights-rail {
@@ -2146,14 +2139,6 @@ onBeforeUnmount(() => {
 
   .editor-body {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .editor-meta-stack,
-  .editor-column,
-  .editor-insights {
-    width: 100%;
-    max-width: none;
-    justify-self: stretch;
   }
 
   .editor-insights-rail {
