@@ -14,6 +14,7 @@
 .assistant-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   padding: calc(var(--arc-titlebar-height) + 10px) 20px 12px;
   border-bottom: 1px solid rgba(229, 231, 235, 0.78);
@@ -28,6 +29,88 @@
 
 .assistant-title-copy {
   min-width: 0;
+}
+
+.assistant-toolbox-toggle {
+  display: inline-flex;
+  min-width: 150px;
+  max-width: min(54%, 280px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+  border: 1px solid rgba(209, 213, 219, 0.88);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #374151;
+  cursor: pointer;
+  padding: 9px 12px;
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.assistant-toolbox-toggle:hover {
+  border-color: color-mix(in srgb, var(--arc-primary) 18%, white);
+  color: var(--arc-primary);
+}
+
+.assistant-toolbox-toggle:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--arc-primary) 24%, white);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--arc-primary) 10%, transparent);
+}
+
+.assistant-toolbox-toggle-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.assistant-toolbox-toggle-copy strong {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.assistant-toolbox-toggle-copy span {
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-toolbox-toggle-icon {
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.assistant-toolbox-toggle.collapsed .assistant-toolbox-toggle-icon {
+  transform: rotate(-90deg);
+}
+
+.assistant-toolbox {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease;
+}
+
+.assistant-toolbox.collapsed {
+  grid-template-rows: 0fr;
+}
+
+.assistant-toolbox-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .assistant-badge {
@@ -89,31 +172,11 @@
   padding: 0 20px 10px;
 }
 
-.selection-preview {
-  margin: 0 20px 10px;
-  border: 1px solid rgba(229, 231, 235, 0.9);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.88);
-  padding: 9px 12px;
-}
-
 .selection-preview-label {
   display: inline-flex;
-  margin-bottom: 6px;
   color: #6b7280;
   font-size: 11px;
   font-weight: 700;
-}
-
-.selection-preview p {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  color: #374151;
-  font-size: 12px;
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 .control-group {
@@ -291,6 +354,41 @@
   padding: 12px 20px 14px;
 }
 
+.composer-selection-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 12%, rgba(209, 213, 219, 0.88));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--arc-primary) 4%, white);
+  padding: 10px 12px;
+}
+
+.composer-selection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.composer-selection-meta {
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.composer-selection-preview p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .composer-input {
   width: 100%;
   min-height: 92px;
@@ -388,6 +486,10 @@
 }
 
 @media (max-width: 920px) {
+  .assistant-toolbox-toggle {
+    max-width: none;
+  }
+
   .assistant-quick-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -397,11 +499,20 @@
     flex-direction: column;
   }
 
+  .composer-selection-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .message-meta,
   .composer-actions,
   .assistant-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .assistant-toolbox-toggle {
+    width: 100%;
   }
 
   .message-actions,

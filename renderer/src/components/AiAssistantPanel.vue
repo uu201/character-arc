@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ArrowDownToLine, Bot, RotateCcw, SendHorizonal, Square } from 'lucide-vue-next'
+import { ArrowDownToLine, Bot, ChevronDown, RotateCcw, SendHorizonal, Square } from 'lucide-vue-next'
 import { useMessage } from 'naive-ui'
 import { buildChapterAssistantContext } from '@/features/ai/chapterAssistantContext'
 import {
@@ -24,6 +24,7 @@ const streamingReply = ref('')
 const messagesViewport = ref<HTMLElement | null>(null)
 const responseMode = ref<'freeform' | 'polish' | 'continue' | 'suggest' | 'reference'>('freeform')
 const responseLength = ref<'short' | 'medium' | 'long'>('medium')
+const isToolboxCollapsed = ref(isAssistantWindow)
 let removeAiStreamListener: (() => void) | null = null
 
 function toIpcPayload<T>(value: T): T {
@@ -83,6 +84,19 @@ const lastUserPrompt = computed(() => {
     quickAction: quickActionMatch[1]?.trim() || undefined,
     prompt: quickActionMatch[2]?.trim() || lastUserMessage.content
   }
+})
+const activeModeLabel = computed(
+  () => chapterAssistantModeOptions.find((option) => option.value === responseMode.value)?.label ?? '自由提问'
+)
+const activeLengthLabel = computed(
+  () => chapterAssistantLengthOptions.find((option) => option.value === responseLength.value)?.label ?? '适中'
+)
+const toolboxSummary = computed(() => {
+  const summary = [`模式 ${activeModeLabel.value}`, `长度 ${activeLengthLabel.value}`]
+  if (selectedExcerpt.value) {
+    summary.push('含选中文本')
+  }
+  return summary.join(' · ')
 })
 
 async function scrollToBottom(): Promise<void> {
@@ -434,56 +448,68 @@ watch(
           <p>围绕当前章节给建议、润色或续写。</p>
         </div>
       </div>
+      <button
+        type="button"
+        class="assistant-toolbox-toggle"
+        :class="{ collapsed: isToolboxCollapsed }"
+        :title="isToolboxCollapsed ? '展开工具抽屉' : '收起工具抽屉'"
+        @click="isToolboxCollapsed = !isToolboxCollapsed"
+      >
+        <span class="assistant-toolbox-toggle-copy">
+          <strong>{{ isToolboxCollapsed ? '展开工具' : '收起工具' }}</strong>
+          <span>{{ toolboxSummary }}</span>
+        </span>
+        <ChevronDown :size="15" class="assistant-toolbox-toggle-icon" />
+      </button>
     </header>
 
-    <div class="assistant-quick-actions">
-      <button
-        v-for="action in chapterAssistantQuickActions"
-        :key="action.label"
-        class="quick-action"
-        :disabled="isResponding || (action.requiresSelection && !selectedExcerpt)"
-        @click="handleQuickAction(action)"
-      >
-        <component :is="action.icon" :size="14" />
-        <span>{{ action.label }}</span>
-      </button>
-    </div>
-
-    <div v-if="selectedExcerpt" class="selection-preview">
-      <span class="selection-preview-label">当前选中</span>
-      <p>{{ selectedExcerpt }}</p>
-    </div>
-
-    <div class="assistant-controls">
-      <div class="control-group">
-        <span class="control-label">模式</span>
-        <div class="segmented-control">
+    <div class="assistant-toolbox" :class="{ collapsed: isToolboxCollapsed }">
+      <div class="assistant-toolbox-inner">
+        <div class="assistant-quick-actions">
           <button
-            v-for="option in chapterAssistantModeOptions"
-            :key="option.value"
-            class="segment-button"
-            :class="{ active: responseMode === option.value }"
-            :disabled="isResponding"
-            @click="responseMode = option.value"
+            v-for="action in chapterAssistantQuickActions"
+            :key="action.label"
+            class="quick-action"
+            :disabled="isResponding || (action.requiresSelection && !selectedExcerpt)"
+            @click="handleQuickAction(action)"
           >
-            {{ option.label }}
+            <component :is="action.icon" :size="14" />
+            <span>{{ action.label }}</span>
           </button>
         </div>
-      </div>
 
-      <div class="control-group">
-        <span class="control-label">长度</span>
-        <div class="segmented-control compact">
-          <button
-            v-for="option in chapterAssistantLengthOptions"
-            :key="option.value"
-            class="segment-button"
-            :class="{ active: responseLength === option.value }"
-            :disabled="isResponding"
-            @click="responseLength = option.value"
-          >
-            {{ option.label }}
-          </button>
+        <div class="assistant-controls">
+          <div class="control-group">
+            <span class="control-label">模式</span>
+            <div class="segmented-control">
+              <button
+                v-for="option in chapterAssistantModeOptions"
+                :key="option.value"
+                class="segment-button"
+                :class="{ active: responseMode === option.value }"
+                :disabled="isResponding"
+                @click="responseMode = option.value"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <span class="control-label">长度</span>
+            <div class="segmented-control compact">
+              <button
+                v-for="option in chapterAssistantLengthOptions"
+                :key="option.value"
+                class="segment-button"
+                :class="{ active: responseLength === option.value }"
+                :disabled="isResponding"
+                @click="responseLength = option.value"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -543,6 +569,14 @@ watch(
     </div>
 
     <footer class="assistant-composer">
+      <div v-if="selectedExcerpt" class="composer-selection-preview">
+        <div class="composer-selection-head">
+          <span class="selection-preview-label">已附加选中文本</span>
+          <span class="composer-selection-meta">AI 将优先参考这段内容</span>
+        </div>
+        <p>{{ selectedExcerpt }}</p>
+      </div>
+
       <textarea
         v-model="draft"
         class="composer-input"
