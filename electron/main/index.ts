@@ -186,12 +186,12 @@ function createAssistantWindow(): BrowserWindow {
     titleBarOverlay:
       process.platform === 'win32'
         ? {
-            color: '#f5f5f7',
+            color: '#f4f7fb',
             symbolColor: '#1d1d1f',
             height: 28
           }
         : false,
-    backgroundColor: '#f5f5f7',
+    backgroundColor: '#f4f7fb',
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

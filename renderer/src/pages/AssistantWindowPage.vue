@@ -32,8 +32,8 @@ const hasChapterContext = computed(() => Boolean(appStore.currentProject && appS
   min-height: 0;
   padding: 18px;
   background:
-    linear-gradient(180deg, #f1ede5, #f5f2eb 24%, #f4f4f1 100%),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--arc-primary) 12%, white), transparent 28%),
+    linear-gradient(180deg, #f4f6fb, #f7f9fc 24%, #eef2f7 100%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--arc-primary) 10%, white), transparent 28%),
     radial-gradient(circle at bottom left, rgba(255, 255, 255, 0.82), transparent 26%);
 }
 
@@ -43,10 +43,10 @@ const hasChapterContext = computed(() => Boolean(appStore.currentProject && appS
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid rgba(220, 214, 204, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.92);
   border-radius: 26px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 252, 247, 0.88));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(244, 248, 253, 0.9));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.88),
     0 28px 70px rgba(15, 23, 42, 0.08);
@@ -57,7 +57,7 @@ const hasChapterContext = computed(() => Boolean(appStore.currentProject && appS
   min-width: 0;
   border-left: none;
   background:
-    linear-gradient(180deg, rgba(252, 250, 246, 0.94), rgba(248, 245, 238, 0.98)),
+    linear-gradient(180deg, rgba(249, 251, 254, 0.94), rgba(241, 245, 251, 0.98)),
     radial-gradient(circle at top right, color-mix(in srgb, var(--arc-primary) 8%, white), transparent 32%);
 }
 

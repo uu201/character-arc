@@ -1,8 +1,8 @@
 .assistant-shell {
-  --assistant-bg: #f6f4ef;
+  --assistant-bg: #f4f7fb;
   --assistant-surface: rgba(255, 255, 255, 0.78);
   --assistant-surface-strong: rgba(255, 255, 255, 0.94);
-  --assistant-border: rgba(214, 211, 203, 0.88);
+  --assistant-border: rgba(226, 232, 240, 0.9);
   --assistant-ink: #1f2937;
   --assistant-muted: #667085;
   --assistant-soft: color-mix(in srgb, var(--arc-primary) 7%, white);
@@ -15,7 +15,7 @@
   flex-direction: column;
   border-left: 1px solid var(--assistant-border);
   background:
-    linear-gradient(180deg, rgba(252, 250, 245, 0.98), rgba(247, 244, 237, 0.98)),
+    linear-gradient(180deg, rgba(249, 251, 254, 0.98), rgba(241, 245, 251, 0.98)),
     radial-gradient(circle at top right, color-mix(in srgb, var(--arc-primary) 12%, white), transparent 34%);
 }
 
@@ -427,7 +427,7 @@
   gap: 10px;
   border-top: 1px solid var(--assistant-border);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(252, 250, 245, 0.94));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(243, 247, 252, 0.96));
   padding: 14px 22px 18px;
   backdrop-filter: blur(16px);
 }
