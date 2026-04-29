@@ -7,6 +7,23 @@ declare global {
     defaultPath?: string
   }
 
+  type CharacterArcAiStreamEvent =
+    | {
+        streamId: string
+        type: 'chunk'
+        delta: string
+      }
+    | {
+        streamId: string
+        type: 'done' | 'canceled'
+        content?: string
+      }
+    | {
+        streamId: string
+        type: 'error'
+        error: string
+      }
+
   interface Window {
     characterArc: {
       platform: string
@@ -27,6 +44,23 @@ declare global {
         dataUrl?: string
       }>
       generateAi: (payload: unknown) => Promise<{
+        success: boolean
+        result?: unknown
+        error?: string
+      }>
+      startAiStream: (payload: unknown) => Promise<{
+        success: boolean
+        result?: {
+          streamId: string
+        }
+        error?: string
+      }>
+      stopAiStream: (streamId: string) => Promise<{
+        success: boolean
+        error?: string
+      }>
+      onAiStreamEvent: (callback: (payload: CharacterArcAiStreamEvent) => void) => () => void
+      testAiConnection: (settings: unknown) => Promise<{
         success: boolean
         result?: unknown
         error?: string

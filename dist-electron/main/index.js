@@ -3,6 +3,8 @@ const electron = require("electron");
 const node_path = require("node:path");
 const promises = require("node:fs/promises");
 const node_sqlite = require("node:sqlite");
+const node_crypto = require("node:crypto");
+const AI_REQUEST_TIMEOUT_MS = 6e4;
 function resolveProviderDefaults(provider) {
   switch (provider) {
     case "openai":
@@ -18,13 +20,34 @@ function resolveProviderDefaults(provider) {
   }
 }
 function normalizeSettings(settings) {
-  const defaults = resolveProviderDefaults(settings.provider);
+  const provider = settings.provider?.trim().toLowerCase() || "deepseek";
+  const defaults = resolveProviderDefaults(provider);
   return {
-    provider: settings.provider,
+    provider,
     model: settings.model?.trim() || defaults.model,
     apiKey: settings.apiKey?.trim() || "",
     baseUrl: settings.baseUrl?.trim() || defaults.baseUrl
   };
+}
+function isLocalBaseUrl(baseUrl) {
+  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i.test(baseUrl.trim());
+}
+function requiresApiKey(settings) {
+  if (settings.provider === "ollama") {
+    return false;
+  }
+  return !isLocalBaseUrl(settings.baseUrl);
+}
+function validateSettings(settings) {
+  if (!settings.model.trim()) {
+    throw new Error("请先填写模型名称。");
+  }
+  if (!settings.baseUrl.trim()) {
+    throw new Error("请先填写 Base URL。");
+  }
+  if (requiresApiKey(settings) && !settings.apiKey.trim()) {
+    throw new Error("当前模型供应商需要 API Key，请先在设置页填写。");
+  }
 }
 function buildTaskPrompt(task) {
   const { context } = task;
@@ -89,18 +112,44 @@ function buildTaskPrompt(task) {
     const worldviewEntries = Array.isArray(context.worldviewEntries) ? context.worldviewEntries.slice(0, 8).map((entry) => `${String(entry.title ?? "")}：${String(entry.content ?? "")}`).join("\n") : "";
     const characters = Array.isArray(context.characters) ? context.characters.slice(0, 8).map((character) => `${String(character.name ?? "")} / ${String(character.role ?? "")}：${String(character.description ?? "")}`).join("\n") : "";
     const outlineItems = Array.isArray(context.outlineItems) ? context.outlineItems.slice(0, 6).map((item) => `${String(item.title ?? "")}：${String(item.summary ?? "")}`).join("\n") : "";
+    const relatedChapters = Array.isArray(context.relatedChapters) ? context.relatedChapters.slice(0, 2).map((item, index) => {
+      const record = item;
+      return `关联章节${index + 1}：${String(record.title ?? "")}
+摘要：${String(record.summary ?? "")}
+正文预览：${String(record.preview ?? "")}`;
+    }).join("\n\n") : "";
+    const recentMessages = Array.isArray(context.recentMessages) ? context.recentMessages.slice(-4).map((item) => {
+      const record = item;
+      const role = String(record.role ?? "") === "assistant" ? "助理" : "用户";
+      return `${role}：${String(record.content ?? "")}`;
+    }).join("\n") : "";
+    const selectedText = String(context.selectedText ?? "").trim();
+    const quickAction = String(context.quickAction ?? "自由提问");
+    const responseMode = String(context.responseMode ?? "freeform");
+    const responseLength = String(context.responseLength ?? "medium");
+    const modeInstruction = resolveChapterAssistantModeInstruction(responseMode);
+    const lengthInstruction = resolveChapterAssistantLengthInstruction(responseLength);
+    const quickActionInstruction = resolveChapterAssistantQuickActionInstruction(quickAction);
     return {
       system: "你是 CharacterArc 的小说创作助理。请基于当前项目和章节上下文，用中文直接输出可供作者使用的正文、润色稿、分析或建议。不要输出 Markdown 标题，不要解释你是 AI，也不要返回 JSON。",
       user: `请处理当前写作请求，并优先给出可直接使用的结果。
 
 项目标题：${String(context.projectTitle ?? "")}
 项目题材：${String(context.projectGenre ?? "")}
+当前分卷：${String(context.chapterVolumeTitle ?? "")}
+当前分卷摘要：${String(context.chapterVolumeSummary ?? "")}
 当前章节标题：${String(context.chapterTitle ?? "")}
 当前章节摘要：${String(context.chapterSummary ?? "")}
 当前章节状态：${String(context.chapterStatus ?? "")}
 当前章节预估字数：${String(context.chapterWordTarget ?? "")}
 当前章节正文：
 ${String(context.chapterContent ?? "")}
+
+当前选中文本：
+${selectedText || "暂无"}
+
+相邻章节参考：
+${relatedChapters || "暂无"}
 
 相关世界观：
 ${worldviewEntries || "暂无"}
@@ -111,14 +160,24 @@ ${characters || "暂无"}
 相关大纲：
 ${outlineItems || "暂无"}
 
-快捷动作：${String(context.quickAction ?? "自由提问")}
+最近对话：
+${recentMessages || "暂无"}
+
+快捷动作：${quickAction}
+输出模式：${responseMode}
+输出长度：${responseLength}
 用户请求：${String(context.userPrompt ?? "")}
 
 要求：
 1. 回答要紧贴当前章节上下文
 2. 如果请求是润色、续写、描写，请优先输出可直接插入正文的内容
-3. 如果请求是分析或建议，请给出清晰可执行的建议
-4. 控制篇幅，默认输出 120 到 400 字，除非用户明确要求更长`
+3. 如果提供了当前选中文本，并且请求与润色、改写、分析有关，请优先只围绕这段文本处理，不要重写整章
+4. 如果请求是分析或建议，请给出清晰可执行的建议
+5. 避免与最近几条对话重复表达，除非用户明确要求重写
+6. 如果是续写，请尽量与相邻章节和当前分卷的情绪、节奏保持连续
+7. ${modeInstruction}
+8. ${lengthInstruction}
+9. ${quickActionInstruction}`
     };
   }
   return {
@@ -127,14 +186,25 @@ ${outlineItems || "暂无"}
 
 项目标题：${String(context.projectTitle ?? "")}
 项目题材：${String(context.projectGenre ?? "")}
+当前分卷：${String(context.chapterVolumeTitle ?? "")}
+当前分卷摘要：${String(context.chapterVolumeSummary ?? "")}
+当前章节标题：${String(context.chapterTitle ?? "")}
+当前章节摘要：${String(context.chapterSummary ?? "")}
+当前章节预估字数：${String(context.chapterWordTarget ?? "")}
+当前章节正文：
+${String(context.chapterContent ?? "")}
 已有大纲：${JSON.stringify(context.outlineTitles ?? [])}
+当前分卷已有节点：${JSON.stringify(context.currentVolumeOutlineItems ?? [])}
 世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}
+角色参考：${JSON.stringify(context.characters ?? [])}
+补充要求：${String(context.userPrompt ?? "")}
 
 要求：
-1. title 为新的章节标题
+1. title 为新的章节标题，并体现与当前章节的承接关系
 2. wordTarget 使用“预估 xxxx字”格式
-3. conflict 用一句话概括核心冲突
+3. conflict 用一句话概括下一章的核心冲突
 4. summary 用中文描述剧情推进，80 到 180 字
+5. 与当前分卷目标、已有大纲和当前章节情绪保持连续，不要重复已有节点
 
 返回格式：{"title":"","wordTarget":"","conflict":"","summary":""}`
   };
@@ -147,14 +217,202 @@ function extractJsonObject(text) {
   const jsonSlice = firstBrace >= 0 && lastBrace >= 0 ? raw.slice(firstBrace, lastBrace + 1) : raw;
   return JSON.parse(jsonSlice);
 }
+function resolveChapterAssistantModeInstruction(mode) {
+  switch (mode) {
+    case "polish":
+      return "当前模式是“润色”。请尽量直接输出可替换原文的润色结果，减少分析。";
+    case "continue":
+      return "当前模式是“续写”。请紧接现有正文自然续写，保持语气、节奏和剧情方向一致。";
+    case "suggest":
+      return "当前模式是“剧情建议”。请给出 3 到 5 条具体建议，按可执行性优先排序。";
+    case "reference":
+      return "当前模式是“设定查阅”。请优先提炼与当前章节最相关的设定、角色和风险点。";
+    default:
+      return "当前模式是“自由提问”。请根据用户请求选择最合适的回答形式。";
+  }
+}
+function resolveChapterAssistantLengthInstruction(length) {
+  switch (length) {
+    case "short":
+      return "控制在 80 到 180 字，结论优先，避免铺垫过长。";
+    case "long":
+      return "控制在 350 到 800 字，可以展开完整段落或多条具体建议。";
+    case "medium":
+    default:
+      return "控制在 160 到 360 字，兼顾可读性和可执行性。";
+  }
+}
+function resolveChapterAssistantQuickActionInstruction(quickAction) {
+  switch (quickAction) {
+    case "章节标题":
+      return "如果当前任务是生成章节标题，只输出一个最终标题，不要解释、不要分点、不要加书名号；若与通用长度要求冲突，以本条为准。";
+    case "章节摘要":
+      return "如果当前任务是生成章节摘要，请输出一段可直接作为本章定位的简洁摘要，不要分点，不要额外说明。";
+    case "润色选中":
+      return "如果当前任务是润色选中内容，请只输出润色后的最终文本，紧贴当前选中文本，不要解释，不要分点。";
+    case "下一章建议":
+      return "如果当前任务是下一章建议，请输出 3 条具体方案，每条都要体现推进方向、冲突和悬念。";
+    default:
+      return "如果快捷动作已经明确输出形态，请优先遵循该动作要求。";
+  }
+}
+function buildRepairPrompt(task, brokenText) {
+  const originalPrompt = buildTaskPrompt(task);
+  return {
+    system: "你是 JSON 输出修复助手。你只负责把已有回复整理成合法 JSON，不能输出 Markdown、解释或额外文本。",
+    user: `请根据原始任务要求，把下面这段回复修正为严格合法的 JSON。
+
+原始系统要求：
+${originalPrompt.system}
+
+原始用户要求：
+${originalPrompt.user}
+
+模型原始回复：
+${brokenText}
+
+要求：
+1. 只返回一个合法 JSON 对象
+2. 不要补充与任务无关的解释
+3. 缺失字段时，根据原始任务要求补齐最合理的内容`
+  };
+}
+function isStructuredTask(task) {
+  return task.task !== "chapter-assistant";
+}
 function normalizeAssistantText(text) {
   const cleaned = text.replace(/```[\w-]*\n?/g, "").replace(/```/g, "").trim();
   return {
     content: cleaned
   };
 }
-async function requestOpenAiCompatible(settings, prompt) {
-  const response = await fetch(`${settings.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+function normalizeWorldviewResult(result) {
+  const entry = result;
+  return {
+    type: entry.type?.trim() || "地理",
+    title: entry.title?.trim() || "新世界观词条",
+    content: entry.content?.trim() || "AI 未返回有效内容"
+  };
+}
+function normalizeCharacterResult(result) {
+  const character = result;
+  const tags = Array.isArray(character.tags) ? character.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 4) : [];
+  return {
+    name: character.name?.trim() || "新角色",
+    role: character.role?.trim() || "待设定",
+    description: character.description?.trim() || "AI 未返回有效角色描述",
+    tags: tags.length ? tags : ["待完善"]
+  };
+}
+function normalizeOutlineResult(result) {
+  const item = result;
+  return {
+    title: item.title?.trim() || "第1章：新剧情节点",
+    wordTarget: item.wordTarget?.trim() || "预估 3000字",
+    conflict: item.conflict?.trim() || "新的冲突正在酝酿。",
+    summary: item.summary?.trim() || "AI 未返回有效剧情摘要"
+  };
+}
+function normalizeProjectBootstrapResult(result) {
+  const payload = result;
+  const worldviewEntries = Array.isArray(payload.worldviewEntries) ? payload.worldviewEntries.slice(0, 3).map((entry) => normalizeWorldviewResult(entry)) : [];
+  const outlineItems = Array.isArray(payload.outlineItems) ? payload.outlineItems.slice(0, 3).map((item) => normalizeOutlineResult(item)) : [];
+  return {
+    worldviewEntries,
+    outlineItems
+  };
+}
+function isTaskResultUsable(task, result) {
+  if (task.task === "chapter-assistant") {
+    return Boolean(result.content?.trim());
+  }
+  if (task.task === "project-bootstrap") {
+    const payload = result;
+    return payload.worldviewEntries.length > 0 && payload.outlineItems.length > 0;
+  }
+  if (task.task === "worldview-entry") {
+    const entry = result;
+    return Boolean(entry.title.trim() && entry.content.trim());
+  }
+  if (task.task === "character-card") {
+    const character = result;
+    return Boolean(character.name.trim() && character.description.trim());
+  }
+  const outline = result;
+  return Boolean(outline.title.trim() && outline.summary.trim());
+}
+function normalizeTaskResult(task, rawText) {
+  if (task.task === "chapter-assistant") {
+    return normalizeAssistantText(rawText);
+  }
+  const parsed = extractJsonObject(rawText);
+  switch (task.task) {
+    case "worldview-entry":
+      return normalizeWorldviewResult(parsed);
+    case "character-card":
+      return normalizeCharacterResult(parsed);
+    case "project-bootstrap":
+      return normalizeProjectBootstrapResult(parsed);
+    case "outline-item":
+    default:
+      return normalizeOutlineResult(parsed);
+  }
+}
+async function readErrorMessage(response, fallbackLabel) {
+  const fallback = `${fallbackLabel} 请求失败：${response.status} ${response.statusText}`;
+  try {
+    const data = await response.json();
+    const error = data.error ?? data;
+    const message = typeof error.message === "string" && error.message || typeof error.error === "string" && error.error || typeof data.message === "string" && data.message;
+    return message ? `${fallbackLabel} 请求失败：${message}` : fallback;
+  } catch {
+    return fallback;
+  }
+}
+async function performAiRequest(url, init, providerLabel) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response, providerLabel));
+    }
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`${providerLabel} 请求超时，请检查网络、代理或模型服务状态。`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function resolveMaxTokens(task) {
+  switch (task?.task) {
+    case "project-bootstrap":
+      return 1500;
+    case "chapter-assistant":
+      switch (String(task.context.responseLength ?? "medium")) {
+        case "short":
+          return 500;
+        case "long":
+          return 1400;
+        default:
+          return 900;
+      }
+    case "worldview-entry":
+    case "character-card":
+    case "outline-item":
+      return 700;
+    default:
+      return void 0;
+  }
+}
+async function requestOpenAiCompatible(settings, prompt, task) {
+  const response = await performAiRequest(`${settings.baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -163,15 +421,13 @@ async function requestOpenAiCompatible(settings, prompt) {
     body: JSON.stringify({
       model: settings.model,
       temperature: 0.8,
+      ...resolveMaxTokens(task) ? { max_tokens: resolveMaxTokens(task) } : {},
       messages: [
         { role: "system", content: prompt.system },
         { role: "user", content: prompt.user }
       ]
     })
-  });
-  if (!response.ok) {
-    throw new Error(`AI 请求失败：${response.status} ${response.statusText}`);
-  }
+  }, "OpenAI 兼容接口");
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) {
@@ -179,8 +435,8 @@ async function requestOpenAiCompatible(settings, prompt) {
   }
   return content;
 }
-async function requestAnthropic(settings, prompt) {
-  const response = await fetch(`${settings.baseUrl.replace(/\/$/, "")}/v1/messages`, {
+async function requestAnthropic(settings, prompt, task) {
+  const response = await performAiRequest(`${settings.baseUrl.replace(/\/$/, "")}/v1/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -189,16 +445,13 @@ async function requestAnthropic(settings, prompt) {
     },
     body: JSON.stringify({
       model: settings.model,
-      max_tokens: 600,
+      max_tokens: resolveMaxTokens(task) ?? 600,
       system: prompt.system,
       messages: [
         { role: "user", content: prompt.user }
       ]
     })
-  });
-  if (!response.ok) {
-    throw new Error(`Anthropic 请求失败：${response.status} ${response.statusText}`);
-  }
+  }, "Anthropic");
   const data = await response.json();
   const content = data.content?.find((item) => item.type === "text")?.text;
   if (!content) {
@@ -206,19 +459,212 @@ async function requestAnthropic(settings, prompt) {
   }
   return content;
 }
+async function requestAiText(settings, prompt, task) {
+  return settings.provider === "anthropic" ? requestAnthropic(settings, prompt, task) : requestOpenAiCompatible(settings, prompt, task);
+}
+function extractOpenAiCompatibleDelta(payload) {
+  const choice = Array.isArray(payload.choices) ? payload.choices[0] : void 0;
+  const delta = choice?.delta;
+  if (typeof delta?.content === "string") {
+    return String(delta.content);
+  }
+  const contentParts = delta?.content;
+  if (Array.isArray(contentParts)) {
+    return contentParts.map((part) => {
+      const record = part;
+      if (typeof record.text === "string") {
+        return record.text;
+      }
+      return typeof record.content === "string" ? record.content : "";
+    }).join("");
+  }
+  return "";
+}
+function extractAnthropicDelta(eventName, payload) {
+  const payloadType = String(payload.type ?? "");
+  if (eventName === "content_block_delta" || payloadType === "content_block_delta") {
+    const delta = payload.delta;
+    return typeof delta?.text === "string" ? delta.text : "";
+  }
+  return "";
+}
+async function consumeSseResponse(response, onEvent) {
+  if (!response.body) {
+    throw new Error("模型响应不支持流式读取。");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    let separatorIndex = buffer.indexOf("\n\n");
+    while (separatorIndex >= 0) {
+      const rawEvent = buffer.slice(0, separatorIndex).trim();
+      buffer = buffer.slice(separatorIndex + 2);
+      if (rawEvent) {
+        let eventName = "message";
+        const dataLines = [];
+        for (const line of rawEvent.split(/\r?\n/)) {
+          if (line.startsWith("event:")) {
+            eventName = line.slice(6).trim() || eventName;
+            continue;
+          }
+          if (line.startsWith("data:")) {
+            dataLines.push(line.slice(5).trimStart());
+          }
+        }
+        await onEvent(eventName, dataLines.join("\n"));
+      }
+      separatorIndex = buffer.indexOf("\n\n");
+    }
+    if (done) {
+      const trailingEvent = buffer.trim();
+      if (trailingEvent) {
+        let eventName = "message";
+        const dataLines = [];
+        for (const line of trailingEvent.split(/\r?\n/)) {
+          if (line.startsWith("event:")) {
+            eventName = line.slice(6).trim() || eventName;
+            continue;
+          }
+          if (line.startsWith("data:")) {
+            dataLines.push(line.slice(5).trimStart());
+          }
+        }
+        await onEvent(eventName, dataLines.join("\n"));
+      }
+      break;
+    }
+  }
+}
+async function requestOpenAiCompatibleStream(settings, prompt, handlers, signal, task) {
+  const response = await fetch(`${settings.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}
+    },
+    signal,
+    body: JSON.stringify({
+      model: settings.model,
+      temperature: 0.8,
+      stream: true,
+      ...resolveMaxTokens(task) ? { max_tokens: resolveMaxTokens(task) } : {},
+      messages: [
+        { role: "system", content: prompt.system },
+        { role: "user", content: prompt.user }
+      ]
+    })
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "OpenAI 兼容接口"));
+  }
+  let content = "";
+  await consumeSseResponse(response, (eventName, data) => {
+    if (!data || data === "[DONE]") {
+      return;
+    }
+    const payload = JSON.parse(data);
+    const delta = extractOpenAiCompatibleDelta(payload);
+    if (!delta) {
+      return;
+    }
+    content += delta;
+    handlers.onTextDelta(delta);
+  });
+  return content;
+}
+async function requestAnthropicStream(settings, prompt, handlers, signal, task) {
+  const response = await fetch(`${settings.baseUrl.replace(/\/$/, "")}/v1/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": settings.apiKey,
+      "anthropic-version": "2023-06-01"
+    },
+    signal,
+    body: JSON.stringify({
+      model: settings.model,
+      stream: true,
+      max_tokens: resolveMaxTokens(task) ?? 600,
+      system: prompt.system,
+      messages: [
+        { role: "user", content: prompt.user }
+      ]
+    })
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Anthropic"));
+  }
+  let content = "";
+  await consumeSseResponse(response, (eventName, data) => {
+    if (!data) {
+      return;
+    }
+    const payload = JSON.parse(data);
+    const delta = extractAnthropicDelta(eventName, payload);
+    if (!delta) {
+      return;
+    }
+    content += delta;
+    handlers.onTextDelta(delta);
+  });
+  return content;
+}
+async function requestAiTextStream(settings, prompt, handlers, signal, task) {
+  return settings.provider === "anthropic" ? requestAnthropicStream(settings, prompt, handlers, signal, task) : requestOpenAiCompatibleStream(settings, prompt, handlers, signal, task);
+}
+async function resolveTaskResult(task, settings, rawText) {
+  try {
+    const normalized = normalizeTaskResult(task, rawText);
+    if (isTaskResultUsable(task, normalized)) {
+      return normalized;
+    }
+  } catch {
+  }
+  if (!isStructuredTask(task)) {
+    return normalizeTaskResult(task, rawText);
+  }
+  const repairedText = await requestAiText(settings, buildRepairPrompt(task, rawText), task);
+  const repairedResult = normalizeTaskResult(task, repairedText);
+  if (!isTaskResultUsable(task, repairedResult)) {
+    throw new Error("AI 返回的结构化结果不完整，请稍后重试或调整提示词。");
+  }
+  return repairedResult;
+}
+async function testAiConnection(rawSettings) {
+  const settings = normalizeSettings(rawSettings);
+  validateSettings(settings);
+  const probePrompt = {
+    system: "You are a connectivity probe. Reply with CONNECTED only.",
+    user: "Return CONNECTED"
+  };
+  const text = await requestAiText(settings, probePrompt);
+  if (!text.trim()) {
+    throw new Error("模型连接成功，但没有返回可读内容。");
+  }
+  return {
+    provider: settings.provider,
+    model: settings.model
+  };
+}
 async function generateAiTask(task) {
   const settings = normalizeSettings(task.settings);
+  validateSettings(settings);
   const prompt = buildTaskPrompt(task);
-  let rawText = "";
-  if (settings.provider === "anthropic") {
-    rawText = await requestAnthropic(settings, prompt);
-  } else {
-    rawText = await requestOpenAiCompatible(settings, prompt);
+  const rawText = await requestAiText(settings, prompt, task);
+  return resolveTaskResult(task, settings, rawText);
+}
+async function streamAiTask(task, handlers, signal) {
+  if (task.task !== "chapter-assistant") {
+    throw new Error("当前流式输出仅支持章节创作助理。");
   }
-  if (task.task === "chapter-assistant") {
-    return normalizeAssistantText(rawText);
-  }
-  return extractJsonObject(rawText);
+  const settings = normalizeSettings(task.settings);
+  validateSettings(settings);
+  const prompt = buildTaskPrompt(task);
+  const rawText = await requestAiTextStream(settings, prompt, handlers, signal, task);
+  return normalizeAssistantText(rawText);
 }
 const APP_DEFAULT_WIDTH = 1480;
 const APP_DEFAULT_HEIGHT = 920;
@@ -226,6 +672,7 @@ const APP_MIN_WIDTH = 1120;
 const APP_MIN_HEIGHT = 720;
 const WORKSPACE_DB = "workspace.db";
 const WORKSPACE_FILE = "workspace.json";
+const activeAiStreams = /* @__PURE__ */ new Map();
 function getMainWindowMetrics() {
   const { workAreaSize } = electron.screen.getPrimaryDisplay();
   const compactScreen = workAreaSize.width <= 1366 || workAreaSize.height <= 820;
@@ -968,6 +1415,97 @@ electron.ipcMain.handle("characterarc:ai-generate", async (_event, payload) => {
     return {
       success: false,
       error: error instanceof Error ? error.message : "AI 调用失败"
+    };
+  }
+});
+electron.ipcMain.handle("characterarc:ai-stream-start", async (event, payload) => {
+  try {
+    const streamId = `stream-${node_crypto.randomUUID()}`;
+    const controller = new AbortController();
+    activeAiStreams.set(streamId, controller);
+    let streamedContent = "";
+    void (async () => {
+      try {
+        const result = await streamAiTask(
+          payload,
+          {
+            onTextDelta: (delta) => {
+              streamedContent += delta;
+              if (!event.sender.isDestroyed()) {
+                event.sender.send("characterarc:ai-stream-event", {
+                  streamId,
+                  type: "chunk",
+                  delta
+                });
+              }
+            }
+          },
+          controller.signal
+        );
+        if (!event.sender.isDestroyed()) {
+          event.sender.send("characterarc:ai-stream-event", {
+            streamId,
+            type: "done",
+            content: result.content
+          });
+        }
+      } catch (error) {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(
+            "characterarc:ai-stream-event",
+            controller.signal.aborted ? {
+              streamId,
+              type: "canceled",
+              content: streamedContent
+            } : {
+              streamId,
+              type: "error",
+              error: error instanceof Error ? error.message : "AI 流式调用失败"
+            }
+          );
+        }
+      } finally {
+        activeAiStreams.delete(streamId);
+      }
+    })();
+    return {
+      success: true,
+      result: {
+        streamId
+      }
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "AI 流式调用启动失败"
+    };
+  }
+});
+electron.ipcMain.handle("characterarc:ai-stream-stop", async (_event, streamId) => {
+  const key = typeof streamId === "string" ? streamId : "";
+  const controller = activeAiStreams.get(key);
+  if (!controller) {
+    return {
+      success: false,
+      error: "当前没有可停止的生成任务"
+    };
+  }
+  controller.abort();
+  return {
+    success: true
+  };
+});
+electron.ipcMain.handle("characterarc:ai-test-connection", async (_event, settings) => {
+  try {
+    const result = await testAiConnection(settings);
+    return {
+      success: true,
+      result
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "AI 连接测试失败"
     };
   }
 });

@@ -55,35 +55,38 @@ async function handleGenerateEntry(): Promise<void> {
 
   isGenerating.value = true
 
-  const result = await window.characterArc.generateAi({
-    task: 'worldview-entry',
-    settings: appStore.appSettings,
-    context: {
-      projectTitle: appStore.currentProject?.title,
-      projectGenre: appStore.currentProject?.genre,
-      worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
+  try {
+    const result = await window.characterArc.generateAi({
+      task: 'worldview-entry',
+      settings: appStore.appSettings,
+      context: {
+        projectTitle: appStore.currentProject?.title,
+        projectGenre: appStore.currentProject?.genre,
+        worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
+      }
+    })
+
+    if (!result.success || !result.result) {
+      throw new Error(result.error ?? 'AI 扩写失败，请检查模型配置')
     }
-  })
 
-  if (!result.success || !result.result) {
+    const entry = result.result as {
+      type?: string
+      title?: string
+      content?: string
+    }
+
+    appStore.createWorldviewEntry({
+      type: entry.type ?? '地理',
+      title: entry.title ?? '新世界观词条',
+      content: entry.content ?? 'AI 未返回有效内容'
+    })
+    message.success('AI 已生成新的世界观词条草稿')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 扩写失败，请检查模型配置')
+  } finally {
     isGenerating.value = false
-    message.error(result.error ?? 'AI 扩写失败，请检查模型配置')
-    return
   }
-
-  const entry = result.result as {
-    type?: string
-    title?: string
-    content?: string
-  }
-
-  appStore.createWorldviewEntry({
-    type: entry.type ?? '地理',
-    title: entry.title ?? '新世界观词条',
-    content: entry.content ?? 'AI 未返回有效内容'
-  })
-  isGenerating.value = false
-  message.success('AI 已生成新的世界观词条草稿')
 }
 
 function openEditor(entry?: WorldviewEntry): void {

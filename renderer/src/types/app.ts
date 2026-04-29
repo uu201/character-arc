@@ -60,10 +60,18 @@ export interface AssistantPromptRequest {
   quickAction?: string
 }
 
+export type ChapterInsertionMode = 'cursor' | 'append' | 'replace-selection'
+
 export interface ChapterInsertionRequest {
   id: string
   chapterId: string
   content: string
+  mode: ChapterInsertionMode
+}
+
+export interface ChapterSelectionState {
+  chapterId: string
+  text: string
 }
 
 export interface ChapterDraft {

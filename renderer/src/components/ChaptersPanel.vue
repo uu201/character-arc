@@ -607,6 +607,7 @@ onBeforeUnmount(() => {
                   :insertion-request="appStore.pendingChapterInsertion"
                   @update:model-value="appStore.updateChapterContent"
                   @consume-insertion="appStore.consumeChapterInsertion"
+                  @selection-change="appStore.updateChapterSelection"
                 />
               </div>
             </div>

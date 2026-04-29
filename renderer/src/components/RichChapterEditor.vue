@@ -7,7 +7,7 @@ import Underline from '@tiptap/extension-underline'
 import StarterKit from '@tiptap/starter-kit'
 import { Heading2, Heading3, Italic, List, ListOrdered, Pilcrow, Quote, Redo2, RotateCcw, Underline as UnderlineIcon } from 'lucide-vue-next'
 import { ensureEditorHtmlContent, serializePlainTextToHtml } from '@/features/chapters/editorContent'
-import type { ChapterInsertionRequest } from '@/types/app'
+import type { ChapterInsertionRequest, ChapterSelectionState } from '@/types/app'
 
 const props = defineProps<{
   chapterId: string
@@ -18,9 +18,48 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   consumeInsertion: [requestId: string]
+  selectionChange: [selection: ChapterSelectionState | null]
 }>()
 
 const isFocused = ref(false)
+
+type SelectionSnapshotSource = {
+  state: {
+    selection: {
+      from: number
+      to: number
+      empty: boolean
+    }
+    doc: {
+      textBetween: (from: number, to: number, blockSeparator?: string) => string
+    }
+  }
+}
+
+function emitSelectionSnapshot(instance?: SelectionSnapshotSource | null): void {
+  const source = instance ?? editor.value
+  if (!source) {
+    emit('selectionChange', null)
+    return
+  }
+
+  const { from, to, empty } = source.state.selection
+  if (empty) {
+    emit('selectionChange', null)
+    return
+  }
+
+  const text = source.state.doc.textBetween(from, to, '\n\n').trim()
+  emit(
+    'selectionChange',
+    text
+      ? {
+          chapterId: props.chapterId,
+          text
+        }
+      : null
+  )
+}
 
 const editor = useEditor({
   content: ensureEditorHtmlContent(props.modelValue),
@@ -44,8 +83,12 @@ const editor = useEditor({
   onFocus: () => {
     isFocused.value = true
   },
-  onBlur: () => {
+  onBlur: ({ editor: instance }) => {
     isFocused.value = false
+    emitSelectionSnapshot(instance)
+  },
+  onSelectionUpdate: ({ editor: instance }) => {
+    emitSelectionSnapshot(instance)
   },
   onUpdate: ({ editor: instance }) => {
     const html = instance.getHTML()
@@ -56,6 +99,33 @@ const editor = useEditor({
 })
 
 const liveCharacterCount = computed(() => editor.value?.storage.characterCount.characters() ?? 0)
+
+function applyInsertionRequest(request: ChapterInsertionRequest): void {
+  const instance = editor.value
+  if (!instance || request.chapterId !== props.chapterId) {
+    return
+  }
+
+  const htmlContent = serializePlainTextToHtml(request.content)
+
+  // Keep AI insertion inside the editor so we can respect the current selection
+  // and avoid brittle string slicing against serialized HTML.
+  if (request.mode === 'append') {
+    instance.chain().focus('end').insertContent(htmlContent).run()
+    emit('consumeInsertion', request.id)
+    return
+  }
+
+  const selection = instance.state.selection
+  if (request.mode === 'replace-selection' && !selection.empty) {
+    instance.chain().focus().insertContentAt({ from: selection.from, to: selection.to }, htmlContent).run()
+    emit('consumeInsertion', request.id)
+    return
+  }
+
+  instance.chain().focus().insertContent(htmlContent).run()
+  emit('consumeInsertion', request.id)
+}
 
 // Keep editor state in sync with external changes such as chapter switching or restoring a history snapshot.
 watch(
@@ -77,6 +147,7 @@ watch(
 
     if (!previousValue || previousValue[0] !== chapterId) {
       instance.commands.focus('end')
+      emit('selectionChange', null)
     }
   }
 )
@@ -86,13 +157,11 @@ watch(
   () => [props.insertionRequest?.id, props.chapterId, editor.value] as const,
   () => {
     const request = props.insertionRequest
-    const instance = editor.value
-    if (!request || !instance || request.chapterId !== props.chapterId) {
+    if (!request) {
       return
     }
 
-    instance.chain().focus().insertContent(serializePlainTextToHtml(request.content)).run()
-    emit('consumeInsertion', request.id)
+    applyInsertionRequest(request)
   }
 )
 

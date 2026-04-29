@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { join } from 'node:path'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
-import { generateAiTask, type AiTaskPayload } from './ai'
+import { randomUUID } from 'node:crypto'
+import { generateAiTask, streamAiTask, testAiConnection, type AiTaskPayload } from './ai'
 
 const APP_DEFAULT_WIDTH = 1480
 const APP_DEFAULT_HEIGHT = 920
@@ -10,6 +11,7 @@ const APP_MIN_WIDTH = 1120
 const APP_MIN_HEIGHT = 720
 const WORKSPACE_DB = 'workspace.db'
 const WORKSPACE_FILE = 'workspace.json'
+const activeAiStreams = new Map<string, AbortController>()
 
 function getMainWindowMetrics() {
   const { workAreaSize } = screen.getPrimaryDisplay()
@@ -1079,6 +1081,110 @@ ipcMain.handle('characterarc:ai-generate', async (_event, payload: AiTaskPayload
     return {
       success: false,
       error: error instanceof Error ? error.message : 'AI 调用失败'
+    }
+  }
+})
+
+ipcMain.handle('characterarc:ai-stream-start', async (event, payload: AiTaskPayload) => {
+  try {
+    const streamId = `stream-${randomUUID()}`
+    const controller = new AbortController()
+    activeAiStreams.set(streamId, controller)
+
+    let streamedContent = ''
+    void (async () => {
+      try {
+        const result = await streamAiTask(
+          payload,
+          {
+            onTextDelta: (delta) => {
+              streamedContent += delta
+              if (!event.sender.isDestroyed()) {
+                event.sender.send('characterarc:ai-stream-event', {
+                  streamId,
+                  type: 'chunk',
+                  delta
+                })
+              }
+            }
+          },
+          controller.signal
+        )
+
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('characterarc:ai-stream-event', {
+            streamId,
+            type: 'done',
+            content: result.content
+          })
+        }
+      } catch (error) {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('characterarc:ai-stream-event', controller.signal.aborted
+            ? {
+                streamId,
+                type: 'canceled',
+                content: streamedContent
+              }
+            : {
+                streamId,
+                type: 'error',
+                error: error instanceof Error ? error.message : 'AI 流式调用失败'
+              }
+          )
+        }
+      } finally {
+        activeAiStreams.delete(streamId)
+      }
+    })()
+
+    return {
+      success: true,
+      result: {
+        streamId
+      }
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'AI 流式调用启动失败'
+    }
+  }
+})
+
+ipcMain.handle('characterarc:ai-stream-stop', async (_event, streamId: unknown) => {
+  const key = typeof streamId === 'string' ? streamId : ''
+  const controller = activeAiStreams.get(key)
+  if (!controller) {
+    return {
+      success: false,
+      error: '当前没有可停止的生成任务'
+    }
+  }
+
+  controller.abort()
+  return {
+    success: true
+  }
+})
+
+ipcMain.handle('characterarc:ai-test-connection', async (_event, settings: unknown) => {
+  try {
+    const result = await testAiConnection(settings as {
+      provider: string
+      model: string
+      apiKey: string
+      baseUrl: string
+    })
+
+    return {
+      success: true,
+      result
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'AI 连接测试失败'
     }
   }
 })

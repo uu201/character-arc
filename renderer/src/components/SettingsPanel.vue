@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Cpu, Download, FileJson, FileStack, FileText, FolderOutput, Palette, Save, Users } from 'lucide-vue-next'
+import { ref } from 'vue'
+import { Cpu, Download, FileJson, FileStack, FileText, FolderOutput, Palette, PlugZap, Save, Users } from 'lucide-vue-next'
 import { NButton, NCard, NFormItem, NInput, NSelect, useMessage } from 'naive-ui'
 import { getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { autoSaveOptions } from '@/features/settings/autoSave'
@@ -9,11 +10,18 @@ import type { ThemeName } from '@/types/app'
 
 const appStore = useAppStore()
 const message = useMessage()
+const isTestingAiConnection = ref(false)
 
 const themeOptions = themePresets.map((preset) => ({
   label: preset.label,
   value: preset.name
 }))
+const providerOptions = [
+  { label: 'OpenAI (GPT-4o)', value: 'openai' },
+  { label: 'Anthropic (Claude 3.5)', value: 'anthropic' },
+  { label: 'DeepSeek (DeepSeek-Chat)', value: 'deepseek' },
+  { label: '本地模型 (Ollama)', value: 'ollama' }
+]
 const autoSaveSelectOptions = [...autoSaveOptions]
 const uiScaleOptions = [
   { label: '75%', value: 0.75 },
@@ -23,6 +31,49 @@ const uiScaleOptions = [
   { label: '125%', value: 1.25 },
   { label: '140%', value: 1.4 }
 ]
+
+function resolveProviderDefaults(provider: string): { model: string; baseUrl: string } {
+  switch (provider) {
+    case 'openai':
+      return { model: 'gpt-4o-mini', baseUrl: 'https://api.openai.com/v1' }
+    case 'anthropic':
+      return { model: 'claude-3-5-sonnet-latest', baseUrl: 'https://api.anthropic.com' }
+    case 'ollama':
+      return { model: 'llama3.2', baseUrl: 'http://127.0.0.1:11434/v1' }
+    case 'deepseek':
+    default:
+      return { model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/v1' }
+  }
+}
+
+function handleProviderChange(provider: string): void {
+  const defaults = resolveProviderDefaults(provider)
+  appStore.updateAppSetting('provider', provider)
+  appStore.updateAppSetting('model', defaults.model)
+  appStore.updateAppSetting('baseUrl', defaults.baseUrl)
+}
+
+async function handleTestAiConnection(): Promise<void> {
+  if (isTestingAiConnection.value) {
+    return
+  }
+
+  isTestingAiConnection.value = true
+
+  try {
+    const result = await window.characterArc.testAiConnection(appStore.appSettings)
+    if (!result.success) {
+      throw new Error(result.error ?? '模型连接测试失败')
+    }
+
+    const payload = result.result as { provider?: string; model?: string } | undefined
+    message.success(`模型连接成功：${payload?.provider ?? appStore.appSettings.provider} / ${payload?.model ?? appStore.appSettings.model}`)
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '模型连接测试失败')
+  } finally {
+    isTestingAiConnection.value = false
+  }
+}
 
 function buildExportStem(suffix: string): string {
   const projectTitle = appStore.currentProject?.title?.trim() || 'characterarc'
@@ -200,14 +251,9 @@ async function handleImportJson(): Promise<void> {
         </template>
         <n-form-item label="模型供应商">
           <n-select
-            :options="[
-              { label: 'OpenAI (GPT-4o)', value: 'openai' },
-              { label: 'Anthropic (Claude 3.5)', value: 'anthropic' },
-              { label: 'DeepSeek (DeepSeek-Chat)', value: 'deepseek' },
-              { label: '本地模型 (Ollama)', value: 'ollama' }
-            ]"
+            :options="providerOptions"
             :value="appStore.appSettings.provider"
-            @update:value="(value) => appStore.updateAppSetting('provider', value ?? 'deepseek')"
+            @update:value="(value) => handleProviderChange(value ?? 'deepseek')"
           />
         </n-form-item>
         <n-form-item label="模型名称">
@@ -230,6 +276,14 @@ async function handleImportJson(): Promise<void> {
             @update:value="(value) => appStore.updateAppSetting('baseUrl', value)"
           />
         </n-form-item>
+        <div class="setting-actions ai-actions">
+          <n-button round strong secondary :disabled="isTestingAiConnection" @click="handleTestAiConnection">
+            <template #icon>
+              <PlugZap :size="16" />
+            </template>
+            {{ isTestingAiConnection ? '测试中...' : '测试模型连接' }}
+          </n-button>
+        </div>
       </n-card>
 
       <n-card class="setting-card" :bordered="false">

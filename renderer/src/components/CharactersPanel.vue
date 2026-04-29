@@ -71,38 +71,41 @@ async function handleGenerateCharacter(): Promise<void> {
 
   isGenerating.value = true
 
-  const result = await window.characterArc.generateAi({
-    task: 'character-card',
-    settings: appStore.appSettings,
-    context: {
-      projectTitle: appStore.currentProject?.title,
-      projectGenre: appStore.currentProject?.genre,
-      characterNames: appStore.characters.map((character) => character.name),
-      worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
+  try {
+    const result = await window.characterArc.generateAi({
+      task: 'character-card',
+      settings: appStore.appSettings,
+      context: {
+        projectTitle: appStore.currentProject?.title,
+        projectGenre: appStore.currentProject?.genre,
+        characterNames: appStore.characters.map((character) => character.name),
+        worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
+      }
+    })
+
+    if (!result.success || !result.result) {
+      throw new Error(result.error ?? 'AI 生成角色失败，请检查模型配置')
     }
-  })
 
-  if (!result.success || !result.result) {
+    const character = result.result as {
+      name?: string
+      role?: string
+      description?: string
+      tags?: string[]
+    }
+
+    appStore.createCharacter({
+      name: character.name ?? '新角色',
+      role: character.role ?? '待设定',
+      description: character.description ?? 'AI 未返回有效角色描述',
+      tags: (character.tags ?? ['待完善']).map((label) => ({ label }))
+    })
+    message.success('AI 已生成新的角色草稿')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 生成角色失败，请检查模型配置')
+  } finally {
     isGenerating.value = false
-    message.error(result.error ?? 'AI 生成角色失败，请检查模型配置')
-    return
   }
-
-  const character = result.result as {
-    name?: string
-    role?: string
-    description?: string
-    tags?: string[]
-  }
-
-  appStore.createCharacter({
-    name: character.name ?? '新角色',
-    role: character.role ?? '待设定',
-    description: character.description ?? 'AI 未返回有效角色描述',
-    tags: (character.tags ?? ['待完善']).map((label) => ({ label }))
-  })
-  isGenerating.value = false
-  message.success('AI 已生成新的角色草稿')
 }
 
 function openEditor(character?: CharacterCard): void {

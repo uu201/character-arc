@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue'
+import { computed, ref, toRaw, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { FAST_PERSIST_DELAY_MS, formatAutoSaveIntervalLabel, isLiveAutoSaveInterval, resolveAutoSaveDelayMs } from '@/features/settings/autoSave'
 import {
@@ -11,7 +11,9 @@ import type {
   AssistantPromptRequest,
   AppSettings,
   ChapterDraft,
+  ChapterInsertionMode,
   ChapterInsertionRequest,
+  ChapterSelectionState,
   ChapterVersion,
   ChatMessage,
   CharacterCard,
@@ -202,6 +204,10 @@ function buildWorkspaceMapFromLegacy(payload: LegacyStoredState, selectedProject
   return Object.fromEntries(workspaceEntries)
 }
 
+function toSerializable<T>(value: T): T {
+  return JSON.parse(JSON.stringify(toRaw(value))) as T
+}
+
 export const useAppStore = defineStore('app', () => {
   const stored = loadStoredState()
   const hasHydrated = ref(false)
@@ -219,6 +225,7 @@ export const useAppStore = defineStore('app', () => {
   const appSettings = ref<AppSettings>(stored.appSettings)
   const pendingAssistantRequest = ref<AssistantPromptRequest | null>(null)
   const pendingChapterInsertion = ref<ChapterInsertionRequest | null>(null)
+  const currentChapterSelection = ref<ChapterSelectionState | null>(null)
   const selectedChapterId = ref(stored.workspaces[stored.selectedProjectId]?.chapters[0]?.id ?? '')
 
   const currentWorkspace = computed(
@@ -312,9 +319,9 @@ export const useAppStore = defineStore('app', () => {
     return {
       theme: theme.value,
       selectedProjectId: selectedProjectId.value,
-      projects: projects.value,
-      workspaces: projectWorkspaces.value,
-      appSettings: appSettings.value
+      projects: toSerializable(projects.value),
+      workspaces: toSerializable(projectWorkspaces.value),
+      appSettings: toSerializable(appSettings.value)
     }
   }
 
@@ -671,6 +678,7 @@ export const useAppStore = defineStore('app', () => {
   function selectChapter(chapterId: string): void {
     selectedChapterId.value = chapterId
     pendingChapterInsertion.value = null
+    currentChapterSelection.value = null
     activePanel.value = 'chapters'
     currentView.value = 'chapter-studio'
   }
@@ -699,7 +707,37 @@ export const useAppStore = defineStore('app', () => {
 
     selectedChapterId.value = nextChapterId || selectedChapterId.value
     pendingChapterInsertion.value = null
+    currentChapterSelection.value = null
     activePanel.value = 'chapters'
+    schedulePersist('fast')
+  }
+
+  function createChapterFromOutlineItem(item: Pick<OutlineItem, 'volumeId' | 'title' | 'summary' | 'wordTarget'>): void {
+    let nextChapterId = ''
+    updateCurrentWorkspace((workspace) => {
+      const targetVolumeId = item.volumeId || getWorkspacePrimaryVolumeId(workspace)
+      const nextChapter: ChapterDraft = {
+        id: `chapter-${Date.now()}`,
+        volumeId: targetVolumeId,
+        title: item.title?.trim() || '新章节',
+        summary: item.summary?.trim() || '待补充章节摘要',
+        status: 'draft',
+        wordTarget: item.wordTarget?.trim() || '预估 3000字',
+        content: ''
+      }
+      nextChapterId = nextChapter.id
+
+      return {
+        ...workspace,
+        chapters: insertIntoVolumeSection(workspace.chapters, nextChapter)
+      }
+    })
+
+    selectedChapterId.value = nextChapterId || selectedChapterId.value
+    pendingChapterInsertion.value = null
+    currentChapterSelection.value = null
+    activePanel.value = 'chapters'
+    currentView.value = 'chapter-studio'
     schedulePersist('fast')
   }
 
@@ -814,6 +852,16 @@ export const useAppStore = defineStore('app', () => {
     }
 
     updateChapter(chapter.id, { content: value })
+    schedulePersist('autosave')
+  }
+
+  function updateChapterSummary(value: string): void {
+    const chapter = selectedChapter.value
+    if (!chapter) {
+      return
+    }
+
+    updateChapter(chapter.id, { summary: value })
     schedulePersist('autosave')
   }
 
@@ -978,7 +1026,7 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
-  function insertIntoChapter(content: string): boolean {
+  function insertIntoChapter(content: string, mode: ChapterInsertionMode = 'cursor'): boolean {
     const chapter = selectedChapter.value
     if (!chapter) {
       return false
@@ -992,7 +1040,8 @@ export const useAppStore = defineStore('app', () => {
     pendingChapterInsertion.value = {
       id: `insert-${Date.now()}`,
       chapterId: chapter.id,
-      content: insertion
+      content: insertion,
+      mode
     }
     return true
   }
@@ -1002,6 +1051,25 @@ export const useAppStore = defineStore('app', () => {
       pendingChapterInsertion.value = null
     }
   }
+
+  function updateChapterSelection(selection: ChapterSelectionState | null): void {
+    if (!selection || selection.chapterId !== selectedChapter.value?.id || !selection.text.trim()) {
+      currentChapterSelection.value = null
+      return
+    }
+
+    currentChapterSelection.value = {
+      chapterId: selection.chapterId,
+      text: selection.text.trim()
+    }
+  }
+
+  watch(
+    () => selectedChapterId.value,
+    () => {
+      currentChapterSelection.value = null
+    }
+  )
 
   watch(
     () => appSettings.value.autoSaveInterval,
@@ -1030,9 +1098,11 @@ export const useAppStore = defineStore('app', () => {
     createOutlineVolume,
     createWorldviewEntry,
     createChapter,
+    createChapterFromOutlineItem,
     chapterVolumeGroups,
     currentTheme,
     currentProject,
+    currentChapterSelection,
     currentView,
     hasHydrated,
     initialize,
@@ -1078,6 +1148,8 @@ export const useAppStore = defineStore('app', () => {
     updateProject,
     updateChapter,
     updateChapterContent,
+    updateChapterSelection,
+    updateChapterSummary,
     updateChapterTitle,
     updateCharacter,
     updateOutlineItem,

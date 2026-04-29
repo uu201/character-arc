@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
+import { FilePlus2, MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
@@ -75,40 +75,43 @@ async function handleExpandOutline(): Promise<void> {
 
   isExpanding.value = true
 
-  const result = await window.characterArc.generateAi({
-    task: 'outline-item',
-    settings: appStore.appSettings,
-    context: {
-      projectTitle: appStore.currentProject?.title,
-      projectGenre: appStore.currentProject?.genre,
-      outlineTitles: appStore.outlineItems.map((item) => item.title),
-      worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
+  try {
+    const result = await window.characterArc.generateAi({
+      task: 'outline-item',
+      settings: appStore.appSettings,
+      context: {
+        projectTitle: appStore.currentProject?.title,
+        projectGenre: appStore.currentProject?.genre,
+        outlineTitles: appStore.outlineItems.map((item) => item.title),
+        worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
+      }
+    })
+
+    if (!result.success || !result.result) {
+      throw new Error(result.error ?? 'AI 扩写大纲失败，请检查模型配置')
     }
-  })
 
-  if (!result.success || !result.result) {
+    const item = result.result as {
+      title?: string
+      wordTarget?: string
+      conflict?: string
+      summary?: string
+    }
+
+    const fallbackVolumeId = appStore.selectedChapterVolume?.id || appStore.outlineVolumes[0]?.id
+    appStore.createOutlineItem({
+      volumeId: fallbackVolumeId,
+      title: item.title ?? `第${appStore.outlineItems.length + 1}章：新剧情节点`,
+      wordTarget: item.wordTarget ?? '预估 3000字',
+      conflict: item.conflict ?? '新的冲突正在酝酿。',
+      summary: item.summary ?? 'AI 未返回有效剧情摘要'
+    })
+    message.success('AI 已补充新的大纲节点')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 扩写大纲失败，请检查模型配置')
+  } finally {
     isExpanding.value = false
-    message.error(result.error ?? 'AI 扩写大纲失败，请检查模型配置')
-    return
   }
-
-  const item = result.result as {
-    title?: string
-    wordTarget?: string
-    conflict?: string
-    summary?: string
-  }
-
-  const fallbackVolumeId = appStore.selectedChapterVolume?.id || appStore.outlineVolumes[0]?.id
-  appStore.createOutlineItem({
-    volumeId: fallbackVolumeId,
-    title: item.title ?? `第${appStore.outlineItems.length + 1}章：新剧情节点`,
-    wordTarget: item.wordTarget ?? '预估 3000字',
-    conflict: item.conflict ?? '新的冲突正在酝酿。',
-    summary: item.summary ?? 'AI 未返回有效剧情摘要'
-  })
-  isExpanding.value = false
-  message.success('AI 已补充新的大纲节点')
 }
 
 function openEditor(item?: OutlineItem): void {
@@ -166,6 +169,13 @@ function submitVolume(): void {
   }
 
   volumeEditorVisible.value = false
+}
+
+function handleCreateChapterFromOutline(item: OutlineItem): void {
+  // Carry the outline node's core planning fields straight into a fresh chapter
+  // draft so the writer can continue from structure into prose immediately.
+  appStore.createChapterFromOutlineItem(item)
+  message.success('已根据大纲节点创建章节草稿')
 }
 
 function handleMenuSelect(action: string | number, item: OutlineItem): void {
@@ -235,6 +245,12 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
             <div class="outline-header">
               <span class="outline-title">{{ item.title }}</span>
               <div class="outline-actions">
+                <n-button tertiary size="small" @click.stop="handleCreateChapterFromOutline(item)">
+                  <template #icon>
+                    <FilePlus2 :size="14" />
+                  </template>
+                  创建章节
+                </n-button>
                 <span class="outline-word">{{ item.wordTarget }}</span>
                 <n-dropdown :options="menuOptions" placement="bottom-end" @select="(key) => handleMenuSelect(key, item)">
                   <button class="more-button" @click.stop>
