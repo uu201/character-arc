@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BookOpenText, FileText, GitMerge, Globe2, Lightbulb, Search, Sparkles, Users } from 'lucide-vue-next'
+import { BookOpenText, FileText, GitMerge, Globe2, Lightbulb, Network, Search, Sparkles, Users } from 'lucide-vue-next'
 import { getChapterCharacterCount, getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { useAppStore } from '@/stores/app'
 import type { PanelName } from '@/types/app'
@@ -60,6 +60,61 @@ const resultGroups = computed<ResultGroup[]>(() => {
       meta: character.role || '待设定'
     }))
 
+  const relationItems = [
+    ...appStore.organizations
+      .filter((organization) =>
+        `${organization.name} ${organization.type} ${organization.description} ${organization.motto}`
+          .toLowerCase()
+          .includes(query)
+      )
+      .map((organization) => ({
+        id: `organization-${organization.id}`,
+        title: organization.name,
+        summary: organization.description,
+        meta: `组织 · ${organization.type}`
+      })),
+    ...appStore.characterRelationships
+      .filter((relationship) => {
+        const fromCharacter = appStore.characters.find((character) => character.id === relationship.fromCharacterId)
+        const toCharacter = appStore.characters.find((character) => character.id === relationship.toCharacterId)
+
+        return `${relationship.type} ${relationship.description} ${fromCharacter?.name ?? ''} ${toCharacter?.name ?? ''}`
+          .toLowerCase()
+          .includes(query)
+      })
+      .map((relationship) => {
+        const fromCharacter = appStore.characters.find((character) => character.id === relationship.fromCharacterId)
+        const toCharacter = appStore.characters.find((character) => character.id === relationship.toCharacterId)
+
+        return {
+          id: `relationship-${relationship.id}`,
+          title: `${fromCharacter?.name ?? '未绑定角色'} - ${toCharacter?.name ?? '未绑定角色'}`,
+          summary: relationship.description,
+          meta: `关系 · ${relationship.type}`
+        }
+      }),
+    ...appStore.organizationMemberships
+      .filter((membership) => {
+        const character = appStore.characters.find((item) => item.id === membership.characterId)
+        const organization = appStore.organizations.find((item) => item.id === membership.organizationId)
+
+        return `${membership.role} ${membership.notes} ${character?.name ?? ''} ${organization?.name ?? ''}`
+          .toLowerCase()
+          .includes(query)
+      })
+      .map((membership) => {
+        const character = appStore.characters.find((item) => item.id === membership.characterId)
+        const organization = appStore.organizations.find((item) => item.id === membership.organizationId)
+
+        return {
+          id: `membership-${membership.id}`,
+          title: `${character?.name ?? '未绑定角色'} · ${organization?.name ?? '未绑定组织'}`,
+          summary: membership.notes || '待补充成员归属说明',
+          meta: `归属 · ${membership.role}`
+        }
+      })
+  ]
+
   const outlineItems = appStore.outlineItems
     .filter((item) => `${item.title} ${item.conflict} ${item.summary}`.toLowerCase().includes(query))
     .map((item) => ({
@@ -108,6 +163,14 @@ const resultGroups = computed<ResultGroup[]>(() => {
       icon: Users,
       accent: 'rgba(244, 114, 182, 0.12)',
       items: characterItems
+    },
+    {
+      id: 'relations',
+      label: '关系组织',
+      panel: 'relations' as PanelName,
+      icon: Network,
+      accent: 'rgba(59, 130, 246, 0.12)',
+      items: relationItems
     },
     {
       id: 'inspiration',

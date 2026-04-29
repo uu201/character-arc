@@ -6,8 +6,11 @@ import type {
   ChapterDraft,
   ChapterVersion,
   ChatMessage,
+  CharacterRelationship,
   CharacterCard,
   InspirationEntry,
+  OrganizationEntry,
+  OrganizationMembership,
   OutlineItem,
   OutlineVolume,
   ProjectSummary,
@@ -30,6 +33,9 @@ export interface LegacyStoredState {
   projects?: ProjectSummary[]
   worldviewEntries?: WorldviewEntry[]
   characters?: CharacterCard[]
+  organizations?: OrganizationEntry[]
+  characterRelationships?: CharacterRelationship[]
+  organizationMemberships?: OrganizationMembership[]
   inspirationEntries?: InspirationEntry[]
   outlineVolumes?: OutlineVolume[]
   outlineItems?: OutlineItem[]
@@ -46,7 +52,9 @@ export const defaultProjects: ProjectSummary[] = [
     genre: '科幻 / 赛博朋克',
     wordCount: '12.5万字',
     lastEdited: '10分钟前编辑',
-    cover: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)'
+    cover: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)',
+    writingStylePresetId: 'cinematic-cool',
+    writingStylePrompt: ''
   }
 ]
 
@@ -109,6 +117,9 @@ export function normalizeProjectWorkspaceData(
   return {
     worldviewEntries: normalized.worldviewEntries,
     characters: normalized.characters,
+    organizations: normalized.organizations,
+    characterRelationships: normalized.characterRelationships,
+    organizationMemberships: normalized.organizationMemberships,
     inspirationEntries: normalized.inspirationEntries,
     outlineVolumes: normalized.outlineVolumes,
     outlineItems: normalized.outlineItems,
@@ -169,6 +180,9 @@ export function buildWorkspaceMapFromLegacy(
         ? {
             worldviewEntries: payload.worldviewEntries,
             characters: payload.characters,
+            organizations: payload.organizations,
+            characterRelationships: payload.characterRelationships,
+            organizationMemberships: payload.organizationMemberships,
             inspirationEntries: payload.inspirationEntries,
             outlineVolumes: payload.outlineVolumes,
             outlineItems: payload.outlineItems,

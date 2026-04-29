@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { Lightbulb, MoreVertical, Plus, Send, Sparkles, WandSparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NTag, useDialog, useMessage } from 'naive-ui'
 import { getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
+import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { useAppStore } from '@/stores/app'
 import type { DropdownOption } from 'naive-ui'
 import type { InspirationEntry } from '@/types/app'
@@ -23,6 +24,7 @@ type InspirationPackResult = {
 const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
+const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
 const isGenerating = ref(false)
 const editorVisible = ref(false)
 const editingEntryId = ref<string | null>(null)
@@ -108,6 +110,8 @@ async function handleGeneratePack(): Promise<void> {
       context: {
         projectTitle: appStore.currentProject?.title,
         projectGenre: appStore.currentProject?.genre,
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
         chapterTitle: appStore.selectedChapter?.title,
         chapterSummary: appStore.selectedChapter?.summary,
         chapterContent: selectedChapterText.value,

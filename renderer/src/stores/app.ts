@@ -35,7 +35,10 @@ import type {
   ChapterVersion,
   ChatMessage,
   CharacterCard,
+  CharacterRelationship,
   InspirationEntry,
+  OrganizationEntry,
+  OrganizationMembership,
   OutlineItem,
   OutlineVolume,
   PanelName,
@@ -51,9 +54,14 @@ interface ProjectWorkspacePayload {
     genre: string
     wordCount: string
     cover?: string
+    writingStylePresetId?: string
+    writingStylePrompt?: string
   }
   worldviewEntries?: WorldviewEntry[]
   characters?: CharacterCard[]
+  organizations?: OrganizationEntry[]
+  characterRelationships?: CharacterRelationship[]
+  organizationMemberships?: OrganizationMembership[]
   inspirationEntries?: InspirationEntry[]
   outlineVolumes?: OutlineVolume[]
   outlineItems?: OutlineItem[]
@@ -92,6 +100,13 @@ function reindexInspirationEntries(entries: InspirationEntry[]): InspirationEntr
   }))
 }
 
+function reindexOrganizations(entries: OrganizationEntry[]): OrganizationEntry[] {
+  return entries.map((entry, index) => ({
+    ...entry,
+    sortOrder: index
+  }))
+}
+
 
 export const useAppStore = defineStore('app', () => {
   const stored = loadStoredState()
@@ -120,6 +135,9 @@ export const useAppStore = defineStore('app', () => {
   )
   const worldviewEntries = computed(() => currentWorkspace.value.worldviewEntries)
   const characters = computed(() => currentWorkspace.value.characters)
+  const organizations = computed(() => currentWorkspace.value.organizations)
+  const characterRelationships = computed(() => currentWorkspace.value.characterRelationships)
+  const organizationMemberships = computed(() => currentWorkspace.value.organizationMemberships)
   const inspirationEntries = computed(() => currentWorkspace.value.inspirationEntries)
   const outlineItems = computed(() => currentWorkspace.value.outlineItems)
   const chapters = computed(() => currentWorkspace.value.chapters)
@@ -409,6 +427,9 @@ export const useAppStore = defineStore('app', () => {
     project?: Partial<ProjectSummary>
     worldviewEntries?: WorldviewEntry[]
     characters?: CharacterCard[]
+    organizations?: OrganizationEntry[]
+    characterRelationships?: CharacterRelationship[]
+    organizationMemberships?: OrganizationMembership[]
     inspirationEntries?: InspirationEntry[]
     outlineVolumes?: OutlineVolume[]
     outlineItems?: OutlineItem[]
@@ -422,7 +443,9 @@ export const useAppStore = defineStore('app', () => {
       genre: payload.project?.genre?.trim() || '未分类',
       wordCount: payload.project?.wordCount?.trim() || '已导入',
       lastEdited: '刚刚导入',
-      cover: payload.project?.cover || 'linear-gradient(135deg, #9be15d 0%, #00e3ae 100%)'
+      cover: payload.project?.cover || 'linear-gradient(135deg, #9be15d 0%, #00e3ae 100%)',
+      writingStylePresetId: payload.project?.writingStylePresetId?.trim() || 'cinematic-cool',
+      writingStylePrompt: payload.project?.writingStylePrompt?.trim() || ''
     }
 
     projects.value = [project, ...projects.value]
@@ -431,6 +454,9 @@ export const useAppStore = defineStore('app', () => {
       [projectId]: normalizeProjectWorkspaceData({
         worldviewEntries: payload.worldviewEntries,
         characters: payload.characters,
+        organizations: payload.organizations,
+        characterRelationships: payload.characterRelationships,
+        organizationMemberships: payload.organizationMemberships,
         inspirationEntries: payload.inspirationEntries,
         outlineVolumes: payload.outlineVolumes,
         outlineItems: payload.outlineItems,
@@ -509,7 +535,9 @@ export const useAppStore = defineStore('app', () => {
       genre: payload.project.genre,
       wordCount: payload.project.wordCount,
       lastEdited: '刚刚创建',
-      cover: payload.project.cover || 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)'
+      cover: payload.project.cover || 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)',
+      writingStylePresetId: payload.project.writingStylePresetId?.trim() || 'cinematic-cool',
+      writingStylePrompt: payload.project.writingStylePrompt?.trim() || ''
     })
 
     // A new project gets its own isolated workspace instead of reusing the previous project's draft state.
@@ -518,6 +546,9 @@ export const useAppStore = defineStore('app', () => {
       [projectId]: normalizeProjectWorkspaceData({
         worldviewEntries: payload.worldviewEntries,
         characters: payload.characters,
+        organizations: payload.organizations,
+        characterRelationships: payload.characterRelationships,
+        organizationMemberships: payload.organizationMemberships,
         inspirationEntries: payload.inspirationEntries,
         outlineVolumes: nextVolumes,
         outlineItems: payload.outlineItems,
@@ -575,7 +606,10 @@ export const useAppStore = defineStore('app', () => {
             genre: payload.genre?.trim() || project.genre,
             wordCount: payload.wordCount?.trim() || project.wordCount,
             lastEdited: payload.lastEdited?.trim() || '刚刚更新',
-            cover: payload.cover || project.cover
+            cover: payload.cover || project.cover,
+            writingStylePresetId: payload.writingStylePresetId?.trim() || project.writingStylePresetId,
+            writingStylePrompt:
+              payload.writingStylePrompt !== undefined ? payload.writingStylePrompt.trim() : project.writingStylePrompt
           }
         : project
     )
@@ -679,7 +713,192 @@ export const useAppStore = defineStore('app', () => {
   function deleteCharacter(characterId: string): void {
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
-      characters: workspace.characters.filter((character) => character.id !== characterId)
+      characters: workspace.characters.filter((character) => character.id !== characterId),
+      characterRelationships: workspace.characterRelationships.filter(
+        (relationship) =>
+          relationship.fromCharacterId !== characterId && relationship.toCharacterId !== characterId
+      ),
+      organizationMemberships: workspace.organizationMemberships.filter(
+        (membership) => membership.characterId !== characterId
+      )
+    }))
+    schedulePersist('fast')
+  }
+
+  function createOrganization(payload?: Partial<OrganizationEntry>): void {
+    const createdAt = toIsoTimestamp(payload?.createdAt)
+    const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
+
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      organizations: reindexOrganizations([
+        {
+          id: `org-${Date.now()}`,
+          name: payload?.name?.trim() || `新组织 ${workspace.organizations.length + 1}`,
+          type: payload?.type?.trim() || '中立势力',
+          description:
+            payload?.description?.trim() ||
+            '这里记录组织定位、资源边界和它在故事中的作用，方便后续接入关系图与章节推进。',
+          motto: payload?.motto?.trim() || '待补充组织口号',
+          color: payload?.color || 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+          sortOrder: payload?.sortOrder ?? 0,
+          createdAt,
+          updatedAt
+        },
+        ...workspace.organizations
+      ])
+    }))
+    schedulePersist('fast')
+  }
+
+  function updateOrganization(organizationId: string, payload: Partial<OrganizationEntry>): void {
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      organizations: reindexOrganizations(
+        workspace.organizations.map((organization) =>
+          organization.id === organizationId
+            ? {
+                ...organization,
+                name: payload.name?.trim() || organization.name,
+                type: payload.type?.trim() || organization.type,
+                description: payload.description?.trim() || organization.description,
+                motto: payload.motto?.trim() || organization.motto,
+                color: payload.color || organization.color,
+                updatedAt: toIsoTimestamp(payload.updatedAt || new Date().toISOString())
+              }
+            : organization
+        )
+      )
+    }))
+    schedulePersist('fast')
+  }
+
+  function deleteOrganization(organizationId: string): void {
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      organizations: reindexOrganizations(
+        workspace.organizations.filter((organization) => organization.id !== organizationId)
+      ),
+      organizationMemberships: workspace.organizationMemberships.filter(
+        (membership) => membership.organizationId !== organizationId
+      )
+    }))
+    schedulePersist('fast')
+  }
+
+  function createCharacterRelationship(payload?: Partial<CharacterRelationship>): void {
+    const createdAt = toIsoTimestamp(payload?.createdAt)
+    const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
+    const fallbackFromCharacterId = payload?.fromCharacterId || characters.value[0]?.id || ''
+    const fallbackToCharacterId =
+      payload?.toCharacterId ||
+      characters.value.find((character) => character.id !== fallbackFromCharacterId)?.id ||
+      fallbackFromCharacterId
+
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      characterRelationships: [
+        {
+          id: `relationship-${Date.now()}`,
+          fromCharacterId: fallbackFromCharacterId,
+          toCharacterId: fallbackToCharacterId,
+          type: payload?.type?.trim() || '待定义关系',
+          description:
+            payload?.description?.trim() ||
+            '补充两人之间的合作、对立、情感张力或利益绑定，后续可直接服务章节冲突编排。',
+          intensity:
+            payload?.intensity !== undefined && Number.isFinite(payload.intensity)
+              ? Math.min(100, Math.max(0, payload.intensity))
+              : 50,
+          createdAt,
+          updatedAt
+        },
+        ...workspace.characterRelationships
+      ]
+    }))
+    schedulePersist('fast')
+  }
+
+  function updateCharacterRelationship(relationshipId: string, payload: Partial<CharacterRelationship>): void {
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      characterRelationships: workspace.characterRelationships.map((relationship) =>
+        relationship.id === relationshipId
+          ? {
+              ...relationship,
+              fromCharacterId: payload.fromCharacterId || relationship.fromCharacterId,
+              toCharacterId: payload.toCharacterId || relationship.toCharacterId,
+              type: payload.type?.trim() || relationship.type,
+              description: payload.description?.trim() || relationship.description,
+              intensity:
+                payload.intensity !== undefined && Number.isFinite(payload.intensity)
+                  ? Math.min(100, Math.max(0, payload.intensity))
+                  : relationship.intensity,
+              updatedAt: toIsoTimestamp(payload.updatedAt || new Date().toISOString())
+            }
+          : relationship
+      )
+    }))
+    schedulePersist('fast')
+  }
+
+  function deleteCharacterRelationship(relationshipId: string): void {
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      characterRelationships: workspace.characterRelationships.filter(
+        (relationship) => relationship.id !== relationshipId
+      )
+    }))
+    schedulePersist('fast')
+  }
+
+  function createOrganizationMembership(payload?: Partial<OrganizationMembership>): void {
+    const createdAt = toIsoTimestamp(payload?.createdAt)
+    const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
+
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      organizationMemberships: [
+        {
+          id: `membership-${Date.now()}`,
+          characterId: payload?.characterId || workspace.characters[0]?.id || '',
+          organizationId: payload?.organizationId || workspace.organizations[0]?.id || '',
+          role: payload?.role?.trim() || '普通成员',
+          notes: payload?.notes?.trim() || '待补充归属说明',
+          createdAt,
+          updatedAt
+        },
+        ...workspace.organizationMemberships
+      ]
+    }))
+    schedulePersist('fast')
+  }
+
+  function updateOrganizationMembership(membershipId: string, payload: Partial<OrganizationMembership>): void {
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      organizationMemberships: workspace.organizationMemberships.map((membership) =>
+        membership.id === membershipId
+          ? {
+              ...membership,
+              characterId: payload.characterId || membership.characterId,
+              organizationId: payload.organizationId || membership.organizationId,
+              role: payload.role?.trim() || membership.role,
+              notes: payload.notes?.trim() || membership.notes,
+              updatedAt: toIsoTimestamp(payload.updatedAt || new Date().toISOString())
+            }
+          : membership
+      )
+    }))
+    schedulePersist('fast')
+  }
+
+  function deleteOrganizationMembership(membershipId: string): void {
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      organizationMemberships: workspace.organizationMemberships.filter(
+        (membership) => membership.id !== membershipId
+      )
     }))
     schedulePersist('fast')
   }
@@ -1327,13 +1546,17 @@ export const useAppStore = defineStore('app', () => {
     backToWorkbench,
     chapterVersions,
     chapters,
+    characterRelationships,
     characters,
     inspirationEntries,
     closeWizard,
     createProject,
     createProjectWorkspace,
     createCharacter,
+    createCharacterRelationship,
     createInspirationEntry,
+    createOrganization,
+    createOrganizationMembership,
     createOutlineItem,
     createOutlineVolume,
     createWorldviewEntry,
@@ -1350,7 +1573,10 @@ export const useAppStore = defineStore('app', () => {
     isPersistencePending,
     deleteChapter,
     deleteCharacter,
+    deleteCharacterRelationship,
     deleteInspirationEntry,
+    deleteOrganization,
+    deleteOrganizationMembership,
     deleteOutlineItem,
     deleteProject,
     deleteWorldviewEntry,
@@ -1366,6 +1592,8 @@ export const useAppStore = defineStore('app', () => {
     openProject,
     openWizard,
     outlineItems,
+    organizationMemberships,
+    organizations,
     outlineVolumeGroups,
     outlineVolumes,
     pendingAssistantRequest,
@@ -1394,7 +1622,10 @@ export const useAppStore = defineStore('app', () => {
     updateChapterSummary,
     updateChapterTitle,
     updateCharacter,
+    updateCharacterRelationship,
     updateInspirationEntry,
+    updateOrganization,
+    updateOrganizationMembership,
     updateOutlineItem,
     updateOutlineVolume,
     updateWorldviewEntry,

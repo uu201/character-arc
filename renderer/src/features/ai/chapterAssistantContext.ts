@@ -1,4 +1,5 @@
 import { pickRelevantInspirationEntries } from '@/features/inspiration/relevance'
+import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import type { ChapterDraft, CharacterCard, InspirationEntry, OutlineItem, OutlineVolume, ProjectSummary, WorldviewEntry } from '@/types/app'
 
 type ChapterAssistantMessage = {
@@ -29,6 +30,7 @@ type ChapterAssistantContextInput = {
 }
 
 export function buildChapterAssistantContext(input: ChapterAssistantContextInput): Record<string, unknown> {
+  const writingStyle = buildProjectWritingStyleContext(input.project)
   const relevantInspirationEntries = pickRelevantInspirationEntries(
     input.inspirationEntries,
     {
@@ -42,6 +44,8 @@ export function buildChapterAssistantContext(input: ChapterAssistantContextInput
   return {
     projectTitle: input.project?.title,
     projectGenre: input.project?.genre,
+    writingStyleLabel: writingStyle.label,
+    writingStylePrompt: writingStyle.prompt,
     chapterVolume: input.chapterVolume?.title,
     chapterTitle: input.chapter?.title,
     chapterSummary: input.chapter?.summary,

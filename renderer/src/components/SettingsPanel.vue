@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Cpu, Download, FileJson, FileStack, FileText, FolderOutput, Lightbulb, Palette, PlugZap, Save, Users } from 'lucide-vue-next'
+import { Cpu, Download, FileJson, FileStack, FileText, FolderOutput, Lightbulb, Network, Palette, PenTool, PlugZap, Save, Users } from 'lucide-vue-next'
 import { NButton, NCard, NFormItem, NInput, NSelect, useMessage } from 'naive-ui'
 import { getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { autoSaveOptions } from '@/features/settings/autoSave'
+import { buildProjectWritingStyleContext, writingStylePresets } from '@/features/writingStyles/presets'
 import { themePresets } from '@/theme/presets'
 import { useAppStore } from '@/stores/app'
 import type { ThemeName } from '@/types/app'
@@ -110,6 +111,27 @@ const uiScaleOptions = [
 const activeProviderPreset = computed(
   () => providerPresets.find((item) => item.value === appStore.appSettings.provider) ?? providerPresets[0]
 )
+const activeWritingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
+
+function updateWritingStylePreset(presetId: string): void {
+  if (!appStore.currentProject?.id) {
+    return
+  }
+
+  appStore.updateProject(appStore.currentProject.id, {
+    writingStylePresetId: presetId
+  })
+}
+
+function updateWritingStylePrompt(prompt: string): void {
+  if (!appStore.currentProject?.id) {
+    return
+  }
+
+  appStore.updateProject(appStore.currentProject.id, {
+    writingStylePrompt: prompt
+  })
+}
 
 function resolveProviderDefaults(provider: string): { model: string; baseUrl: string } {
   const preset = providerPresets.find((item) => item.value === provider)
@@ -164,10 +186,14 @@ async function handleExportJson(): Promise<void> {
     project: appStore.currentProject,
     worldviewEntries: appStore.worldviewEntries,
     characters: appStore.characters,
+    organizations: appStore.organizations,
+    characterRelationships: appStore.characterRelationships,
+    organizationMemberships: appStore.organizationMemberships,
     inspirationEntries: appStore.inspirationEntries,
     outlineVolumes: appStore.outlineVolumes,
     outlineItems: appStore.outlineItems,
     chapters: appStore.chapters,
+    chapterVersions: appStore.chapterVersions,
     exportedAt: new Date().toISOString()
   }
 
@@ -287,6 +313,31 @@ async function handleExportInspiration(): Promise<void> {
   }
 }
 
+async function handleExportRelations(): Promise<void> {
+  const result = await window.characterArc.exportJson({
+    data: {
+      version: '1.0',
+      type: 'relations',
+      project: appStore.currentProject,
+      organizations: appStore.organizations,
+      characterRelationships: appStore.characterRelationships,
+      organizationMemberships: appStore.organizationMemberships,
+      exportedAt: new Date().toISOString()
+    },
+    title: '导出关系组织 JSON',
+    defaultPath: `${buildExportStem('relations')}.json`
+  })
+
+  if (result.success) {
+    message.success('关系组织数据已导出')
+    return
+  }
+
+  if (!result.canceled) {
+    message.error('导出关系组织数据失败，请稍后重试')
+  }
+}
+
 async function handleExportChaptersJson(): Promise<void> {
   const result = await window.characterArc.exportJson({
     data: {
@@ -326,10 +377,14 @@ async function handleImportJson(): Promise<void> {
     project?: import('@/types/app').ProjectSummary
     worldviewEntries?: import('@/types/app').WorldviewEntry[]
     characters?: import('@/types/app').CharacterCard[]
+    organizations?: import('@/types/app').OrganizationEntry[]
+    characterRelationships?: import('@/types/app').CharacterRelationship[]
+    organizationMemberships?: import('@/types/app').OrganizationMembership[]
     inspirationEntries?: import('@/types/app').InspirationEntry[]
     outlineVolumes?: import('@/types/app').OutlineVolume[]
     outlineItems?: import('@/types/app').OutlineItem[]
     chapters?: import('@/types/app').ChapterDraft[]
+    chapterVersions?: import('@/types/app').ChapterVersion[]
   })
   message.success('项目数据已导入')
 }
@@ -476,12 +531,58 @@ async function handleImportJson(): Promise<void> {
               <strong>灵感卡片</strong>
               <span>导出标题、桥段与转折素材</span>
             </button>
+            <button class="module-export-card" @click="handleExportRelations">
+              <Network :size="18" />
+              <strong>关系组织</strong>
+              <span>导出势力、人物关系与成员归属</span>
+            </button>
             <button class="module-export-card" @click="handleExportChaptersJson">
               <FileJson :size="18" />
               <strong>章节 JSON</strong>
               <span>导出正文与元信息</span>
             </button>
           </div>
+        </div>
+      </n-card>
+
+      <n-card class="setting-card" :bordered="false">
+        <template #header>
+          <div class="block-title">
+            <PenTool :size="18" />
+            <span>写作风格系统</span>
+          </div>
+        </template>
+        <div class="style-hero">
+          <div>
+            <strong>{{ activeWritingStyle.label }}</strong>
+            <p>{{ activeWritingStyle.description }}</p>
+          </div>
+          <span class="style-hero-badge">项目默认风格</span>
+        </div>
+        <div class="style-preset-grid">
+          <button
+            v-for="preset in writingStylePresets"
+            :key="preset.id"
+            class="style-preset-card"
+            :class="{ active: appStore.currentProject?.writingStylePresetId === preset.id }"
+            :style="{ background: preset.accent }"
+            @click="updateWritingStylePreset(preset.id)"
+          >
+            <strong>{{ preset.label }}</strong>
+            <span>{{ preset.description }}</span>
+          </button>
+        </div>
+        <n-form-item label="补充风格要求">
+          <n-input
+            type="textarea"
+            :autosize="{ minRows: 4, maxRows: 7 }"
+            :value="appStore.currentProject?.writingStylePrompt ?? ''"
+            @update:value="(value) => updateWritingStylePrompt(value)"
+            placeholder="例如：对话更克制，避免现代网络口头禅；环境描写多用霓虹、雨幕、金属反光等意象。"
+          />
+        </n-form-item>
+        <div class="style-footnote">
+          当前章节助理、灵感生成、大纲扩写和角色/设定生成都会优先参考这里的项目风格。
         </div>
       </n-card>
 
@@ -552,6 +653,99 @@ async function handleImportJson(): Promise<void> {
   border-radius: var(--arc-radius-lg);
   background: var(--arc-bg-surface);
   box-shadow: var(--arc-shadow-sm);
+}
+
+.style-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(191, 219, 254, 0.28), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.96));
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.style-hero strong {
+  display: block;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.style-hero p {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.style-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.95);
+  color: var(--arc-primary);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.style-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.style-preset-card {
+  display: flex;
+  min-height: 96px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(226, 232, 240, 0.94);
+  border-radius: 20px;
+  color: #0f172a;
+  cursor: pointer;
+  padding: 14px;
+  text-align: left;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.style-preset-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.05);
+}
+
+.style-preset-card.active {
+  border-color: color-mix(in srgb, var(--arc-primary) 34%, white);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 10%, transparent);
+}
+
+.style-preset-card strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.style-preset-card span {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.style-footnote {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .provider-hint-block {
@@ -736,6 +930,10 @@ async function handleImportJson(): Promise<void> {
 }
 
 @media (max-width: 760px) {
+  .style-preset-grid {
+    grid-template-columns: 1fr;
+  }
+
   .setting-row {
     align-items: flex-start;
     flex-direction: column;

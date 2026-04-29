@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { FilePlus2, GripVertical, MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
+import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
 import type { DropdownOption, SelectOption } from 'naive-ui'
 import type { OutlineItem, OutlineVolume } from '@/types/app'
@@ -14,6 +15,7 @@ const props = defineProps<{
 const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
+const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
 const isExpanding = ref(false)
 const editorVisible = ref(false)
 const volumeEditorVisible = ref(false)
@@ -84,6 +86,8 @@ async function handleExpandOutline(): Promise<void> {
       context: {
         projectTitle: appStore.currentProject?.title,
         projectGenre: appStore.currentProject?.genre,
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
         outlineTitles: appStore.outlineItems.map((item) => item.title),
         worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
       }

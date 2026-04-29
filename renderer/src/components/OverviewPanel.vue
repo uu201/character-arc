@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BookCopy, Clock3, FileText, GitMerge, Lightbulb, Sparkles, Users } from 'lucide-vue-next'
+import { BookCopy, Clock3, FileText, GitMerge, Lightbulb, Network, Sparkles, Users } from 'lucide-vue-next'
 import { getChapterCharacterCount, getChapterPreviewText } from '@/features/chapters/editorContent'
 import { useAppStore } from '@/stores/app'
 import type { PanelName } from '@/types/app'
@@ -14,6 +14,8 @@ const appStore = useAppStore()
 const normalizedQuery = computed(() => props.searchQuery?.trim().toLowerCase() ?? '')
 const currentProject = computed(() => appStore.currentProject)
 const totalCharacters = computed(() => appStore.characters.length)
+const totalOrganizations = computed(() => appStore.organizations.length)
+const totalRelationships = computed(() => appStore.characterRelationships.length)
 const totalOutlineItems = computed(() => appStore.outlineItems.length)
 const totalInspirationItems = computed(() => appStore.inspirationEntries.length)
 const totalChapters = computed(() => appStore.chapters.length)
@@ -37,6 +39,14 @@ const overviewCards = computed(() => [
     hint: '已建角色',
     icon: Users,
     target: 'characters' as PanelName
+  },
+  {
+    key: 'relations',
+    label: '关系组织',
+    value: `${totalOrganizations.value + totalRelationships.value} 项`,
+    hint: `${totalOrganizations.value} 个组织 / ${totalRelationships.value} 条关系`,
+    icon: Network,
+    target: 'relations' as PanelName
   },
   {
     key: 'inspiration',
@@ -78,6 +88,23 @@ const quickEntries = computed(() => {
       title: character.name,
       description: character.description
     })),
+    ...appStore.organizations.map((organization) => ({
+      id: `organization-${organization.id}`,
+      type: '组织',
+      title: organization.name,
+      description: organization.description
+    })),
+    ...appStore.characterRelationships.map((relationship) => {
+      const fromCharacter = appStore.characters.find((item) => item.id === relationship.fromCharacterId)
+      const toCharacter = appStore.characters.find((item) => item.id === relationship.toCharacterId)
+
+      return {
+        id: `relationship-${relationship.id}`,
+        type: '关系',
+        title: `${fromCharacter?.name ?? '未绑定角色'} - ${toCharacter?.name ?? '未绑定角色'}`,
+        description: relationship.description
+      }
+    }),
     ...appStore.inspirationEntries.map((entry) => ({
       id: `inspiration-${entry.id}`,
       type: '灵感',
@@ -126,6 +153,11 @@ function openEntry(type: string, title: string): void {
 
   if (type === '角色') {
     appStore.setPanel('characters')
+    return
+  }
+
+  if (type === '组织' || type === '关系') {
+    appStore.setPanel('relations')
     return
   }
 

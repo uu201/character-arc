@@ -21,6 +21,7 @@ import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTooltip
 import RichChapterEditor from '@/components/RichChapterEditor.vue'
 import { getChapterCharacterCount, getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { pickRelevantInspirationEntries } from '@/features/inspiration/relevance'
+import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { useAppStore } from '@/stores/app'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
 import type { ChapterDraft, ChapterVersion } from '@/types/app'
@@ -52,6 +53,7 @@ type InspirationPackResult = {
 const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
+const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
 const saveState = ref<'typing' | 'idle'>('idle')
 const editorVisible = ref(false)
 const versionHistoryVisible = ref(false)
@@ -268,6 +270,8 @@ async function requestChapterInspiration(focusType: (typeof chapterInspirationFo
       context: {
         projectTitle: appStore.currentProject?.title,
         projectGenre: appStore.currentProject?.genre,
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
         chapterTitle: chapter.title,
         chapterSummary: chapter.summary,
         chapterContent: currentPlainContent.value,
@@ -332,6 +336,8 @@ async function requestChapterAnalysis(): Promise<void> {
       context: {
         projectTitle: appStore.currentProject?.title,
         projectGenre: appStore.currentProject?.genre,
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
         chapterVolumeTitle: appStore.selectedChapterVolume?.title,
         chapterVolumeSummary: appStore.selectedChapterVolume?.summary,
         chapterTitle: chapter.title,
@@ -670,10 +676,11 @@ onBeforeUnmount(() => {
         <div class="editor-topbar">
           <div class="editor-context">
             <span class="editor-kicker">MANUSCRIPT DESK</span>
-            <div class="editor-context-main">
-              <strong>{{ currentVolumeLabel }}</strong>
-              <span>{{ saveStatusText }}</span>
-            </div>
+          <div class="editor-context-main">
+            <strong>{{ currentVolumeLabel }}</strong>
+            <span>{{ saveStatusText }}</span>
+            <span>风格 {{ writingStyle.label }}</span>
+          </div>
           </div>
 
           <div class="editor-floating-actions">
@@ -763,6 +770,7 @@ onBeforeUnmount(() => {
         <div class="editor-ribbon">
           <div class="editor-ribbon-main">
             <span class="ribbon-chip strong">{{ currentVolumeLabel }}</span>
+            <span class="ribbon-chip accent">{{ writingStyle.label }}</span>
             <span class="ribbon-chip">{{ currentChapterStatusLabel }}</span>
             <span class="ribbon-chip">{{ appStore.selectedChapter?.wordTarget }}</span>
             <span class="ribbon-chip">本卷第 {{ selectedChapterIndexInVolume }} 章</span>
@@ -1602,6 +1610,12 @@ onBeforeUnmount(() => {
   background: var(--chapter-accent-soft);
   color: #1f4ea3;
   border-color: color-mix(in srgb, var(--arc-primary) 16%, var(--chapter-border));
+}
+
+.ribbon-chip.accent {
+  background: rgba(239, 246, 255, 0.95);
+  color: var(--arc-primary);
+  border-color: color-mix(in srgb, var(--arc-primary) 22%, white);
 }
 
 .editor-progress {

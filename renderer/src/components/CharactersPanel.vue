@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { MoreVertical, Plus, Search, Sparkles } from 'lucide-vue-next'
+import { MoreVertical, Network, Plus, Search, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NTag, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
+import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import type { CharacterCard } from '@/types/app'
 import type { DropdownOption } from 'naive-ui'
 
 const appStore = useAppStore()
 const dialog = useDialog()
 const keyword = ref('')
+const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
 
 const filteredCharacters = computed(() => {
   // Combine the local search box with the global workspace search for a simple, predictable filter model.
@@ -78,6 +80,8 @@ async function handleGenerateCharacter(): Promise<void> {
       context: {
         projectTitle: appStore.currentProject?.title,
         projectGenre: appStore.currentProject?.genre,
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
         characterNames: appStore.characters.map((character) => character.name),
         worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
       }
@@ -176,6 +180,10 @@ function handleMenuSelect(action: string | number, character: CharacterCard): vo
         <button class="soft-button" :disabled="isGenerating" @click="handleGenerateCharacter">
           <Sparkles :size="16" />
           <span>{{ isGenerating ? '生成中...' : 'AI生成角色' }}</span>
+        </button>
+        <button class="soft-button" @click="appStore.setPanel('relations')">
+          <Network :size="16" />
+          <span>关系组织</span>
         </button>
         <button class="primary-button" @click="handleCreateCharacter">
           <Plus :size="16" />

@@ -29,6 +29,8 @@ export interface ProjectWorkspaceSeed {
     genre: string
     wordCount: string
     cover: string
+    writingStylePresetId: string
+    writingStylePrompt: string
   }
   worldviewEntries: WorldviewEntry[]
   characters: CharacterCard[]
@@ -116,7 +118,9 @@ export function createProjectWorkspaceSeed(
       title: values.title.trim(),
       genre: values.genre.trim(),
       wordCount: `目标 ${normalizeTargetWordCount(values.targetWordCount)}`,
-      cover: DEFAULT_PROJECT_COVER
+      cover: DEFAULT_PROJECT_COVER,
+      writingStylePresetId: 'cinematic-cool',
+      writingStylePrompt: ''
     },
     worldviewEntries,
     characters: [],

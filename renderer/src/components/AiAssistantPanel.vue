@@ -10,6 +10,7 @@ import {
   type ChapterAssistantQuickAction
 } from '@/features/ai/chapterAssistantOptions'
 import { getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
+import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { useAppStore } from '@/stores/app'
 import { isAssistantWindow } from '@/utils/windowKind'
 import type { ChapterInsertionMode } from '@/types/app'
@@ -32,6 +33,7 @@ function toIpcPayload<T>(value: T): T {
 }
 
 const currentProject = computed(() => appStore.currentProject)
+const writingStyle = computed(() => buildProjectWritingStyleContext(currentProject.value))
 const currentChapter = computed(() => appStore.selectedChapter)
 const selectedExcerpt = computed(() =>
   appStore.currentChapterSelection?.chapterId === currentChapter.value?.id
@@ -181,6 +183,8 @@ async function createOutlineDraft(promptText: string, quickAction: string): Prom
       context: {
         projectTitle: currentProject.value?.title,
         projectGenre: currentProject.value?.genre,
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
         chapterTitle: currentChapter.value?.title,
         chapterSummary: currentChapter.value?.summary,
         chapterWordTarget: currentChapter.value?.wordTarget,

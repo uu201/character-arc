@@ -264,7 +264,9 @@ async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       genre TEXT NOT NULL,
       word_count TEXT NOT NULL,
       last_edited TEXT NOT NULL,
-      cover TEXT NOT NULL
+      cover TEXT NOT NULL,
+      writing_style_preset_id TEXT NOT NULL DEFAULT 'cinematic-cool',
+      writing_style_prompt TEXT NOT NULL DEFAULT ''
     ) STRICT;
 
     CREATE TABLE IF NOT EXISTS worldview_entries (
@@ -287,6 +289,45 @@ async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       description TEXT NOT NULL,
       avatar TEXT NOT NULL,
       tags_json TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS organizations (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      motto TEXT NOT NULL,
+      color TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS character_relationships (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      from_character_id TEXT NOT NULL,
+      to_character_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      intensity INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS organization_memberships (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      notes TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     ) STRICT;
 
@@ -397,6 +438,7 @@ async function ensureWorkspaceDb(): Promise<DatabaseSync> {
 
   ensureAppSettingsColumns(workspaceDb)
   ensureChapterColumns(workspaceDb)
+  ensureProjectColumns(workspaceDb)
   ensureProjectScopedColumns(workspaceDb)
   ensureVolumeColumns(workspaceDb)
 
@@ -441,7 +483,7 @@ function ensureProjectScopedColumns(db: DatabaseSync): void {
     (db.prepare(`SELECT id FROM projects ORDER BY rowid ASC LIMIT 1`).get() as { id?: string } | undefined)?.id ||
     'project-1'
 
-  const projectScopedTables = ['worldview_entries', 'characters', 'inspiration_entries', 'outline_volumes', 'outline_items', 'chapters', 'chapter_versions', 'ai_messages']
+  const projectScopedTables = ['worldview_entries', 'characters', 'organizations', 'character_relationships', 'organization_memberships', 'inspiration_entries', 'outline_volumes', 'outline_items', 'chapters', 'chapter_versions', 'ai_messages']
   for (const tableName of projectScopedTables) {
     const columns = db.prepare(`PRAGMA table_info('${tableName}')`).all() as Array<{ name: string }>
     const columnNames = new Set(columns.map((column) => column.name))
@@ -492,6 +534,8 @@ type WorkspacePayload = {
     wordCount: string
     lastEdited: string
     cover: string
+    writingStylePresetId: string
+    writingStylePrompt: string
   }>
   workspaces: Record<
     string,
@@ -512,6 +556,36 @@ type WorkspacePayload = {
         description: string
         avatar: string
         tags: Array<{ label: string; tone?: string }>
+      }>
+      organizations: Array<{
+        id: string
+        name: string
+        type: string
+        description: string
+        motto: string
+        color: string
+        sortOrder: number
+        createdAt: string
+        updatedAt: string
+      }>
+      characterRelationships: Array<{
+        id: string
+        fromCharacterId: string
+        toCharacterId: string
+        type: string
+        description: string
+        intensity: number
+        createdAt: string
+        updatedAt: string
+      }>
+      organizationMemberships: Array<{
+        id: string
+        characterId: string
+        organizationId: string
+        role: string
+        notes: string
+        createdAt: string
+        updatedAt: string
       }>
       inspirationEntries: Array<{
         id: string
@@ -575,6 +649,19 @@ type WorkspacePayload = {
   }
 }
 
+function ensureProjectColumns(db: DatabaseSync): void {
+  const columns = db.prepare(`PRAGMA table_info('projects')`).all() as Array<{ name: string }>
+  const columnNames = new Set(columns.map((column) => column.name))
+
+  if (!columnNames.has('writing_style_preset_id')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN writing_style_preset_id TEXT NOT NULL DEFAULT 'cinematic-cool';`)
+  }
+
+  if (!columnNames.has('writing_style_prompt')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN writing_style_prompt TEXT NOT NULL DEFAULT '';`)
+  }
+}
+
 type LegacyWorkspacePayload = Omit<WorkspacePayload, 'workspaces'> & {
   worldviewEntries?: Array<{
     id: string
@@ -592,6 +679,36 @@ type LegacyWorkspacePayload = Omit<WorkspacePayload, 'workspaces'> & {
     description: string
     avatar: string
     tags: Array<{ label: string; tone?: string }>
+  }>
+  organizations?: Array<{
+    id: string
+    name: string
+    type: string
+    description: string
+    motto: string
+    color: string
+    sortOrder?: number
+    createdAt?: string
+    updatedAt?: string
+  }>
+  characterRelationships?: Array<{
+    id: string
+    fromCharacterId: string
+    toCharacterId: string
+    type: string
+    description: string
+    intensity?: number
+    createdAt?: string
+    updatedAt?: string
+  }>
+  organizationMemberships?: Array<{
+    id: string
+    characterId: string
+    organizationId: string
+    role: string
+    notes?: string
+    createdAt?: string
+    updatedAt?: string
   }>
   inspirationEntries?: Array<{
     id: string
@@ -670,17 +787,31 @@ function createFallbackVolume(title = '故事开端', volumeId = 'volume-legacy-
   }
 }
 
+function normalizeProjectRecord(project: Partial<WorkspacePayload['projects'][number]> & { id: string }): WorkspacePayload['projects'][number] {
+  return {
+    id: project.id,
+    title: project.title || '未命名作品',
+    genre: project.genre || '未分类',
+    wordCount: project.wordCount || '待统计',
+    lastEdited: project.lastEdited || '刚刚更新',
+    cover: project.cover || 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)',
+    writingStylePresetId: project.writingStylePresetId || 'cinematic-cool',
+    writingStylePrompt: project.writingStylePrompt || ''
+  }
+}
+
 function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWorkspacePayload): WorkspacePayload {
   if ('workspaces' in payload && payload.workspaces) {
     return {
       ...payload,
+      projects: payload.projects.map((project) => normalizeProjectRecord(project)),
       appSettings: normalizeAppSettings(payload.appSettings)
     }
   }
 
   const legacyPayload = payload as LegacyWorkspacePayload
   const normalizedTimestamp = new Date().toISOString()
-  const projects = legacyPayload.projects?.length ? legacyPayload.projects : []
+  const projects = legacyPayload.projects?.length ? legacyPayload.projects.map((project) => normalizeProjectRecord(project)) : []
   const selectedProjectId = legacyPayload.selectedProjectId || projects[0]?.id || 'project-1'
   const workspaces = Object.fromEntries(
     projects.map((project) => [
@@ -702,6 +833,33 @@ function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWorkspacePa
               }))
             : [],
         characters: project.id === selectedProjectId ? legacyPayload.characters ?? [] : [],
+        organizations:
+          project.id === selectedProjectId
+            ? (legacyPayload.organizations ?? []).map((entry, index) => ({
+                ...entry,
+                sortOrder: entry.sortOrder ?? index,
+                createdAt: entry.createdAt || normalizedTimestamp,
+                updatedAt: entry.updatedAt || entry.createdAt || normalizedTimestamp
+              }))
+            : [],
+        characterRelationships:
+          project.id === selectedProjectId
+            ? (legacyPayload.characterRelationships ?? []).map((entry) => ({
+                ...entry,
+                intensity: Number.isFinite(entry.intensity) ? Math.min(100, Math.max(0, entry.intensity ?? 50)) : 50,
+                createdAt: entry.createdAt || normalizedTimestamp,
+                updatedAt: entry.updatedAt || entry.createdAt || normalizedTimestamp
+              }))
+            : [],
+        organizationMemberships:
+          project.id === selectedProjectId
+            ? (legacyPayload.organizationMemberships ?? []).map((entry) => ({
+                ...entry,
+                notes: entry.notes ?? '',
+                createdAt: entry.createdAt || normalizedTimestamp,
+                updatedAt: entry.updatedAt || entry.createdAt || normalizedTimestamp
+              }))
+            : [],
         inspirationEntries:
           project.id === selectedProjectId
             ? (legacyPayload.inspirationEntries ?? []).map((entry, index) => ({
@@ -745,7 +903,9 @@ function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWorkspacePa
 
 function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
   const projects = db.prepare(`
-    SELECT id, title, genre, word_count AS wordCount, last_edited AS lastEdited, cover
+    SELECT id, title, genre, word_count AS wordCount, last_edited AS lastEdited, cover,
+      writing_style_preset_id AS writingStylePresetId,
+      writing_style_prompt AS writingStylePrompt
     FROM projects
     ORDER BY rowid ASC
   `).all() as WorkspacePayload['projects']
@@ -773,6 +933,24 @@ function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
     avatar: row.avatar as string,
     tags: JSON.parse(row.tagsJson as string) as Array<{ label: string; tone?: string }>
   })) as Array<WorkspacePayload['workspaces'][string]['characters'][number] & { projectId: string }>
+
+  const organizations = db.prepare(`
+    SELECT project_id AS projectId, id, name, type, description, motto, color, sort_order AS sortOrder, created_at AS createdAt, updated_at AS updatedAt
+    FROM organizations
+    ORDER BY project_id ASC, sort_order ASC
+  `).all() as Array<WorkspacePayload['workspaces'][string]['organizations'][number] & { projectId: string }>
+
+  const characterRelationships = db.prepare(`
+    SELECT project_id AS projectId, id, from_character_id AS fromCharacterId, to_character_id AS toCharacterId, type, description, intensity, created_at AS createdAt, updated_at AS updatedAt
+    FROM character_relationships
+    ORDER BY project_id ASC, rowid ASC
+  `).all() as Array<WorkspacePayload['workspaces'][string]['characterRelationships'][number] & { projectId: string }>
+
+  const organizationMemberships = db.prepare(`
+    SELECT project_id AS projectId, id, character_id AS characterId, organization_id AS organizationId, role, notes, created_at AS createdAt, updated_at AS updatedAt
+    FROM organization_memberships
+    ORDER BY project_id ASC, rowid ASC
+  `).all() as Array<WorkspacePayload['workspaces'][string]['organizationMemberships'][number] & { projectId: string }>
 
   const inspirationEntries = db.prepare(`
     SELECT project_id AS projectId, id, type, title, content, tags_json AS tagsJson, source, sort_order AS sortOrder, created_at AS createdAt, updated_at AS updatedAt
@@ -853,6 +1031,15 @@ function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
         characters: characters
           .filter((character) => character.projectId === project.id)
           .map(({ projectId: _projectId, ...character }) => character),
+        organizations: organizations
+          .filter((entry) => entry.projectId === project.id)
+          .map(({ projectId: _projectId, ...entry }) => entry),
+        characterRelationships: characterRelationships
+          .filter((entry) => entry.projectId === project.id)
+          .map(({ projectId: _projectId, ...entry }) => entry),
+        organizationMemberships: organizationMemberships
+          .filter((entry) => entry.projectId === project.id)
+          .map(({ projectId: _projectId, ...entry }) => entry),
         inspirationEntries: inspirationEntries
           .filter((entry) => entry.projectId === project.id)
           .map(({ projectId: _projectId, ...entry }) => entry),
@@ -900,6 +1087,9 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
       DELETE FROM projects;
       DELETE FROM worldview_entries;
       DELETE FROM characters;
+      DELETE FROM organizations;
+      DELETE FROM character_relationships;
+      DELETE FROM organization_memberships;
       DELETE FROM inspiration_entries;
       DELETE FROM outline_volumes;
       DELETE FROM outline_items;
@@ -910,11 +1100,20 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
     `)
 
     const insertProject = db.prepare(`
-      INSERT INTO projects (id, title, genre, word_count, last_edited, cover)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO projects (id, title, genre, word_count, last_edited, cover, writing_style_preset_id, writing_style_prompt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
     for (const project of payload.projects) {
-      insertProject.run(project.id, project.title, project.genre, project.wordCount, project.lastEdited, project.cover)
+      insertProject.run(
+        project.id,
+        project.title,
+        project.genre,
+        project.wordCount,
+        project.lastEdited,
+        project.cover,
+        project.writingStylePresetId,
+        project.writingStylePrompt
+      )
     }
 
     const insertWorldview = db.prepare(`
@@ -925,6 +1124,21 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
     const insertCharacter = db.prepare(`
       INSERT INTO characters (id, project_id, name, role, description, avatar, tags_json)
       VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const insertOrganization = db.prepare(`
+      INSERT INTO organizations (id, project_id, name, type, description, motto, color, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const insertCharacterRelationship = db.prepare(`
+      INSERT INTO character_relationships (id, project_id, from_character_id, to_character_id, type, description, intensity, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const insertOrganizationMembership = db.prepare(`
+      INSERT INTO organization_memberships (id, project_id, character_id, organization_id, role, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const insertInspiration = db.prepare(`
@@ -991,6 +1205,48 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
           character.description,
           character.avatar,
           JSON.stringify(character.tags)
+        )
+      })
+
+      workspace.organizations.forEach((organization, index) => {
+        insertOrganization.run(
+          organization.id,
+          project.id,
+          organization.name,
+          organization.type,
+          organization.description,
+          organization.motto,
+          organization.color,
+          organization.sortOrder ?? index,
+          organization.createdAt,
+          organization.updatedAt
+        )
+      })
+
+      workspace.characterRelationships.forEach((relationship) => {
+        insertCharacterRelationship.run(
+          relationship.id,
+          project.id,
+          relationship.fromCharacterId,
+          relationship.toCharacterId,
+          relationship.type,
+          relationship.description,
+          relationship.intensity,
+          relationship.createdAt,
+          relationship.updatedAt
+        )
+      })
+
+      workspace.organizationMemberships.forEach((membership) => {
+        insertOrganizationMembership.run(
+          membership.id,
+          project.id,
+          membership.characterId,
+          membership.organizationId,
+          membership.role,
+          membership.notes,
+          membership.createdAt,
+          membership.updatedAt
         )
       })
 
@@ -1098,6 +1354,9 @@ function validateImportedWorkspace(payload: unknown): { valid: true } | { valid:
   const collectionChecks: Array<[string, unknown]> = [
     ['worldviewEntries', data.worldviewEntries],
     ['characters', data.characters],
+    ['organizations', data.organizations],
+    ['characterRelationships', data.characterRelationships],
+    ['organizationMemberships', data.organizationMemberships],
     ['inspirationEntries', data.inspirationEntries],
     ['outlineVolumes', data.outlineVolumes],
     ['outlineItems', data.outlineItems],
@@ -1148,6 +1407,66 @@ function validateImportedWorkspace(payload: unknown): { valid: true } | { valid:
 
     if (invalidInspiration) {
       return { valid: false, message: 'inspirationEntries 中存在字段缺失或格式错误的灵感条目。' }
+    }
+  }
+
+  if (Array.isArray(data.organizations)) {
+    const invalidOrganization = data.organizations.find((item) => {
+      if (!item || typeof item !== 'object') return true
+      const organization = item as Record<string, unknown>
+      return (
+        typeof organization.name !== 'string' ||
+        typeof organization.type !== 'string' ||
+        typeof organization.description !== 'string' ||
+        typeof organization.motto !== 'string' ||
+        typeof organization.color !== 'string' ||
+        (organization.sortOrder !== undefined && typeof organization.sortOrder !== 'number') ||
+        (organization.createdAt !== undefined && typeof organization.createdAt !== 'string') ||
+        (organization.updatedAt !== undefined && typeof organization.updatedAt !== 'string')
+      )
+    })
+
+    if (invalidOrganization) {
+      return { valid: false, message: 'organizations 中存在字段缺失或格式错误的组织条目。' }
+    }
+  }
+
+  if (Array.isArray(data.characterRelationships)) {
+    const invalidRelationship = data.characterRelationships.find((item) => {
+      if (!item || typeof item !== 'object') return true
+      const relationship = item as Record<string, unknown>
+      return (
+        typeof relationship.fromCharacterId !== 'string' ||
+        typeof relationship.toCharacterId !== 'string' ||
+        typeof relationship.type !== 'string' ||
+        typeof relationship.description !== 'string' ||
+        (relationship.intensity !== undefined && typeof relationship.intensity !== 'number') ||
+        (relationship.createdAt !== undefined && typeof relationship.createdAt !== 'string') ||
+        (relationship.updatedAt !== undefined && typeof relationship.updatedAt !== 'string')
+      )
+    })
+
+    if (invalidRelationship) {
+      return { valid: false, message: 'characterRelationships 中存在字段缺失或格式错误的关系条目。' }
+    }
+  }
+
+  if (Array.isArray(data.organizationMemberships)) {
+    const invalidMembership = data.organizationMemberships.find((item) => {
+      if (!item || typeof item !== 'object') return true
+      const membership = item as Record<string, unknown>
+      return (
+        typeof membership.characterId !== 'string' ||
+        typeof membership.organizationId !== 'string' ||
+        typeof membership.role !== 'string' ||
+        (membership.notes !== undefined && typeof membership.notes !== 'string') ||
+        (membership.createdAt !== undefined && typeof membership.createdAt !== 'string') ||
+        (membership.updatedAt !== undefined && typeof membership.updatedAt !== 'string')
+      )
+    })
+
+    if (invalidMembership) {
+      return { valid: false, message: 'organizationMemberships 中存在字段缺失或格式错误的成员归属条目。' }
     }
   }
 

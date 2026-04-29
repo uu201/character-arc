@@ -2,8 +2,11 @@ import type {
   ChapterDraft,
   ChapterVersion,
   ChatMessage,
+  CharacterRelationship,
   CharacterCard,
   InspirationEntry,
+  OrganizationEntry,
+  OrganizationMembership,
   OutlineItem,
   OutlineVolume,
   ProjectWorkspaceData,
@@ -61,6 +64,36 @@ function normalizeInspirationEntries(inspirationEntries?: InspirationEntry[]): I
     sortOrder: index,
     createdAt: toIsoTimestamp(entry.createdAt),
     updatedAt: toIsoTimestamp(entry.updatedAt || entry.createdAt)
+  }))
+}
+
+function normalizeOrganizations(organizations?: OrganizationEntry[]): OrganizationEntry[] {
+  const sortedEntries = (organizations ?? [])
+    .map((entry, index) => ({ entry, index }))
+    .sort((left, right) => (left.entry.sortOrder ?? left.index) - (right.entry.sortOrder ?? right.index))
+
+  return sortedEntries.map(({ entry }, index) => ({
+    ...entry,
+    sortOrder: index,
+    createdAt: toIsoTimestamp(entry.createdAt),
+    updatedAt: toIsoTimestamp(entry.updatedAt || entry.createdAt)
+  }))
+}
+
+function normalizeCharacterRelationships(relationships?: CharacterRelationship[]): CharacterRelationship[] {
+  return (relationships ?? []).map((relationship) => ({
+    ...relationship,
+    intensity: Number.isFinite(relationship.intensity) ? Math.min(100, Math.max(0, relationship.intensity)) : 50,
+    createdAt: toIsoTimestamp(relationship.createdAt),
+    updatedAt: toIsoTimestamp(relationship.updatedAt || relationship.createdAt)
+  }))
+}
+
+function normalizeOrganizationMemberships(memberships?: OrganizationMembership[]): OrganizationMembership[] {
+  return (memberships ?? []).map((membership) => ({
+    ...membership,
+    createdAt: toIsoTimestamp(membership.createdAt),
+    updatedAt: toIsoTimestamp(membership.updatedAt || membership.createdAt)
   }))
 }
 
@@ -168,6 +201,75 @@ const demoOutline: OutlineItem[] = [
   }
 ]
 
+const demoOrganizations: OrganizationEntry[] = [
+  {
+    id: 'org-1',
+    name: '灰巷互助会',
+    type: '地下据点',
+    description: '活跃在霓虹区底层的互助网络，表面做废料回收和医疗支援，实际承担情报交换与安全转移。',
+    motto: '活下来，比体面更重要。',
+    color: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
+    sortOrder: 0,
+    createdAt: '2026-04-28T08:12:00.000Z',
+    updatedAt: '2026-04-28T08:12:00.000Z'
+  },
+  {
+    id: 'org-2',
+    name: '荒坂特研部',
+    type: '企业势力',
+    description: '负责意识上传和军用接口实验的封闭部门，对艾达掌握的机密拥有最高级别追捕权限。',
+    motto: '技术即秩序。',
+    color: 'linear-gradient(135deg, #e5e7eb 0%, #cbd5e1 100%)',
+    sortOrder: 1,
+    createdAt: '2026-04-28T08:14:00.000Z',
+    updatedAt: '2026-04-28T08:14:00.000Z'
+  }
+]
+
+const demoRelationships: CharacterRelationship[] = [
+  {
+    id: 'rel-1',
+    fromCharacterId: 'char-1',
+    toCharacterId: 'char-2',
+    type: '被迫结盟',
+    description: '李雷起初只想自保，但艾达掌握的秘密让两人不得不暂时绑定在一起。',
+    intensity: 72,
+    createdAt: '2026-04-28T08:22:00.000Z',
+    updatedAt: '2026-04-28T08:22:00.000Z'
+  },
+  {
+    id: 'rel-2',
+    fromCharacterId: 'char-1',
+    toCharacterId: 'char-3',
+    type: '老熟人',
+    description: '老鬼是李雷少数愿意主动求助的人，两人之间带着互相试探但真实存在的信任。',
+    intensity: 81,
+    createdAt: '2026-04-28T08:24:00.000Z',
+    updatedAt: '2026-04-28T08:24:00.000Z'
+  }
+]
+
+const demoMemberships: OrganizationMembership[] = [
+  {
+    id: 'membership-1',
+    characterId: 'char-3',
+    organizationId: 'org-1',
+    role: '联络医生',
+    notes: '负责为互助会处理受伤成员和黑市药剂调配。',
+    createdAt: '2026-04-28T08:26:00.000Z',
+    updatedAt: '2026-04-28T08:26:00.000Z'
+  },
+  {
+    id: 'membership-2',
+    characterId: 'char-2',
+    organizationId: 'org-2',
+    role: '前研究员',
+    notes: '叛逃前参与意识上传项目，是企业内部追捕的核心目标。',
+    createdAt: '2026-04-28T08:28:00.000Z',
+    updatedAt: '2026-04-28T08:28:00.000Z'
+  }
+]
+
 const demoInspiration: InspirationEntry[] = [
   {
     id: 'inspiration-1',
@@ -261,6 +363,18 @@ function cloneCharacters(characters?: CharacterCard[]): CharacterCard[] {
     : []
 }
 
+function cloneOrganizations(organizations?: OrganizationEntry[]): OrganizationEntry[] {
+  return normalizeOrganizations(organizations)
+}
+
+function cloneCharacterRelationships(relationships?: CharacterRelationship[]): CharacterRelationship[] {
+  return normalizeCharacterRelationships(relationships)
+}
+
+function cloneOrganizationMemberships(memberships?: OrganizationMembership[]): OrganizationMembership[] {
+  return normalizeOrganizationMemberships(memberships)
+}
+
 function cloneInspirationEntries(inspirationEntries?: InspirationEntry[]): InspirationEntry[] {
   return normalizeInspirationEntries(inspirationEntries)
 }
@@ -279,6 +393,9 @@ export function createEmptyWorkspace(overrides?: Partial<ProjectWorkspaceData>):
   return {
     worldviewEntries: cloneWorldviewEntries(overrides?.worldviewEntries),
     characters: cloneCharacters(overrides?.characters),
+    organizations: cloneOrganizations(overrides?.organizations),
+    characterRelationships: cloneCharacterRelationships(overrides?.characterRelationships),
+    organizationMemberships: cloneOrganizationMemberships(overrides?.organizationMemberships),
     inspirationEntries: cloneInspirationEntries(overrides?.inspirationEntries),
     outlineVolumes: cloneOutlineVolumes(volumeState.outlineVolumes),
     outlineItems: cloneOutlineItems(volumeState.outlineItems),
@@ -292,6 +409,9 @@ export function createDemoWorkspace(): ProjectWorkspaceData {
   return createEmptyWorkspace({
     worldviewEntries: demoWorldview,
     characters: demoCharacters,
+    organizations: demoOrganizations,
+    characterRelationships: demoRelationships,
+    organizationMemberships: demoMemberships,
     inspirationEntries: demoInspiration,
     outlineVolumes: demoVolumes,
     outlineItems: demoOutline,
@@ -316,6 +436,9 @@ export function normalizeWorkspace(
   return {
     worldviewEntries: cloneWorldviewEntries(workspace.worldviewEntries),
     characters: cloneCharacters(workspace.characters),
+    organizations: cloneOrganizations(workspace.organizations),
+    characterRelationships: cloneCharacterRelationships(workspace.characterRelationships),
+    organizationMemberships: cloneOrganizationMemberships(workspace.organizationMemberships),
     inspirationEntries: cloneInspirationEntries(workspace.inspirationEntries),
     outlineVolumes: cloneOutlineVolumes(volumeState.outlineVolumes),
     outlineItems: cloneOutlineItems(volumeState.outlineItems),

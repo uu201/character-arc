@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { MoreVertical, Plus, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
+import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import type { DropdownOption } from 'naive-ui'
 import type { WorldviewEntry } from '@/types/app'
 
@@ -13,6 +14,7 @@ const props = defineProps<{
 const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
+const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
 const isGenerating = ref(false)
 const editorVisible = ref(false)
 const editingEntryId = ref<string | null>(null)
@@ -76,6 +78,8 @@ async function handleGenerateEntry(): Promise<void> {
       context: {
         projectTitle: appStore.currentProject?.title,
         projectGenre: appStore.currentProject?.genre,
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
         worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
       }
     })

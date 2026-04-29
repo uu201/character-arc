@@ -6,6 +6,7 @@ const node_sqlite = require("node:sqlite");
 const node_crypto = require("node:crypto");
 function buildTaskPrompt(task) {
   const { context } = task;
+  const writingStyleInstruction = resolveWritingStyleInstruction(context);
   if (task.task === "worldview-entry") {
     return {
       system: "你是小说世界观设定助手。请只返回 JSON 对象，不要返回 Markdown。字段必须包含 type、title、content。",
@@ -20,6 +21,7 @@ function buildTaskPrompt(task) {
 2. type 必须是 地理 / 法则 / 物种 / 势力 / 历史 之一
 3. title 要简洁
 4. content 用中文完整描述，80 到 180 字
+5. ${writingStyleInstruction}
 
 返回格式：{"type":"","title":"","content":""}`
     };
@@ -39,6 +41,7 @@ function buildTaskPrompt(task) {
 2. role 用短语概括角色定位
 3. description 用中文完整描述，80 到 160 字
 4. tags 返回 2 到 4 个简短标签数组
+5. ${writingStyleInstruction}
 
 返回格式：{"name":"","role":"","description":"","tags":["",""]}`
     };
@@ -59,6 +62,7 @@ function buildTaskPrompt(task) {
 3. outlineItems 返回 3 条章节大纲，每条都包含 title、wordTarget、conflict、summary
 4. wordTarget 使用“预估 xxxx字”格式
 5. 所有内容使用中文，紧贴题材和核心点子，不要重复
+6. ${writingStyleInstruction}
 
 返回格式：{"worldviewEntries":[{"type":"","title":"","content":""}],"outlineItems":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
     };
@@ -148,6 +152,7 @@ ${outlineItems || "暂无"}
 4. content 用中文写成 60 到 140 字的可执行灵感描述，强调可落地场景、冲突、情绪或推进方式
 5. tags 返回 2 到 4 个简短标签，方便后续筛选
 6. 不要空泛鸡汤，不要写成长篇大纲，要像作者工作台里的“灵感卡片”
+7. ${writingStyleInstruction}
 
 返回格式：{"entries":[{"type":"","title":"","content":"","tags":["",""]}]}`
     };
@@ -185,6 +190,8 @@ ${outlineItems || "暂无"}
 
 项目标题：${String(context.projectTitle ?? "")}
 项目题材：${String(context.projectGenre ?? "")}
+当前项目默认风格：${String(context.writingStyleLabel ?? "未指定")}
+风格要求：${String(context.writingStylePrompt ?? "暂无")}
 当前分卷：${String(context.chapterVolumeTitle ?? "")}
 当前分卷摘要：${String(context.chapterVolumeSummary ?? "")}
 当前章节标题：${String(context.chapterTitle ?? "")}
@@ -228,9 +235,10 @@ ${recentMessages || "暂无"}
 5. 避免与最近几条对话重复表达，除非用户明确要求重写
 6. 如果是续写，请尽量与相邻章节和当前分卷的情绪、节奏保持连续
 7. 若当前可用灵感不为空，可优先借用其中最贴合的一条，把它自然落到正文、桥段或冲突推进中
-8. ${modeInstruction}
-9. ${lengthInstruction}
-10. ${quickActionInstruction}`
+8. 必须遵循当前项目默认风格；若用户请求与风格冲突，以用户请求优先，但尽量保留风格骨架
+9. ${modeInstruction}
+10. ${lengthInstruction}
+11. ${quickActionInstruction}`
     };
   }
   return {
@@ -258,6 +266,7 @@ ${String(context.chapterContent ?? "")}
 3. conflict 用一句话概括下一章的核心冲突
 4. summary 用中文描述剧情推进，80 到 180 字
 5. 与当前分卷目标、已有大纲和当前章节情绪保持连续，不要重复已有节点
+6. ${writingStyleInstruction}
 
 返回格式：{"title":"","wordTarget":"","conflict":"","summary":""}`
   };
@@ -321,6 +330,20 @@ function resolveChapterAssistantQuickActionInstruction(quickAction) {
     default:
       return "如果快捷动作已经明确输出形态，请优先遵循该动作要求。";
   }
+}
+function resolveWritingStyleInstruction(context) {
+  const label = String(context.writingStyleLabel ?? "").trim();
+  const prompt = String(context.writingStylePrompt ?? "").trim();
+  if (!label && !prompt) {
+    return "若当前项目未指定写作风格，则使用最贴合作品题材的自然表达。";
+  }
+  if (label && prompt) {
+    return `当前项目默认写作风格为“${label}”。请在输出中遵循以下风格要求：${prompt}`;
+  }
+  if (label) {
+    return `当前项目默认写作风格为“${label}”，请让输出保持这一风格的一致性。`;
+  }
+  return `请在输出中遵循以下写作风格要求：${prompt}`;
 }
 const AI_REQUEST_TIMEOUT_MS = 6e4;
 function resolveProviderDefaults(provider) {
@@ -1028,7 +1051,9 @@ async function ensureWorkspaceDb() {
       genre TEXT NOT NULL,
       word_count TEXT NOT NULL,
       last_edited TEXT NOT NULL,
-      cover TEXT NOT NULL
+      cover TEXT NOT NULL,
+      writing_style_preset_id TEXT NOT NULL DEFAULT 'cinematic-cool',
+      writing_style_prompt TEXT NOT NULL DEFAULT ''
     ) STRICT;
 
     CREATE TABLE IF NOT EXISTS worldview_entries (
@@ -1051,6 +1076,45 @@ async function ensureWorkspaceDb() {
       description TEXT NOT NULL,
       avatar TEXT NOT NULL,
       tags_json TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS organizations (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      motto TEXT NOT NULL,
+      color TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS character_relationships (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      from_character_id TEXT NOT NULL,
+      to_character_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      intensity INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS organization_memberships (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      notes TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     ) STRICT;
 
@@ -1156,6 +1220,7 @@ async function ensureWorkspaceDb() {
   `);
   ensureAppSettingsColumns(workspaceDb);
   ensureChapterColumns(workspaceDb);
+  ensureProjectColumns(workspaceDb);
   ensureProjectScopedColumns(workspaceDb);
   ensureVolumeColumns(workspaceDb);
   await migrateLegacyWorkspaceFile(workspaceDb);
@@ -1186,7 +1251,7 @@ function ensureChapterColumns(db) {
 }
 function ensureProjectScopedColumns(db) {
   const defaultProjectId = db.prepare(`SELECT selected_project_id AS projectId FROM app_settings WHERE id = 1`).get()?.projectId || db.prepare(`SELECT id FROM projects ORDER BY rowid ASC LIMIT 1`).get()?.id || "project-1";
-  const projectScopedTables = ["worldview_entries", "characters", "inspiration_entries", "outline_volumes", "outline_items", "chapters", "chapter_versions", "ai_messages"];
+  const projectScopedTables = ["worldview_entries", "characters", "organizations", "character_relationships", "organization_memberships", "inspiration_entries", "outline_volumes", "outline_items", "chapters", "chapter_versions", "ai_messages"];
   for (const tableName of projectScopedTables) {
     const columns = db.prepare(`PRAGMA table_info('${tableName}')`).all();
     const columnNames = new Set(columns.map((column) => column.name));
@@ -1217,6 +1282,16 @@ async function migrateLegacyWorkspaceFile(db) {
   } catch {
   }
 }
+function ensureProjectColumns(db) {
+  const columns = db.prepare(`PRAGMA table_info('projects')`).all();
+  const columnNames = new Set(columns.map((column) => column.name));
+  if (!columnNames.has("writing_style_preset_id")) {
+    db.exec(`ALTER TABLE projects ADD COLUMN writing_style_preset_id TEXT NOT NULL DEFAULT 'cinematic-cool';`);
+  }
+  if (!columnNames.has("writing_style_prompt")) {
+    db.exec(`ALTER TABLE projects ADD COLUMN writing_style_prompt TEXT NOT NULL DEFAULT '';`);
+  }
+}
 function normalizeAppSettings(settings) {
   const uiScale = settings?.uiScale !== void 0 && Number.isFinite(settings.uiScale) ? Math.min(1.75, Math.max(0.75, settings.uiScale)) : 1;
   return {
@@ -1236,16 +1311,29 @@ function createFallbackVolume(title = "故事开端", volumeId = "volume-legacy-
     summary: "用于承载当前项目的默认分卷。"
   };
 }
+function normalizeProjectRecord(project) {
+  return {
+    id: project.id,
+    title: project.title || "未命名作品",
+    genre: project.genre || "未分类",
+    wordCount: project.wordCount || "待统计",
+    lastEdited: project.lastEdited || "刚刚更新",
+    cover: project.cover || "linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)",
+    writingStylePresetId: project.writingStylePresetId || "cinematic-cool",
+    writingStylePrompt: project.writingStylePrompt || ""
+  };
+}
 function normalizeWorkspacePayload(payload) {
   if ("workspaces" in payload && payload.workspaces) {
     return {
       ...payload,
+      projects: payload.projects.map((project) => normalizeProjectRecord(project)),
       appSettings: normalizeAppSettings(payload.appSettings)
     };
   }
   const legacyPayload = payload;
   const normalizedTimestamp = (/* @__PURE__ */ new Date()).toISOString();
-  const projects = legacyPayload.projects?.length ? legacyPayload.projects : [];
+  const projects = legacyPayload.projects?.length ? legacyPayload.projects.map((project) => normalizeProjectRecord(project)) : [];
   const selectedProjectId = legacyPayload.selectedProjectId || projects[0]?.id || "project-1";
   const workspaces = Object.fromEntries(
     projects.map((project) => [
@@ -1259,6 +1347,24 @@ function normalizeWorkspacePayload(payload) {
           updatedAt: entry.updatedAt || entry.createdAt || normalizedTimestamp
         })) : [],
         characters: project.id === selectedProjectId ? legacyPayload.characters ?? [] : [],
+        organizations: project.id === selectedProjectId ? (legacyPayload.organizations ?? []).map((entry, index) => ({
+          ...entry,
+          sortOrder: entry.sortOrder ?? index,
+          createdAt: entry.createdAt || normalizedTimestamp,
+          updatedAt: entry.updatedAt || entry.createdAt || normalizedTimestamp
+        })) : [],
+        characterRelationships: project.id === selectedProjectId ? (legacyPayload.characterRelationships ?? []).map((entry) => ({
+          ...entry,
+          intensity: Number.isFinite(entry.intensity) ? Math.min(100, Math.max(0, entry.intensity ?? 50)) : 50,
+          createdAt: entry.createdAt || normalizedTimestamp,
+          updatedAt: entry.updatedAt || entry.createdAt || normalizedTimestamp
+        })) : [],
+        organizationMemberships: project.id === selectedProjectId ? (legacyPayload.organizationMemberships ?? []).map((entry) => ({
+          ...entry,
+          notes: entry.notes ?? "",
+          createdAt: entry.createdAt || normalizedTimestamp,
+          updatedAt: entry.updatedAt || entry.createdAt || normalizedTimestamp
+        })) : [],
         inspirationEntries: project.id === selectedProjectId ? (legacyPayload.inspirationEntries ?? []).map((entry, index) => ({
           ...entry,
           tags: Array.isArray(entry.tags) ? entry.tags.map((tag) => String(tag).trim()).filter(Boolean) : [],
@@ -1291,7 +1397,9 @@ function normalizeWorkspacePayload(payload) {
 }
 function readWorkspaceSnapshot(db) {
   const projects = db.prepare(`
-    SELECT id, title, genre, word_count AS wordCount, last_edited AS lastEdited, cover
+    SELECT id, title, genre, word_count AS wordCount, last_edited AS lastEdited, cover,
+      writing_style_preset_id AS writingStylePresetId,
+      writing_style_prompt AS writingStylePrompt
     FROM projects
     ORDER BY rowid ASC
   `).all();
@@ -1316,6 +1424,21 @@ function readWorkspaceSnapshot(db) {
     avatar: row.avatar,
     tags: JSON.parse(row.tagsJson)
   }));
+  const organizations = db.prepare(`
+    SELECT project_id AS projectId, id, name, type, description, motto, color, sort_order AS sortOrder, created_at AS createdAt, updated_at AS updatedAt
+    FROM organizations
+    ORDER BY project_id ASC, sort_order ASC
+  `).all();
+  const characterRelationships = db.prepare(`
+    SELECT project_id AS projectId, id, from_character_id AS fromCharacterId, to_character_id AS toCharacterId, type, description, intensity, created_at AS createdAt, updated_at AS updatedAt
+    FROM character_relationships
+    ORDER BY project_id ASC, rowid ASC
+  `).all();
+  const organizationMemberships = db.prepare(`
+    SELECT project_id AS projectId, id, character_id AS characterId, organization_id AS organizationId, role, notes, created_at AS createdAt, updated_at AS updatedAt
+    FROM organization_memberships
+    ORDER BY project_id ASC, rowid ASC
+  `).all();
   const inspirationEntries = db.prepare(`
     SELECT project_id AS projectId, id, type, title, content, tags_json AS tagsJson, source, sort_order AS sortOrder, created_at AS createdAt, updated_at AS updatedAt
     FROM inspiration_entries
@@ -1372,6 +1495,9 @@ function readWorkspaceSnapshot(db) {
       {
         worldviewEntries: worldviewEntries.filter((entry) => entry.projectId === project.id).map(({ projectId: _projectId, ...entry }) => entry),
         characters: characters.filter((character) => character.projectId === project.id).map(({ projectId: _projectId, ...character }) => character),
+        organizations: organizations.filter((entry) => entry.projectId === project.id).map(({ projectId: _projectId, ...entry }) => entry),
+        characterRelationships: characterRelationships.filter((entry) => entry.projectId === project.id).map(({ projectId: _projectId, ...entry }) => entry),
+        organizationMemberships: organizationMemberships.filter((entry) => entry.projectId === project.id).map(({ projectId: _projectId, ...entry }) => entry),
         inspirationEntries: inspirationEntries.filter((entry) => entry.projectId === project.id).map(({ projectId: _projectId, ...entry }) => entry),
         outlineVolumes: outlineVolumes.filter((volume) => volume.projectId === project.id).map(({ projectId: _projectId, ...volume }) => volume),
         outlineItems: outlineItems.filter((item) => item.projectId === project.id).map(({ projectId: _projectId, ...item }) => item),
@@ -1405,6 +1531,9 @@ function writeWorkspaceSnapshot(db, payload) {
       DELETE FROM projects;
       DELETE FROM worldview_entries;
       DELETE FROM characters;
+      DELETE FROM organizations;
+      DELETE FROM character_relationships;
+      DELETE FROM organization_memberships;
       DELETE FROM inspiration_entries;
       DELETE FROM outline_volumes;
       DELETE FROM outline_items;
@@ -1414,11 +1543,20 @@ function writeWorkspaceSnapshot(db, payload) {
       DELETE FROM app_settings;
     `);
     const insertProject = db.prepare(`
-      INSERT INTO projects (id, title, genre, word_count, last_edited, cover)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO projects (id, title, genre, word_count, last_edited, cover, writing_style_preset_id, writing_style_prompt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const project of payload.projects) {
-      insertProject.run(project.id, project.title, project.genre, project.wordCount, project.lastEdited, project.cover);
+      insertProject.run(
+        project.id,
+        project.title,
+        project.genre,
+        project.wordCount,
+        project.lastEdited,
+        project.cover,
+        project.writingStylePresetId,
+        project.writingStylePrompt
+      );
     }
     const insertWorldview = db.prepare(`
       INSERT INTO worldview_entries (id, project_id, type, title, content, sort_order, created_at, updated_at)
@@ -1427,6 +1565,18 @@ function writeWorkspaceSnapshot(db, payload) {
     const insertCharacter = db.prepare(`
       INSERT INTO characters (id, project_id, name, role, description, avatar, tags_json)
       VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertOrganization = db.prepare(`
+      INSERT INTO organizations (id, project_id, name, type, description, motto, color, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertCharacterRelationship = db.prepare(`
+      INSERT INTO character_relationships (id, project_id, from_character_id, to_character_id, type, description, intensity, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertOrganizationMembership = db.prepare(`
+      INSERT INTO organization_memberships (id, project_id, character_id, organization_id, role, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertInspiration = db.prepare(`
       INSERT INTO inspiration_entries (id, project_id, type, title, content, tags_json, source, sort_order, created_at, updated_at)
@@ -1484,6 +1634,45 @@ function writeWorkspaceSnapshot(db, payload) {
           character.description,
           character.avatar,
           JSON.stringify(character.tags)
+        );
+      });
+      workspace.organizations.forEach((organization, index) => {
+        insertOrganization.run(
+          organization.id,
+          project.id,
+          organization.name,
+          organization.type,
+          organization.description,
+          organization.motto,
+          organization.color,
+          organization.sortOrder ?? index,
+          organization.createdAt,
+          organization.updatedAt
+        );
+      });
+      workspace.characterRelationships.forEach((relationship) => {
+        insertCharacterRelationship.run(
+          relationship.id,
+          project.id,
+          relationship.fromCharacterId,
+          relationship.toCharacterId,
+          relationship.type,
+          relationship.description,
+          relationship.intensity,
+          relationship.createdAt,
+          relationship.updatedAt
+        );
+      });
+      workspace.organizationMemberships.forEach((membership) => {
+        insertOrganizationMembership.run(
+          membership.id,
+          project.id,
+          membership.characterId,
+          membership.organizationId,
+          membership.role,
+          membership.notes,
+          membership.createdAt,
+          membership.updatedAt
         );
       });
       workspace.inspirationEntries.forEach((entry, index) => {
@@ -1579,6 +1768,9 @@ function validateImportedWorkspace(payload) {
   const collectionChecks = [
     ["worldviewEntries", data.worldviewEntries],
     ["characters", data.characters],
+    ["organizations", data.organizations],
+    ["characterRelationships", data.characterRelationships],
+    ["organizationMemberships", data.organizationMemberships],
     ["inspirationEntries", data.inspirationEntries],
     ["outlineVolumes", data.outlineVolumes],
     ["outlineItems", data.outlineItems],
@@ -1608,6 +1800,36 @@ function validateImportedWorkspace(payload) {
     });
     if (invalidInspiration) {
       return { valid: false, message: "inspirationEntries 中存在字段缺失或格式错误的灵感条目。" };
+    }
+  }
+  if (Array.isArray(data.organizations)) {
+    const invalidOrganization = data.organizations.find((item) => {
+      if (!item || typeof item !== "object") return true;
+      const organization = item;
+      return typeof organization.name !== "string" || typeof organization.type !== "string" || typeof organization.description !== "string" || typeof organization.motto !== "string" || typeof organization.color !== "string" || organization.sortOrder !== void 0 && typeof organization.sortOrder !== "number" || organization.createdAt !== void 0 && typeof organization.createdAt !== "string" || organization.updatedAt !== void 0 && typeof organization.updatedAt !== "string";
+    });
+    if (invalidOrganization) {
+      return { valid: false, message: "organizations 中存在字段缺失或格式错误的组织条目。" };
+    }
+  }
+  if (Array.isArray(data.characterRelationships)) {
+    const invalidRelationship = data.characterRelationships.find((item) => {
+      if (!item || typeof item !== "object") return true;
+      const relationship = item;
+      return typeof relationship.fromCharacterId !== "string" || typeof relationship.toCharacterId !== "string" || typeof relationship.type !== "string" || typeof relationship.description !== "string" || relationship.intensity !== void 0 && typeof relationship.intensity !== "number" || relationship.createdAt !== void 0 && typeof relationship.createdAt !== "string" || relationship.updatedAt !== void 0 && typeof relationship.updatedAt !== "string";
+    });
+    if (invalidRelationship) {
+      return { valid: false, message: "characterRelationships 中存在字段缺失或格式错误的关系条目。" };
+    }
+  }
+  if (Array.isArray(data.organizationMemberships)) {
+    const invalidMembership = data.organizationMemberships.find((item) => {
+      if (!item || typeof item !== "object") return true;
+      const membership = item;
+      return typeof membership.characterId !== "string" || typeof membership.organizationId !== "string" || typeof membership.role !== "string" || membership.notes !== void 0 && typeof membership.notes !== "string" || membership.createdAt !== void 0 && typeof membership.createdAt !== "string" || membership.updatedAt !== void 0 && typeof membership.updatedAt !== "string";
+    });
+    if (invalidMembership) {
+      return { valid: false, message: "organizationMemberships 中存在字段缺失或格式错误的成员归属条目。" };
     }
   }
   if (Array.isArray(data.outlineVolumes)) {
