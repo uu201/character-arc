@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { FilePlus2, MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
+import { FilePlus2, GripVertical, MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
@@ -19,6 +19,8 @@ const editorVisible = ref(false)
 const volumeEditorVisible = ref(false)
 const editingOutlineId = ref<string | null>(null)
 const editingVolumeId = ref<string | null>(null)
+const draggingOutlineId = ref<string | null>(null)
+const dragTargetOutlineId = ref<string | null>(null)
 const form = reactive({
   volumeId: '',
   title: '',
@@ -178,6 +180,46 @@ function handleCreateChapterFromOutline(item: OutlineItem): void {
   message.success('已根据大纲节点创建章节草稿')
 }
 
+function handleDragStart(outlineId: string, event: DragEvent): void {
+  draggingOutlineId.value = outlineId
+  dragTargetOutlineId.value = outlineId
+
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', outlineId)
+  }
+}
+
+function handleDragOver(outlineId: string, event: DragEvent): void {
+  if (!draggingOutlineId.value || draggingOutlineId.value === outlineId) {
+    return
+  }
+
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  dragTargetOutlineId.value = outlineId
+}
+
+function handleDrop(outlineId: string, event: DragEvent): void {
+  event.preventDefault()
+  const sourceId = draggingOutlineId.value || event.dataTransfer?.getData('text/plain')
+
+  if (!sourceId || sourceId === outlineId) {
+    resetDragState()
+    return
+  }
+
+  appStore.moveOutlineItem(sourceId, outlineId)
+  resetDragState()
+}
+
+function resetDragState(): void {
+  draggingOutlineId.value = null
+  dragTargetOutlineId.value = null
+}
+
 function handleMenuSelect(action: string | number, item: OutlineItem): void {
   if (action === 'edit') {
     openEditor(item)
@@ -241,9 +283,28 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
         </div>
 
         <div class="outline-list">
-          <article v-for="item in group.items" :key="item.id" class="outline-item" @click="openEditor(item)">
+          <article
+            v-for="item in group.items"
+            :key="item.id"
+            class="outline-item"
+            :class="{
+              dragging: draggingOutlineId === item.id,
+              'drop-target': dragTargetOutlineId === item.id && draggingOutlineId !== item.id
+            }"
+            draggable="true"
+            @click="openEditor(item)"
+            @dragstart="handleDragStart(item.id, $event)"
+            @dragover="handleDragOver(item.id, $event)"
+            @drop="handleDrop(item.id, $event)"
+            @dragend="resetDragState"
+          >
             <div class="outline-header">
-              <span class="outline-title">{{ item.title }}</span>
+              <div class="outline-title-row">
+                <span class="outline-grip" aria-hidden="true">
+                  <GripVertical :size="14" />
+                </span>
+                <span class="outline-title">{{ item.title }}</span>
+              </div>
               <div class="outline-actions">
                 <n-button tertiary size="small" @click.stop="handleCreateChapterFromOutline(item)">
                   <template #icon>
@@ -524,6 +585,15 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.05);
 }
 
+.outline-item.dragging {
+  opacity: 0.56;
+}
+
+.outline-item.drop-target {
+  border-color: color-mix(in srgb, var(--arc-primary) 26%, white);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 12%, transparent);
+}
+
 .outline-item:hover .outline-title {
   color: var(--arc-primary);
 }
@@ -538,6 +608,26 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
 
 .outline-title {
   flex: 1;
+}
+
+.outline-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.outline-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #c4cad4;
+  flex-shrink: 0;
+}
+
+.outline-item:hover .outline-grip {
+  color: #94a3b8;
 }
 
 .outline-actions {

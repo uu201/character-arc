@@ -16,6 +16,9 @@ export interface WorldviewEntry {
   type: string
   title: string
   content: string
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
 }
 
 export interface CharacterTag {
@@ -46,6 +49,7 @@ export interface OutlineItem {
   wordTarget: string
   conflict: string
   summary: string
+  sortOrder: number
 }
 
 export interface ChatMessage {

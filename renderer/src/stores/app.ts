@@ -60,6 +60,29 @@ interface ProjectWorkspacePayload {
   messages?: ChatMessage[]
 }
 
+function toIsoTimestamp(value?: string): string {
+  const parsed = value ? new Date(value) : null
+  if (parsed && !Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString()
+  }
+
+  return new Date().toISOString()
+}
+
+function reindexWorldviewEntries(entries: WorldviewEntry[]): WorldviewEntry[] {
+  return entries.map((entry, index) => ({
+    ...entry,
+    sortOrder: index
+  }))
+}
+
+function reindexOutlineItems(items: OutlineItem[]): OutlineItem[] {
+  return items.map((item, index) => ({
+    ...item,
+    sortOrder: index
+  }))
+}
+
 
 export const useAppStore = defineStore('app', () => {
   const stored = loadStoredState()
@@ -544,19 +567,25 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function createWorldviewEntry(payload?: Partial<WorldviewEntry>): void {
+    const createdAt = toIsoTimestamp(payload?.createdAt)
+    const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
+
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
-      worldviewEntries: [
+      worldviewEntries: reindexWorldviewEntries([
         {
           id: `world-${Date.now()}`,
           type: payload?.type?.trim() || '地理',
           title: payload?.title?.trim() || `新设定条目 ${workspace.worldviewEntries.length + 1}`,
           content:
             payload?.content?.trim() ||
-            '这里是新的世界观设定草稿。你可以继续补充时代背景、法则机制或地理环境细节。'
+            '这里是新的世界观设定草稿。你可以继续补充时代背景、法则机制或地理环境细节。',
+          sortOrder: payload?.sortOrder ?? 0,
+          createdAt,
+          updatedAt
         },
         ...workspace.worldviewEntries
-      ]
+      ])
     }))
     schedulePersist('fast')
   }
@@ -564,15 +593,18 @@ export const useAppStore = defineStore('app', () => {
   function updateWorldviewEntry(entryId: string, payload: Partial<WorldviewEntry>): void {
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
-      worldviewEntries: workspace.worldviewEntries.map((entry) =>
-        entry.id === entryId
-          ? {
-              ...entry,
-              type: payload.type?.trim() || entry.type,
-              title: payload.title?.trim() || entry.title,
-              content: payload.content?.trim() || entry.content
-            }
-          : entry
+      worldviewEntries: reindexWorldviewEntries(
+        workspace.worldviewEntries.map((entry) =>
+          entry.id === entryId
+            ? {
+                ...entry,
+                type: payload.type?.trim() || entry.type,
+                title: payload.title?.trim() || entry.title,
+                content: payload.content?.trim() || entry.content,
+                updatedAt: toIsoTimestamp(payload.updatedAt || new Date().toISOString())
+              }
+            : entry
+        )
       )
     }))
     schedulePersist('fast')
@@ -581,7 +613,7 @@ export const useAppStore = defineStore('app', () => {
   function deleteWorldviewEntry(entryId: string): void {
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
-      worldviewEntries: workspace.worldviewEntries.filter((entry) => entry.id !== entryId)
+      worldviewEntries: reindexWorldviewEntries(workspace.worldviewEntries.filter((entry) => entry.id !== entryId))
     }))
     schedulePersist('fast')
   }
@@ -778,41 +810,78 @@ export const useAppStore = defineStore('app', () => {
         conflict: payload?.conflict?.trim() || '新的冲突正在酝酿。',
         summary:
           payload?.summary?.trim() ||
-          '这里是新的剧情大纲节点草稿，可以继续补充剧情推进、角色目标和关键转折。'
+          '这里是新的剧情大纲节点草稿，可以继续补充剧情推进、角色目标和关键转折。',
+        sortOrder: payload?.sortOrder ?? workspace.outlineItems.length
       }
 
       return {
         ...workspace,
-        outlineItems: insertIntoVolumeSection(workspace.outlineItems, nextItem)
+        outlineItems: reindexOutlineItems(insertIntoVolumeSection(workspace.outlineItems, nextItem))
       }
     })
     schedulePersist('fast')
   }
 
   function updateOutlineItem(outlineId: string, payload: Partial<OutlineItem>): void {
-    updateCurrentWorkspace((workspace) => ({
-      ...workspace,
-      outlineItems: workspace.outlineItems.map((item) =>
-        item.id === outlineId
-          ? {
-              ...item,
-              volumeId: payload.volumeId || item.volumeId,
-              title: payload.title?.trim() || item.title,
-              wordTarget: payload.wordTarget?.trim() || item.wordTarget,
-              conflict: payload.conflict?.trim() || item.conflict,
-              summary: payload.summary?.trim() || item.summary
-            }
-          : item
-      )
-    }))
+    updateCurrentWorkspace((workspace) => {
+      const currentItem = workspace.outlineItems.find((item) => item.id === outlineId)
+      if (!currentItem) {
+        return workspace
+      }
+
+      const nextItem: OutlineItem = {
+        ...currentItem,
+        volumeId: payload.volumeId || currentItem.volumeId,
+        title: payload.title?.trim() || currentItem.title,
+        wordTarget: payload.wordTarget?.trim() || currentItem.wordTarget,
+        conflict: payload.conflict?.trim() || currentItem.conflict,
+        summary: payload.summary?.trim() || currentItem.summary
+      }
+
+      const remainingItems = workspace.outlineItems.filter((item) => item.id !== outlineId)
+      const nextOutlineItems =
+        nextItem.volumeId === currentItem.volumeId
+          ? workspace.outlineItems.map((item) => (item.id === outlineId ? nextItem : item))
+          : insertIntoVolumeSection(remainingItems, nextItem)
+
+      return {
+        ...workspace,
+        outlineItems: reindexOutlineItems(nextOutlineItems)
+      }
+    })
     schedulePersist('fast')
   }
 
   function deleteOutlineItem(outlineId: string): void {
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
-      outlineItems: workspace.outlineItems.filter((item) => item.id !== outlineId)
+      outlineItems: reindexOutlineItems(workspace.outlineItems.filter((item) => item.id !== outlineId))
     }))
+    schedulePersist('fast')
+  }
+
+  function moveOutlineItem(outlineId: string, targetOutlineId: string): void {
+    updateCurrentWorkspace((workspace) => {
+      const sourceIndex = workspace.outlineItems.findIndex((item) => item.id === outlineId)
+      const targetIndex = workspace.outlineItems.findIndex((item) => item.id === targetOutlineId)
+
+      if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+        return workspace
+      }
+
+      const nextOutlineItems = [...workspace.outlineItems]
+      const [movedItem] = nextOutlineItems.splice(sourceIndex, 1)
+      const targetItem = workspace.outlineItems[targetIndex]
+      nextOutlineItems.splice(targetIndex, 0, {
+        ...movedItem,
+        volumeId: targetItem?.volumeId || movedItem.volumeId
+      })
+
+      return {
+        ...workspace,
+        outlineItems: reindexOutlineItems(nextOutlineItems)
+      }
+    })
     schedulePersist('fast')
   }
 
@@ -1202,6 +1271,7 @@ export const useAppStore = defineStore('app', () => {
     getChapterVersions,
     messages,
     moveChapter,
+    moveOutlineItem,
     openAiAssistant,
     openChapterStudio,
     openProject,

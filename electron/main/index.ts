@@ -274,6 +274,8 @@ async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       title TEXT NOT NULL,
       content TEXT NOT NULL,
       sort_order INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     ) STRICT;
 
@@ -359,6 +361,24 @@ async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       auto_save_interval TEXT NOT NULL,
       ui_scale REAL NOT NULL DEFAULT 1
     ) STRICT;
+  `)
+
+  const worldviewColumns = workspaceDb.prepare(`PRAGMA table_info(worldview_entries)`).all() as Array<{ name: string }>
+  const worldviewColumnNames = new Set(worldviewColumns.map((column) => column.name))
+
+  if (!worldviewColumnNames.has('created_at')) {
+    workspaceDb.exec(`ALTER TABLE worldview_entries ADD COLUMN created_at TEXT NOT NULL DEFAULT '';`)
+  }
+
+  if (!worldviewColumnNames.has('updated_at')) {
+    workspaceDb.exec(`ALTER TABLE worldview_entries ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';`)
+  }
+
+  workspaceDb.exec(`
+    UPDATE worldview_entries
+    SET created_at = COALESCE(NULLIF(created_at, ''), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at = COALESCE(NULLIF(updated_at, ''), created_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    WHERE created_at = '' OR updated_at = '';
   `)
 
   ensureAppSettingsColumns(workspaceDb)
@@ -467,6 +487,9 @@ type WorkspacePayload = {
         type: string
         title: string
         content: string
+        sortOrder: number
+        createdAt: string
+        updatedAt: string
       }>
       characters: Array<{
         id: string
@@ -489,6 +512,7 @@ type WorkspacePayload = {
         wordTarget: string
         conflict: string
         summary: string
+        sortOrder: number
       }>
       chapters: Array<{
         id: string
@@ -532,6 +556,9 @@ type LegacyWorkspacePayload = Omit<WorkspacePayload, 'workspaces'> & {
     type: string
     title: string
     content: string
+    sortOrder?: number
+    createdAt?: string
+    updatedAt?: string
   }>
   characters?: Array<{
     id: string
@@ -554,6 +581,7 @@ type LegacyWorkspacePayload = Omit<WorkspacePayload, 'workspaces'> & {
     wordTarget: string
     conflict: string
     summary: string
+    sortOrder?: number
   }>
   chapters?: Array<{
     id: string
@@ -615,6 +643,7 @@ function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWorkspacePa
   }
 
   const legacyPayload = payload as LegacyWorkspacePayload
+  const normalizedTimestamp = new Date().toISOString()
   const projects = legacyPayload.projects?.length ? legacyPayload.projects : []
   const selectedProjectId = legacyPayload.selectedProjectId || projects[0]?.id || 'project-1'
   const workspaces = Object.fromEntries(
@@ -627,13 +656,22 @@ function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWorkspacePa
               ? legacyPayload.outlineVolumes
               : [createFallbackVolume()]
             : [],
-        worldviewEntries: project.id === selectedProjectId ? legacyPayload.worldviewEntries ?? [] : [],
+        worldviewEntries:
+          project.id === selectedProjectId
+            ? (legacyPayload.worldviewEntries ?? []).map((entry, index) => ({
+                ...entry,
+                sortOrder: entry.sortOrder ?? index,
+                createdAt: entry.createdAt || normalizedTimestamp,
+                updatedAt: entry.updatedAt || entry.createdAt || normalizedTimestamp
+              }))
+            : [],
         characters: project.id === selectedProjectId ? legacyPayload.characters ?? [] : [],
         outlineItems:
           project.id === selectedProjectId
-            ? (legacyPayload.outlineItems ?? []).map((item) => ({
+            ? (legacyPayload.outlineItems ?? []).map((item, index) => ({
                 ...item,
-                volumeId: item.volumeId || legacyPayload.outlineVolumes?.[0]?.id || 'volume-legacy-default'
+                volumeId: item.volumeId || legacyPayload.outlineVolumes?.[0]?.id || 'volume-legacy-default',
+                sortOrder: item.sortOrder ?? index
               }))
             : [],
         chapters:
@@ -670,7 +708,7 @@ function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
   }
 
   const worldviewEntries = db.prepare(`
-    SELECT project_id AS projectId, id, type, title, content
+    SELECT project_id AS projectId, id, type, title, content, sort_order AS sortOrder, created_at AS createdAt, updated_at AS updatedAt
     FROM worldview_entries
     ORDER BY project_id ASC, sort_order ASC
   `).all() as Array<WorkspacePayload['workspaces'][string]['worldviewEntries'][number] & { projectId: string }>
@@ -696,7 +734,7 @@ function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
   `).all() as Array<WorkspacePayload['workspaces'][string]['outlineVolumes'][number] & { projectId: string }>
 
   const outlineItems = db.prepare(`
-    SELECT project_id AS projectId, volume_id AS volumeId, id, title, word_target AS wordTarget, conflict, summary
+    SELECT project_id AS projectId, volume_id AS volumeId, id, title, word_target AS wordTarget, conflict, summary, sort_order AS sortOrder
     FROM outline_items
     ORDER BY project_id ASC, sort_order ASC
   `).all() as Array<WorkspacePayload['workspaces'][string]['outlineItems'][number] & { projectId: string }>
@@ -812,8 +850,8 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
     }
 
     const insertWorldview = db.prepare(`
-      INSERT INTO worldview_entries (id, project_id, type, title, content, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO worldview_entries (id, project_id, type, title, content, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const insertCharacter = db.prepare(`
@@ -858,7 +896,16 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
       }
 
       workspace.worldviewEntries.forEach((entry, index) => {
-        insertWorldview.run(entry.id, project.id, entry.type, entry.title, entry.content, index)
+        insertWorldview.run(
+          entry.id,
+          project.id,
+          entry.type,
+          entry.title,
+          entry.content,
+          entry.sortOrder ?? index,
+          entry.createdAt,
+          entry.updatedAt
+        )
       })
 
       workspace.characters.forEach((character) => {
@@ -878,7 +925,16 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
       })
 
       workspace.outlineItems.forEach((item, index) => {
-        insertOutline.run(item.id, project.id, item.volumeId, item.title, item.wordTarget, item.conflict, item.summary, index)
+        insertOutline.run(
+          item.id,
+          project.id,
+          item.volumeId,
+          item.title,
+          item.wordTarget,
+          item.conflict,
+          item.summary,
+          item.sortOrder ?? index
+        )
       })
 
       workspace.chapters.forEach((chapter, index) => {
@@ -965,6 +1021,25 @@ function validateImportedWorkspace(payload: unknown): { valid: true } | { valid:
     }
   }
 
+  if (Array.isArray(data.worldviewEntries)) {
+    const invalidWorldview = data.worldviewEntries.find((item) => {
+      if (!item || typeof item !== 'object') return true
+      const worldview = item as Record<string, unknown>
+      return (
+        typeof worldview.type !== 'string' ||
+        typeof worldview.title !== 'string' ||
+        typeof worldview.content !== 'string' ||
+        (worldview.sortOrder !== undefined && typeof worldview.sortOrder !== 'number') ||
+        (worldview.createdAt !== undefined && typeof worldview.createdAt !== 'string') ||
+        (worldview.updatedAt !== undefined && typeof worldview.updatedAt !== 'string')
+      )
+    })
+
+    if (invalidWorldview) {
+      return { valid: false, message: 'worldviewEntries 中存在字段缺失或格式错误的设定条目。' }
+    }
+  }
+
   if (Array.isArray(data.outlineVolumes)) {
     const invalidVolume = data.outlineVolumes.find((item) => {
       if (!item || typeof item !== 'object') return true
@@ -989,7 +1064,8 @@ function validateImportedWorkspace(payload: unknown): { valid: true } | { valid:
         (outlineItem.volumeId !== undefined && typeof outlineItem.volumeId !== 'string') ||
         (outlineItem.wordTarget !== undefined && typeof outlineItem.wordTarget !== 'string') ||
         (outlineItem.conflict !== undefined && typeof outlineItem.conflict !== 'string') ||
-        (outlineItem.summary !== undefined && typeof outlineItem.summary !== 'string')
+        (outlineItem.summary !== undefined && typeof outlineItem.summary !== 'string') ||
+        (outlineItem.sortOrder !== undefined && typeof outlineItem.sortOrder !== 'number')
       )
     })
     if (invalidOutlineItem) {

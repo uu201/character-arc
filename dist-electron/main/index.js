@@ -887,6 +887,8 @@ async function ensureWorkspaceDb() {
       title TEXT NOT NULL,
       content TEXT NOT NULL,
       sort_order INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     ) STRICT;
 
@@ -972,6 +974,20 @@ async function ensureWorkspaceDb() {
       auto_save_interval TEXT NOT NULL,
       ui_scale REAL NOT NULL DEFAULT 1
     ) STRICT;
+  `);
+  const worldviewColumns = workspaceDb.prepare(`PRAGMA table_info(worldview_entries)`).all();
+  const worldviewColumnNames = new Set(worldviewColumns.map((column) => column.name));
+  if (!worldviewColumnNames.has("created_at")) {
+    workspaceDb.exec(`ALTER TABLE worldview_entries ADD COLUMN created_at TEXT NOT NULL DEFAULT '';`);
+  }
+  if (!worldviewColumnNames.has("updated_at")) {
+    workspaceDb.exec(`ALTER TABLE worldview_entries ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';`);
+  }
+  workspaceDb.exec(`
+    UPDATE worldview_entries
+    SET created_at = COALESCE(NULLIF(created_at, ''), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at = COALESCE(NULLIF(updated_at, ''), created_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    WHERE created_at = '' OR updated_at = '';
   `);
   ensureAppSettingsColumns(workspaceDb);
   ensureChapterColumns(workspaceDb);
@@ -1063,6 +1079,7 @@ function normalizeWorkspacePayload(payload) {
     };
   }
   const legacyPayload = payload;
+  const normalizedTimestamp = (/* @__PURE__ */ new Date()).toISOString();
   const projects = legacyPayload.projects?.length ? legacyPayload.projects : [];
   const selectedProjectId = legacyPayload.selectedProjectId || projects[0]?.id || "project-1";
   const workspaces = Object.fromEntries(
@@ -1070,11 +1087,17 @@ function normalizeWorkspacePayload(payload) {
       project.id,
       {
         outlineVolumes: project.id === selectedProjectId ? legacyPayload.outlineVolumes?.length ? legacyPayload.outlineVolumes : [createFallbackVolume()] : [],
-        worldviewEntries: project.id === selectedProjectId ? legacyPayload.worldviewEntries ?? [] : [],
+        worldviewEntries: project.id === selectedProjectId ? (legacyPayload.worldviewEntries ?? []).map((entry, index) => ({
+          ...entry,
+          sortOrder: entry.sortOrder ?? index,
+          createdAt: entry.createdAt || normalizedTimestamp,
+          updatedAt: entry.updatedAt || entry.createdAt || normalizedTimestamp
+        })) : [],
         characters: project.id === selectedProjectId ? legacyPayload.characters ?? [] : [],
-        outlineItems: project.id === selectedProjectId ? (legacyPayload.outlineItems ?? []).map((item) => ({
+        outlineItems: project.id === selectedProjectId ? (legacyPayload.outlineItems ?? []).map((item, index) => ({
           ...item,
-          volumeId: item.volumeId || legacyPayload.outlineVolumes?.[0]?.id || "volume-legacy-default"
+          volumeId: item.volumeId || legacyPayload.outlineVolumes?.[0]?.id || "volume-legacy-default",
+          sortOrder: item.sortOrder ?? index
         })) : [],
         chapters: project.id === selectedProjectId ? (legacyPayload.chapters ?? []).map((chapter) => ({
           ...chapter,
@@ -1103,7 +1126,7 @@ function readWorkspaceSnapshot(db) {
     return null;
   }
   const worldviewEntries = db.prepare(`
-    SELECT project_id AS projectId, id, type, title, content
+    SELECT project_id AS projectId, id, type, title, content, sort_order AS sortOrder, created_at AS createdAt, updated_at AS updatedAt
     FROM worldview_entries
     ORDER BY project_id ASC, sort_order ASC
   `).all();
@@ -1126,7 +1149,7 @@ function readWorkspaceSnapshot(db) {
     ORDER BY project_id ASC, sort_order ASC
   `).all();
   const outlineItems = db.prepare(`
-    SELECT project_id AS projectId, volume_id AS volumeId, id, title, word_target AS wordTarget, conflict, summary
+    SELECT project_id AS projectId, volume_id AS volumeId, id, title, word_target AS wordTarget, conflict, summary, sort_order AS sortOrder
     FROM outline_items
     ORDER BY project_id ASC, sort_order ASC
   `).all();
@@ -1207,8 +1230,8 @@ function writeWorkspaceSnapshot(db, payload) {
       insertProject.run(project.id, project.title, project.genre, project.wordCount, project.lastEdited, project.cover);
     }
     const insertWorldview = db.prepare(`
-      INSERT INTO worldview_entries (id, project_id, type, title, content, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO worldview_entries (id, project_id, type, title, content, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertCharacter = db.prepare(`
       INSERT INTO characters (id, project_id, name, role, description, avatar, tags_json)
@@ -1245,7 +1268,16 @@ function writeWorkspaceSnapshot(db, payload) {
         messages: []
       };
       workspace.worldviewEntries.forEach((entry, index) => {
-        insertWorldview.run(entry.id, project.id, entry.type, entry.title, entry.content, index);
+        insertWorldview.run(
+          entry.id,
+          project.id,
+          entry.type,
+          entry.title,
+          entry.content,
+          entry.sortOrder ?? index,
+          entry.createdAt,
+          entry.updatedAt
+        );
       });
       workspace.characters.forEach((character) => {
         insertCharacter.run(
@@ -1262,7 +1294,16 @@ function writeWorkspaceSnapshot(db, payload) {
         insertOutlineVolume.run(volume.id, project.id, volume.title, volume.wordTarget, volume.summary, index);
       });
       workspace.outlineItems.forEach((item, index) => {
-        insertOutline.run(item.id, project.id, item.volumeId, item.title, item.wordTarget, item.conflict, item.summary, index);
+        insertOutline.run(
+          item.id,
+          project.id,
+          item.volumeId,
+          item.title,
+          item.wordTarget,
+          item.conflict,
+          item.summary,
+          item.sortOrder ?? index
+        );
       });
       workspace.chapters.forEach((chapter, index) => {
         insertChapter.run(
@@ -1338,6 +1379,16 @@ function validateImportedWorkspace(payload) {
       return { valid: false, message: `${field} 必须是数组格式。` };
     }
   }
+  if (Array.isArray(data.worldviewEntries)) {
+    const invalidWorldview = data.worldviewEntries.find((item) => {
+      if (!item || typeof item !== "object") return true;
+      const worldview = item;
+      return typeof worldview.type !== "string" || typeof worldview.title !== "string" || typeof worldview.content !== "string" || worldview.sortOrder !== void 0 && typeof worldview.sortOrder !== "number" || worldview.createdAt !== void 0 && typeof worldview.createdAt !== "string" || worldview.updatedAt !== void 0 && typeof worldview.updatedAt !== "string";
+    });
+    if (invalidWorldview) {
+      return { valid: false, message: "worldviewEntries 中存在字段缺失或格式错误的设定条目。" };
+    }
+  }
   if (Array.isArray(data.outlineVolumes)) {
     const invalidVolume = data.outlineVolumes.find((item) => {
       if (!item || typeof item !== "object") return true;
@@ -1352,7 +1403,7 @@ function validateImportedWorkspace(payload) {
     const invalidOutlineItem = data.outlineItems.find((item) => {
       if (!item || typeof item !== "object") return true;
       const outlineItem = item;
-      return typeof outlineItem.title !== "string" || outlineItem.volumeId !== void 0 && typeof outlineItem.volumeId !== "string" || outlineItem.wordTarget !== void 0 && typeof outlineItem.wordTarget !== "string" || outlineItem.conflict !== void 0 && typeof outlineItem.conflict !== "string" || outlineItem.summary !== void 0 && typeof outlineItem.summary !== "string";
+      return typeof outlineItem.title !== "string" || outlineItem.volumeId !== void 0 && typeof outlineItem.volumeId !== "string" || outlineItem.wordTarget !== void 0 && typeof outlineItem.wordTarget !== "string" || outlineItem.conflict !== void 0 && typeof outlineItem.conflict !== "string" || outlineItem.summary !== void 0 && typeof outlineItem.summary !== "string" || outlineItem.sortOrder !== void 0 && typeof outlineItem.sortOrder !== "number";
     });
     if (invalidOutlineItem) {
       return { valid: false, message: "outlineItems 中存在字段缺失或格式错误的大纲节点。" };

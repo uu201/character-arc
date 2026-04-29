@@ -69,6 +69,7 @@ export function createProjectWorkspaceSeed(
   bootstrap?: ProjectBootstrapResult | null
 ): ProjectWorkspaceSeed {
   const timestamp = Date.now()
+  const createdAt = new Date(timestamp).toISOString()
   const firstVolumeId = createSeedId('volume', 0, timestamp)
   const outlineVolumes = [
     createOutlineVolume({
@@ -84,13 +85,17 @@ export function createProjectWorkspaceSeed(
     title: item.title?.trim() || `第${index + 1}章：剧情节点`,
     wordTarget: item.wordTarget?.trim() || `预估 ${normalizeTargetWordCount(values.targetWordCount)}`,
     conflict: item.conflict?.trim() || '新的冲突正在酝酿。',
-    summary: item.summary?.trim() || '待补充剧情摘要。'
+    summary: item.summary?.trim() || '待补充剧情摘要。',
+    sortOrder: index
   }))
   const worldviewEntries = (bootstrap?.worldviewEntries ?? []).map((item, index) => ({
     id: createSeedId('world', index, timestamp),
-    type: item.type?.trim() || '世界',
+    type: item.type?.trim() || '地理',
     title: item.title?.trim() || `设定条目 ${index + 1}`,
-    content: item.content?.trim() || '待补充设定内容。'
+    content: item.content?.trim() || '待补充设定内容。',
+    sortOrder: index,
+    createdAt,
+    updatedAt: createdAt
   }))
 
   // Keep the first project seed lightweight: generated outline nodes become matching chapter drafts.

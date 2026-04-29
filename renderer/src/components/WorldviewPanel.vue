@@ -22,7 +22,7 @@ const form = reactive({
   content: ''
 })
 
-const entryTypes = ['地理', '法则', '物种']
+const entryTypes = ['地理', '法则', '物种', '势力', '历史']
 const typeOptions = entryTypes.map((type) => ({ label: type, value: type }))
 const filteredEntries = computed(() => {
   const query = props.searchQuery?.trim().toLowerCase() ?? ''
@@ -39,6 +39,20 @@ const menuOptions: DropdownOption[] = [
   { key: 'edit', label: '编辑词条' },
   { key: 'delete', label: '删除词条' }
 ]
+
+function formatEntryMetaTime(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return '刚刚更新'
+  }
+
+  return parsed.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
 
 function handleCreateEntry(): void {
   editingEntryId.value = null
@@ -172,6 +186,10 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
         </div>
         <h3>{{ entry.title }}</h3>
         <p>{{ entry.content }}</p>
+        <div class="card-meta">
+          <span>排序 {{ entry.sortOrder + 1 }}</span>
+          <span>更新于 {{ formatEntryMetaTime(entry.updatedAt) }}</span>
+        </div>
       </article>
 
       <button v-if="!props.searchQuery" class="empty-card" @click="handleCreateEntry">
@@ -398,6 +416,17 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
   color: #86868b;
   font-size: 14px;
   line-height: 1.8;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  color: #98a2b3;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .empty-card {

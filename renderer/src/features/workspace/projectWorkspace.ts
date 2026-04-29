@@ -10,27 +10,74 @@ import type {
 } from '@/types/app'
 import { cloneOutlineVolumes, createOutlineVolume, ensureVolumeCollections } from '@/features/workspace/outlineVolumes'
 
+function toIsoTimestamp(value?: string): string {
+  const parsed = value ? new Date(value) : null
+  if (parsed && !Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString()
+  }
+
+  return new Date().toISOString()
+}
+
+function normalizeWorldviewEntries(worldviewEntries?: WorldviewEntry[]): WorldviewEntry[] {
+  const sortedEntries = (worldviewEntries ?? [])
+    .map((entry, index) => ({ entry, index }))
+    .sort((left, right) => (left.entry.sortOrder ?? left.index) - (right.entry.sortOrder ?? right.index))
+
+  return sortedEntries.map(({ entry }, index) => {
+    const createdAt = toIsoTimestamp(entry.createdAt)
+    const updatedAt = toIsoTimestamp(entry.updatedAt || entry.createdAt)
+
+    return {
+      ...entry,
+      sortOrder: index,
+      createdAt,
+      updatedAt
+    }
+  })
+}
+
+function normalizeOutlineItems(outlineItems?: OutlineItem[]): OutlineItem[] {
+  const sortedItems = (outlineItems ?? [])
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => (left.item.sortOrder ?? left.index) - (right.item.sortOrder ?? right.index))
+
+  return sortedItems.map(({ item }, index) => ({
+    ...item,
+    sortOrder: index
+  }))
+}
+
 const demoWorldview: WorldviewEntry[] = [
   {
     id: 'world-1',
     type: '地理',
     title: '时代背景',
     content:
-      '2077年，第四次企业战争结束后，全球能源被三大寡头公司垄断。下层阶级只能生存在终日下着酸雨的贫民窟，依靠走私二手义体和黑市芯片维持生活。意识上传技术初现端倪，被称为“赛博飞升”。'
+      '2077年，第四次企业战争结束后，全球能源被三大寡头公司垄断。下层阶级只能生存在终日下着酸雨的贫民窟，依靠走私二手义体和黑市芯片维持生活。意识上传技术初现端倪，被称为“赛博飞升”。',
+    sortOrder: 0,
+    createdAt: '2026-04-28T08:00:00.000Z',
+    updatedAt: '2026-04-28T08:00:00.000Z'
   },
   {
     id: 'world-2',
     type: '法则',
     title: '核心规则：义体排异',
     content:
-      '过度植入机械义体会导致神经系统崩溃，引发赛博精神病。唯一能延缓排异反应的药物“神经阻断剂”被公司严格控制，成为比货币更硬通的资源。'
+      '过度植入机械义体会导致神经系统崩溃，引发赛博精神病。唯一能延缓排异反应的药物“神经阻断剂”被公司严格控制，成为比货币更硬通的资源。',
+    sortOrder: 1,
+    createdAt: '2026-04-28T08:05:00.000Z',
+    updatedAt: '2026-04-28T08:05:00.000Z'
   },
   {
     id: 'world-3',
     type: '物种',
     title: '地理环境：夜城（Night City）',
     content:
-      '建在填海造陆上的超级都市，分为上层的云端区和底层的霓虹区。云端区拥有人造阳光，霓虹区则充满全息广告、酸雨和九龙城寨式建筑群。'
+      '建在填海造陆上的超级都市，分为上层的云端区和底层的霓虹区。云端区拥有人造阳光，霓虹区则充满全息广告、酸雨和九龙城寨式建筑群。',
+    sortOrder: 2,
+    createdAt: '2026-04-28T08:10:00.000Z',
+    updatedAt: '2026-04-28T08:10:00.000Z'
   }
 ]
 
@@ -90,7 +137,8 @@ const demoOutline: OutlineItem[] = [
     wordTarget: '3000字',
     conflict: '平凡生活被打破。',
     summary:
-      '李雷在回收站关门时，救下了头部受重伤且被追杀的公司女高管艾达。发现她脑内的军用级接口，李雷面临交出她还是藏匿她的抉择。'
+      '李雷在回收站关门时，救下了头部受重伤且被追杀的公司女高管艾达。发现她脑内的军用级接口，李雷面临交出她还是藏匿她的抉择。',
+    sortOrder: 0
   },
   {
     id: 'outline-2',
@@ -99,7 +147,8 @@ const demoOutline: OutlineItem[] = [
     wordTarget: '预估 3000字',
     conflict: '公司杀手搜查贫民窟。',
     summary:
-      '李雷利用回收站的铅板密室躲避了第一波搜查，并请老鬼来为艾达稳定伤情。老鬼警告李雷惹上了大麻烦。'
+      '李雷利用回收站的铅板密室躲避了第一波搜查，并请老鬼来为艾达稳定伤情。老鬼警告李雷惹上了大麻烦。',
+    sortOrder: 1
   }
 ]
 
@@ -157,7 +206,7 @@ function cloneChapters(chapters?: ChapterDraft[]): ChapterDraft[] {
 }
 
 function cloneOutlineItems(outlineItems?: OutlineItem[]): OutlineItem[] {
-  return outlineItems?.length ? outlineItems.map((item) => ({ ...item })) : []
+  return normalizeOutlineItems(outlineItems)
 }
 
 function cloneCharacters(characters?: CharacterCard[]): CharacterCard[] {
@@ -170,7 +219,7 @@ function cloneCharacters(characters?: CharacterCard[]): CharacterCard[] {
 }
 
 function cloneWorldviewEntries(worldviewEntries?: WorldviewEntry[]): WorldviewEntry[] {
-  return worldviewEntries?.length ? worldviewEntries.map((entry) => ({ ...entry })) : []
+  return normalizeWorldviewEntries(worldviewEntries)
 }
 
 export function createEmptyWorkspace(overrides?: Partial<ProjectWorkspaceData>): ProjectWorkspaceData {
