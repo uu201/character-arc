@@ -138,7 +138,6 @@ function openEntry(type: string, title: string): void {
 
     <div class="overview-grid">
       <article class="hero-card">
-        <div class="hero-card-glow" :style="{ background: currentProject?.cover }"></div>
         <div class="hero-card-top">
           <span class="hero-genre">{{ currentProject?.genre }}</span>
           <button class="hero-action" @click="appStore.setPanel('chapters')">
@@ -210,66 +209,48 @@ function openEntry(type: string, title: string): void {
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .section-head h2 {
-  margin: 0 0 8px;
-  font-size: clamp(30px, 3.4vw, 38px);
+  margin: 0 0 6px;
+  font-size: 20px;
   font-weight: 650;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.01em;
+  color: var(--arc-text-primary);
 }
 
 .section-head p {
   margin: 0;
-  color: #86868b;
-  font-size: 15px;
+  color: var(--arc-text-secondary);
+  font-size: 13px;
 }
 
 .status-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
-  color: #6b7280;
-  padding: 10px 14px;
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.04);
+  gap: 6px;
+  border-radius: var(--arc-radius-sm);
+  border: 1px solid var(--arc-border);
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  padding: 6px 10px;
 }
 
 .overview-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.95fr);
-  gap: clamp(16px, 1.8vw, 22px);
-  margin-bottom: 24px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.95fr);
+  gap: clamp(12px, 1.6vw, 18px);
+  margin-bottom: 20px;
 }
 
 .hero-card {
-  position: relative;
   overflow: hidden;
-  border: 1px solid rgba(243, 244, 246, 0.9);
-  border-radius: 30px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
-  padding: clamp(22px, 2.4vw, 28px);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
-}
-
-.hero-card-glow {
-  position: absolute;
-  top: -48px;
-  right: -42px;
-  width: 190px;
-  height: 190px;
-  border-radius: 999px;
-  filter: blur(56px);
-  opacity: 0.12;
-}
-
-.hero-card-top,
-.hero-card h3,
-.hero-card p {
-  position: relative;
-  z-index: 1;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-lg);
+  background: var(--arc-bg-surface);
+  padding: clamp(20px, 2.2vw, 24px);
 }
 
 .hero-card-top {
@@ -277,86 +258,89 @@ function openEntry(type: string, title: string): void {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .hero-genre {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  background: rgba(243, 244, 246, 0.94);
-  color: #6b7280;
-  font-size: 12px;
-  font-weight: 650;
-  padding: 8px 12px;
+  border-radius: var(--arc-radius-sm);
+  background: var(--arc-bg-body);
+  color: var(--arc-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  letter-spacing: 0.01em;
 }
 
 .hero-action {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border: none;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  gap: 6px;
+  border: 1px solid var(--arc-primary);
+  border-radius: var(--arc-radius-md);
+  background: transparent;
   color: var(--arc-primary);
   cursor: pointer;
   font-size: 13px;
-  font-weight: 650;
-  padding: 10px 14px;
+  font-weight: 500;
+  padding: 6px 12px;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.hero-action:hover {
+  background: var(--arc-primary-soft);
 }
 
 .hero-card h3 {
-  margin: 0 0 14px;
-  font-size: clamp(28px, 3vw, 34px);
+  margin: 0 0 12px;
+  font-size: clamp(18px, 2vw, 22px);
   font-weight: 700;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.02em;
+  color: var(--arc-text-primary);
 }
 
 .hero-card p {
   max-width: 44rem;
   margin: 0;
-  color: #4b5563;
-  font-size: 15px;
-  line-height: 1.8;
+  color: var(--arc-text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
 }
 
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
 }
 
 .stat-card {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: flex-start;
-  border: 1px solid rgba(243, 244, 246, 0.9);
-  border-radius: 24px;
-  background: white;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-lg);
+  background: var(--arc-bg-surface);
   cursor: pointer;
-  padding: 16px 18px;
-  box-shadow: 0 6px 22px rgba(15, 23, 42, 0.03);
+  padding: 14px 16px;
   text-align: left;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease;
+  transition: border-color 0.16s ease;
 }
 
 .stat-card:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--arc-primary) 12%, white);
-  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.05);
+  border-color: var(--arc-primary);
 }
 
 .stat-icon {
   display: inline-flex;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   align-items: center;
   justify-content: center;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  border-radius: var(--arc-radius-md);
+  background: var(--arc-primary-soft);
   color: var(--arc-primary);
   flex-shrink: 0;
 }
@@ -364,31 +348,32 @@ function openEntry(type: string, title: string): void {
 .stat-copy {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .stat-copy span {
-  color: #6b7280;
-  font-size: 13px;
-}
-
-.stat-copy strong {
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-}
-
-.stat-copy small {
-  color: #9ca3af;
+  color: var(--arc-text-secondary);
   font-size: 12px;
 }
 
+.stat-copy strong {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--arc-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-copy small {
+  color: var(--arc-text-hint);
+  font-size: 11px;
+}
+
 .focus-section {
-  border: 1px solid rgba(243, 244, 246, 0.9);
-  border-radius: 30px;
-  background: rgba(255, 255, 255, 0.9);
-  padding: clamp(18px, 2.2vw, 24px);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.03);
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-lg);
+  background: var(--arc-bg-surface);
+  padding: clamp(16px, 2vw, 20px);
 }
 
 .focus-head {
@@ -397,87 +382,83 @@ function openEntry(type: string, title: string): void {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .focus-head h4 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--arc-text-primary);
 }
 
 .focus-head span {
-  color: #86868b;
-  font-size: 13px;
+  color: var(--arc-text-hint);
+  font-size: 12px;
 }
 
 .focus-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
 }
 
 .focus-card {
-  border: 1px solid rgba(243, 244, 246, 0.95);
-  border-radius: 22px;
-  background: white;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-lg);
+  background: var(--arc-bg-surface);
   cursor: pointer;
-  padding: 16px;
+  padding: 14px;
   text-align: left;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease;
+  transition: border-color 0.16s ease;
 }
 
 .focus-card:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--arc-primary) 12%, white);
-  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.05);
+  border-color: var(--arc-primary);
 }
 
 .focus-type {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  background: #f5f5f7;
-  color: #6b7280;
+  border-radius: var(--arc-radius-sm);
+  background: var(--arc-bg-body);
+  color: var(--arc-text-secondary);
   font-size: 11px;
-  font-weight: 650;
-  padding: 6px 10px;
-  margin-bottom: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  margin-bottom: 8px;
 }
 
 .focus-card h5 {
-  margin: 0 0 8px;
-  font-size: 16px;
-  font-weight: 650;
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--arc-text-primary);
 }
 
 .focus-card p {
   display: -webkit-box;
   margin: 0;
   overflow: hidden;
-  color: #6b7280;
-  font-size: 13px;
-  line-height: 1.7;
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
 }
 
 .empty-state {
-  border: 1px dashed rgba(209, 213, 219, 0.95);
-  border-radius: 22px;
+  border: 1px dashed var(--arc-border);
+  border-radius: var(--arc-radius-lg);
   padding: 24px;
   text-align: center;
-  color: #86868b;
-  font-size: 14px;
+  color: var(--arc-text-secondary);
+  font-size: 13px;
 }
 
 @media (max-width: 1240px) {
   .hero-card p {
-    font-size: 14px;
-    line-height: 1.7;
+    font-size: 13px;
   }
 }
 

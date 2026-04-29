@@ -58,27 +58,27 @@ export function createNaiveThemeOverrides(name: ThemeName): GlobalThemeOverrides
       primaryColorHover: preset.primaryHover,
       primaryColorPressed: preset.primaryPressed,
       primaryColorSuppl: preset.primaryHover,
-      borderRadius: '12px',
+      borderRadius: '6px',
       fontFamily:
         '-apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif'
     },
     Button: {
-      borderRadiusMedium: '20px',
-      paddingMedium: '0 18px',
-      fontWeight: '600'
+      borderRadiusMedium: '6px',
+      paddingMedium: '0 16px',
+      fontWeight: '500'
     },
     Input: {
-      borderRadius: '12px'
+      borderRadius: '6px'
     },
     Select: {
       peers: {
         InternalSelection: {
-          borderRadius: '12px'
+          borderRadius: '6px'
         }
       }
     },
     Modal: {
-      borderRadius: '20px'
+      borderRadius: '8px'
     }
   }
 }

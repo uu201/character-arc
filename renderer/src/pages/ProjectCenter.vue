@@ -151,11 +151,9 @@ function requestDeleteProject(projectId: string): void {
           v-for="(project, index) in appStore.projects"
           :key="project.id"
           class="project-card"
-          :style="{ animationDelay: `${index * 80}ms` }"
+          :style="{ animationDelay: `${index * 60}ms` }"
           @click="appStore.openProject(project.id)"
         >
-          <div class="project-glow" :style="{ background: project.cover }"></div>
-
           <div class="project-card-top">
             <div class="project-icon" :style="{ background: project.cover }">
               <BookOpen :size="26" />
@@ -263,7 +261,7 @@ function requestDeleteProject(projectId: string): void {
   max-width: 1200px;
   margin: 0 auto;
   padding:
-    calc(var(--arc-titlebar-height) + clamp(12px, 2vw, 20px))
+    calc(var(--arc-titlebar-height) + clamp(20px, 2.4vw, 32px))
     max(clamp(20px, 3vw, 40px), calc(var(--arc-window-controls-width) + 24px))
     clamp(36px, 6vw, 64px)
     clamp(20px, 3vw, 40px);
@@ -274,102 +272,72 @@ function requestDeleteProject(projectId: string): void {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 18px;
-  margin-bottom: 40px;
+  gap: 16px;
+  margin-bottom: 32px;
 }
 
 .hero h1 {
-  margin: 0 0 10px;
-  color: #1d1d1f;
-  font-size: clamp(32px, 4vw, 44px);
+  margin: 0 0 6px;
+  color: var(--arc-text-primary);
+  font-size: clamp(20px, 2vw, 28px);
   font-weight: 650;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.02em;
 }
 
 .hero p {
   margin: 0;
-  color: #86868b;
-  font-size: clamp(15px, 2vw, 18px);
+  color: var(--arc-text-secondary);
+  font-size: 14px;
 }
 
 .create-button {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--arc-radius-md);
   background: var(--arc-primary);
   color: white;
   cursor: pointer;
-  font-size: 15px;
-  font-weight: 650;
-  padding: 16px 24px;
-  box-shadow: 0 10px 26px color-mix(in srgb, var(--arc-primary) 30%, transparent);
-  transition: all 0.28s ease;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 18px;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .create-button:hover {
   background: var(--arc-primary-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 18px 34px color-mix(in srgb, var(--arc-primary) 36%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--arc-primary) 28%, transparent);
 }
 
 .project-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
-  gap: clamp(18px, 2.4vw, 28px);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: clamp(12px, 1.6vw, 20px);
 }
 
 .project-card {
   position: relative;
   display: flex;
-  min-height: clamp(248px, 30vw, 292px);
+  min-height: 200px;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgba(243, 244, 246, 0.9);
-  border-radius: 28px;
-  background: white;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-lg);
+  background: var(--arc-bg-surface);
   cursor: pointer;
-  padding: clamp(18px, 2.2vw, 24px);
-  animation: cardRise 0.45s ease both;
+  padding: clamp(16px, 2vw, 20px);
+  animation: cardRise 0.24s ease both;
   transition:
-    transform 0.32s ease,
-    box-shadow 0.32s ease,
-    border-color 0.32s ease;
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .project-card:hover {
-  transform: translateY(-6px);
-  border-color: rgba(229, 231, 235, 0.95);
-  box-shadow: 0 24px 40px rgba(0, 0, 0, 0.07);
-}
-
-.project-card::after {
-  content: '点击进入项目';
-  position: absolute;
-  right: 20px;
-  bottom: 18px;
-  color: rgba(29, 29, 31, 0);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  transition: color 0.2s ease;
-  z-index: 2;
-}
-
-.project-card:hover::after {
-  color: #9ca3af;
-}
-
-.project-glow {
-  position: absolute;
-  top: -44px;
-  right: -44px;
-  width: 164px;
-  height: 164px;
-  border-radius: 999px;
-  filter: blur(48px);
-  opacity: 0.12;
+  border-color: var(--arc-border-strong);
+  box-shadow: var(--arc-shadow-sm);
 }
 
 .project-card-top,
@@ -387,36 +355,37 @@ function requestDeleteProject(projectId: string): void {
 
 .project-icon {
   display: inline-flex;
-  width: 58px;
-  height: 58px;
+  width: 44px;
+  height: 44px;
   align-items: center;
   justify-content: center;
-  border-radius: 20px;
+  border-radius: var(--arc-radius-md);
   color: white;
-  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.14);
 }
 
 .more-button {
   display: inline-flex;
-  width: 42px;
-  height: 42px;
+  width: 32px;
+  height: 32px;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--arc-radius-md);
   background: transparent;
-  color: #9ca3af;
+  color: var(--arc-text-hint);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease;
 }
 
 .more-button:hover {
-  background: rgba(0, 0, 0, 0.04);
-  color: #1f2937;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--arc-text-primary);
 }
 
 :deep(.project-menu-danger-label) {
-  color: #dc2626;
+  color: var(--arc-danger);
 }
 
 .cover-editor {
@@ -427,14 +396,14 @@ function requestDeleteProject(projectId: string): void {
 
 .cover-preview {
   display: inline-flex;
-  width: 110px;
-  height: 110px;
+  width: 96px;
+  height: 96px;
   align-items: center;
   justify-content: center;
-  border-radius: 24px;
+  border-radius: var(--arc-radius-lg);
   color: white;
   flex-shrink: 0;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  box-shadow: var(--arc-shadow-sm);
   background-size: cover !important;
   background-position: center !important;
 }
@@ -448,22 +417,23 @@ function requestDeleteProject(projectId: string): void {
 .project-genre {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  background: rgba(243, 244, 246, 0.9);
-  color: #6b7280;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 8px 12px;
-  margin-bottom: 14px;
+  border-radius: var(--arc-radius-sm);
+  background: var(--arc-bg-body);
+  color: var(--arc-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  margin-bottom: 12px;
+  letter-spacing: 0.01em;
 }
 
 .project-card h3 {
-  margin: 0 0 18px;
-  color: #1d1d1f;
-  font-size: clamp(24px, 2.4vw, 30px);
-  font-weight: 650;
-  letter-spacing: -0.03em;
-  transition: color 0.24s ease;
+  margin: 0 0 14px;
+  color: var(--arc-text-primary);
+  font-size: clamp(16px, 1.6vw, 20px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: color 0.16s ease;
 }
 
 .project-card:hover h3 {
@@ -472,34 +442,34 @@ function requestDeleteProject(projectId: string): void {
 
 .meta-row {
   display: flex;
-  gap: 22px;
-  color: #86868b;
-  font-size: 13px;
+  gap: 16px;
+  color: var(--arc-text-hint);
+  font-size: 12px;
 }
 
 @media (max-width: 1240px) {
   .project-card h3 {
-    margin-bottom: 14px;
+    margin-bottom: 10px;
   }
 }
 
 .meta-item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .dot {
-  width: 6px;
-  height: 6px;
+  width: 3px;
+  height: 3px;
   border-radius: 999px;
-  background: #cfd4dc;
+  background: var(--arc-border-strong);
 }
 
 @keyframes cardRise {
   from {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -519,7 +489,7 @@ function requestDeleteProject(projectId: string): void {
 
   .meta-row {
     flex-wrap: wrap;
-    gap: 10px 18px;
+    gap: 8px 14px;
   }
 
   .cover-editor {

@@ -122,6 +122,7 @@ backend/migrate_all_databases.py
 test_api.py
 # Embedding models (downloaded from HuggingFace at runtime)
 backend/embedding/
+.claude/*
 
 # 提示词工坊实例标识（每个部署实例必须唯一）
 backend/.instance_id

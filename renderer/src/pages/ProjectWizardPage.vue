@@ -704,19 +704,25 @@ async function goNext(): Promise<void> {
   }
 }
 
-.wizard-step-enter-active,
+/* wizard-step: 向导步骤切换，X轴横移传达"步进前进"的方向感
+   进入：ease-out 220ms，从右 16px 滑入；退出：ease-in 140ms，仅淡出不位移 */
+.wizard-step-enter-active {
+  transition:
+    opacity 0.22s cubic-bezier(0, 0, 0.2, 1),
+    transform 0.22s cubic-bezier(0, 0, 0.2, 1);
+}
+
 .wizard-step-leave-active {
-  transition: all 0.28s ease;
+  transition: opacity 0.14s cubic-bezier(0.4, 0, 1, 1);
 }
 
 .wizard-step-enter-from {
   opacity: 0;
-  transform: translateX(24px);
+  transform: translateX(16px);
 }
 
 .wizard-step-leave-to {
   opacity: 0;
-  transform: translateX(-24px);
 }
 
 @keyframes pulseGlow {
