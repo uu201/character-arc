@@ -9,9 +9,10 @@ import type { DropdownOption } from 'naive-ui'
 import type { InspirationEntry } from '@/types/app'
 
 const props = defineProps<{
-  searchQuery?: string
+  searchQuery?: string // 全局搜索关键词
 }>()
 
+// AI 批量生成灵感时的返回结构类型
 type InspirationPackResult = {
   entries?: Array<{
     type?: string
@@ -25,10 +26,11 @@ const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
-const isGenerating = ref(false)
-const editorVisible = ref(false)
-const editingEntryId = ref<string | null>(null)
-const selectedFocus = ref('场景火花')
+const isGenerating = ref(false) // AI 生成灵感时的加载状态
+const editorVisible = ref(false) // 控制灵感编辑弹窗
+const editingEntryId = ref<string | null>(null) // 当前编辑的灵感 ID，null 为新建
+const selectedFocus = ref('场景火花') // 当前选中的灵感焦点类型
+// 灵感编辑表单
 const form = reactive({
   type: '场景火花',
   title: '',
@@ -36,15 +38,17 @@ const form = reactive({
   tags: [] as string[]
 })
 
-const focusTypes = ['标题灵感', '开篇钩子', '场景火花', '剧情转折', '设定补完', '人物动机']
-const menuOptions: DropdownOption[] = [
+const focusTypes = ['标题灵感', '开篇钩子', '场景火花', '剧情转折', '设定补完', '人物动机'] // 灵感焦点类型列表
+const menuOptions: DropdownOption[] = [ // 灵感卡片的下拉菜单选项
   { key: 'expand', label: '发送给 AI 助手' },
   { key: 'edit', label: '编辑灵感' },
   { key: 'delete', label: '删除灵感' }
 ]
+// 当前选中章节的纯文本内容（用于 AI 生成灵感时提供上下文）
 const selectedChapterText = computed(() =>
   getPlainTextFromEditorContent(appStore.selectedChapter?.content ?? '').trim()
 )
+// 根据搜索关键词过滤灵感列表，在类型、标题、内容和标签中匹配
 const filteredEntries = computed(() => {
   const query = props.searchQuery?.trim().toLowerCase() ?? ''
   const entries = appStore.inspirationEntries
@@ -57,13 +61,17 @@ const filteredEntries = computed(() => {
     `${entry.type} ${entry.title} ${entry.content} ${entry.tags.join(' ')}`.toLowerCase().includes(query)
   )
 })
+// 统计每种焦点类型的灵感数量（用于焦点选择器旁的徽标）
 const focusCounts = computed(() =>
   Object.fromEntries(focusTypes.map((type) => [type, appStore.inspirationEntries.filter((entry) => entry.type === type).length]))
 )
+// AI 生成的灵感数量
 const aiEntryCount = computed(() => appStore.inspirationEntries.filter((entry) => entry.source === 'ai').length)
+// 手动记录的灵感数量
 const manualEntryCount = computed(() => appStore.inspirationEntries.filter((entry) => entry.source === 'manual').length)
-const isEditing = computed(() => Boolean(editingEntryId.value))
+const isEditing = computed(() => Boolean(editingEntryId.value)) // 判断当前是编辑模式还是新建模式
 
+// 格式化灵感卡片的更新时间为中文简短格式
 function formatEntryMetaTime(value: string): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) {
@@ -78,6 +86,7 @@ function formatEntryMetaTime(value: string): string {
   })
 }
 
+// 打开新建灵感弹窗，type 默认为当前选中的焦点类型
 function openCreateEditor(type = selectedFocus.value): void {
   editingEntryId.value = null
   form.type = type
@@ -87,6 +96,7 @@ function openCreateEditor(type = selectedFocus.value): void {
   editorVisible.value = true
 }
 
+// 打开灵感编辑弹窗（编辑已有灵感或查看）
 function openEditor(entry?: InspirationEntry): void {
   editingEntryId.value = entry?.id ?? null
   form.type = entry?.type ?? selectedFocus.value
@@ -96,6 +106,7 @@ function openEditor(entry?: InspirationEntry): void {
   editorVisible.value = true
 }
 
+// 调用 AI 接口批量生成灵感卡片（根据选中的焦点类型和当前章节上下文）
 async function handleGeneratePack(): Promise<void> {
   if (isGenerating.value) {
     return
@@ -154,6 +165,7 @@ async function handleGeneratePack(): Promise<void> {
   }
 }
 
+// 提交灵感表单：校验必填项后根据编辑/新建模式保存，手动创建的灵感来源标记为 manual
 function submitEntry(): void {
   if (!form.title.trim() || !form.content.trim()) {
     message.warning('请完整填写灵感标题和灵感内容')
@@ -174,6 +186,7 @@ function submitEntry(): void {
   editorVisible.value = false
 }
 
+// 将灵感卡片发送给 AI 助手进行扩写，构建包含灵感内容和当前章节上下文的 prompt
 function expandEntryToAssistant(entry: InspirationEntry): void {
   appStore.queueAssistantPrompt(
     `请基于这张灵感卡片，为当前章节工作台继续展开成可直接使用的创作内容。优先给出贴合当前章节的桥段、台词、推进动作或场景描写。\n\n灵感类型：${entry.type}\n灵感标题：${entry.title}\n灵感内容：${entry.content}\n灵感标签：${entry.tags.join('、') || '暂无'}\n当前章节：${appStore.selectedChapter?.title ?? '暂无'}\n当前章节摘要：${appStore.selectedChapter?.summary ?? '暂无'}`,
@@ -182,6 +195,7 @@ function expandEntryToAssistant(entry: InspirationEntry): void {
   message.success('灵感卡片已发送给 AI 助手继续扩写')
 }
 
+// 处理灵感卡片的下拉菜单操作：发送给 AI 助手、编辑或删除（删除前弹出二次确认）
 function handleMenuSelect(action: string | number, entry: InspirationEntry): void {
   if (action === 'expand') {
     expandEntryToAssistant(entry)

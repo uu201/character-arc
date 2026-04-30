@@ -73,7 +73,7 @@ ${memberships || "暂无"}
 1. worldviewEntries 返回 3 条设定，每条都包含 type、title、content
 2. worldviewEntries 的 type 必须是 地理 / 法则 / 物种 / 势力 / 历史 之一
 3. outlineItems 返回 3 条章节大纲，每条都包含 title、wordTarget、conflict、summary
-4. wordTarget 使用“预估 xxxx字”格式
+4. wordTarget 使用"预估 xxxx字"格式
 5. 所有内容使用中文，紧贴题材和核心点子，不要重复
 6. ${writingStyleInstruction}
 
@@ -184,13 +184,13 @@ ${memberships || "暂无"}
 ${outlineItems || "暂无"}
 
 要求：
-1. entries 返回 4 条灵感卡片，每条都必须紧贴“灵感焦点”
+1. entries 返回 4 条灵感卡片，每条都必须紧贴"灵感焦点"
 2. type 必须从以下类型中选一个：标题灵感、开篇钩子、场景火花、剧情转折、设定补完、人物动机
 3. title 要短而明确，避免与已有灵感标题重复
 4. content 用中文写成 60 到 140 字的可执行灵感描述，强调可落地场景、冲突、情绪或推进方式
 5. 当关系、组织或阵营立场明显可用时，优先让灵感围绕这些张力展开
 6. tags 返回 2 到 4 个简短标签，方便后续筛选
-7. 不要空泛鸡汤，不要写成长篇大纲，要像作者工作台里的“灵感卡片”
+7. 不要空泛鸡汤，不要写成长篇大纲，要像作者工作台里的"灵感卡片"
 8. ${writingStyleInstruction}
 
 返回格式：{"entries":[{"type":"","title":"","content":"","tags":["",""]}]}`
@@ -314,7 +314,7 @@ ${String(context.chapterContent ?? "")}
 
 要求：
 1. title 为新的章节标题，并体现与当前章节的承接关系
-2. wordTarget 使用“预估 xxxx字”格式
+2. wordTarget 使用"预估 xxxx字"格式
 3. conflict 用一句话概括下一章的核心冲突
 4. summary 用中文描述剧情推进，80 到 180 字
 5. 与当前分卷目标、已有大纲和当前章节情绪保持连续，不要重复已有节点
@@ -347,15 +347,15 @@ ${brokenText}
 function resolveChapterAssistantModeInstruction(mode) {
   switch (mode) {
     case "polish":
-      return "当前模式是“润色”。请尽量直接输出可替换原文的润色结果，减少分析。";
+      return '当前模式是"润色"。请尽量直接输出可替换原文的润色结果，减少分析。';
     case "continue":
-      return "当前模式是“续写”。请紧接现有正文自然续写，保持语气、节奏和剧情方向一致。";
+      return '当前模式是"续写"。请紧接现有正文自然续写，保持语气、节奏和剧情方向一致。';
     case "suggest":
-      return "当前模式是“剧情建议”。请给出 3 到 5 条具体建议，按可执行性优先排序。";
+      return '当前模式是"剧情建议"。请给出 3 到 5 条具体建议，按可执行性优先排序。';
     case "reference":
-      return "当前模式是“设定查阅”。请优先提炼与当前章节最相关的设定、角色和风险点。";
+      return '当前模式是"设定查阅"。请优先提炼与当前章节最相关的设定、角色和风险点。';
     default:
-      return "当前模式是“自由提问”。请根据用户请求选择最合适的回答形式。";
+      return '当前模式是"自由提问"。请根据用户请求选择最合适的回答形式。';
   }
 }
 function resolveChapterAssistantLengthInstruction(length) {
@@ -440,10 +440,10 @@ function resolveWritingStyleInstruction(context) {
     return "若当前项目未指定写作风格，则使用最贴合作品题材的自然表达。";
   }
   if (label && prompt) {
-    return `当前项目默认写作风格为“${label}”。请在输出中遵循以下风格要求：${prompt}`;
+    return `当前项目默认写作风格为"${label}"。请在输出中遵循以下风格要求：${prompt}`;
   }
   if (label) {
-    return `当前项目默认写作风格为“${label}”，请让输出保持这一风格的一致性。`;
+    return `当前项目默认写作风格为"${label}"，请让输出保持这一风格的一致性。`;
   }
   return `请在输出中遵循以下写作风格要求：${prompt}`;
 }

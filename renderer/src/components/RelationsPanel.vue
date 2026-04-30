@@ -17,17 +17,18 @@ import { useAppStore } from '@/stores/app'
 import type { CharacterRelationship, OrganizationEntry, OrganizationMembership } from '@/types/app'
 
 const props = defineProps<{
-  searchQuery?: string
+  searchQuery?: string // 全局搜索关键词
 }>()
 
 const appStore = useAppStore()
 const message = useMessage()
 const dialog = useDialog()
-const keyword = ref('')
+const keyword = ref('') // 本面板内的本地搜索关键词
 
-const organizationEditorVisible = ref(false)
-const editingOrganizationId = ref<string | null>(null)
-const organizationForm = reactive({
+// --- 组织编辑器状态 ---
+const organizationEditorVisible = ref(false) // 控制组织编辑弹窗的显示
+const editingOrganizationId = ref<string | null>(null) // 当前编辑的组织 ID，null 为新建
+const organizationForm = reactive({ // 组织编辑表单
   name: '',
   type: '',
   description: '',
@@ -35,41 +36,49 @@ const organizationForm = reactive({
   color: ''
 })
 
-const relationshipEditorVisible = ref(false)
-const editingRelationshipId = ref<string | null>(null)
-const relationshipForm = reactive({
+// --- 关系编辑器状态 ---
+const relationshipEditorVisible = ref(false) // 控制关系编辑弹窗的显示
+const editingRelationshipId = ref<string | null>(null) // 当前编辑的关系 ID
+const relationshipForm = reactive({ // 关系编辑表单，包含双方角色、类型、描述和张力强度
   fromCharacterId: '',
   toCharacterId: '',
   type: '',
   description: '',
-  intensity: 50
+  intensity: 50 // 关系强度，0-100，值越高冲突或羁绊越强
 })
 
-const membershipEditorVisible = ref(false)
-const editingMembershipId = ref<string | null>(null)
-const membershipForm = reactive({
+// --- 归属编辑器状态 ---
+const membershipEditorVisible = ref(false) // 控制归属编辑弹窗的显示
+const editingMembershipId = ref<string | null>(null) // 当前编辑的归属 ID
+const membershipForm = reactive({ // 成员归属表单：将角色绑定到组织并指定身份
   characterId: '',
   organizationId: '',
   role: '',
   notes: ''
 })
 
+// 合并全局搜索和本地搜索关键词
 const mergedQuery = computed(() => [props.searchQuery, keyword.value].filter(Boolean).join(' ').trim().toLowerCase())
+// 角色选项列表，用于下拉选择器
 const characterOptions = computed(() =>
   appStore.characters.map((character) => ({
     label: character.name,
     value: character.id
   }))
 )
+// 组织选项列表，用于下拉选择器
 const organizationOptions = computed(() =>
   appStore.organizations.map((organization) => ({
     label: organization.name,
     value: organization.id
   }))
 )
+// 角色 ID 到角色对象的映射表，用于快速查找角色名
 const characterMap = computed(() => new Map(appStore.characters.map((character) => [character.id, character])))
+// 组织 ID 到组织对象的映射表
 const organizationMap = computed(() => new Map(appStore.organizations.map((organization) => [organization.id, organization])))
 
+// 顶部统计卡片数据：组织数量、关系数量、归属数量
 const stats = computed(() => [
   {
     key: 'organizations',
@@ -94,6 +103,7 @@ const stats = computed(() => [
   }
 ])
 
+// 根据搜索关键词过滤组织列表
 const filteredOrganizations = computed(() => {
   const query = mergedQuery.value
   if (!query) {
@@ -105,6 +115,7 @@ const filteredOrganizations = computed(() => {
   )
 })
 
+// 根据搜索关键词过滤关系列表，并附加上双方角色名称以便展示和搜索
 const filteredRelationships = computed(() => {
   const query = mergedQuery.value
   const decorated = appStore.characterRelationships.map((relationship) => {
@@ -129,6 +140,7 @@ const filteredRelationships = computed(() => {
   )
 })
 
+// 根据搜索关键词过滤归属列表，并附加上角色名和组织名以便展示和搜索
 const filteredMemberships = computed(() => {
   const query = mergedQuery.value
   const decorated = appStore.organizationMemberships.map((membership) => {
@@ -153,6 +165,7 @@ const filteredMemberships = computed(() => {
   )
 })
 
+// 打开组织编辑弹窗，传入组织数据时为编辑模式
 function openOrganizationEditor(organization?: OrganizationEntry): void {
   editingOrganizationId.value = organization?.id ?? null
   organizationForm.name = organization?.name ?? ''
@@ -163,6 +176,7 @@ function openOrganizationEditor(organization?: OrganizationEntry): void {
   organizationEditorVisible.value = true
 }
 
+// 提交组织表单：校验必填项后调用 store 保存
 function submitOrganization(): void {
   if (!organizationForm.name.trim() || !organizationForm.description.trim()) {
     message.warning('请先填写组织名称和组织说明')
@@ -180,6 +194,7 @@ function submitOrganization(): void {
   organizationEditorVisible.value = false
 }
 
+// 删除组织前弹出二次确认对话框，同时清理该组织下的成员归属
 function confirmDeleteOrganization(organization: OrganizationEntry): void {
   dialog.warning({
     title: '确认删除组织',
@@ -195,6 +210,7 @@ function confirmDeleteOrganization(organization: OrganizationEntry): void {
   })
 }
 
+// 打开关系编辑弹窗，默认选中第一个和第二个角色作为关系双方
 function openRelationshipEditor(relationship?: CharacterRelationship): void {
   editingRelationshipId.value = relationship?.id ?? null
   relationshipForm.fromCharacterId = relationship?.fromCharacterId ?? appStore.characters[0]?.id ?? ''
@@ -209,6 +225,7 @@ function openRelationshipEditor(relationship?: CharacterRelationship): void {
   relationshipEditorVisible.value = true
 }
 
+// 提交关系表单：校验双方角色不同且必填项已填写
 function submitRelationship(): void {
   if (!relationshipForm.fromCharacterId || !relationshipForm.toCharacterId) {
     message.warning('请先为关系选择双方角色')
@@ -236,6 +253,7 @@ function submitRelationship(): void {
   relationshipEditorVisible.value = false
 }
 
+// 删除关系前弹出二次确认对话框
 function confirmDeleteRelationship(relationship: { id: string; fromCharacterName: string; toCharacterName: string }): void {
   dialog.warning({
     title: '确认删除关系',
@@ -251,6 +269,7 @@ function confirmDeleteRelationship(relationship: { id: string; fromCharacterName
   })
 }
 
+// 打开归属编辑弹窗，将角色和组织默认选为列表第一项
 function openMembershipEditor(membership?: OrganizationMembership): void {
   editingMembershipId.value = membership?.id ?? null
   membershipForm.characterId = membership?.characterId ?? appStore.characters[0]?.id ?? ''
@@ -260,6 +279,7 @@ function openMembershipEditor(membership?: OrganizationMembership): void {
   membershipEditorVisible.value = true
 }
 
+// 提交归属表单：校验角色、组织和身份已填写
 function submitMembership(): void {
   if (!membershipForm.characterId || !membershipForm.organizationId) {
     message.warning('请先选择角色和组织')
@@ -282,6 +302,7 @@ function submitMembership(): void {
   membershipEditorVisible.value = false
 }
 
+// 删除归属前弹出二次确认对话框
 function confirmDeleteMembership(membership: { id: string; characterName: string; organizationName: string }): void {
   dialog.warning({
     title: '确认删除归属',

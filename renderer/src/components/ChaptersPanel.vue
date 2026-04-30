@@ -29,9 +29,10 @@ import type { ChapterDraft, ChapterVersion } from '@/types/app'
 import type { DropdownOption, SelectOption } from 'naive-ui'
 
 const props = defineProps<{
-  searchQuery?: string
+  searchQuery?: string // 全局搜索关键词
 }>()
 
+// AI 批量生成灵感时的返回结构类型
 type InspirationPackResult = {
   entries?: Array<{
     type?: string
@@ -45,16 +46,17 @@ const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
-const saveState = ref<'typing' | 'idle'>('idle')
-const editorVisible = ref(false)
-const versionHistoryVisible = ref(false)
-const isGeneratingInspiration = ref(false)
-const readingMode = ref(false)
-const compactSidebarVisible = ref(false)
-const compactInsightsVisible = ref(false)
-const draggingChapterId = ref<string | null>(null)
-const dragTargetChapterId = ref<string | null>(null)
-const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
+const saveState = ref<'typing' | 'idle'>('idle') // 输入状态指示：typing 表示用户正在编辑
+const editorVisible = ref(false) // 控制章节信息编辑弹窗
+const versionHistoryVisible = ref(false) // 控制历史版本弹窗
+const isGeneratingInspiration = ref(false) // AI 生成章节灵感时的加载状态
+const readingMode = ref(false) // 是否处于阅读模式
+const compactSidebarVisible = ref(false) // 紧凑模式下章节目录抽屉的显示状态
+const compactInsightsVisible = ref(false) // 紧凑模式下章节参考抽屉的显示状态
+const draggingChapterId = ref<string | null>(null) // 正在拖拽的章节 ID
+const dragTargetChapterId = ref<string | null>(null) // 拖拽目标位置的章节 ID
+const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth) // 当前视口宽度，用于响应式布局判断
+// 章节编辑表单
 const chapterForm = reactive({
   volumeId: '',
   title: '',
@@ -62,30 +64,35 @@ const chapterForm = reactive({
   status: 'draft' as ChapterDraft['status'],
   wordTarget: ''
 })
-let saveTimer: number | null = null
+let saveTimer: number | null = null // 输入状态延迟重置的定时器
 
-const chapterStatusOptions: SelectOption[] = [
+const chapterStatusOptions: SelectOption[] = [ // 章节状态选项列表
   { label: '草稿中', value: 'draft' },
   { label: '待检查', value: 'review' },
   { label: '待润色', value: 'polish' },
   { label: '已定稿', value: 'final' }
 ]
-const chapterMenuOptions: DropdownOption[] = [
+const chapterMenuOptions: DropdownOption[] = [ // 章节侧边栏的右键菜单
   { key: 'edit', label: '编辑章节信息' },
   { key: 'delete', label: '删除章节' }
 ]
+// 分卷选项列表，用于章节信息编辑弹窗中的分卷下拉选择器
 const volumeOptions = computed<SelectOption[]>(() =>
   appStore.outlineVolumes.map((volume, index) => ({
     label: formatVolumeLabel(volume, index, 'formal'),
     value: volume.id
   }))
 )
+// 当前章节的字数统计（基于富文本内容计算）
 const currentWordCount = computed(() => getChapterCharacterCount(appStore.selectedChapter?.content ?? ''))
+// 当前章节的纯文本内容（用于 AI 上下文和灵感关联）
 const currentPlainContent = computed(() => getPlainTextFromEditorContent(appStore.selectedChapter?.content ?? '').trim())
+// 当前章节状态的中文标签
 const currentChapterStatusLabel = computed(() => {
   const status = appStore.selectedChapter?.status ?? 'draft'
   return chapterStatusOptions.find((option) => option.value === status)?.label ?? '草稿中'
 })
+// 当前章节状态对应的视觉色调（用于状态标签的颜色）
 const currentChapterStatusTone = computed(() => {
   switch (appStore.selectedChapter?.status) {
     case 'final':
@@ -98,14 +105,17 @@ const currentChapterStatusTone = computed(() => {
       return 'neutral'
   }
 })
+// 当前章节的历史版本列表
 const currentChapterVersions = computed(() =>
   appStore.selectedChapter ? appStore.getChapterVersions(appStore.selectedChapter.id) : []
 )
+// 当前章节在全书中的序号（从 1 开始）
 const selectedChapterIndex = computed(() => {
   const currentId = appStore.selectedChapterId
   const index = appStore.chapters.findIndex((chapter) => chapter.id === currentId)
   return index >= 0 ? index + 1 : 1
 })
+// 当前章节在所属分卷中的序号（从 1 开始）
 const selectedChapterIndexInVolume = computed(() => {
   const selectedVolumeId = appStore.selectedChapter?.volumeId
   if (!selectedVolumeId || !appStore.selectedChapterId) {
@@ -116,9 +126,11 @@ const selectedChapterIndexInVolume = computed(() => {
   const index = chaptersInVolume.findIndex((chapter) => chapter.id === appStore.selectedChapterId)
   return index >= 0 ? index + 1 : 1
 })
+// 当前章节所属分卷在所有分卷中的索引
 const currentVolumeIndex = computed(() =>
   appStore.outlineVolumes.findIndex((volume) => volume.id === appStore.selectedChapterVolume?.id)
 )
+// 当前分卷的简短标签（如"卷一"）
 const currentVolumeLabel = computed(() => {
   if (!appStore.selectedChapterVolume) {
     return '未分卷'
@@ -129,6 +141,7 @@ const currentVolumeLabel = computed(() => {
 const currentChapterTitle = computed(() => appStore.selectedChapter?.title || '未命名章节')
 const chapterCountLabel = computed(() => `${appStore.chapters.length} 个章节`)
 const volumeCountLabel = computed(() => `${appStore.outlineVolumes.length} 个分卷`)
+// 解析章节目标字数：支持"万"单位和普通数字格式
 const currentTargetWordCount = computed(() => {
   const wordTarget = appStore.selectedChapter?.wordTarget ?? ''
   const wanMatch = wordTarget.match(/(\d+(?:\.\d+)?)\s*万/)
@@ -139,6 +152,7 @@ const currentTargetWordCount = computed(() => {
   const digitMatch = wordTarget.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/)
   return digitMatch ? Math.round(Number(digitMatch[1])) : 0
 })
+// 当前章节的写作进度百分比（0-100），无目标字数时为 0
 const currentProgressPercent = computed(() => {
   if (!currentTargetWordCount.value) {
     return 0
@@ -146,8 +160,11 @@ const currentProgressPercent = computed(() => {
 
   return Math.min(100, Math.max(0, Math.round((currentWordCount.value / currentTargetWordCount.value) * 100)))
 })
+// 当前章节摘要文本，为空时显示占位提示
 const currentSummaryText = computed(() => appStore.selectedChapter?.summary?.trim() || '待补充章节摘要')
+// 章节灵感的焦点类型：用于 AI 生成灵感时指定方向
 const chapterInspirationFocuses = ['场景火花', '剧情转折', '人物动机'] as const
+// 从全局灵感池中选取与当前章节最相关的灵感卡片（最多 4 张）
 const chapterInspirationEntries = computed(() =>
   pickRelevantInspirationEntries(
     appStore.inspirationEntries,
@@ -159,6 +176,7 @@ const chapterInspirationEntries = computed(() =>
     4
   )
 )
+// 保存状态的完整文本描述（用于底部状态栏）
 const saveStatusText = computed(() => {
   if (saveState.value === 'typing') {
     return '正在整理草稿...'
@@ -170,6 +188,7 @@ const saveStatusText = computed(() => {
 
   return '已保存草稿'
 })
+// 保存状态的简短文本（用于顶部工具栏）
 const saveStatusCompactText = computed(() => {
   if (saveState.value === 'typing') {
     return '整理中'
@@ -181,8 +200,11 @@ const saveStatusCompactText = computed(() => {
 
   return '已保存'
 })
+// 响应式断点：视口宽度 <= 1360px 时进入紧凑工作室模式（隐藏侧边栏，使用抽屉替代）
 const isCompactStudio = computed(() => viewportWidth.value <= 1360)
+// 响应式断点：视口宽度 <= 1180px 时压缩顶部工具栏信息
 const isCondensedTopbar = computed(() => viewportWidth.value <= 1180)
+// 按分卷分组过滤章节列表，搜索时在标题、摘要、状态、字数目标和正文中匹配
 const filteredChapterGroups = computed(() => {
   const query = props.searchQuery?.trim().toLowerCase() ?? ''
   if (!query) {
@@ -200,23 +222,31 @@ const filteredChapterGroups = computed(() => {
     }))
     .filter((group) => group.items.length > 0)
 })
+// 可见章节总数（过滤后）
 const totalVisibleChapters = computed(() => filteredChapterGroups.value.reduce((count, group) => count + group.items.length, 0))
+// 当前章节在全书数组中的索引
 const selectedChapterArrayIndex = computed(() => appStore.chapters.findIndex((chapter) => chapter.id === appStore.selectedChapterId))
+// 上一章（用于阅读模式翻页和顶部导航）
 const previousChapter = computed(() =>
   selectedChapterArrayIndex.value > 0 ? appStore.chapters[selectedChapterArrayIndex.value - 1] : null
 )
+// 下一章
 const nextChapter = computed(() =>
   selectedChapterArrayIndex.value >= 0 && selectedChapterArrayIndex.value < appStore.chapters.length - 1
     ? appStore.chapters[selectedChapterArrayIndex.value + 1]
     : null
 )
+// 阅读模式下正文的 HTML 内容
 const readingContentHtml = computed(() =>
   ensureEditorHtmlContent(appStore.selectedChapter?.content?.trim() ? appStore.selectedChapter.content : '<p>当前章节还没有正文内容。</p>')
 )
+// 阅读模式下显示的章节字数标签
 const readingWordCountLabel = computed(() => `${currentWordCount.value} 字`)
+// 阅读模式下显示的进度标签
 const readingProgressLabel = computed(() =>
   currentTargetWordCount.value ? `完成度 ${currentProgressPercent.value}%` : '自由字数模式'
 )
+// 阅读模式下的章节导语（优先使用摘要，否则从正文截取）
 const readingLeadText = computed(() => {
   if (appStore.selectedChapter?.summary?.trim()) {
     return appStore.selectedChapter.summary.trim()
@@ -225,31 +255,37 @@ const readingLeadText = computed(() => {
   return getChapterPreviewText(appStore.selectedChapter?.content ?? '', '这一章还没有写下摘要，可以先从成稿阅读中检查节奏。').slice(0, 120)
 })
 
+// 切换阅读模式，同时关闭所有抽屉
 function toggleReadingMode(): void {
   compactSidebarVisible.value = false
   compactInsightsVisible.value = false
   readingMode.value = !readingMode.value
 }
 
+// 同步视口宽度到响应式状态，用于判断是否进入紧凑模式
 function syncViewportWidth(): void {
   viewportWidth.value = window.innerWidth
 }
 
+// 打开紧凑模式的章节目录抽屉（同时关闭参考抽屉）
 function openCompactSidebar(): void {
   compactInsightsVisible.value = false
   compactSidebarVisible.value = true
 }
 
+// 打开紧凑模式的章节参考抽屉（同时关闭目录抽屉）
 function openCompactInsights(): void {
   compactSidebarVisible.value = false
   compactInsightsVisible.value = true
 }
 
+// 在紧凑模式下选择章节并关闭抽屉
 function selectChapterFromCompact(chapterId: string): void {
   appStore.selectChapter(chapterId)
   compactSidebarVisible.value = false
 }
 
+// 切换到上一章或下一章（offset: -1 为上一章，1 为下一章）
 function openAdjacentChapter(offset: -1 | 1): void {
   const target = offset < 0 ? previousChapter.value : nextChapter.value
   if (!target) {
@@ -259,6 +295,7 @@ function openAdjacentChapter(offset: -1 | 1): void {
   appStore.selectChapter(target.id)
 }
 
+// 手动保存当前章节的历史版本快照
 async function saveCurrentVersion(): Promise<void> {
   const result = await appStore.saveCurrentChapterVersion()
   if (!result.success) {
@@ -269,15 +306,18 @@ async function saveCurrentVersion(): Promise<void> {
   message.success('已生成当前章节的历史版本快照')
 }
 
+// 打开历史版本弹窗
 function openVersionHistory(): void {
   versionHistoryVisible.value = true
 }
 
+// 跳转到灵感模块工作台
 function openInspirationWorkbench(): void {
   compactInsightsVisible.value = false
   appStore.setPanel('inspiration')
 }
 
+// 将灵感卡片发送给 AI 助手进行扩写或续写，根据 mode 生成不同的 prompt
 function sendInspirationToAssistant(entry: { type: string; title: string; content: string; tags: string[] }, mode: 'expand' | 'continue' = 'expand'): void {
   const prompt =
     mode === 'continue'
@@ -288,6 +328,7 @@ function sendInspirationToAssistant(entry: { type: string; title: string; conten
   message.success(mode === 'continue' ? '灵感已发送给 AI 助手继续续写' : '灵感已发送给 AI 助手继续扩写')
 }
 
+// 调用 AI 为当前章节生成指定焦点类型（场景火花/剧情转折/人物动机）的灵感卡片
 async function requestChapterInspiration(focusType: (typeof chapterInspirationFocuses)[number]): Promise<void> {
   const chapter = appStore.selectedChapter
   if (!chapter) {
@@ -352,6 +393,7 @@ async function requestChapterInspiration(focusType: (typeof chapterInspirationFo
   }
 }
 
+// 删除当前章节前弹出二次确认（至少保留一个章节）
 function requestDeleteChapter(): void {
   const chapter = appStore.selectedChapter
   if (!chapter || appStore.chapters.length <= 1) {
@@ -371,6 +413,7 @@ function requestDeleteChapter(): void {
   })
 }
 
+// 打开章节信息编辑弹窗，将当前章节数据填入表单
 function openChapterMetaEditor(chapter?: ChapterDraft | null): void {
   if (!chapter) {
     return
@@ -384,6 +427,7 @@ function openChapterMetaEditor(chapter?: ChapterDraft | null): void {
   editorVisible.value = true
 }
 
+// 格式化版本创建时间为中文简短格式
 function formatVersionTime(createdAt: string): string {
   const value = new Date(createdAt)
   if (Number.isNaN(value.getTime())) {
@@ -398,14 +442,17 @@ function formatVersionTime(createdAt: string): string {
   })
 }
 
+// 计算历史版本的字数
 function getVersionWordCount(version: ChapterVersion): number {
   return getChapterCharacterCount(version.content)
 }
 
+// 生成历史版本的正文预览（截取前 120 字符）
 function buildVersionPreview(version: ChapterVersion): string {
   return getChapterPreviewText(version.content, '该版本暂无正文内容。').slice(0, 120)
 }
 
+// 恢复历史版本：弹出确认后将版本快照内容覆盖当前章节
 function restoreVersion(version: ChapterVersion): void {
   dialog.warning({
     title: '恢复历史版本',
@@ -427,6 +474,7 @@ function restoreVersion(version: ChapterVersion): void {
   })
 }
 
+// 提交章节信息编辑表单
 function submitChapterMeta(): void {
   const chapter = appStore.selectedChapter
   if (!chapter) {
@@ -454,6 +502,7 @@ function submitChapterMeta(): void {
   message.success('章节信息已更新')
 }
 
+// 处理章节侧边栏的下拉菜单操作：编辑章节信息或删除章节
 function handleChapterMenuSelect(action: string | number, chapter: ChapterDraft): void {
   if (action === 'edit') {
     openChapterMetaEditor(chapter)
@@ -473,6 +522,8 @@ function handleChapterMenuSelect(action: string | number, chapter: ChapterDraft)
   })
 }
 
+// --- 章节拖拽排序 ---
+// 拖拽开始：记录被拖拽的章节 ID 并设置拖拽数据
 function handleDragStart(chapterId: string, event: DragEvent): void {
   draggingChapterId.value = chapterId
   dragTargetChapterId.value = chapterId
@@ -483,6 +534,7 @@ function handleDragStart(chapterId: string, event: DragEvent): void {
   }
 }
 
+// 拖拽经过：更新拖拽目标位置
 function handleDragOver(chapterId: string, event: DragEvent): void {
   event.preventDefault()
   dragTargetChapterId.value = chapterId
@@ -491,6 +543,7 @@ function handleDragOver(chapterId: string, event: DragEvent): void {
   }
 }
 
+// 拖拽放下：调用 store 执行章节排序
 function handleDrop(chapterId: string, event: DragEvent): void {
   event.preventDefault()
   const sourceId = draggingChapterId.value || event.dataTransfer?.getData('text/plain')
@@ -504,13 +557,15 @@ function handleDrop(chapterId: string, event: DragEvent): void {
   draggingChapterId.value = null
 }
 
+// 重置拖拽状态
 function resetDragState(): void {
   draggingChapterId.value = null
   dragTargetChapterId.value = null
 }
 
+// 监听章节标题和内容变化，短暂显示"正在整理草稿"状态后交由自动保存队列接管
 watch(
-  () => [appStore.selectedChapter?.title, appStore.selectedChapter?.content],
+  () => [appStore.selectedChapter?.title, appStore.selectedChapter?.content] as const,
   () => {
     if (!appStore.selectedChapter) {
       return

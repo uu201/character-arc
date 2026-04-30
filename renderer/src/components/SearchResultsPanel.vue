@@ -6,15 +6,17 @@ import { useAppStore } from '@/stores/app'
 import type { PanelName } from '@/types/app'
 
 const props = defineProps<{
-  query: string
+  query: string // 搜索关键词
 }>()
 
+// 点击搜索结果时触发的事件，携带目标面板和可选的章节 ID
 const emit = defineEmits<{
   openResult: [payload: { panel: PanelName; chapterId?: string }]
 }>()
 
 const appStore = useAppStore()
 
+// 搜索结果分组的类型定义：每个分组包含标签、图标、颜色和匹配项列表
 type ResultGroup = {
   id: string
   label: string
@@ -32,6 +34,8 @@ type ResultGroup = {
 
 const normalizedQuery = computed(() => props.query.trim().toLowerCase())
 
+// 跨全模块搜索：依次在世界观、角色、关系组织、灵感、大纲、章节中查找匹配项，
+// 返回按模块分组的结果列表，仅包含有匹配项的分组
 const resultGroups = computed<ResultGroup[]>(() => {
   const query = normalizedQuery.value
   if (!query) {
@@ -199,8 +203,10 @@ const resultGroups = computed<ResultGroup[]>(() => {
   ].filter((group) => group.items.length > 0)
 })
 
+// 搜索结果总数
 const totalCount = computed(() => resultGroups.value.reduce((count, group) => count + group.items.length, 0))
 
+// 点击搜索结果卡片后，通知父组件导航到对应面板（如为章节则同时传递章节 ID）
 function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number]): void {
   emit('openResult', {
     panel: group.panel,

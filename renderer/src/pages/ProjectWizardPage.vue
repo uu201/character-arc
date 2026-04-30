@@ -15,22 +15,29 @@ import { createProjectWorkspaceSeed, type ProjectBootstrapResult } from '@/featu
 
 const appStore = useAppStore()
 const message = useMessage()
+
+// 当前向导步骤（1=基础设定，2=核心点子，3=AI生成）
 const step = ref(1)
+// 是否正在调用 AI 生成中，控制加载状态和按钮禁用
 const isGenerating = ref(false)
+
+// 向导表单数据，收集用户输入的项目基础信息
 const formData = reactive({
-  title: '',
-  genre: '科幻',
-  targetWordCount: '20万字',
-  premise: '',
-  shouldGenerate: true
+  title: '',           // 作品名称
+  genre: '科幻',       // 题材分类，默认科幻
+  targetWordCount: '20万字', // 目标总字数
+  premise: '',         // 故事核心点子/一句话简介
+  shouldGenerate: true // 是否调用 AI 自动生成初始世界观与大纲
 })
 
+// 向导步骤配置，定义每一步的标题和描述
 const steps = [
   { num: 1, title: '基础设定', desc: '为作品起个响亮的名字' },
   { num: 2, title: '核心点子', desc: '一句话描述你的故事' },
   { num: 3, title: 'AI 生成', desc: '构建世界观与大纲' }
 ] as const
 
+// 根据当前步骤判断是否可以继续：第1步要求标题和字数非空，第2步要求简介非空，第3步要求未在生成中
 const canContinue = computed(() => {
   if (step.value === 1) {
     return formData.title.trim().length > 0 && formData.targetWordCount.trim().length > 0
@@ -41,6 +48,7 @@ const canContinue = computed(() => {
   return !isGenerating.value
 })
 
+/** 重置向导到初始状态，关闭弹窗后调用 */
 function resetWizard(): void {
   step.value = 1
   isGenerating.value = false
@@ -51,32 +59,38 @@ function resetWizard(): void {
   formData.shouldGenerate = true
 }
 
+/** 返回上一步，若已在第一步则关闭向导 */
 function goBack(): void {
+  // 还有上一步可退时，回退步骤
   if (step.value > 1 && !isGenerating.value) {
     step.value -= 1
     return
   }
 
+  // 在第一步且未生成中，关闭向导
   if (!isGenerating.value) {
     appStore.closeWizard()
   }
 }
 
+/** 前进到下一步，或在最后一步执行项目创建（含可选的 AI 生成） */
 async function goNext(): Promise<void> {
   if (!canContinue.value || isGenerating.value) {
     return
   }
 
+  // 前两步仅切换步骤
   if (step.value < 3) {
     step.value += 1
     return
   }
 
+  // 第三步：执行项目创建流程
   isGenerating.value = true
   try {
     let bootstrapResult: ProjectBootstrapResult | null = null
 
-    // Only call AI when the user explicitly keeps bootstrap generation enabled.
+    // 仅在用户启用自动生成时调用 AI，生成初始世界观与大纲
     if (formData.shouldGenerate) {
       const result = await window.characterArc.generateAi({
         task: 'project-bootstrap',
@@ -96,6 +110,7 @@ async function goNext(): Promise<void> {
       bootstrapResult = result.result as ProjectBootstrapResult
     }
 
+    // 根据表单数据和 AI 结果创建工作区种子，创建项目
     appStore.createProjectWorkspace(createProjectWorkspaceSeed(formData, bootstrapResult))
     resetWizard()
   } catch (error) {
@@ -211,7 +226,7 @@ async function goNext(): Promise<void> {
                   ? (formData.shouldGenerate
                       ? '正在解析核心点子，生成初始世界观与剧情大纲，并同步创建可继续写作的章节草稿。'
                       : '正在创建空白项目工作区，并为你准备第一个章节草稿。')
-                  : `项目名为“${formData.title || '未命名作品'}”，题材为 ${formData.genre}，目标字数 ${formData.targetWordCount}。你可以选择直接创建，或让 AI 先帮你生成初始设定与大纲。`
+                  : `项目名为"${formData.title || '未命名作品'}"，题材为 ${formData.genre}，目标字数 ${formData.targetWordCount}。你可以选择直接创建，或让 AI 先帮你生成初始设定与大纲。`
               }}
             </p>
 

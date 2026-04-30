@@ -10,19 +10,21 @@ import { ensureEditorHtmlContent, serializePlainTextToHtml } from '@/features/ch
 import type { ChapterInsertionRequest, ChapterSelectionState } from '@/types/app'
 
 const props = defineProps<{
-  chapterId: string
-  modelValue: string
-  insertionRequest: ChapterInsertionRequest | null
+  chapterId: string // 当前章节 ID
+  modelValue: string // 章节正文 HTML 内容（v-model 双向绑定）
+  insertionRequest: ChapterInsertionRequest | null // AI 插入请求，非空时触发内容插入
 }>()
 
+// 自定义事件：update:modelValue 用于双向绑定，consumeInsertion 确认插入已消费，selectionChange 通知选区变化
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   consumeInsertion: [requestId: string]
   selectionChange: [selection: ChapterSelectionState | null]
 }>()
 
-const isFocused = ref(false)
+const isFocused = ref(false) // 编辑器是否获得焦点
 
+// Tiptap 编辑器选区快照的源类型定义
 type SelectionSnapshotSource = {
   state: {
     selection: {
@@ -36,6 +38,7 @@ type SelectionSnapshotSource = {
   }
 }
 
+// 向父组件发送当前选中文本的快照（用于 AI 助手获取选区上下文）
 function emitSelectionSnapshot(instance?: SelectionSnapshotSource | null): void {
   const source = instance ?? editor.value
   if (!source) {
@@ -61,6 +64,7 @@ function emitSelectionSnapshot(instance?: SelectionSnapshotSource | null): void 
   )
 }
 
+// 初始化 Tiptap 富文本编辑器，配置扩展、占位符、字数统计等
 const editor = useEditor({
   content: ensureEditorHtmlContent(props.modelValue),
   extensions: [
@@ -98,8 +102,10 @@ const editor = useEditor({
   }
 })
 
+// 实时字数统计（从 Tiptap 的 characterCount 扩展获取）
 const liveCharacterCount = computed(() => editor.value?.storage.characterCount.characters() ?? 0)
 
+// 处理 AI 插入请求：根据插入模式（追加/替换选区/光标处）将内容插入编辑器
 function applyInsertionRequest(request: ChapterInsertionRequest): void {
   const instance = editor.value
   if (!instance || request.chapterId !== props.chapterId) {

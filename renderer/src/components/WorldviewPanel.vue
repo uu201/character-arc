@@ -8,24 +8,27 @@ import type { DropdownOption } from 'naive-ui'
 import type { WorldviewEntry } from '@/types/app'
 
 const props = defineProps<{
-  searchQuery?: string
+  searchQuery?: string // 全局搜索关键词，用于过滤世界观词条
 }>()
 
 const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
+// 根据当前项目配置生成写作风格上下文，供 AI 生成时参考
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
-const isGenerating = ref(false)
-const editorVisible = ref(false)
-const editingEntryId = ref<string | null>(null)
+const isGenerating = ref(false) // AI 生成中的加载状态
+const editorVisible = ref(false) // 控制词条编辑弹窗的显示
+const editingEntryId = ref<string | null>(null) // 当前正在编辑的词条 ID，null 表示新建模式
+// 词条编辑表单数据
 const form = reactive({
   type: '地理',
   title: '',
   content: ''
 })
 
-const entryTypes = ['地理', '法则', '物种', '势力', '历史']
+const entryTypes = ['地理', '法则', '物种', '势力', '历史'] // 世界观词条的分类列表
 const typeOptions = entryTypes.map((type) => ({ label: type, value: type }))
+// 根据搜索关键词过滤词条列表，在标题、类型和内容中进行全文匹配
 const filteredEntries = computed(() => {
   const query = props.searchQuery?.trim().toLowerCase() ?? ''
   if (!query) {
@@ -36,12 +39,13 @@ const filteredEntries = computed(() => {
     `${entry.type} ${entry.title} ${entry.content}`.toLowerCase().includes(query)
   )
 })
-const isEditing = computed(() => Boolean(editingEntryId.value))
-const menuOptions: DropdownOption[] = [
+const isEditing = computed(() => Boolean(editingEntryId.value)) // 判断当前是编辑模式还是新建模式
+const menuOptions: DropdownOption[] = [ // 词条卡片的右键菜单选项
   { key: 'edit', label: '编辑词条' },
   { key: 'delete', label: '删除词条' }
 ]
 
+// 格式化词条的更新时间为中文简短格式（月/日 时:分）
 function formatEntryMetaTime(value: string): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) {
@@ -56,6 +60,7 @@ function formatEntryMetaTime(value: string): string {
   })
 }
 
+// 打开新建词条弹窗，重置表单为空白状态
 function handleCreateEntry(): void {
   editingEntryId.value = null
   form.type = '地理'
@@ -64,6 +69,7 @@ function handleCreateEntry(): void {
   editorVisible.value = true
 }
 
+// 调用 AI 接口自动生成一条世界观词条草稿
 async function handleGenerateEntry(): Promise<void> {
   if (isGenerating.value) {
     return
@@ -107,6 +113,7 @@ async function handleGenerateEntry(): Promise<void> {
   }
 }
 
+// 打开词条编辑弹窗，传入词条时为编辑模式，不传则为新建模式
 function openEditor(entry?: WorldviewEntry): void {
   editingEntryId.value = entry?.id ?? null
   form.type = entry?.type ?? '地理'
@@ -115,6 +122,7 @@ function openEditor(entry?: WorldviewEntry): void {
   editorVisible.value = true
 }
 
+// 提交词条表单：校验必填项后根据编辑/新建模式调用对应 store 方法
 function submitEntry(): void {
   if (!form.title.trim() || !form.content.trim()) {
     message.warning('请完整填写词条标题和词条内容')
@@ -132,6 +140,7 @@ function submitEntry(): void {
   editorVisible.value = false
 }
 
+// 处理词条卡片的下拉菜单操作：编辑或删除词条（删除前弹出二次确认）
 function handleMenuSelect(action: string | number, entry: WorldviewEntry): void {
   if (action === 'edit') {
     openEditor(entry)

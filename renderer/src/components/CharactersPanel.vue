@@ -9,9 +9,11 @@ import type { DropdownOption } from 'naive-ui'
 
 const appStore = useAppStore()
 const dialog = useDialog()
-const keyword = ref('')
+const keyword = ref('') // 本面板内的本地搜索关键词
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
 
+// 合并本地搜索框和全局工作区搜索关键词，对角色列表进行过滤
+// 在角色名、角色定位和简介中做全文匹配
 const filteredCharacters = computed(() => {
   // Combine the local search box with the global workspace search for a simple, predictable filter model.
   const mergedQuery = [props.searchQuery, keyword.value].filter(Boolean).join(' ').trim().toLowerCase()
@@ -27,23 +29,26 @@ const filteredCharacters = computed(() => {
 })
 
 const props = defineProps<{
-  searchQuery?: string
+  searchQuery?: string // 全局搜索关键词，由父组件传入
 }>()
 const message = useMessage()
-const isGenerating = ref(false)
-const editorVisible = ref(false)
-const editingCharacterId = ref<string | null>(null)
+const isGenerating = ref(false) // AI 生成角色时的加载状态
+const editorVisible = ref(false) // 控制角色编辑弹窗的显示
+const editingCharacterId = ref<string | null>(null) // 当前正在编辑的角色 ID，null 表示新建模式
+// 角色编辑表单数据
 const form = reactive({
   name: '',
   role: '',
   description: '',
   tags: [] as string[]
 })
+// 角色卡片的右键菜单选项
 const menuOptions: DropdownOption[] = [
   { key: 'edit', label: '编辑角色' },
   { key: 'delete', label: '删除角色' }
 ]
 
+// 将标签的语义色调（danger/success/warning）映射为 Naive UI NTag 组件所需的 type 值
 function tagType(tone?: 'default' | 'danger' | 'success' | 'warning'): 'default' | 'error' | 'success' | 'warning' {
   switch (tone) {
     case 'danger':
@@ -57,6 +62,7 @@ function tagType(tone?: 'default' | 'danger' | 'success' | 'warning'): 'default'
   }
 }
 
+// 打开新建角色弹窗，重置表单为空白状态
 function handleCreateCharacter(): void {
   editingCharacterId.value = null
   form.name = ''
@@ -66,6 +72,7 @@ function handleCreateCharacter(): void {
   editorVisible.value = true
 }
 
+// 调用 AI 接口自动生成一个角色草稿，上下文包含世界观、已有角色、关系组织等信息
 async function handleGenerateCharacter(): Promise<void> {
   if (isGenerating.value) {
     return
@@ -121,6 +128,7 @@ async function handleGenerateCharacter(): Promise<void> {
   }
 }
 
+// 打开角色编辑弹窗，传入角色数据时为编辑模式，不传则为新建模式
 function openEditor(character?: CharacterCard): void {
   editingCharacterId.value = character?.id ?? null
   form.name = character?.name ?? ''
@@ -130,6 +138,7 @@ function openEditor(character?: CharacterCard): void {
   editorVisible.value = true
 }
 
+// 提交角色表单：校验必填项，将标签字符串数组转为对象数组后保存
 function submitCharacter(): void {
   if (!form.name.trim() || !form.description.trim()) {
     message.warning('请完整填写角色名称和角色简介')
@@ -153,6 +162,7 @@ function submitCharacter(): void {
   editorVisible.value = false
 }
 
+// 处理角色卡片的下拉菜单操作：编辑或删除角色（删除前弹出二次确认）
 function handleMenuSelect(action: string | number, character: CharacterCard): void {
   if (action === 'edit') {
     openEditor(character)

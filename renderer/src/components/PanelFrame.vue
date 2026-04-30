@@ -1,6 +1,7 @@
 <script setup lang="ts">
+// 共享面板布局框架：提供统一的头部标题 + 操作栏 + 可滚动内容区域的布局容器
 defineProps<{
-  title: string
+  title: string // 面板标题，可通过 title slot 覆盖
 }>()
 </script>
 

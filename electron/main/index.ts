@@ -5,22 +5,26 @@ import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
 import { generateAiTask, streamAiTask, testAiConnection, type AiTaskPayload } from './ai'
 
-const APP_DEFAULT_WIDTH = 1480
-const APP_DEFAULT_HEIGHT = 920
-const APP_MIN_WIDTH = 1120
-const APP_MIN_HEIGHT = 720
-const ASSISTANT_WINDOW_WIDTH = 580
+// ── 窗口尺寸常量 ──
+const APP_DEFAULT_WIDTH = 1480     // 主窗口默认宽度
+const APP_DEFAULT_HEIGHT = 920     // 主窗口默认高度
+const APP_MIN_WIDTH = 1120         // 主窗口最小宽度
+const APP_MIN_HEIGHT = 720         // 主窗口最小高度
+const ASSISTANT_WINDOW_WIDTH = 580 // 助手窗口宽度
 const ASSISTANT_WINDOW_HEIGHT = 820
 const ASSISTANT_WINDOW_MIN_WIDTH = 460
 const ASSISTANT_WINDOW_MIN_HEIGHT = 620
-const WORKSPACE_DB = 'workspace.db'
-const WORKSPACE_FILE = 'workspace.json'
+const WORKSPACE_DB = 'workspace.db'    // SQLite 数据库文件名
+const WORKSPACE_FILE = 'workspace.json' // 旧版 JSON 工作区文件名（迁移用）
+// 当前活跃的流式 AI 请求映射表，streamId → AbortController
 const activeAiStreams = new Map<string, AbortController>()
 let mainWindow: BrowserWindow | null = null
 let assistantWindow: BrowserWindow | null = null
 
+/** 窗口类型标识，区分主窗口和助手窗口 */
 type AppWindowKind = 'main' | 'assistant'
 
+/** 主窗口向助手窗口推送的上下文载荷 */
 type AssistantContextPayload = {
   selectedProjectId?: string
   selectedChapterId?: string
@@ -30,6 +34,7 @@ type AssistantContextPayload = {
   } | null
 }
 
+// 缓存最新的助手上下文和提示词，新窗口打开时可立即同步
 let latestAssistantContext: AssistantContextPayload = {}
 let latestAssistantPrompt: {
   id: string
@@ -37,6 +42,7 @@ let latestAssistantPrompt: {
   quickAction?: string
 } | null = null
 
+/** 根据屏幕工作区尺寸计算主窗口的宽高和最小尺寸，小屏幕时自动缩小 */
 function getMainWindowMetrics() {
   const { workAreaSize } = screen.getPrimaryDisplay()
   const compactScreen = workAreaSize.width <= 1366 || workAreaSize.height <= 820
@@ -54,10 +60,12 @@ function getMainWindowMetrics() {
   }
 }
 
+/** 根据窗口类型返回 URL 查询参数，助手窗口附带 ?window=assistant 标识 */
 function getWindowSearch(kind: AppWindowKind): string {
   return kind === 'assistant' ? '?window=assistant' : ''
 }
 
+/** 加载渲染进程页面，开发模式下打开 DevTools，生产模式下加载打包后的 index.html */
 function loadRendererWindow(window: BrowserWindow, kind: AppWindowKind): void {
   const search = getWindowSearch(kind)
 
@@ -72,6 +80,7 @@ function loadRendererWindow(window: BrowserWindow, kind: AppWindowKind): void {
   void window.loadFile(join(__dirname, '../../dist/index.html'), search ? { search } : undefined)
 }
 
+/** 向指定窗口发送 IPC 事件，窗口已销毁时静默跳过 */
 function sendWindowEvent(window: BrowserWindow | null, channel: string, payload: unknown): void {
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
     return
@@ -80,6 +89,7 @@ function sendWindowEvent(window: BrowserWindow | null, channel: string, payload:
   window.webContents.send(channel, payload)
 }
 
+/** 向所有窗口广播 IPC 事件，可排除指定 webContentsId 的窗口（避免发送给消息来源窗口） */
 function broadcastWindowEvent(channel: string, payload: unknown, exceptWebContentsId?: number): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed() || window.webContents.isDestroyed()) {
@@ -94,12 +104,14 @@ function broadcastWindowEvent(channel: string, payload: unknown, exceptWebConten
   }
 }
 
+/** 广播助手窗口可见性变化事件到所有渲染进程窗口 */
 function emitAssistantWindowVisibility(visible: boolean): void {
   broadcastWindowEvent('characterarc:assistant-window-visibility', {
     visible
   })
 }
 
+/** 创建主窗口：自适应屏幕尺寸、配置标题栏样式、设置安全的 preload 脚本 */
 function createMainWindow(): BrowserWindow {
   const { width, height, minWidth, minHeight, compactScreen } = getMainWindowMetrics()
   const window = new BrowserWindow({
@@ -153,6 +165,10 @@ function createMainWindow(): BrowserWindow {
   return window
 }
 
+/**
+ * 创建或聚焦助手窗口。
+ * 若已存在则恢复显示并同步上下文；否则新建窗口，自动定位到主窗口右侧。
+ */
 function createAssistantWindow(): BrowserWindow {
   if (assistantWindow && !assistantWindow.isDestroyed()) {
     if (assistantWindow.isMinimized()) {
@@ -228,24 +244,34 @@ function createAssistantWindow(): BrowserWindow {
   return window
 }
 
+/** 获取工作区数据目录路径：{userData}/data/ */
 function getWorkspaceDirPath(): string {
   return join(app.getPath('userData'), 'data')
 }
 
+/** 获取旧版 JSON 工作区文件路径（仅用于迁移） */
 function getWorkspaceFilePath(): string {
   return join(getWorkspaceDirPath(), WORKSPACE_FILE)
 }
 
+/** 获取 SQLite 数据库文件路径 */
 function getWorkspaceDbPath(): string {
   return join(getWorkspaceDirPath(), WORKSPACE_DB)
 }
 
+// 数据库连接单例，应用生命周期内只打开一次
 let workspaceDb: DatabaseSync | null = null
 
+/** 确保工作区数据目录存在，不存在时递归创建 */
 async function ensureWorkspaceDir(): Promise<void> {
   await mkdir(getWorkspaceDirPath(), { recursive: true })
 }
 
+/**
+ * 初始化或复用 SQLite 数据库连接。
+ * 首次调用时创建数据库、建表、执行 schema 迁移、迁移旧版 JSON 工作区。
+ * 后续调用直接返回缓存的连接。
+ */
 async function ensureWorkspaceDb(): Promise<DatabaseSync> {
   if (workspaceDb) {
     return workspaceDb
@@ -444,6 +470,7 @@ async function ensureWorkspaceDb(): Promise<DatabaseSync> {
   return workspaceDb
 }
 
+/** 确保 app_settings 表包含 model 和 ui_scale 列（schema 升级） */
 function ensureAppSettingsColumns(db: DatabaseSync): void {
   const columns = db.prepare(`PRAGMA table_info('app_settings')`).all() as Array<{ name: string }>
   const columnNames = new Set(columns.map((column) => column.name))
@@ -457,6 +484,7 @@ function ensureAppSettingsColumns(db: DatabaseSync): void {
   }
 }
 
+/** 确保 chapters 表包含 summary、status、word_target 列（schema 升级） */
 function ensureChapterColumns(db: DatabaseSync): void {
   const columns = db.prepare(`PRAGMA table_info('chapters')`).all() as Array<{ name: string }>
   const columnNames = new Set(columns.map((column) => column.name))
@@ -474,6 +502,7 @@ function ensureChapterColumns(db: DatabaseSync): void {
   }
 }
 
+/** 确保所有项目级表包含 project_id 列，将旧版单项目数据迁移到选中项目下 */
 function ensureProjectScopedColumns(db: DatabaseSync): void {
   const defaultProjectId =
     (db.prepare(`SELECT selected_project_id AS projectId FROM app_settings WHERE id = 1`).get() as { projectId?: string } | undefined)
@@ -493,6 +522,7 @@ function ensureProjectScopedColumns(db: DatabaseSync): void {
   }
 }
 
+/** 确保 outline_items 和 chapters 表包含 volume_id 列（分卷功能升级） */
 function ensureVolumeColumns(db: DatabaseSync): void {
   const defaultVolumeId = 'volume-legacy-default'
 
@@ -506,6 +536,10 @@ function ensureVolumeColumns(db: DatabaseSync): void {
   }
 }
 
+/**
+ * 将旧版 workspace.json 文件迁移到 SQLite 数据库。
+ * 仅在数据库中没有任何项目时执行，避免重复迁移。
+ */
 async function migrateLegacyWorkspaceFile(db: DatabaseSync): Promise<void> {
   const hasProject = db.prepare('SELECT id FROM projects LIMIT 1').get() as { id: string } | undefined
 
@@ -647,6 +681,7 @@ type WorkspacePayload = {
   }
 }
 
+/** 确保 projects 表包含写作风格相关列（writing_style_preset_id, writing_style_prompt） */
 function ensureProjectColumns(db: DatabaseSync): void {
   const columns = db.prepare(`PRAGMA table_info('projects')`).all() as Array<{ name: string }>
   const columnNames = new Set(columns.map((column) => column.name))
@@ -760,6 +795,7 @@ type LegacyWorkspacePayload = Omit<WorkspacePayload, 'workspaces'> & {
   }>
 }
 
+/** 标准化应用设置，为缺失字段填入默认值，uiScale 限制在 0.75-1.75 范围 */
 function normalizeAppSettings(settings?: Partial<WorkspacePayload['appSettings']> | null): WorkspacePayload['appSettings'] {
   const uiScale =
     settings?.uiScale !== undefined && Number.isFinite(settings.uiScale)
@@ -776,6 +812,7 @@ function normalizeAppSettings(settings?: Partial<WorkspacePayload['appSettings']
   }
 }
 
+/** 为旧版单项目数据创建默认分卷（迁移兜底） */
 function createFallbackVolume(title = '故事开端', volumeId = 'volume-legacy-default') {
   return {
     id: volumeId,
@@ -785,6 +822,7 @@ function createFallbackVolume(title = '故事开端', volumeId = 'volume-legacy-
   }
 }
 
+/** 标准化项目记录，为缺失字段填入默认值 */
 function normalizeProjectRecord(project: Partial<WorkspacePayload['projects'][number]> & { id: string }): WorkspacePayload['projects'][number] {
   return {
     id: project.id,
@@ -798,6 +836,10 @@ function normalizeProjectRecord(project: Partial<WorkspacePayload['projects'][nu
   }
 }
 
+/**
+ * 标准化工作区载荷：兼容新旧两种格式。
+ * 新格式包含 workspaces 字段；旧格式的实体直接平铺在顶层，需迁移到 workspaces 结构中。
+ */
 function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWorkspacePayload): WorkspacePayload {
   if ('workspaces' in payload && payload.workspaces) {
     return {
@@ -899,6 +941,11 @@ function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWorkspacePa
   }
 }
 
+/**
+ * 从 SQLite 读取完整的 workspace 快照。
+ * 按 project_id 将各表数据分组到对应项目的 workspace 中，返回标准化的 WorkspacePayload。
+ * 数据库为空时返回 null。
+ */
 function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
   const projects = db.prepare(`
     SELECT id, title, genre, word_count AS wordCount, last_edited AS lastEdited, cover,
@@ -1078,6 +1125,10 @@ function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
   }
 }
 
+/**
+ * 将完整的 workspace 快照写入 SQLite（全量覆盖）。
+ * 在事务中执行：先清空所有表，再逐表插入新数据，失败时回滚。
+ */
 function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): void {
   db.exec('BEGIN')
   try {
@@ -1334,12 +1385,16 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
   }
 }
 
+/** 导出文件 schema 版本号 */
 const EXPORT_SCHEMA_VERSION = '2.0'
+/** 导出文件兼容性说明 */
 const EXPORT_COMPATIBILITY_NOTE =
   '2.x 导出文件可直接导入当前版本；1.x 旧导出会按兼容模式解析，并默认按完整项目导入。'
 
+/** 导入模块类型 */
 type ImportModuleType = 'project' | 'characters' | 'outline' | 'inspiration' | 'relations' | 'chapters'
 
+/** 导入验证结果：成功时包含解析后的载荷和元信息，失败时包含错误消息 */
 type ImportValidationResult =
   | {
       valid: true
@@ -1356,6 +1411,7 @@ type ImportValidationResult =
       message: string
     }
 
+/** 校验导入的 workspace 数据结构完整性：检查 project 字段和各集合字段的类型 */
 function validateImportedWorkspace(payload: unknown): { valid: true } | { valid: false; message: string } {
   if (!payload || typeof payload !== 'object') {
     return { valid: false, message: '导入文件不是有效的项目对象。' }
@@ -1563,6 +1619,10 @@ function validateImportedWorkspace(payload: unknown): { valid: true } | { valid:
   return { valid: true }
 }
 
+/**
+ * 校验导入文件的顶层结构：区分 2.x 信封格式和 1.x 旧版格式。
+ * 2.x 格式包含 app/schemaVersion/moduleType/data 信封字段；1.x 格式为裸项目对象。
+ */
 function validateImportedPayload(payload: unknown): ImportValidationResult {
   if (!payload || typeof payload !== 'object') {
     return { valid: false, message: '导入文件不是有效的 JSON 对象。' }
@@ -1623,6 +1683,7 @@ function validateImportedPayload(payload: unknown): ImportValidationResult {
   }
 }
 
+/** 根据文件扩展名返回 MIME 类型，用于封面图片的 data URL 生成 */
 function resolveImageMime(filePath: string): string {
   const lower = filePath.toLowerCase()
   if (lower.endsWith('.png')) return 'image/png'
@@ -1638,6 +1699,11 @@ type ExportRequest = {
   defaultPath?: string
 }
 
+// ══════════════════════════════════════════════════════════════════
+// IPC 处理器注册：渲染进程通过 preload 桥调用这些方法
+// ══════════════════════════════════════════════════════════════════
+
+/** 导出项目数据为 JSON 文件，弹出系统保存对话框 */
 ipcMain.handle('characterarc:export-json', async (_event, payload: unknown) => {
   const window = BrowserWindow.getFocusedWindow()
   if (!window) {
@@ -1670,6 +1736,7 @@ ipcMain.handle('characterarc:export-json', async (_event, payload: unknown) => {
   }
 })
 
+/** 导出章节为纯文本文件，按分卷分组、章节分隔 */
 ipcMain.handle('characterarc:export-text', async (_event, payload: unknown) => {
   const window = BrowserWindow.getFocusedWindow()
   if (!window) {
@@ -1733,6 +1800,7 @@ ipcMain.handle('characterarc:export-text', async (_event, payload: unknown) => {
   }
 })
 
+/** 从 JSON 文件导入项目数据，弹出系统打开对话框，校验后返回解析结果 */
 ipcMain.handle('characterarc:import-json', async () => {
   const window = BrowserWindow.getFocusedWindow()
   if (!window) {
@@ -1781,6 +1849,7 @@ ipcMain.handle('characterarc:import-json', async () => {
   }
 })
 
+/** 选择项目封面图片，返回文件路径和 base64 data URL */
 ipcMain.handle('characterarc:pick-cover-image', async () => {
   const window = BrowserWindow.getFocusedWindow()
   if (!window) {
@@ -1810,6 +1879,7 @@ ipcMain.handle('characterarc:pick-cover-image', async () => {
   }
 })
 
+/** 执行非流式 AI 生成任务 */
 ipcMain.handle('characterarc:ai-generate', async (_event, payload: AiTaskPayload) => {
   try {
     const result = await generateAiTask(payload)
@@ -1825,6 +1895,7 @@ ipcMain.handle('characterarc:ai-generate', async (_event, payload: AiTaskPayload
   }
 })
 
+/** 启动流式 AI 任务，通过 SSE 事件实时推送增量文本到渲染进程 */
 ipcMain.handle('characterarc:ai-stream-start', async (event, payload: AiTaskPayload) => {
   try {
     const streamId = `stream-${randomUUID()}`
@@ -1892,6 +1963,7 @@ ipcMain.handle('characterarc:ai-stream-start', async (event, payload: AiTaskPayl
   }
 })
 
+/** 停止指定 streamId 的流式 AI 任务 */
 ipcMain.handle('characterarc:ai-stream-stop', async (_event, streamId: unknown) => {
   const key = typeof streamId === 'string' ? streamId : ''
   const controller = activeAiStreams.get(key)
@@ -1908,6 +1980,7 @@ ipcMain.handle('characterarc:ai-stream-stop', async (_event, streamId: unknown) 
   }
 })
 
+/** 测试 AI 连接：发送探测请求验证鉴权和网络 */
 ipcMain.handle('characterarc:ai-test-connection', async (_event, settings: unknown) => {
   try {
     const result = await testAiConnection(settings as {
@@ -1929,6 +2002,7 @@ ipcMain.handle('characterarc:ai-test-connection', async (_event, settings: unkno
   }
 })
 
+/** 打开/创建 AI 助手窗口 */
 ipcMain.handle('characterarc:assistant-window-open', async () => {
   try {
     createAssistantWindow()
@@ -1944,6 +2018,7 @@ ipcMain.handle('characterarc:assistant-window-open', async () => {
   }
 })
 
+/** 关闭 AI 助手窗口 */
 ipcMain.handle('characterarc:assistant-window-close', async () => {
   try {
     if (assistantWindow && !assistantWindow.isDestroyed()) {
@@ -1964,11 +2039,13 @@ ipcMain.handle('characterarc:assistant-window-close', async () => {
   }
 })
 
+/** 查询助手窗口是否打开 */
 ipcMain.handle('characterarc:assistant-window-state', () => ({
   success: true,
   visible: Boolean(assistantWindow && !assistantWindow.isDestroyed())
 }))
 
+/** 主窗口推送助手上下文（当前选中的项目/章节），转发给助手窗口并缓存 */
 ipcMain.handle('characterarc:assistant-context-publish', (_event, payload: unknown) => {
   latestAssistantContext = payload && typeof payload === 'object' ? (payload as AssistantContextPayload) : {}
   sendWindowEvent(assistantWindow, 'characterarc:assistant-context', latestAssistantContext)
@@ -1977,11 +2054,13 @@ ipcMain.handle('characterarc:assistant-context-publish', (_event, payload: unkno
   }
 })
 
+/** 助手窗口拉取最新缓存的上下文 */
 ipcMain.handle('characterarc:assistant-context-get', () => ({
   success: true,
   payload: latestAssistantContext
 }))
 
+/** 主窗口推送提示词请求给助手窗口并缓存 */
 ipcMain.handle('characterarc:assistant-prompt-publish', (_event, payload: unknown) => {
   latestAssistantPrompt =
     payload && typeof payload === 'object' ? (payload as { id: string; prompt: string; quickAction?: string }) : null
@@ -1991,11 +2070,13 @@ ipcMain.handle('characterarc:assistant-prompt-publish', (_event, payload: unknow
   }
 })
 
+/** 助手窗口拉取最新缓存的提示词请求 */
 ipcMain.handle('characterarc:assistant-prompt-get', () => ({
   success: true,
   payload: latestAssistantPrompt
 }))
 
+/** 标记提示词请求已消费，清空缓存（避免助手窗口重复处理） */
 ipcMain.handle('characterarc:assistant-prompt-clear', (_event, promptId: unknown) => {
   if (typeof promptId === 'string' && latestAssistantPrompt?.id === promptId) {
     latestAssistantPrompt = null
@@ -2006,6 +2087,7 @@ ipcMain.handle('characterarc:assistant-prompt-clear', (_event, promptId: unknown
   }
 })
 
+/** 主窗口广播工作区数据同步到其他窗口（排除发送者自身） */
 ipcMain.handle('characterarc:workspace-sync-publish', (event, payload: unknown) => {
   broadcastWindowEvent('characterarc:workspace-sync-event', payload, event.sender.id)
   return {
@@ -2013,6 +2095,7 @@ ipcMain.handle('characterarc:workspace-sync-publish', (event, payload: unknown) 
   }
 })
 
+/** 助手窗口向主窗口发送命令（如将 AI 结果插入正文） */
 ipcMain.handle('characterarc:assistant-command-publish', (_event, payload: unknown) => {
   sendWindowEvent(mainWindow, 'characterarc:assistant-command', payload)
   return {
@@ -2020,6 +2103,7 @@ ipcMain.handle('characterarc:assistant-command-publish', (_event, payload: unkno
   }
 })
 
+/** 从 SQLite 加载完整工作区快照，返回给渲染进程初始化 Store */
 ipcMain.handle('characterarc:load-workspace', async () => {
   try {
     const db = await ensureWorkspaceDb()
@@ -2045,6 +2129,7 @@ ipcMain.handle('characterarc:load-workspace', async () => {
   }
 })
 
+/** 获取当前窗口的页面缩放比例 */
 ipcMain.handle('characterarc:get-zoom-factor', () => {
   const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
   if (!window) {
@@ -2060,6 +2145,7 @@ ipcMain.handle('characterarc:get-zoom-factor', () => {
   }
 })
 
+/** 设置页面缩放比例，限制在 0.75-1.75 范围 */
 ipcMain.handle('characterarc:set-zoom-factor', (_event, factor: unknown) => {
   const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
   if (!window) {
@@ -2079,6 +2165,7 @@ ipcMain.handle('characterarc:set-zoom-factor', (_event, factor: unknown) => {
   }
 })
 
+/** 将渲染进程的完整工作区快照写入 SQLite（全量覆盖） */
 ipcMain.handle('characterarc:save-workspace', async (_event, payload: unknown) => {
   try {
     const db = await ensureWorkspaceDb()
@@ -2095,6 +2182,8 @@ ipcMain.handle('characterarc:save-workspace', async (_event, payload: unknown) =
   }
 })
 
+// ── 应用生命周期 ──
+// macOS 上关闭所有窗口后点击 dock 图标时重新创建主窗口
 app.whenReady().then(() => {
   createMainWindow()
 

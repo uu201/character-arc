@@ -26,8 +26,13 @@ import SearchResultsPanel from '@/components/SearchResultsPanel.vue'
 import type { PanelName } from '@/types/app'
 
 const appStore = useAppStore()
+
+// 侧边栏展开/收起状态
 const isSidebarOpen = ref(true)
+// 当前视口宽度，用于响应式判断侧边栏模式
 const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
+
+// 各面板独立的搜索关键词缓存，切换面板时保留搜索状态
 const panelSearch = reactive<Record<string, string>>({
   overview: '',
   world: '',
@@ -38,8 +43,11 @@ const panelSearch = reactive<Record<string, string>>({
   chapters: '',
   settings: ''
 })
+
+// 当前面板的搜索关键词（与 panelSearch 双向同步）
 const searchKeyword = ref(panelSearch[appStore.activePanel] ?? '')
 
+// 侧边栏导航项配置列表，定义各模块的 id、标签、描述和图标
 const sidebarItems = [
   { id: 'overview', label: '作品概览', description: '掌握项目进度与全局信息', icon: LayoutDashboard },
   { id: 'world', label: '世界观设定', description: '沉淀世界规则、地点与设定条目', icon: Globe2 },
@@ -50,8 +58,12 @@ const sidebarItems = [
   { id: 'chapters', label: '章节创作', description: '进入正文草稿与章节推进流程', icon: FileText }
 ] as const
 
+// 去除首尾空格后的搜索关键词
 const normalizedSearch = computed(() => searchKeyword.value.trim())
+// 是否处于搜索模式（关键词非空时显示搜索结果面板）
 const isSearchMode = computed(() => normalizedSearch.value.length > 0)
+
+// 顶部面包屑中显示的当前视图标签
 const activeViewLabel = computed(() => {
   if (isSearchMode.value) {
     return '项目搜索'
@@ -63,9 +75,13 @@ const activeViewLabel = computed(() => {
 
   return sidebarItems.find((item) => item.id === appStore.activePanel)?.label ?? '项目工作台'
 })
+
+// 项目元信息（题材 + 字数），用于侧边栏项目标题下方显示
 const projectMeta = computed(() =>
   [appStore.currentProject?.genre?.trim(), appStore.currentProject?.wordCount?.trim()].filter(Boolean).join(' · ')
 )
+
+// 侧边栏各导航项的角标数字，展示各模块的数据条数
 const sidebarBadgeMap = computed<Record<string, string | null>>(() => ({
   overview: null,
   world: String(appStore.worldviewEntries.length),
@@ -76,14 +92,19 @@ const sidebarBadgeMap = computed<Record<string, string | null>>(() => ({
   chapters: String(appStore.chapters.length),
   settings: null
 }))
+
+// 侧边栏底部的汇总统计文本
 const sidebarSummary = computed(
   () =>
     `设定 ${appStore.worldviewEntries.length} · 角色 ${appStore.characters.length} · 关系 ${appStore.characterRelationships.length} · 组织 ${appStore.organizations.length} · 章节 ${appStore.chapters.length}`
 )
 
+// 窄屏模式下使用紧凑侧边栏（仅显示图标）
 const isCompactSidebar = computed(() => viewportWidth.value <= 1280)
+// 是否渲染侧边栏中的文字标签（非紧凑模式且侧边栏展开时显示）
 const shouldRenderSidebarLabels = computed(() => isSidebarOpen.value && !isCompactSidebar.value)
 
+/** 切换侧边栏展开/收起，紧凑模式下不允许切换 */
 function toggleSidebar(): void {
   if (isCompactSidebar.value) {
     return
@@ -92,27 +113,39 @@ function toggleSidebar(): void {
   isSidebarOpen.value = !isSidebarOpen.value
 }
 
+/**
+ * 清除指定面板的搜索缓存
+ * @param panel - 面板名称
+ */
 function clearSearchForPanel(panel: PanelName): void {
   panelSearch[panel] = ''
 }
 
+/**
+ * 处理全局搜索结果的点击跳转
+ * @param payload.panel - 目标面板名称
+ * @param payload.chapterId - 可选，若为章节搜索则直接定位到具体章节
+ */
 function openSearchResult(payload: { panel: PanelName; chapterId?: string }): void {
   clearSearchForPanel(appStore.activePanel)
   clearSearchForPanel(payload.panel)
   searchKeyword.value = ''
 
+  // 如果搜索结果指向某个章节，直接选中该章节
   if (payload.chapterId) {
     appStore.selectChapter(payload.chapterId)
     return
   }
 
+  // 否则切换到对应面板
   appStore.setPanel(payload.panel)
 }
 
+/** 同步视口宽度，窄屏下自动收起侧边栏 */
 function syncViewportState(): void {
   viewportWidth.value = window.innerWidth
 
-  // 在较窄的桌面窗口下强制切换到图标侧栏，优先为正文留空间。
+  // 宽度 <= 1280px 时强制使用图标侧边栏，为正文内容留出更多空间
   if (viewportWidth.value <= 1280) {
     isSidebarOpen.value = false
     return
@@ -130,6 +163,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', syncViewportState)
 })
 
+// 监听面板切换，将搜索关键词恢复为该面板上次的搜索内容
 watch(
   () => appStore.activePanel,
   (panel) => {
@@ -138,8 +172,8 @@ watch(
   { immediate: true }
 )
 
+// 监听搜索关键词变化，为当前面板缓存最新搜索词，避免切换面板时丢失搜索状态
 watch(searchKeyword, (value) => {
-  // Remember the latest search per panel so switching between modules feels contextual rather than destructive.
   panelSearch[appStore.activePanel] = value
 })
 </script>
@@ -234,12 +268,14 @@ watch(searchKeyword, (value) => {
 
       <div class="workspace-body arc-scrollbar">
         <Transition name="panel-switch" mode="out-in">
+          <!-- 搜索模式下显示全局搜索结果面板 -->
           <SearchResultsPanel
             v-if="isSearchMode"
             key="search-results"
             :query="normalizedSearch"
             @open-result="openSearchResult"
           />
+          <!-- 非搜索模式下根据当前激活的面板渲染对应组件 -->
           <OverviewPanel v-else-if="appStore.activePanel === 'overview'" key="overview" :search-query="normalizedSearch" />
           <WorldviewPanel v-else-if="appStore.activePanel === 'world'" key="world" :search-query="normalizedSearch" />
           <CharactersPanel v-else-if="appStore.activePanel === 'characters'" key="characters" :search-query="normalizedSearch" />

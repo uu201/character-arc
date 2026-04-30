@@ -1,6 +1,10 @@
 import type { AiStreamHandlers, AiTaskPayload, AppSettings, PromptPair } from './aiShared'
 import { AI_REQUEST_TIMEOUT_MS, resolveMaxTokens } from './aiShared'
 
+/**
+ * 从 HTTP 错误响应中提取可读的错误信息。
+ * 优先从 JSON body 的 error.message / error.error / message 字段读取，失败时使用默认文案。
+ */
 async function readErrorMessage(response: Response, fallbackLabel: string): Promise<string> {
   const fallback = `${fallbackLabel} 请求失败：${response.status} ${response.statusText}`
 
@@ -18,6 +22,10 @@ async function readErrorMessage(response: Response, fallbackLabel: string): Prom
   }
 }
 
+/**
+ * 执行一次带超时控制的 AI HTTP 请求。
+ * 超时时间由 AI_REQUEST_TIMEOUT_MS（60s）决定，超时后抛出中文超时错误。
+ */
 async function performAiRequest(url: string, init: RequestInit, providerLabel: string): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS)
@@ -44,6 +52,11 @@ async function performAiRequest(url: string, init: RequestInit, providerLabel: s
   }
 }
 
+/**
+ * 向 OpenAI 兼容接口发送非流式聊天补全请求。
+ * 适用于 DeepSeek、Qwen、Moonshot、SiliconFlow、Ollama、new-api/one-api 等供应商。
+ * 返回模型生成的纯文本内容。
+ */
 async function requestOpenAiCompatible(
   settings: AppSettings,
   prompt: PromptPair,
@@ -78,6 +91,10 @@ async function requestOpenAiCompatible(
   return content
 }
 
+/**
+ * 向 Anthropic Messages API 发送非流式请求。
+ * 使用 x-api-key 头部鉴权，遵循 Anthropic 2023-06-01 API 版本。
+ */
 async function requestAnthropic(settings: AppSettings, prompt: PromptPair, task?: AiTaskPayload): Promise<string> {
   const response = await performAiRequest(`${settings.baseUrl.replace(/\/$/, '')}/v1/messages`, {
     method: 'POST',
@@ -106,14 +123,20 @@ async function requestAnthropic(settings: AppSettings, prompt: PromptPair, task?
   return content
 }
 
+/**
+ * 从 OpenAI 兼容流式 SSE 数据块中提取增量文本。
+ * 处理两种格式：choices[0].delta.content 为字符串或 content_parts 数组。
+ */
 function extractOpenAiCompatibleDelta(payload: Record<string, unknown>): string {
   const choice = Array.isArray(payload.choices) ? (payload.choices[0] as Record<string, unknown> | undefined) : undefined
   const delta = choice?.delta as Record<string, unknown> | string[] | string | undefined
 
+  // 标准格式：delta.content 为字符串
   if (typeof (delta as Record<string, unknown> | undefined)?.content === 'string') {
     return String((delta as Record<string, unknown>).content)
   }
 
+  // 部分供应商（如某些代理网关）返回 content_parts 数组格式
   const contentParts = (delta as Record<string, unknown> | undefined)?.content
   if (Array.isArray(contentParts)) {
     return contentParts
@@ -131,6 +154,10 @@ function extractOpenAiCompatibleDelta(payload: Record<string, unknown>): string 
   return ''
 }
 
+/**
+ * 从 Anthropic 流式 SSE 事件中提取增量文本。
+ * 仅处理 content_block_delta 类型事件，提取 delta.text 字段。
+ */
 function extractAnthropicDelta(eventName: string, payload: Record<string, unknown>): string {
   const payloadType = String(payload.type ?? '')
   if (eventName === 'content_block_delta' || payloadType === 'content_block_delta') {
@@ -141,6 +168,11 @@ function extractAnthropicDelta(eventName: string, payload: Record<string, unknow
   return ''
 }
 
+/**
+ * 消费 SSE（Server-Sent Events）流式响应。
+ * 按照 SSE 协议解析 event: 和 data: 行，遇到 \n\n 分隔符时触发回调。
+ * 流结束时处理残留在 buffer 中的最后一条事件。
+ */
 async function consumeSseResponse(
   response: Response,
   onEvent: (eventName: string, data: string) => void | Promise<void>
@@ -157,6 +189,7 @@ async function consumeSseResponse(
     const { done, value } = await reader.read()
     buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done })
 
+    // 按 SSE 协议：两条换行符分隔一个完整事件
     let separatorIndex = buffer.indexOf('\n\n')
     while (separatorIndex >= 0) {
       const rawEvent = buffer.slice(0, separatorIndex).trim()
@@ -184,6 +217,7 @@ async function consumeSseResponse(
     }
 
     if (done) {
+      // 处理流结束后 buffer 中的残留事件
       const trailingEvent = buffer.trim()
       if (trailingEvent) {
         let eventName = 'message'
@@ -208,6 +242,11 @@ async function consumeSseResponse(
   }
 }
 
+/**
+ * 向 OpenAI 兼容接口发送流式聊天补全请求。
+ * 通过 stream: true 开启 SSE，逐块解析 delta 并通过 handlers.onTextDelta 推送到 UI。
+ * 返回拼接后的完整文本。
+ */
 async function requestOpenAiCompatibleStream(
   settings: AppSettings,
   prompt: PromptPair,
@@ -257,6 +296,10 @@ async function requestOpenAiCompatibleStream(
   return content
 }
 
+/**
+ * 向 Anthropic Messages API 发送流式请求。
+ * 使用 stream: true 开启 SSE，仅处理 content_block_delta 事件中的文本增量。
+ */
 async function requestAnthropicStream(
   settings: AppSettings,
   prompt: PromptPair,
@@ -304,12 +347,14 @@ async function requestAnthropicStream(
   return content
 }
 
+/** 发送非流式 AI 文本请求，自动根据 provider 分派到 OpenAI 兼容或 Anthropic 接口 */
 export async function requestAiText(settings: AppSettings, prompt: PromptPair, task?: AiTaskPayload): Promise<string> {
   return settings.provider === 'anthropic'
     ? requestAnthropic(settings, prompt, task)
     : requestOpenAiCompatible(settings, prompt, task)
 }
 
+/** 发送流式 AI 文本请求，自动根据 provider 分派；通过 handlers 实时接收增量文本 */
 export async function requestAiTextStream(
   settings: AppSettings,
   prompt: PromptPair,

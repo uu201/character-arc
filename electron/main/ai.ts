@@ -22,6 +22,10 @@ import {
 
 export type { AiTaskPayload } from './aiShared'
 
+/**
+ * 从 AI 返回的文本中提取 JSON 对象。
+ * 支持处理被 ```json 代码块包裹的情况，以及文本前后有多余内容的情况。
+ */
 function extractJsonObject(text: string): AiTaskResult {
   const fenced = text.match(/```json\s*([\s\S]*?)```/i)
   const raw = fenced?.[1] ?? text
@@ -31,10 +35,15 @@ function extractJsonObject(text: string): AiTaskResult {
   return JSON.parse(jsonSlice) as AiTaskResult
 }
 
+/** 判断任务是否为结构化输出（需要返回 JSON），章节助理任务返回纯文本，不属于结构化任务 */
 function isStructuredTask(task: AiTaskPayload): boolean {
   return task.task !== 'chapter-assistant'
 }
 
+/**
+ * 清理章节助理返回的纯文本。
+ * 移除可能残留的 Markdown 代码块标记，返回干净的文本内容。
+ */
 function normalizeAssistantText(text: string): ChapterAssistantResult {
   const cleaned = text
     .replace(/```[\w-]*\n?/g, '')
@@ -46,6 +55,7 @@ function normalizeAssistantText(text: string): ChapterAssistantResult {
   }
 }
 
+/** 标准化世界观设定结果，为缺失字段填入默认值 */
 function normalizeWorldviewResult(result: AiTaskResult): WorldviewResult {
   const entry = result as Partial<WorldviewResult>
   return {
@@ -55,6 +65,7 @@ function normalizeWorldviewResult(result: AiTaskResult): WorldviewResult {
   }
 }
 
+/** 标准化角色卡结果，限制标签最多 4 个，为缺失字段填入默认值 */
 function normalizeCharacterResult(result: AiTaskResult): CharacterResult {
   const character = result as Partial<CharacterResult>
   const tags = Array.isArray(character.tags)
@@ -69,6 +80,7 @@ function normalizeCharacterResult(result: AiTaskResult): CharacterResult {
   }
 }
 
+/** 标准化大纲节点结果，为缺失字段填入默认的章节标题和字数格式 */
 function normalizeOutlineResult(result: AiTaskResult): OutlineResult {
   const item = result as Partial<OutlineResult>
   return {
@@ -79,6 +91,7 @@ function normalizeOutlineResult(result: AiTaskResult): OutlineResult {
   }
 }
 
+/** 标准化项目初始化结果，限制世界观和大纲各最多 3 条，并逐条标准化 */
 function normalizeProjectBootstrapResult(result: AiTaskResult): ProjectBootstrapResult {
   const payload = result as Partial<ProjectBootstrapResult>
   const worldviewEntries = Array.isArray(payload.worldviewEntries)
@@ -94,6 +107,10 @@ function normalizeProjectBootstrapResult(result: AiTaskResult): ProjectBootstrap
   }
 }
 
+/**
+ * 标准化章节分析结果。
+ * 内部辅助函数 toList 负责将数组字段标准化：限制最多 5 项，空数组时填入兜底文案。
+ */
 function normalizeChapterAnalysisResult(result: AiTaskResult): ChapterAnalysisResult {
   const payload = result as Partial<ChapterAnalysisResult>
   const toList = (value: unknown, fallback: string[]): string[] => {
@@ -120,6 +137,7 @@ function normalizeChapterAnalysisResult(result: AiTaskResult): ChapterAnalysisRe
   }
 }
 
+/** 标准化单条灵感卡片，限制标签最多 4 个，为缺失字段填入默认值 */
 function normalizeInspirationResult(result: AiTaskResult): InspirationResult {
   const entry = result as Partial<InspirationResult>
   const tags = Array.isArray(entry.tags)
@@ -134,6 +152,7 @@ function normalizeInspirationResult(result: AiTaskResult): InspirationResult {
   }
 }
 
+/** 标准化灵感卡片组，限制最多 6 条灵感卡片，并逐条标准化 */
 function normalizeInspirationPackResult(result: AiTaskResult): InspirationPackResult {
   const payload = result as Partial<InspirationPackResult>
   const entries = Array.isArray(payload.entries)
@@ -145,6 +164,10 @@ function normalizeInspirationPackResult(result: AiTaskResult): InspirationPackRe
   }
 }
 
+/**
+ * 校验标准化后的结果是否满足基本可用性要求。
+ * 不同任务的校验规则不同：如世界观要求 title + content 非空，角色要求 name + description 非空。
+ */
 function isTaskResultUsable(task: AiTaskPayload, result: AiTaskResult): boolean {
   if (task.task === 'chapter-assistant') {
     return Boolean((result as ChapterAssistantResult).content?.trim())
@@ -187,6 +210,10 @@ function isTaskResultUsable(task: AiTaskPayload, result: AiTaskResult): boolean 
   return Boolean(outline.title.trim() && outline.summary.trim())
 }
 
+/**
+ * 将 AI 返回的原始文本解析并标准化为对应任务类型的结果对象。
+ * 章节助理任务直接处理纯文本，其他任务先提取 JSON 再按类型标准化。
+ */
 function normalizeTaskResult(task: AiTaskPayload, rawText: string): AiTaskResult {
   if (task.task === 'chapter-assistant') {
     return normalizeAssistantText(rawText)
@@ -211,6 +238,11 @@ function normalizeTaskResult(task: AiTaskPayload, rawText: string): AiTaskResult
   }
 }
 
+/**
+ * 解析并验证 AI 任务结果，失败时尝试一次修复。
+ * 先尝试直接解析原始文本；若结果不可用且为结构化任务，则用修复提示词让 AI 重新生成合法 JSON。
+ * 修复后仍不合格则抛出错误。
+ */
 async function resolveTaskResult(task: AiTaskPayload, settings: AppSettings, rawText: string): Promise<AiTaskResult> {
   try {
     const normalized = normalizeTaskResult(task, rawText)
@@ -218,13 +250,15 @@ async function resolveTaskResult(task: AiTaskPayload, settings: AppSettings, raw
       return normalized
     }
   } catch {
-    // Fall through to the repair pass below.
+    // 解析或校验失败，进入修复流程
   }
 
+  // 章节助理等非结构化任务不走修复流程，直接返回
   if (!isStructuredTask(task)) {
     return normalizeTaskResult(task, rawText)
   }
 
+  // 用修复提示词让 AI 重新生成合法 JSON
   const repairedText = await requestAiText(settings, buildRepairPrompt(task, rawText), task)
   const repairedResult = normalizeTaskResult(task, repairedText)
 
@@ -235,6 +269,7 @@ async function resolveTaskResult(task: AiTaskPayload, settings: AppSettings, raw
   return repairedResult
 }
 
+/** 测试 AI 连接是否可用，发送一条极简探测请求验证鉴权和网络通畅 */
 export async function testAiConnection(rawSettings: AppSettings): Promise<{ provider: string; model: string }> {
   const settings = normalizeSettings(rawSettings)
   validateSettings(settings)
@@ -256,6 +291,10 @@ export async function testAiConnection(rawSettings: AppSettings): Promise<{ prov
   }
 }
 
+/**
+ * 执行一次非流式 AI 任务。
+ * 完整流程：标准化设置 → 校验 → 构建提示词 → 发送请求 → 解析/修复结果。
+ */
 export async function generateAiTask(task: AiTaskPayload): Promise<AiTaskResult> {
   const settings = normalizeSettings(task.settings)
   validateSettings(settings)
@@ -264,6 +303,10 @@ export async function generateAiTask(task: AiTaskPayload): Promise<AiTaskResult>
   return resolveTaskResult(task, settings, rawText)
 }
 
+/**
+ * 执行一次流式 AI 任务（仅支持章节创作助理）。
+ * 通过 handlers.onTextDelta 实时推送增量文本到 UI，最终返回标准化的 ChapterAssistantResult。
+ */
 export async function streamAiTask(
   task: AiTaskPayload,
   handlers: AiStreamHandlers,

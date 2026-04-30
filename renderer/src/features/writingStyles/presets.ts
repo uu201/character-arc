@@ -1,5 +1,11 @@
 import type { ProjectSummary } from '@/types/app'
 
+// 写作风格预设类型定义：
+// - id: 预设唯一标识
+// - label: 显示名称
+// - description: 风格描述说明
+// - prompt: 注入到 AI 提示词中的风格指令
+// - accent: UI 中用于风格标识的渐变色
 export type WritingStylePreset = {
   id: string
   label: string
@@ -8,8 +14,11 @@ export type WritingStylePreset = {
   accent: string
 }
 
+// 默认写作风格预设 ID
 export const defaultWritingStylePresetId = 'cinematic-cool'
 
+// 六种内置写作风格预设，覆盖科幻、抒情、悬疑、网文、校园、现实等常见题材需求
+// 每种风格包含详细的 prompt 指令，用于指导 AI 的写作风格输出
 export const writingStylePresets: WritingStylePreset[] = [
   {
     id: 'cinematic-cool',
@@ -61,10 +70,14 @@ export const writingStylePresets: WritingStylePreset[] = [
   }
 ]
 
+// 根据预设 ID 查找风格，未匹配时回退到第一个预设（冷峻电影感）
 export function resolveWritingStylePreset(presetId?: string | null): WritingStylePreset {
   return writingStylePresets.find((preset) => preset.id === presetId) ?? writingStylePresets[0]
 }
 
+// 构建项目写作风格上下文：
+// 将预设 prompt 与用户自定义 prompt 合并，供 AI 章节助理使用
+// 自定义 prompt 会追加在预设 prompt 之后，实现风格微调
 export function buildProjectWritingStyleContext(project?: Pick<ProjectSummary, 'writingStylePresetId' | 'writingStylePrompt'> | null): {
   presetId: string
   label: string

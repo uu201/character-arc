@@ -11,12 +11,14 @@ import type { CharacterArcExportEnvelope, ImportConflictMode, ImportExportModule
 
 const appStore = useAppStore()
 const message = useMessage()
-const isTestingAiConnection = ref(false)
+const isTestingAiConnection = ref(false) // 测试 AI 模型连接时的加载状态
+// 导入冲突处理策略：copy 为新建副本，overwrite 为覆盖当前模块
 const importConflictMode = ref<ImportConflictMode>('copy')
-const importModalVisible = ref(false)
-const pendingImportPayload = ref<ProjectImportPayload | null>(null)
-const pendingImportMeta = ref<CharacterArcImportMeta | null>(null)
+const importModalVisible = ref(false) // 控制导入确认弹窗
+const pendingImportPayload = ref<ProjectImportPayload | null>(null) // 待导入的数据负载
+const pendingImportMeta = ref<CharacterArcImportMeta | null>(null) // 待导入数据的元信息（版本、模块类型等）
 
+// AI 模型供应商预设列表：包含供应商名称、默认模型、默认 Base URL 和使用说明
 type ProviderPreset = {
   label: string
   value: string
@@ -25,10 +27,11 @@ type ProviderPreset = {
   hint: string
 }
 
-const themeOptions = themePresets.map((preset) => ({
+const themeOptions = themePresets.map((preset) => ({ // 主题色选项列表
   label: preset.label,
   value: preset.name
 }))
+// AI 模型供应商预设配置：DeepSeek、阿里云、智谱、Moonshot、SiliconFlow、OpenAI、Anthropic、本地 Ollama 和网关
 const providerPresets: ProviderPreset[] = [
   {
     label: 'DeepSeek',
@@ -101,8 +104,9 @@ const providerPresets: ProviderPreset[] = [
     hint: '开源统一分发网关预设。适合把多家国产模型统一到一个地址下。'
   }
 ]
-const providerOptions = providerPresets.map(({ label, value }) => ({ label, value }))
-const autoSaveSelectOptions = [...autoSaveOptions]
+const providerOptions = providerPresets.map(({ label, value }) => ({ label, value })) // 供应商下拉选项
+const autoSaveSelectOptions = [...autoSaveOptions] // 自动保存间隔选项
+// UI 缩放比例选项
 const uiScaleOptions = [
   { label: '75%', value: 0.75 },
   { label: '85%', value: 0.85 },
@@ -112,14 +116,18 @@ const uiScaleOptions = [
   { label: '140%', value: 1.4 }
 ]
 
+// 当前选中的供应商预设（用于显示提示信息和默认值）
 const activeProviderPreset = computed(
   () => providerPresets.find((item) => item.value === appStore.appSettings.provider) ?? providerPresets[0]
 )
+// 当前项目的写作风格配置
 const activeWritingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
+// 导入冲突策略选项
 const importConflictOptions = [
   { label: '新建副本', value: 'copy' as const },
   { label: '覆盖当前模块', value: 'overwrite' as const }
 ]
+// 导入模块类型到中文标签的映射
 const importModuleLabelMap: Record<ImportExportModuleType, string> = {
   project: '完整项目',
   characters: '角色资料',
@@ -129,6 +137,7 @@ const importModuleLabelMap: Record<ImportExportModuleType, string> = {
   chapters: '章节数据'
 }
 
+// 更新项目的写作风格预设
 function updateWritingStylePreset(presetId: string): void {
   if (!appStore.currentProject?.id) {
     return
@@ -139,6 +148,7 @@ function updateWritingStylePreset(presetId: string): void {
   })
 }
 
+// 更新项目的自定义风格要求文本
 function updateWritingStylePrompt(prompt: string): void {
   if (!appStore.currentProject?.id) {
     return
@@ -149,6 +159,7 @@ function updateWritingStylePrompt(prompt: string): void {
   })
 }
 
+// 根据供应商名称解析默认的模型和 Base URL 配置
 function resolveProviderDefaults(provider: string): { model: string; baseUrl: string } {
   const preset = providerPresets.find((item) => item.value === provider)
   return preset
@@ -162,6 +173,7 @@ function resolveProviderDefaults(provider: string): { model: string; baseUrl: st
       }
 }
 
+// 切换模型供应商时，自动填充该供应商的默认模型和 Base URL
 function handleProviderChange(provider: string): void {
   const defaults = resolveProviderDefaults(provider)
   appStore.updateAppSetting('provider', provider)
@@ -169,6 +181,7 @@ function handleProviderChange(provider: string): void {
   appStore.updateAppSetting('baseUrl', defaults.baseUrl)
 }
 
+// 测试 AI 模型连接是否可用
 async function handleTestAiConnection(): Promise<void> {
   if (isTestingAiConnection.value) {
     return
@@ -191,12 +204,14 @@ async function handleTestAiConnection(): Promise<void> {
   }
 }
 
+// 构建导出文件名的前缀（项目标题 + 后缀），去除非法字符
 function buildExportStem(suffix: string): string {
   const projectTitle = appStore.currentProject?.title?.trim() || 'characterarc'
   const safeTitle = projectTitle.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '-')
   return `${safeTitle}-${suffix}`
 }
 
+// 构建导出信封：包装数据为标准的 CharacterArc 导出格式，包含版本号和模块类型
 function buildExportEnvelope(moduleType: ImportExportModuleType, data: ProjectImportPayload): CharacterArcExportEnvelope {
   return {
     app: 'CharacterArc',
@@ -208,6 +223,7 @@ function buildExportEnvelope(moduleType: ImportExportModuleType, data: ProjectIm
   }
 }
 
+// 导出完整项目为 JSON 文件
 async function handleExportJson(): Promise<void> {
   const payload = {
     project: appStore.currentProject,
@@ -238,6 +254,7 @@ async function handleExportJson(): Promise<void> {
   }
 }
 
+// 导出章节正文为 TXT 文件（仅包含纯文本内容）
 async function handleExportText(): Promise<void> {
   const payload = {
     project: appStore.currentProject,
@@ -265,6 +282,7 @@ async function handleExportText(): Promise<void> {
   }
 }
 
+// 导出角色资料为 JSON 文件
 async function handleExportCharacters(): Promise<void> {
   const result = await window.characterArc.exportJson({
     data: buildExportEnvelope('characters', {
@@ -285,6 +303,7 @@ async function handleExportCharacters(): Promise<void> {
   }
 }
 
+// 导出大纲节点为 JSON 文件
 async function handleExportOutline(): Promise<void> {
   const result = await window.characterArc.exportJson({
     data: buildExportEnvelope('outline', {
@@ -306,6 +325,7 @@ async function handleExportOutline(): Promise<void> {
   }
 }
 
+// 导出灵感卡片为 JSON 文件
 async function handleExportInspiration(): Promise<void> {
   const result = await window.characterArc.exportJson({
     data: buildExportEnvelope('inspiration', {
@@ -326,6 +346,7 @@ async function handleExportInspiration(): Promise<void> {
   }
 }
 
+// 导出关系组织数据为 JSON 文件
 async function handleExportRelations(): Promise<void> {
   const result = await window.characterArc.exportJson({
     data: buildExportEnvelope('relations', {
@@ -349,6 +370,7 @@ async function handleExportRelations(): Promise<void> {
   }
 }
 
+// 导出章节数据（含正文和元信息）为 JSON 文件
 async function handleExportChaptersJson(): Promise<void> {
   const result = await window.characterArc.exportJson({
     data: buildExportEnvelope('chapters', {
@@ -371,6 +393,7 @@ async function handleExportChaptersJson(): Promise<void> {
   }
 }
 
+// 导入 JSON 文件：完整项目直接导入，模块数据弹出确认弹窗让用户选择冲突策略
 async function handleImportJson(): Promise<void> {
   const result = await window.characterArc.importJson()
   if (result.canceled) {
@@ -402,6 +425,7 @@ async function handleImportJson(): Promise<void> {
   importModalVisible.value = true
 }
 
+// 确认模块导入：根据用户选择的冲突策略执行导入
 function confirmModuleImport(): void {
   if (!pendingImportPayload.value || !pendingImportMeta.value) {
     return

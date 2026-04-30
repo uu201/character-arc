@@ -9,20 +9,21 @@ import type { DropdownOption, SelectOption } from 'naive-ui'
 import type { OutlineItem, OutlineVolume } from '@/types/app'
 
 const props = defineProps<{
-  searchQuery?: string
+  searchQuery?: string // 全局搜索关键词
 }>()
 
 const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
-const isExpanding = ref(false)
-const editorVisible = ref(false)
-const volumeEditorVisible = ref(false)
-const editingOutlineId = ref<string | null>(null)
-const editingVolumeId = ref<string | null>(null)
-const draggingOutlineId = ref<string | null>(null)
-const dragTargetOutlineId = ref<string | null>(null)
+const isExpanding = ref(false) // AI 扩写大纲时的加载状态
+const editorVisible = ref(false) // 控制大纲节点编辑弹窗
+const volumeEditorVisible = ref(false) // 控制分卷编辑弹窗
+const editingOutlineId = ref<string | null>(null) // 当前编辑的大纲节点 ID
+const editingVolumeId = ref<string | null>(null) // 当前编辑的分卷 ID
+const draggingOutlineId = ref<string | null>(null) // 正在拖拽的大纲节点 ID
+const dragTargetOutlineId = ref<string | null>(null) // 拖拽目标位置的大纲节点 ID
+// 大纲节点编辑表单
 const form = reactive({
   volumeId: '',
   title: '',
@@ -30,21 +31,24 @@ const form = reactive({
   conflict: '',
   summary: ''
 })
+// 分卷编辑表单
 const volumeForm = reactive({
   title: '',
   wordTarget: '',
   summary: ''
 })
-const menuOptions: DropdownOption[] = [
+const menuOptions: DropdownOption[] = [ // 大纲节点的右键菜单选项
   { key: 'edit', label: '编辑节点' },
   { key: 'delete', label: '删除节点' }
 ]
+// 分卷选项列表，用于大纲节点编辑弹窗中的分卷下拉选择器
 const volumeOptions = computed<SelectOption[]>(() =>
   appStore.outlineVolumes.map((volume, index) => ({
     label: formatVolumeLabel(volume, index, 'formal'),
     value: volume.id
   }))
 )
+// 按分卷分组过滤大纲节点，搜索时在标题、冲突和剧情描述中匹配
 const filteredOutlineGroups = computed(() => {
   const query = props.searchQuery?.trim().toLowerCase() ?? ''
   if (!query) {
@@ -60,8 +64,10 @@ const filteredOutlineGroups = computed(() => {
     }))
     .filter((group) => group.items.length > 0)
 })
+// 可见大纲节点的总数（用于顶部摘要显示）
 const totalVisibleItems = computed(() => filteredOutlineGroups.value.reduce((count, group) => count + group.items.length, 0))
 
+// 打开新建大纲节点弹窗，默认归属到指定分卷
 function handleCreateOutline(volumeId = appStore.outlineVolumes[0]?.id): void {
   editingOutlineId.value = null
   form.volumeId = volumeId || appStore.outlineVolumes[0]?.id || ''
@@ -72,6 +78,7 @@ function handleCreateOutline(volumeId = appStore.outlineVolumes[0]?.id): void {
   editorVisible.value = true
 }
 
+// 调用 AI 接口自动扩写一个大纲节点，上下文包含已有大纲标题和世界观设定
 async function handleExpandOutline(): Promise<void> {
   if (isExpanding.value) {
     return
@@ -120,6 +127,7 @@ async function handleExpandOutline(): Promise<void> {
   }
 }
 
+// 打开大纲节点编辑弹窗
 function openEditor(item?: OutlineItem): void {
   editingOutlineId.value = item?.id ?? null
   form.volumeId = item?.volumeId ?? appStore.outlineVolumes[0]?.id ?? ''
@@ -130,6 +138,7 @@ function openEditor(item?: OutlineItem): void {
   editorVisible.value = true
 }
 
+// 打开分卷编辑弹窗
 function openVolumeEditor(volume?: OutlineVolume): void {
   editingVolumeId.value = volume?.id ?? null
   volumeForm.title = volume?.title ?? ''
@@ -138,6 +147,7 @@ function openVolumeEditor(volume?: OutlineVolume): void {
   volumeEditorVisible.value = true
 }
 
+// 提交大纲节点表单
 function submitOutline(): void {
   if (!form.volumeId) {
     message.warning('请先选择所属分卷')
@@ -160,6 +170,7 @@ function submitOutline(): void {
   editorVisible.value = false
 }
 
+// 提交分卷表单
 function submitVolume(): void {
   if (!volumeForm.title.trim()) {
     message.warning('请填写分卷标题')
@@ -177,6 +188,7 @@ function submitVolume(): void {
   volumeEditorVisible.value = false
 }
 
+// 根据大纲节点创建章节草稿，将核心规划字段直接带入新章节
 function handleCreateChapterFromOutline(item: OutlineItem): void {
   // Carry the outline node's core planning fields straight into a fresh chapter
   // draft so the writer can continue from structure into prose immediately.
@@ -184,6 +196,8 @@ function handleCreateChapterFromOutline(item: OutlineItem): void {
   message.success('已根据大纲节点创建章节草稿')
 }
 
+// --- 拖拽排序相关函数 ---
+// 拖拽开始：记录被拖拽的大纲节点 ID
 function handleDragStart(outlineId: string, event: DragEvent): void {
   draggingOutlineId.value = outlineId
   dragTargetOutlineId.value = outlineId
@@ -194,6 +208,7 @@ function handleDragStart(outlineId: string, event: DragEvent): void {
   }
 }
 
+// 拖拽经过：更新拖拽目标位置
 function handleDragOver(outlineId: string, event: DragEvent): void {
   if (!draggingOutlineId.value || draggingOutlineId.value === outlineId) {
     return
@@ -206,6 +221,7 @@ function handleDragOver(outlineId: string, event: DragEvent): void {
   dragTargetOutlineId.value = outlineId
 }
 
+// 拖拽放下：调用 store 执行大纲节点的排序移动
 function handleDrop(outlineId: string, event: DragEvent): void {
   event.preventDefault()
   const sourceId = draggingOutlineId.value || event.dataTransfer?.getData('text/plain')
@@ -219,11 +235,13 @@ function handleDrop(outlineId: string, event: DragEvent): void {
   resetDragState()
 }
 
+// 重置拖拽状态
 function resetDragState(): void {
   draggingOutlineId.value = null
   dragTargetOutlineId.value = null
 }
 
+// 处理大纲节点的下拉菜单操作：编辑或删除（删除前弹出二次确认）
 function handleMenuSelect(action: string | number, item: OutlineItem): void {
   if (action === 'edit') {
     openEditor(item)

@@ -1,15 +1,17 @@
 import type { GlobalThemeOverrides } from 'naive-ui'
 import type { ThemeName } from '@/types/app'
 
+// 主题预设结构定义
 export interface ThemePreset {
-  name: ThemeName
-  label: string
-  primary: string
-  primaryHover: string
-  primaryPressed: string
-  softBackground: string
+  name: ThemeName        // 主题标识名
+  label: string          // 主题显示名称
+  primary: string        // 主色调
+  primaryHover: string   // 主色调悬停态
+  primaryPressed: string // 主色调按下态
+  softBackground: string // 柔和背景色（用于标签、徽章等浅色区域）
 }
 
+// 内置主题预设列表
 export const themePresets: ThemePreset[] = [
   {
     name: 'ocean',
@@ -45,10 +47,12 @@ export const themePresets: ThemePreset[] = [
   }
 ]
 
+// 根据主题名查找预设，未找到时回退到第一个预设
 export function getThemePreset(name: ThemeName): ThemePreset {
   return themePresets.find((preset) => preset.name === name) ?? themePresets[0]
 }
 
+// 将主题预设转换为 Naive UI 的全局主题覆盖配置
 export function createNaiveThemeOverrides(name: ThemeName): GlobalThemeOverrides {
   const preset = getThemePreset(name)
 
@@ -59,6 +63,7 @@ export function createNaiveThemeOverrides(name: ThemeName): GlobalThemeOverrides
       primaryColorPressed: preset.primaryPressed,
       primaryColorSuppl: preset.primaryHover,
       borderRadius: '6px',
+      // 优先使用系统原生中文字体，提升各平台渲染效果
       fontFamily:
         '-apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif'
     },

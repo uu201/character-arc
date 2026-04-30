@@ -1,9 +1,15 @@
 import type { AiTaskPayload, PromptPair } from './aiShared'
 
+/**
+ * 根据任务类型构建完整的提示词对（system + user）。
+ * 每种任务类型有独立的提示词模板，上下文信息通过 context 对象注入。
+ * 章节助理任务会额外注入写作风格、输出模式、响应长度等指令。
+ */
 export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
   const { context } = task
   const writingStyleInstruction = resolveWritingStyleInstruction(context)
 
+  // ── 世界观设定任务 ──
   if (task.task === 'worldview-entry') {
     return {
       system:
@@ -12,6 +18,7 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
     }
   }
 
+  // ── 角色卡生成任务 ──
   if (task.task === 'character-card') {
     const organizations = formatOrganizations(context.organizations)
     const relationships = formatCharacterRelationships(context.characterRelationships, context.characters)
@@ -24,15 +31,18 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
     }
   }
 
+  // ── 项目初始化任务（批量生成世界观 + 大纲） ──
   if (task.task === 'project-bootstrap') {
     return {
       system:
         '你是小说项目初始化助手。请只返回 JSON 对象，不要返回 Markdown。字段必须包含 worldviewEntries、outlineItems。',
-      user: `请基于以下信息，为小说项目生成首批世界观设定和剧情大纲。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n目标字数：${String(context.projectWordTarget ?? '')}\n核心点子：${String(context.projectPremise ?? '')}\n\n要求：\n1. worldviewEntries 返回 3 条设定，每条都包含 type、title、content\n2. worldviewEntries 的 type 必须是 地理 / 法则 / 物种 / 势力 / 历史 之一\n3. outlineItems 返回 3 条章节大纲，每条都包含 title、wordTarget、conflict、summary\n4. wordTarget 使用“预估 xxxx字”格式\n5. 所有内容使用中文，紧贴题材和核心点子，不要重复\n6. ${writingStyleInstruction}\n\n返回格式：{"worldviewEntries":[{"type":"","title":"","content":""}],"outlineItems":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
+      user: `请基于以下信息，为小说项目生成首批世界观设定和剧情大纲。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n目标字数：${String(context.projectWordTarget ?? '')}\n核心点子：${String(context.projectPremise ?? '')}\n\n要求：\n1. worldviewEntries 返回 3 条设定，每条都包含 type、title、content\n2. worldviewEntries 的 type 必须是 地理 / 法则 / 物种 / 势力 / 历史 之一\n3. outlineItems 返回 3 条章节大纲，每条都包含 title、wordTarget、conflict、summary\n4. wordTarget 使用"预估 xxxx字"格式\n5. 所有内容使用中文，紧贴题材和核心点子，不要重复\n6. ${writingStyleInstruction}\n\n返回格式：{"worldviewEntries":[{"type":"","title":"","content":""}],"outlineItems":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
     }
   }
 
+  // ── 章节质量分析任务 ──
   if (task.task === 'chapter-analysis') {
+    // 组装分析所需的上下文片段：世界观、角色、组织、关系、灵感、大纲
     const worldviewEntries = Array.isArray(context.worldviewEntries)
       ? context.worldviewEntries
           .slice(0, 8)
@@ -72,6 +82,7 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
     }
   }
 
+  // ── 灵感卡片批量生成任务 ──
   if (task.task === 'inspiration-pack') {
     const worldviewEntries = Array.isArray(context.worldviewEntries)
       ? context.worldviewEntries
@@ -111,11 +122,13 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
     return {
       system:
         '你是小说灵感生成助手。请只返回 JSON 对象，不要返回 Markdown，不要解释。字段必须包含 entries，entries 中每一项都必须包含 type、title、content、tags。',
-      user: `请围绕当前小说项目生成一组可直接保存的灵感卡片。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节正文：\n${String(context.chapterContent ?? '')}\n\n灵感焦点：${String(context.focusType ?? '场景火花')}\n已有灵感标题：${existingInspirationTitles}\n\n相关世界观：\n${worldviewEntries || '暂无'}\n\n相关角色：\n${characters || '暂无'}\n\n相关组织：\n${organizations || '暂无'}\n\n角色关系：\n${relationships || '暂无'}\n\n成员归属：\n${memberships || '暂无'}\n\n相关大纲：\n${outlineItems || '暂无'}\n\n要求：\n1. entries 返回 4 条灵感卡片，每条都必须紧贴“灵感焦点”\n2. type 必须从以下类型中选一个：标题灵感、开篇钩子、场景火花、剧情转折、设定补完、人物动机\n3. title 要短而明确，避免与已有灵感标题重复\n4. content 用中文写成 60 到 140 字的可执行灵感描述，强调可落地场景、冲突、情绪或推进方式\n5. 当关系、组织或阵营立场明显可用时，优先让灵感围绕这些张力展开\n6. tags 返回 2 到 4 个简短标签，方便后续筛选\n7. 不要空泛鸡汤，不要写成长篇大纲，要像作者工作台里的“灵感卡片”\n8. ${writingStyleInstruction}\n\n返回格式：{"entries":[{"type":"","title":"","content":"","tags":["",""]}]}`
+      user: `请围绕当前小说项目生成一组可直接保存的灵感卡片。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节正文：\n${String(context.chapterContent ?? '')}\n\n灵感焦点：${String(context.focusType ?? '场景火花')}\n已有灵感标题：${existingInspirationTitles}\n\n相关世界观：\n${worldviewEntries || '暂无'}\n\n相关角色：\n${characters || '暂无'}\n\n相关组织：\n${organizations || '暂无'}\n\n角色关系：\n${relationships || '暂无'}\n\n成员归属：\n${memberships || '暂无'}\n\n相关大纲：\n${outlineItems || '暂无'}\n\n要求：\n1. entries 返回 4 条灵感卡片，每条都必须紧贴"灵感焦点"\n2. type 必须从以下类型中选一个：标题灵感、开篇钩子、场景火花、剧情转折、设定补完、人物动机\n3. title 要短而明确，避免与已有灵感标题重复\n4. content 用中文写成 60 到 140 字的可执行灵感描述，强调可落地场景、冲突、情绪或推进方式\n5. 当关系、组织或阵营立场明显可用时，优先让灵感围绕这些张力展开\n6. tags 返回 2 到 4 个简短标签，方便后续筛选\n7. 不要空泛鸡汤，不要写成长篇大纲，要像作者工作台里的"灵感卡片"\n8. ${writingStyleInstruction}\n\n返回格式：{"entries":[{"type":"","title":"","content":"","tags":["",""]}]}`
     }
   }
 
+  // ── 章节创作助理任务（支持流式输出） ──
   if (task.task === 'chapter-assistant') {
+    // 组装完整的创作上下文：世界观、角色、组织、关系、灵感、大纲、相邻章节、历史对话
     const worldviewEntries = Array.isArray(context.worldviewEntries)
       ? context.worldviewEntries
           .slice(0, 8)
@@ -147,6 +160,7 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
           .map((item) => `${String((item as Record<string, unknown>).title ?? '')}：${String((item as Record<string, unknown>).summary ?? '')}`)
           .join('\n')
       : ''
+    // 最多引用 2 章相邻章节的内容预览，帮助 AI 理解上下文衔接
     const relatedChapters = Array.isArray(context.relatedChapters)
       ? context.relatedChapters
           .slice(0, 2)
@@ -156,6 +170,7 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
           })
           .join('\n\n')
       : ''
+    // 最近 4 条对话记录，帮助 AI 避免重复和保持连贯
     const recentMessages = Array.isArray(context.recentMessages)
       ? context.recentMessages
           .slice(-4)
@@ -166,9 +181,13 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
           })
           .join('\n')
       : ''
+    // 用户在编辑器中选中的文本，用于润色、改写等定向操作
     const selectedText = String(context.selectedText ?? '').trim()
+    // 快捷动作标识，如"章节标题"、"润色选中"、"下一章建议"等
     const quickAction = String(context.quickAction ?? '自由提问')
+    // 输出模式：freeform / polish / continue / suggest / reference
     const responseMode = String(context.responseMode ?? 'freeform')
+    // 输出长度偏好：short / medium / long
     const responseLength = String(context.responseLength ?? 'medium')
     const modeInstruction = resolveChapterAssistantModeInstruction(responseMode)
     const lengthInstruction = resolveChapterAssistantLengthInstruction(responseLength)
@@ -181,13 +200,18 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
     }
   }
 
+  // ── 默认：大纲节点生成任务 ──
   return {
     system:
       '你是小说剧情大纲助手。请只返回 JSON 对象，不要返回 Markdown。字段必须包含 title、wordTarget、conflict、summary。',
-    user: `基于以下上下文，为当前小说项目补充一个新的章节大纲节点。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节预估字数：${String(context.chapterWordTarget ?? '')}\n当前章节正文：\n${String(context.chapterContent ?? '')}\n已有大纲：${JSON.stringify(context.outlineTitles ?? [])}\n当前分卷已有节点：${JSON.stringify(context.currentVolumeOutlineItems ?? [])}\n世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}\n角色参考：${JSON.stringify(context.characters ?? [])}\n补充要求：${String(context.userPrompt ?? '')}\n\n要求：\n1. title 为新的章节标题，并体现与当前章节的承接关系\n2. wordTarget 使用“预估 xxxx字”格式\n3. conflict 用一句话概括下一章的核心冲突\n4. summary 用中文描述剧情推进，80 到 180 字\n5. 与当前分卷目标、已有大纲和当前章节情绪保持连续，不要重复已有节点\n6. ${writingStyleInstruction}\n\n返回格式：{"title":"","wordTarget":"","conflict":"","summary":""}`
+    user: `基于以下上下文，为当前小说项目补充一个新的章节大纲节点。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节预估字数：${String(context.chapterWordTarget ?? '')}\n当前章节正文：\n${String(context.chapterContent ?? '')}\n已有大纲：${JSON.stringify(context.outlineTitles ?? [])}\n当前分卷已有节点：${JSON.stringify(context.currentVolumeOutlineItems ?? [])}\n世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}\n角色参考：${JSON.stringify(context.characters ?? [])}\n补充要求：${String(context.userPrompt ?? '')}\n\n要求：\n1. title 为新的章节标题，并体现与当前章节的承接关系\n2. wordTarget 使用"预估 xxxx字"格式\n3. conflict 用一句话概括下一章的核心冲突\n4. summary 用中文描述剧情推进，80 到 180 字\n5. 与当前分卷目标、已有大纲和当前章节情绪保持连续，不要重复已有节点\n6. ${writingStyleInstruction}\n\n返回格式：{"title":"","wordTarget":"","conflict":"","summary":""}`
   }
 }
 
+/**
+ * 构建 JSON 修复提示词。
+ * 当 AI 返回的结构化 JSON 不合法时，将原始提示词和错误输出一起发送给 AI，要求重新生成合法 JSON。
+ */
 export function buildRepairPrompt(task: AiTaskPayload, brokenText: string): PromptPair {
   const originalPrompt = buildTaskPrompt(task)
 
@@ -198,21 +222,29 @@ export function buildRepairPrompt(task: AiTaskPayload, brokenText: string): Prom
   }
 }
 
+/**
+ * 根据章节助理的输出模式返回对应的指令片段。
+ * 五种模式：自由提问（默认）、润色、续写、剧情建议、设定查阅。
+ */
 function resolveChapterAssistantModeInstruction(mode: string): string {
   switch (mode) {
     case 'polish':
-      return '当前模式是“润色”。请尽量直接输出可替换原文的润色结果，减少分析。'
+      return '当前模式是"润色"。请尽量直接输出可替换原文的润色结果，减少分析。'
     case 'continue':
-      return '当前模式是“续写”。请紧接现有正文自然续写，保持语气、节奏和剧情方向一致。'
+      return '当前模式是"续写"。请紧接现有正文自然续写，保持语气、节奏和剧情方向一致。'
     case 'suggest':
-      return '当前模式是“剧情建议”。请给出 3 到 5 条具体建议，按可执行性优先排序。'
+      return '当前模式是"剧情建议"。请给出 3 到 5 条具体建议，按可执行性优先排序。'
     case 'reference':
-      return '当前模式是“设定查阅”。请优先提炼与当前章节最相关的设定、角色和风险点。'
+      return '当前模式是"设定查阅"。请优先提炼与当前章节最相关的设定、角色和风险点。'
     default:
-      return '当前模式是“自由提问”。请根据用户请求选择最合适的回答形式。'
+      return '当前模式是"自由提问"。请根据用户请求选择最合适的回答形式。'
   }
 }
 
+/**
+ * 根据用户选择的响应长度返回字数约束指令。
+ * short: 80-180字，medium: 160-360字，long: 350-800字。
+ */
 function resolveChapterAssistantLengthInstruction(length: string): string {
   switch (length) {
     case 'short':
@@ -225,6 +257,10 @@ function resolveChapterAssistantLengthInstruction(length: string): string {
   }
 }
 
+/**
+ * 根据快捷动作类型返回特定的输出格式指令。
+ * 快捷动作会覆盖通用的输出要求，强制 AI 以特定形态返回结果。
+ */
 function resolveChapterAssistantQuickActionInstruction(quickAction: string): string {
   switch (quickAction) {
     case '章节标题':
@@ -244,6 +280,7 @@ function resolveChapterAssistantQuickActionInstruction(quickAction: string): str
   }
 }
 
+/** 将组织列表格式化为纯文本，供提示词注入。每行格式：名称 / 类型：描述（信条：xxx） */
 function formatOrganizations(source: unknown): string {
   return Array.isArray(source)
     ? source
@@ -256,11 +293,13 @@ function formatOrganizations(source: unknown): string {
     : ''
 }
 
+/** 将角色关系列表格式化为纯文本。通过 characterNameMap 将角色 ID 解析为可读姓名。每行格式：角色A -> 角色B / 关系类型：描述（强度 x） */
 function formatCharacterRelationships(source: unknown, charactersSource: unknown): string {
   if (!Array.isArray(source)) {
     return ''
   }
 
+  // 构建角色 ID → 姓名的映射表
   const characterNameMap = new Map(
     Array.isArray(charactersSource)
       ? charactersSource.map((character) => {
@@ -281,11 +320,13 @@ function formatCharacterRelationships(source: unknown, charactersSource: unknown
     .join('\n')
 }
 
+/** 将组织成员归属列表格式化为纯文本。同时解析角色和组织的 ID → 名称映射。每行格式：角色名 属于 组织名 / 身份：xxx */
 function formatOrganizationMemberships(membershipsSource: unknown, organizationsSource: unknown, charactersSource: unknown): string {
   if (!Array.isArray(membershipsSource)) {
     return ''
   }
 
+  // 构建组织 ID → 名称的映射表
   const organizationNameMap = new Map(
     Array.isArray(organizationsSource)
       ? organizationsSource.map((organization) => {
@@ -294,6 +335,7 @@ function formatOrganizationMemberships(membershipsSource: unknown, organizations
         })
       : []
   )
+  // 构建角色 ID → 姓名的映射表
   const characterNameMap = new Map(
     Array.isArray(charactersSource)
       ? charactersSource.map((character) => {
@@ -314,6 +356,10 @@ function formatOrganizationMemberships(membershipsSource: unknown, organizations
     .join('\n')
 }
 
+/**
+ * 根据项目的写作风格设置生成风格指令片段。
+ * 优先使用完整的 label + prompt 组合；仅有时则只提风格名称或要求；都没有时使用默认兜底文案。
+ */
 function resolveWritingStyleInstruction(context: Record<string, unknown>): string {
   const label = String(context.writingStyleLabel ?? '').trim()
   const prompt = String(context.writingStylePrompt ?? '').trim()
@@ -323,11 +369,11 @@ function resolveWritingStyleInstruction(context: Record<string, unknown>): strin
   }
 
   if (label && prompt) {
-    return `当前项目默认写作风格为“${label}”。请在输出中遵循以下风格要求：${prompt}`
+    return `当前项目默认写作风格为"${label}"。请在输出中遵循以下风格要求：${prompt}`
   }
 
   if (label) {
-    return `当前项目默认写作风格为“${label}”，请让输出保持这一风格的一致性。`
+    return `当前项目默认写作风格为"${label}"，请让输出保持这一风格的一致性。`
   }
 
   return `请在输出中遵循以下写作风格要求：${prompt}`

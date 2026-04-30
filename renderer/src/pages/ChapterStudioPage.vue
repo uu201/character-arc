@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 章节创作页面：独立的章节编辑入口，直接嵌入 ChaptersPanel 组件
+// 该页面可从工作台的"章节创作"面板或独立路由进入
 import ChaptersPanel from '@/components/ChaptersPanel.vue'
 </script>
 

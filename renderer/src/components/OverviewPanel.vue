@@ -6,23 +6,26 @@ import { useAppStore } from '@/stores/app'
 import type { PanelName } from '@/types/app'
 
 const props = defineProps<{
-  searchQuery?: string
+  searchQuery?: string // 全局搜索关键词，用于过滤概览中的快速入口
 }>()
 
 const appStore = useAppStore()
 
 const normalizedQuery = computed(() => props.searchQuery?.trim().toLowerCase() ?? '')
 const currentProject = computed(() => appStore.currentProject)
+// 各维度的统计数据，用于概览仪表盘
 const totalCharacters = computed(() => appStore.characters.length)
 const totalOrganizations = computed(() => appStore.organizations.length)
 const totalRelationships = computed(() => appStore.characterRelationships.length)
 const totalOutlineItems = computed(() => appStore.outlineItems.length)
 const totalInspirationItems = computed(() => appStore.inspirationEntries.length)
 const totalChapters = computed(() => appStore.chapters.length)
+// 统计所有章节的累计字数（使用富文本字数计算）
 const totalWords = computed(() =>
   appStore.chapters.reduce((count, chapter) => count + getChapterCharacterCount(chapter.content), 0)
 )
 
+// 概览仪表盘的统计卡片配置：累计字数、角色数量、关系组织、灵感卡片、大纲节点、章节草稿
 const overviewCards = computed(() => [
   {
     key: 'words',
@@ -74,6 +77,8 @@ const overviewCards = computed(() => [
   }
 ])
 
+// 快速入口数据：聚合所有模块内容（世界观、角色、组织、关系、灵感、大纲、章节），
+// 无搜索时仅展示前 6 条，有搜索时按关键词过滤后取前 6 条
 const quickEntries = computed(() => {
   const groups = [
     ...appStore.worldviewEntries.map((entry) => ({
@@ -136,12 +141,15 @@ const quickEntries = computed(() => {
     .slice(0, 6)
 })
 
+// 当前聚焦的章节，优先使用已选章节，否则取第一章
 const recentChapter = computed(() => appStore.selectedChapter ?? appStore.chapters[0])
 
+// 导航到指定面板
 function goToPanel(panel: PanelName): void {
   appStore.setPanel(panel)
 }
 
+// 点击快速入口卡片后，根据类型导航到对应面板或选中具体章节
 function openEntry(type: string, title: string): void {
   if (type === '章节') {
     const chapter = appStore.chapters.find((item) => item.title === title)

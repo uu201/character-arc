@@ -5,6 +5,9 @@ import AiAssistantPanel from '@/components/AiAssistantPanel.vue'
 import { useAppStore } from '@/stores/app'
 
 const appStore = useAppStore()
+
+// 判断当前是否具备章节上下文：必须同时存在项目和已选中的章节
+// 有上下文时显示 AI 助手面板，否则显示等待提示
 const hasChapterContext = computed(() => Boolean(appStore.currentProject && appStore.selectedChapter))
 </script>
 

@@ -51,6 +51,7 @@ import type {
   WorldviewEntry
 } from '@/types/app'
 
+/** 创建项目向导的载荷结构，包含项目基础信息和可选的各类业务数据 */
 interface ProjectWorkspacePayload {
   project: {
     title: string
@@ -73,6 +74,7 @@ interface ProjectWorkspacePayload {
   messages?: ChatMessage[]
 }
 
+/** 将日期字符串转换为 ISO 时间戳，无效值时使用当前时间 */
 function toIsoTimestamp(value?: string): string {
   const parsed = value ? new Date(value) : null
   if (parsed && !Number.isNaN(parsed.getTime())) {
@@ -82,6 +84,7 @@ function toIsoTimestamp(value?: string): string {
   return new Date().toISOString()
 }
 
+/** 重新编排世界观条目的 sortOrder，确保连续递增 */
 function reindexWorldviewEntries(entries: WorldviewEntry[]): WorldviewEntry[] {
   return entries.map((entry, index) => ({
     ...entry,
@@ -89,6 +92,7 @@ function reindexWorldviewEntries(entries: WorldviewEntry[]): WorldviewEntry[] {
   }))
 }
 
+/** 重新编排大纲节点的 sortOrder */
 function reindexOutlineItems(items: OutlineItem[]): OutlineItem[] {
   return items.map((item, index) => ({
     ...item,
@@ -96,6 +100,7 @@ function reindexOutlineItems(items: OutlineItem[]): OutlineItem[] {
   }))
 }
 
+/** 重新编排灵感条目的 sortOrder */
 function reindexInspirationEntries(entries: InspirationEntry[]): InspirationEntry[] {
   return entries.map((entry, index) => ({
     ...entry,
@@ -103,6 +108,7 @@ function reindexInspirationEntries(entries: InspirationEntry[]): InspirationEntr
   }))
 }
 
+/** 重新编排组织的 sortOrder */
 function reindexOrganizations(entries: OrganizationEntry[]): OrganizationEntry[] {
   return entries.map((entry, index) => ({
     ...entry,
@@ -111,58 +117,105 @@ function reindexOrganizations(entries: OrganizationEntry[]): OrganizationEntry[]
 }
 
 
+// ══════════════════════════════════════════════════════════════════
+// 全局 Pinia Store：管理整个应用的状态
+// 包含项目列表、当前工作区、所有业务实体、视图导航、持久化调度
+// ══════════════════════════════════════════════════════════════════
 export const useAppStore = defineStore('app', () => {
   const stored = loadStoredState()
+  /** 是否已完成初始化水合（从 SQLite 加载数据） */
   const hasHydrated = ref(false)
+  /** 持久化错误信息，null 表示无错误 */
   const persistenceError = ref<string | null>(null)
+  /** 防抖保存定时器 ID */
   let saveTimer: number | null = null
+  /** 工作区同步防抖定时器 ID */
   let workspaceSyncTimer: number | null = null
+  /** 下次计划持久化的时间戳 */
   const scheduledPersistAt = ref<number | null>(null)
+  /** 当前视图：项目列表 / 新建向导 / 工作台 / 章节写作 */
   const currentView = ref<'projects' | 'wizard' | 'workbench' | 'chapter-studio'>('projects')
+  /** 工作台中当前激活的面板 */
   const activePanel = ref<PanelName>('world')
+  /** 上一次在工作台中查看的面板（非 chapters），用于从章节写作返回时恢复 */
   const lastWorkbenchPanel = ref<Exclude<PanelName, 'chapters'>>('world')
+  /** AI 助手窗口是否可见 */
   const aiVisible = ref(true)
+  /** 当前主题名称 */
   const theme = ref<ThemeName>(stored.theme)
+  /** 当前选中的项目 ID */
   const selectedProjectId = ref(stored.selectedProjectId)
+  /** 所有项目摘要列表 */
   const projects = ref<ProjectSummary[]>(stored.projects)
+  /** 项目 ID → 工作区数据 的映射表 */
   const projectWorkspaces = ref<Record<string, ProjectWorkspaceData>>(stored.workspaces)
+  /** 应用全局设置（AI 供应商、模型、自动保存等） */
   const appSettings = ref<AppSettings>(stored.appSettings)
+  /** 待处理的助手提示词请求（来自主窗口） */
   const pendingAssistantRequest = ref<AssistantPromptRequest | null>(null)
+  /** 待执行的章节正文插入请求 */
   const pendingChapterInsertion = ref<ChapterInsertionRequest | null>(null)
+  /** 用户在编辑器中当前选中的文本状态 */
   const currentChapterSelection = ref<ChapterSelectionState | null>(null)
+  /** 当前选中的章节 ID */
   const selectedChapterId = ref(stored.workspaces[stored.selectedProjectId]?.chapters[0]?.id ?? '')
+  /** 标记是否正在应用远程工作区同步，防止循环同步 */
   let isApplyingRemoteWorkspaceSync = false
 
+  // ── 计算属性：从当前工作区派生各业务实体列表 ──
+  /** 当前项目的工作区数据，项目不存在时返回空工作区 */
   const currentWorkspace = computed(
     () => projectWorkspaces.value[selectedProjectId.value] ?? createEmptyWorkspace()
   )
+  /** 当前项目的世界观设定列表 */
   const worldviewEntries = computed(() => currentWorkspace.value.worldviewEntries)
+  /** 当前项目的角色列表 */
   const characters = computed(() => currentWorkspace.value.characters)
+  /** 当前项目的组织列表 */
   const organizations = computed(() => currentWorkspace.value.organizations)
+  /** 当前项目的角色关系列表 */
   const characterRelationships = computed(() => currentWorkspace.value.characterRelationships)
+  /** 当前项目的组织成员归属列表 */
   const organizationMemberships = computed(() => currentWorkspace.value.organizationMemberships)
+  /** 当前项目的灵感卡片列表 */
   const inspirationEntries = computed(() => currentWorkspace.value.inspirationEntries)
+  /** 当前项目的大纲节点列表 */
   const outlineItems = computed(() => currentWorkspace.value.outlineItems)
+  /** 当前项目的章节列表 */
   const chapters = computed(() => currentWorkspace.value.chapters)
+  /** 当前项目的大纲分卷列表 */
   const outlineVolumes = computed(() => currentWorkspace.value.outlineVolumes)
+  /** 当前项目的章节历史版本列表 */
   const chapterVersions = computed(() => currentWorkspace.value.chapterVersions)
+  /** 当前项目的 AI 聊天消息列表 */
   const messages = computed(() => currentWorkspace.value.messages)
+  /** 自动保存间隔的人类可读标签 */
   const autoSaveIntervalLabel = computed(() => formatAutoSaveIntervalLabel(appSettings.value.autoSaveInterval))
+  /** 是否为实时自动保存模式 */
   const isLiveAutoSave = computed(() => isLiveAutoSaveInterval(appSettings.value.autoSaveInterval))
+  /** 是否有待持久化的更改 */
   const isPersistencePending = computed(() => scheduledPersistAt.value !== null)
+  /** 当前选中的章节对象 */
   const selectedChapter = computed(
     () => chapters.value.find((chapter) => chapter.id === selectedChapterId.value) ?? chapters.value[0]
   )
+  /** 当前选中章节所属的分卷 */
   const selectedChapterVolume = computed(
     () => outlineVolumes.value.find((volume) => volume.id === selectedChapter.value?.volumeId) ?? outlineVolumes.value[0]
   )
+  /** 按分卷分组的大纲节点 */
   const outlineVolumeGroups = computed(() => buildVolumeGroups(outlineVolumes.value, outlineItems.value))
+  /** 按分卷分组的章节 */
   const chapterVolumeGroups = computed(() => buildVolumeGroups(outlineVolumes.value, chapters.value))
+  /** 当前主题的 Naive UI 覆盖配置 */
   const currentTheme = computed(() => getThemePreset(theme.value))
+  /** 当前选中的项目摘要 */
   const currentProject = computed(
     () => projects.value.find((project) => project.id === selectedProjectId.value) ?? projects.value[0]
   )
 
+  // ── 助手窗口通信 ──
+  /** 将当前选中的项目/章节上下文序列化为推送给助手窗口的载荷 */
   function serializeAssistantContext(): CharacterArcAssistantContextPayload {
     return {
       selectedProjectId: selectedProjectId.value,
@@ -176,6 +229,7 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 从主窗口推送的上下文载荷中恢复状态（助手窗口调用） */
   function applyAssistantContext(payload?: CharacterArcAssistantContextPayload | null): void {
     if (!payload?.selectedProjectId) {
       return
@@ -205,6 +259,7 @@ export const useAppStore = defineStore('app', () => {
     currentChapterSelection.value = null
   }
 
+  /** 防抖调度工作区同步到其他窗口（120ms 延迟） */
   function scheduleWorkspaceSync(): void {
     if (!hasHydrated.value || isApplyingRemoteWorkspaceSync) {
       return
@@ -219,6 +274,7 @@ export const useAppStore = defineStore('app', () => {
     }, 120)
   }
 
+  /** 向助手窗口推送最新的项目/章节上下文（仅主窗口调用） */
   function publishAssistantContext(): void {
     if (characterArcWindowKind !== 'main') {
       return
@@ -227,6 +283,7 @@ export const useAppStore = defineStore('app', () => {
     void window.characterArc.publishAssistantContext(serializeAssistantContext())
   }
 
+  /** 查询助手窗口是否打开，同步 aiVisible 状态 */
   async function syncAssistantWindowState(): Promise<void> {
     if (characterArcWindowKind !== 'main') {
       aiVisible.value = true
@@ -237,6 +294,7 @@ export const useAppStore = defineStore('app', () => {
     aiVisible.value = result.success ? Boolean(result.visible) : false
   }
 
+  /** 打开 AI 助手窗口并同步上下文 */
   async function openAssistantWindow(): Promise<void> {
     const result = await window.characterArc.openAssistantWindow()
     if (!result.success) {
@@ -248,6 +306,7 @@ export const useAppStore = defineStore('app', () => {
     scheduleWorkspaceSync()
   }
 
+  /** 关闭 AI 助手窗口 */
   async function closeAssistantWindow(): Promise<void> {
     const result = await window.characterArc.closeAssistantWindow()
     if (result.success) {
@@ -255,6 +314,7 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 接收主窗口推送的提示词请求，存入 pendingAssistantRequest */
   function receiveAssistantPrompt(payload?: CharacterArcAssistantPromptPayload | null): void {
     if (!payload?.id || !payload.prompt.trim()) {
       return
@@ -267,6 +327,7 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 处理远程工作区同步：应用从其他窗口推送过来的状态更新 */
   function handleRemoteWorkspaceSync(payload: unknown): void {
     if (!payload || typeof payload !== 'object') {
       return
@@ -280,6 +341,7 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 处理助手窗口发送的命令（如将 AI 结果插入正文），仅主窗口响应 */
   function handleAssistantCommand(payload: CharacterArcAssistantCommand): void {
     if (characterArcWindowKind !== 'main') {
       return
@@ -290,12 +352,14 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 同步选中章节 ID：确保当前选中的章节仍属于指定项目，否则回退到第一章 */
   function syncSelectedChapter(projectId = selectedProjectId.value): void {
     const chapterList = projectWorkspaces.value[projectId]?.chapters ?? []
     const hasCurrentChapter = chapterList.some((chapter) => chapter.id === selectedChapterId.value)
     selectedChapterId.value = hasCurrentChapter ? selectedChapterId.value : (chapterList[0]?.id ?? '')
   }
 
+  /** 确保指定项目的工作区数据存在，不存在时创建空工作区或演示数据 */
   function ensureProjectWorkspace(projectId: string, fallbackToDemo = false): void {
     if (projectWorkspaces.value[projectId]) {
       return
@@ -307,6 +371,7 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 用 updater 函数更新指定项目的工作区数据，自动标准化 */
   function updateProjectWorkspace(projectId: string, updater: (workspace: ProjectWorkspaceData) => ProjectWorkspaceData): void {
     const baseWorkspace = normalizeProjectWorkspaceData(projectWorkspaces.value[projectId])
     projectWorkspaces.value = {
@@ -315,6 +380,7 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 用 updater 函数更新当前项目的工作区数据，并同步章节选择和工作区同步 */
   function updateCurrentWorkspace(updater: (workspace: ProjectWorkspaceData) => ProjectWorkspaceData): void {
     ensureProjectWorkspace(selectedProjectId.value)
     updateProjectWorkspace(selectedProjectId.value, updater)
@@ -322,6 +388,7 @@ export const useAppStore = defineStore('app', () => {
     scheduleWorkspaceSync()
   }
 
+  /** 从持久化载荷恢复全局状态（主题、项目列表、工作区、设置），兼容旧版格式 */
   function applyWorkspaceState(payload?: Partial<StoredState> | LegacyStoredState | null): void {
     if (!payload) {
       return
@@ -352,6 +419,7 @@ export const useAppStore = defineStore('app', () => {
     syncSelectedChapter()
   }
 
+  /** 将当前全局状态序列化为可持久化的 StoredState 对象 */
   function serializeWorkspaceState(): StoredState {
     return {
       theme: theme.value,
@@ -362,6 +430,10 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /**
+   * Store 初始化入口：从 SQLite 加载工作区 → 同步助手窗口状态 → 助手窗口拉取上下文 → 标记水合完成。
+   * 必须在 Vue 挂载前调用。
+   */
   async function initialize(): Promise<void> {
     const result = await window.characterArc.loadWorkspace()
     if (result.success && result.payload) {
@@ -393,6 +465,7 @@ export const useAppStore = defineStore('app', () => {
     hasHydrated.value = true
   }
 
+  /** 立即执行一次持久化写入（取消待执行的防抖定时器） */
   async function persistWorkspace(): Promise<void> {
     if (saveTimer) {
       window.clearTimeout(saveTimer)
@@ -406,6 +479,11 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /**
+   * 调度一次防抖持久化。
+   * fast 模式（300ms）用于用户主动操作后的快速保存；
+   * autosave 模式使用用户配置的自动保存间隔。
+   */
   function schedulePersist(mode: 'fast' | 'autosave' = 'autosave'): void {
     if (!hasHydrated.value) {
       return
@@ -426,10 +504,13 @@ export const useAppStore = defineStore('app', () => {
     }, delay)
   }
 
+  // ── 项目导入 ──
+  /** 为导入的实体生成带时间戳的唯一 ID，避免与现有数据冲突 */
   function buildImportedId(prefix: string, index: number): string {
     return `${prefix}-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`
   }
 
+  /** 导入完整项目数据：创建新项目、分配独立工作区、切换到工作台 */
   function importProjectData(payload: ProjectImportPayload): void {
     const projectId = `project-${Date.now()}`
     const project: ProjectSummary = {
@@ -467,6 +548,11 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /**
+   * 按模块类型导入数据到当前项目工作区。
+   * 支持 overwrite（覆盖）和 copy（追加）两种冲突模式。
+   * relations 模块会自动匹配角色姓名，缺失时创建新角色。
+   */
   function importModuleData(moduleType: ImportExportModuleType, payload: ProjectImportPayload, mode: ImportConflictMode): void {
     updateCurrentWorkspace((workspace) => {
       // Normalize once so every module import can reuse the same fallback and schema repair path.
@@ -688,11 +774,14 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 视图导航 ──
+  /** 切换主题并触发快速持久化 */
   function setTheme(nextTheme: ThemeName): void {
     theme.value = nextTheme
     schedulePersist('fast')
   }
 
+  /** 进入章节写作页面 */
   function openChapterStudio(chapterId?: string): void {
     if (chapterId) {
       selectedChapterId.value = chapterId
@@ -705,6 +794,7 @@ export const useAppStore = defineStore('app', () => {
     currentView.value = 'chapter-studio'
   }
 
+  /** 从章节写作返回工作台 */
   function backToWorkbench(): void {
     currentView.value = 'workbench'
     if (activePanel.value === 'chapters') {
@@ -712,6 +802,7 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 打开指定项目：确保工作区存在、切换选中项目、进入工作台 */
   function openProject(projectId: string): void {
     const project = projects.value.find((item) => item.id === projectId)
     if (!project) {
@@ -728,18 +819,23 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 返回项目列表页 */
   function backToProjects(): void {
     currentView.value = 'projects'
   }
 
+  /** 打开新建项目向导 */
   function openWizard(): void {
     currentView.value = 'wizard'
   }
 
+  /** 关闭向导，返回项目列表 */
   function closeWizard(): void {
     currentView.value = 'projects'
   }
 
+  // ── 项目 CRUD ──
+  /** 从向导创建完整项目工作区：分配 ID、设置默认分卷和章节、切换到工作台 */
   function createProjectWorkspace(payload: ProjectWorkspacePayload): void {
     const projectId = `project-${Date.now()}`
     const nextVolumes = payload.outlineVolumes?.length ? payload.outlineVolumes : [createWorkspaceVolume()]
@@ -785,6 +881,7 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 快速创建项目（仅标题/题材/字数），自动生成默认分卷和首章 */
   function createProject(payload: { title: string; genre: string; wordCount: string }): void {
     const starterVolume = createWorkspaceVolume()
     createProjectWorkspace({
@@ -794,6 +891,7 @@ export const useAppStore = defineStore('app', () => {
     })
   }
 
+  /** 删除项目（至少保留一个项目），自动切换到首个项目 */
   function deleteProject(projectId: string): void {
     if (projects.value.length <= 1) {
       return
@@ -813,6 +911,7 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 更新项目摘要信息（标题、题材、封面等） */
   function updateProject(projectId: string, payload: Partial<ProjectSummary>): void {
     projects.value = projects.value.map((project) =>
       project.id === projectId
@@ -832,6 +931,8 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 世界观 CRUD ──
+  /** 创建世界观设定条目，插入到列表头部 */
   function createWorldviewEntry(payload?: Partial<WorldviewEntry>): void {
     const createdAt = toIsoTimestamp(payload?.createdAt)
     const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
@@ -884,6 +985,8 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 角色 CRUD ──
+  /** 创建新角色卡，插入到列表头部 */
   function createCharacter(payload?: Partial<CharacterCard>): void {
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
@@ -926,6 +1029,7 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 删除角色，同时清理其所有关系和组织归属 */
   function deleteCharacter(characterId: string): void {
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
@@ -941,6 +1045,8 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 组织 CRUD ──
+  /** 创建新组织，插入到列表头部 */
   function createOrganization(payload?: Partial<OrganizationEntry>): void {
     const createdAt = toIsoTimestamp(payload?.createdAt)
     const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
@@ -989,6 +1095,7 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 删除组织，同时清理其所有成员归属关系 */
   function deleteOrganization(organizationId: string): void {
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
@@ -1002,6 +1109,8 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 角色关系 CRUD ──
+  /** 创建角色关系，自动选择默认的角色对 */
   function createCharacterRelationship(payload?: Partial<CharacterRelationship>): void {
     const createdAt = toIsoTimestamp(payload?.createdAt)
     const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
@@ -1068,6 +1177,8 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 组织成员归属 CRUD ──
+  /** 创建组织成员归属关系 */
   function createOrganizationMembership(payload?: Partial<OrganizationMembership>): void {
     const createdAt = toIsoTimestamp(payload?.createdAt)
     const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
@@ -1119,6 +1230,8 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 灵感卡片 CRUD ──
+  /** 创建灵感卡片，限制标签最多 8 个 */
   function createInspirationEntry(payload?: Partial<InspirationEntry>): void {
     const createdAt = toIsoTimestamp(payload?.createdAt)
     const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
@@ -1189,6 +1302,8 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 大纲分卷 CRUD ──
+  /** 创建新的大纲分卷，返回新分卷 ID */
   function createOutlineVolume(payload?: Partial<OutlineVolume>): string {
     const nextVolume = createWorkspaceVolume({
       id: `volume-${Date.now()}`,
@@ -1222,6 +1337,8 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 面板与章节导航 ──
+  /** 切换工作台面板，chapters 面板会自动进入章节写作模式 */
   function setPanel(panel: PanelName): void {
     if (panel === 'chapters') {
       openChapterStudio()
@@ -1233,6 +1350,7 @@ export const useAppStore = defineStore('app', () => {
     currentView.value = 'workbench'
   }
 
+  /** 选中章节并进入章节写作模式 */
   function selectChapter(chapterId: string): void {
     selectedChapterId.value = chapterId
     pendingChapterInsertion.value = null
@@ -1241,6 +1359,8 @@ export const useAppStore = defineStore('app', () => {
     currentView.value = 'chapter-studio'
   }
 
+  // ── 章节 CRUD ──
+  /** 创建新章节，插入到当前分卷末尾 */
   function createChapter(volumeId = selectedChapter.value?.volumeId): void {
     let nextChapterId = ''
     updateCurrentWorkspace((workspace) => {
@@ -1270,6 +1390,7 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 从大纲节点创建章节，继承标题、摘要和字数目标 */
   function createChapterFromOutlineItem(item: Pick<OutlineItem, 'volumeId' | 'title' | 'summary' | 'wordTarget'>): void {
     let nextChapterId = ''
     updateCurrentWorkspace((workspace) => {
@@ -1299,6 +1420,7 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 拖拽移动章节位置 */
   function moveChapter(chapterId: string, targetChapterId: string): void {
     updateCurrentWorkspace((workspace) => {
       const sourceIndex = workspace.chapters.findIndex((chapter) => chapter.id === chapterId)
@@ -1319,6 +1441,8 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 大纲节点 CRUD ──
+  /** 创建大纲节点，插入到当前分卷末尾 */
   function createOutlineItem(payload?: Partial<OutlineItem>): void {
     updateCurrentWorkspace((workspace) => {
       const targetVolumeId = payload?.volumeId || selectedChapter.value?.volumeId || getWorkspacePrimaryVolumeId(workspace)
@@ -1381,6 +1505,7 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 拖拽移动大纲节点位置，跨分卷时自动更新 volumeId */
   function moveOutlineItem(outlineId: string, targetOutlineId: string): void {
     updateCurrentWorkspace((workspace) => {
       const sourceIndex = workspace.outlineItems.findIndex((item) => item.id === outlineId)
@@ -1406,6 +1531,7 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 删除章节（至少保留一章），自动切换到相邻章节 */
   function deleteChapter(chapterId: string): void {
     if (chapters.value.length <= 1) {
       return
@@ -1480,12 +1606,15 @@ export const useAppStore = defineStore('app', () => {
     }))
   }
 
+  // ── 章节版本管理 ──
+  /** 获取指定章节的历史版本列表，按创建时间降序排列 */
   function getChapterVersions(chapterId: string): ChapterVersion[] {
     return chapterVersions.value
       .filter((version) => version.chapterId === chapterId)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
   }
 
+  /** 保存当前章节的快照版本，立即持久化 */
   async function saveCurrentChapterVersion(): Promise<{ success: boolean; version?: ChapterVersion; error?: string }> {
     const chapter = selectedChapter.value
     if (!chapter) {
@@ -1527,6 +1656,7 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 恢复到指定的历史版本，覆盖当前章节内容 */
   async function restoreChapterVersion(versionId: string): Promise<{ success: boolean; error?: string }> {
     const version = chapterVersions.value.find((item) => item.id === versionId)
     if (!version) {
@@ -1563,6 +1693,8 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // ── AI 助手交互 ──
+  /** 切换 AI 助手窗口的显示/隐藏 */
   function toggleAi(): void {
     if (isAssistantWindow) {
       void closeAssistantWindow()
@@ -1577,6 +1709,7 @@ export const useAppStore = defineStore('app', () => {
     void openAssistantWindow()
   }
 
+  /** 打开 AI 助手面板，若已打开则刷新上下文 */
   function openAiAssistant(): void {
     if (isAssistantWindow) {
       aiVisible.value = true
@@ -1592,6 +1725,7 @@ export const useAppStore = defineStore('app', () => {
     void openAssistantWindow()
   }
 
+  /** 向助手窗口发送提示词请求，若助手窗口未打开则先打开 */
   function queueAssistantPrompt(prompt: string, quickAction?: string): void {
     const request = {
       id: `assistant-${Date.now()}`,
@@ -1609,6 +1743,7 @@ export const useAppStore = defineStore('app', () => {
     void window.characterArc.publishAssistantPrompt(request)
   }
 
+  /** 标记提示词请求已消费，清空待处理状态 */
   function consumeAssistantPrompt(requestId: string): void {
     if (pendingAssistantRequest.value?.id === requestId) {
       pendingAssistantRequest.value = null
@@ -1619,11 +1754,14 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 更新单个应用设置项并触发快速持久化 */
   function updateAppSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
     appSettings.value[key] = value
     schedulePersist('fast')
   }
 
+  // ── AI 聊天消息 ──
+  /** 添加用户消息到聊天记录 */
   function pushUserMessage(content: string): void {
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
@@ -1654,6 +1792,8 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  // ── 章节正文插入 ──
+  /** 将 AI 生成的内容插入到当前章节正文，返回是否成功 */
   function insertIntoChapter(content: string, mode: ChapterInsertionMode = 'cursor'): boolean {
     const chapter = selectedChapter.value
     if (!chapter) {
@@ -1674,12 +1814,14 @@ export const useAppStore = defineStore('app', () => {
     return true
   }
 
+  /** 标记章节插入请求已执行完毕 */
   function consumeChapterInsertion(requestId: string): void {
     if (pendingChapterInsertion.value?.id === requestId) {
       pendingChapterInsertion.value = null
     }
   }
 
+  /** 更新编辑器中用户选中的文本状态 */
   function updateChapterSelection(selection: ChapterSelectionState | null): void {
     if (!selection || selection.chapterId !== selectedChapter.value?.id || !selection.text.trim()) {
       currentChapterSelection.value = null
@@ -1692,6 +1834,8 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // ── 跨窗口事件监听注册 ──
+  // 监听工作区同步事件（来自其他窗口的状态更新）
   window.characterArc.onWorkspaceSync(handleRemoteWorkspaceSync)
   window.characterArc.onAssistantWindowVisibility((payload) => {
     aiVisible.value = payload.visible
@@ -1710,6 +1854,8 @@ export const useAppStore = defineStore('app', () => {
     })
   }
 
+  // ── 响应式监听器 ──
+  // 切换章节时清空选中文本
   watch(
     () => selectedChapterId.value,
     () => {
@@ -1717,6 +1863,7 @@ export const useAppStore = defineStore('app', () => {
     }
   )
 
+  // 自动保存间隔变更时，若有待保存内容则重新调度
   watch(
     () => appSettings.value.autoSaveInterval,
     () => {
@@ -1726,6 +1873,7 @@ export const useAppStore = defineStore('app', () => {
     }
   )
 
+  // 项目/章节/选中文本变化时，向助手窗口推送最新上下文
   watch(
     [() => selectedProjectId.value, () => selectedChapterId.value, () => currentChapterSelection.value],
     () => {
@@ -1734,6 +1882,7 @@ export const useAppStore = defineStore('app', () => {
     { deep: true }
   )
 
+  // 视图切换时的助手窗口联动：进入章节写作时同步上下文，离开时关闭助手窗口
   watch(
     () => currentView.value,
     (view) => {

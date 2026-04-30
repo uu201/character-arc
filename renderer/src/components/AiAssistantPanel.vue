@@ -18,17 +18,21 @@ import type { ChapterInsertionMode } from '@/types/app'
 
 const appStore = useAppStore()
 const message = useMessage()
-const draft = ref('')
-const isResponding = ref(false)
-const isStopping = ref(false)
-const activeStreamId = ref<string | null>(null)
-const streamingReply = ref('')
-const messagesViewport = ref<HTMLElement | null>(null)
+const draft = ref('') // 用户输入框的草稿文本
+const isResponding = ref(false) // AI 是否正在生成回复
+const isStopping = ref(false) // 是否正在停止 AI 生成
+const activeStreamId = ref<string | null>(null) // 当前活跃的流式生成 ID
+const streamingReply = ref('') // 流式生成过程中逐步拼接的回复内容
+const messagesViewport = ref<HTMLElement | null>(null) // 消息列表的滚动容器引用
+// AI 回复模式：自由提问 / 润色 / 续写 / 建议 / 参考
 const responseMode = ref<'freeform' | 'polish' | 'continue' | 'suggest' | 'reference'>('freeform')
+// AI 回复长度偏好：简短 / 适中 / 详细
 const responseLength = ref<'short' | 'medium' | 'long'>('medium')
+// 工具箱是否折叠（独立窗口模式下默认折叠）
 const isToolboxCollapsed = ref(isAssistantWindow)
-let removeAiStreamListener: (() => void) | null = null
+let removeAiStreamListener: (() => void) | null = null // AI 流式事件监听器的清理函数
 
+// 将数据深拷贝为 IPC 可传输的格式（去掉 Vue 响应式代理）
 function toIpcPayload<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
@@ -36,11 +40,13 @@ function toIpcPayload<T>(value: T): T {
 const currentProject = computed(() => appStore.currentProject)
 const writingStyle = computed(() => buildProjectWritingStyleContext(currentProject.value))
 const currentChapter = computed(() => appStore.selectedChapter)
+// 当前选中的文本片段（仅当属于当前章节时有效）
 const selectedExcerpt = computed(() =>
   appStore.currentChapterSelection?.chapterId === currentChapter.value?.id
     ? appStore.currentChapterSelection.text
     : ''
 )
+// 当前章节的前后章节信息（用于 AI 理解上下文衔接）
 const relatedChapters = computed(() => {
   const chapter = currentChapter.value
   if (!chapter) {
@@ -61,6 +67,7 @@ const relatedChapters = computed(() => {
       preview: getChapterPreviewText(item.content, '该章节暂无正文')
     }))
 })
+// 最近 4 条对话消息（用于 AI 理解上下文）
 const recentAssistantMessages = computed(() =>
   appStore.messages
     .slice(-4)
@@ -69,6 +76,7 @@ const recentAssistantMessages = computed(() =>
       content: item.content
     }))
 )
+// 最近一条用户消息（用于重试功能），同时解析是否包含快捷操作标签
 const lastUserPrompt = computed(() => {
   const lastUserMessage = [...appStore.messages].reverse().find((item) => item.role === 'user')
   if (!lastUserMessage) {
@@ -88,12 +96,15 @@ const lastUserPrompt = computed(() => {
     prompt: quickActionMatch[2]?.trim() || lastUserMessage.content
   }
 })
+// 当前回复模式的中文标签
 const activeModeLabel = computed(
   () => chapterAssistantModeOptions.find((option) => option.value === responseMode.value)?.label ?? '自由提问'
 )
+// 当前回复长度的中文标签
 const activeLengthLabel = computed(
   () => chapterAssistantLengthOptions.find((option) => option.value === responseLength.value)?.label ?? '适中'
 )
+// 工具箱折叠状态的摘要文本（如"模式 自由提问 · 长度 适中 · 含选中文本"）
 const toolboxSummary = computed(() => {
   const summary = [`模式 ${activeModeLabel.value}`, `长度 ${activeLengthLabel.value}`]
   if (selectedExcerpt.value) {
@@ -112,6 +123,7 @@ const quickActionGroups = computed(() =>
     .filter((group) => group.actions.length)
 )
 
+// 将消息列表滚动到底部（等待 DOM 更新后执行）
 async function scrollToBottom(): Promise<void> {
   await nextTick()
   if (messagesViewport.value) {
@@ -119,6 +131,7 @@ async function scrollToBottom(): Promise<void> {
   }
 }
 
+// 重置流式生成状态
 function resetStreamingState(): void {
   activeStreamId.value = null
   streamingReply.value = ''
@@ -126,6 +139,7 @@ function resetStreamingState(): void {
   isStopping.value = false
 }
 
+// 发送用户 prompt 给 AI 助手，启动流式生成，构建包含完整上下文的请求
 async function sendPrompt(promptText?: string, quickAction?: string): Promise<void> {
   const content = (promptText ?? draft.value).trim()
   if (!content || isResponding.value) {
@@ -178,6 +192,7 @@ async function sendPrompt(promptText?: string, quickAction?: string): Promise<vo
   }
 }
 
+// 调用 AI 生成下一章大纲草稿（非流式，直接写入大纲 store）
 async function createOutlineDraft(promptText: string, quickAction: string): Promise<void> {
   const content = promptText.trim()
   if (!content || isResponding.value) {
@@ -254,6 +269,7 @@ async function createOutlineDraft(promptText: string, quickAction: string): Prom
   }
 }
 
+// 处理快捷操作按钮点击：设置模式和长度偏好后发送对应 prompt
 function handleQuickAction(action: ChapterAssistantQuickAction): void {
   if (action.requiresSelection && !selectedExcerpt.value) {
     message.warning('请先在正文中选中要处理的段落')
@@ -270,6 +286,8 @@ function handleQuickAction(action: ChapterAssistantQuickAction): void {
   void sendPrompt(action.prompt, action.label)
 }
 
+// 将 AI 回复内容插入到当前章节正文中，支持三种模式：光标处、替换选区、追加末尾
+// 独立窗口模式下通过 IPC 发送到主窗口
 function handleInsert(content: string, mode: ChapterInsertionMode): void {
   const insertion = content.trim()
   if (!appStore.selectedChapter || !insertion) {
@@ -317,6 +335,7 @@ function handleInsert(content: string, mode: ChapterInsertionMode): void {
   message.success('AI 内容已插入正文')
 }
 
+// 将 AI 回复设为当前章节的摘要
 function handleUseAsSummary(content: string): void {
   const nextSummary = content.trim()
   if (!appStore.selectedChapter || !nextSummary) {
@@ -328,6 +347,7 @@ function handleUseAsSummary(content: string): void {
   message.success('AI 内容已设为本章摘要')
 }
 
+// 将 AI 回复的第一行设为章节标题（去除格式标记和引号）
 function handleUseAsTitle(content: string): void {
   const nextTitle = content
     .split('\n')
@@ -349,6 +369,7 @@ function handleUseAsTitle(content: string): void {
   message.success('AI 内容已设为章节标题')
 }
 
+// 重试上一次用户请求（复用最近一条用户消息重新发送）
 function handleRegenerate(): void {
   const prompt = lastUserPrompt.value
   if (!prompt || isResponding.value) {
@@ -360,6 +381,7 @@ function handleRegenerate(): void {
   void sendPrompt(prompt.prompt, prompt.quickAction)
 }
 
+// 停止当前正在进行的流式生成
 async function handleStopResponse(): Promise<void> {
   if (!activeStreamId.value || isStopping.value) {
     return
@@ -374,6 +396,7 @@ async function handleStopResponse(): Promise<void> {
   }
 }
 
+// 输入框键盘事件：Enter 发送，Shift+Enter 换行
 function handleComposerKeydown(event: KeyboardEvent): void {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
@@ -381,6 +404,7 @@ function handleComposerKeydown(event: KeyboardEvent): void {
   }
 }
 
+// 处理 AI 流式事件：逐块拼接回复内容，完成时存入消息历史，取消时保留已生成内容
 function handleAiStreamEvent(payload: CharacterArcAiStreamEvent): void {
   if (payload.streamId !== activeStreamId.value) {
     return
@@ -434,6 +458,7 @@ onBeforeUnmount(() => {
   removeAiStreamListener = null
 })
 
+// 监听消息列表变化，自动滚动到底部
 watch(
   () => appStore.messages.length,
   () => {
@@ -441,6 +466,7 @@ watch(
   }
 )
 
+// 监听外部触发的灵感/续写请求，自动发送给 AI 助手
 watch(
   [() => appStore.pendingAssistantRequest, isResponding],
   async ([request, busy]) => {

@@ -1,5 +1,6 @@
 import { Bot, Globe2, Lightbulb, PenTool, Rows3, ScrollText, Sparkles } from 'lucide-vue-next'
 
+// 章节助理响应模式选项：控制 AI 以何种风格生成内容
 export const chapterAssistantModeOptions = [
   { label: '自由', value: 'freeform' as const },
   { label: '润色', value: 'polish' as const },
@@ -8,12 +9,14 @@ export const chapterAssistantModeOptions = [
   { label: '设定', value: 'reference' as const }
 ] as const
 
+// 章节助理响应长度选项：控制 AI 输出内容的篇幅
 export const chapterAssistantLengthOptions = [
   { label: '短', value: 'short' as const },
   { label: '中', value: 'medium' as const },
   { label: '长', value: 'long' as const }
 ] as const
 
+// 快捷动作分组：将功能相近的快捷动作归类，用于 UI 分组展示
 export const chapterAssistantQuickActionGroups = [
   { key: 'write', label: '创作推进', description: '直接生成正文、续写场景和章节草稿。' },
   { key: 'rewrite', label: '改写优化', description: '围绕现有正文做润色、重写和节奏强化。' },
@@ -21,6 +24,9 @@ export const chapterAssistantQuickActionGroups = [
   { key: 'reference', label: '设定支持', description: '补充世界观、关系和阵营视角。' }
 ] as const
 
+// 快捷动作列表：每个动作定义了预设提示词、所属分组、响应模式和长度
+// icon 用于 UI 显示，task 决定后端处理方式（普通聊天或大纲草稿生成）
+// requiresSelection 标记该动作是否需要先选中文本才能触发
 export const chapterAssistantQuickActions = [
   {
     label: '润色选中',
@@ -39,7 +45,7 @@ export const chapterAssistantQuickActions = [
     group: 'planning' as const,
     mode: 'suggest' as const,
     length: 'medium' as const,
-    task: 'outline-draft' as const,
+    task: 'outline-draft' as const,  // 特殊任务类型，后端会以此生成结构化大纲
     requiresSelection: false
   },
   {
@@ -204,4 +210,5 @@ export const chapterAssistantQuickActions = [
   }
 ] as const
 
+// 快捷动作类型：从数组字面量中推导出的联合类型
 export type ChapterAssistantQuickAction = (typeof chapterAssistantQuickActions)[number]
