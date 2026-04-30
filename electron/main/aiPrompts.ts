@@ -8,6 +8,7 @@ import type { AiTaskPayload, PromptPair } from './aiShared'
 export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
   const { context } = task
   const writingStyleInstruction = resolveWritingStyleInstruction(context)
+  const projectSkills = formatProjectSkills(context.projectSkills)
 
   // ── 世界观设定任务 ──
   if (task.task === 'worldview-entry') {
@@ -37,6 +38,18 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
       system:
         '你是小说项目初始化助手。请只返回 JSON 对象，不要返回 Markdown。字段必须包含 worldviewEntries、outlineItems。',
       user: `请基于以下信息，为小说项目生成首批世界观设定和剧情大纲。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n目标字数：${String(context.projectWordTarget ?? '')}\n核心点子：${String(context.projectPremise ?? '')}\n\n要求：\n1. worldviewEntries 返回 3 条设定，每条都包含 type、title、content\n2. worldviewEntries 的 type 必须是 地理 / 法则 / 物种 / 势力 / 历史 之一\n3. outlineItems 返回 3 条章节大纲，每条都包含 title、wordTarget、conflict、summary\n4. wordTarget 使用"预估 xxxx字"格式\n5. 所有内容使用中文，紧贴题材和核心点子，不要重复\n6. ${writingStyleInstruction}\n\n返回格式：{"worldviewEntries":[{"type":"","title":"","content":""}],"outlineItems":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
+    }
+  }
+
+  // ── 项目流程文件生成任务 ──
+  if (task.task === 'workflow-documents') {
+    const stageId = String(context.stageId ?? 'reference')
+    const stageLabel = String(context.stageLabel ?? '选题与参考')
+    const requestedDocuments = Array.isArray(context.requestedDocuments) ? JSON.stringify(context.requestedDocuments) : '[]'
+    return {
+      system:
+        '你是小说项目流程文件生成助手。请只返回 JSON 对象，不要返回 Markdown 代码块，不要解释。只生成本阶段要求的流程文件字段，字段值必须是 markdown 文本字符串。',
+      user: `请基于以下项目信息，只为当前阶段生成对应的流程文件内容。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n项目目标平台：${String(context.projectPlatform ?? '未指定')}\n项目当前阶段 ID：${stageId}\n项目当前阶段：${stageLabel}\n本阶段要求生成的文件：${requestedDocuments}\n当前世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}\n当前角色参考：${JSON.stringify(context.characters ?? [])}\n当前关系参考：${JSON.stringify(context.characterRelationships ?? [])}\n当前大纲参考：${JSON.stringify(context.outlineItems ?? [])}\n当前章节参考：${JSON.stringify(context.chapters ?? [])}\n当前已有流程文件：${JSON.stringify(context.workflowDocuments ?? [])}\n当前项目启用 skills：\n${projectSkills || '暂无'}\n补充要求：${String(context.userPrompt ?? '')}\n\n要求：\n1. 只生成 requestedDocuments 里列出的字段，不要额外输出其他字段\n2. 每个字段都必须贴当前小说项目，不要写成通用教程模板\n3. 如果当前已有流程文件里已经存在有效内容，要优先延续和整合，而不是完全重写成另一套口径\n4. 如果当前项目启用了 skills，优先吸收其中与当前阶段相关的规则和口径\n5. task_plan 重点写当前阶段接下来要推进的任务\n6. findings 重点写当前已锁定的关键信息、设定、事实和风险\n7. progress 重点写当前阶段真实进度与下一步\n8. current_status 重点写当前主角、当前卷章、当前主线和即时矛盾\n9. novel_setting 重点写题材、世界线、文风边界、主角路线和外挂设定\n10. character_relationships 重点写当前人物、势力和关系骨架\n11. pending_hooks 重点写当前阶段已埋或待埋的钩子\n12. resource_ledger 重点写当前已到账 / 未到账的资源与风险\n13. 所有字段内容都用简体中文 markdown 写法，但放在 JSON 字符串里返回\n14. 不要输出空壳模板，要生成可直接继续编辑的第一版内容\n\n返回示例：{"task_plan":"","findings":""}`
     }
   }
 
@@ -87,7 +100,7 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
     return {
       system:
         '你是小说分卷大纲规划助手。请只返回 JSON 对象，不要返回 Markdown。字段必须包含 entries，entries 中每项都必须包含 title、wordTarget、conflict、summary。',
-      user: `请基于以下上下文，为当前分卷连续补充 3 到 5 个新的剧情大纲节点。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前分卷目标字数：${String(context.chapterVolumeWordTarget ?? '')}\n当前分卷已有节点：${JSON.stringify(context.currentVolumeOutlineItems ?? [])}\n全局已有大纲标题：${JSON.stringify(context.outlineTitles ?? [])}\n世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}\n角色参考：${JSON.stringify(context.characters ?? [])}\n补充要求：${String(context.userPrompt ?? '')}\n\n要求：\n1. entries 返回 3 到 5 条新节点，按顺序推进，不要重复已有节点\n2. 每条都必须包含 title、wordTarget、conflict、summary\n3. title 要体现章节推进关系，避免空泛命名\n4. wordTarget 使用"预估 xxxx字"格式\n5. conflict 用一句话概括该节点最核心的矛盾或压力\n6. summary 用中文描述剧情推进，80 到 180 字\n7. 各节点之间要形成连续节奏，不能像互相无关的散点\n8. 如果当前分卷已有节点偏少，优先补桥接节点；如果已有节点较多，优先补冲突升级和转折节点\n9. 必须保持与当前分卷摘要、已有角色关系和世界观一致\n10. ${writingStyleInstruction}\n\n返回格式：{"entries":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
+      user: `请基于以下上下文，为当前分卷连续补充 3 到 5 个新的剧情大纲节点。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前分卷目标字数：${String(context.chapterVolumeWordTarget ?? '')}\n当前分卷已有节点：${JSON.stringify(context.currentVolumeOutlineItems ?? [])}\n全局已有大纲标题：${JSON.stringify(context.outlineTitles ?? [])}\n世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}\n角色参考：${JSON.stringify(context.characters ?? [])}\n当前项目启用 skills：\n${projectSkills || '暂无'}\n补充要求：${String(context.userPrompt ?? '')}\n\n要求：\n1. entries 返回 3 到 5 条新节点，按顺序推进，不要重复已有节点\n2. 每条都必须包含 title、wordTarget、conflict、summary\n3. title 要体现章节推进关系，避免空泛命名\n4. wordTarget 使用"预估 xxxx字"格式\n5. conflict 用一句话概括该节点最核心的矛盾或压力\n6. summary 用中文描述剧情推进，80 到 180 字\n7. 各节点之间要形成连续节奏，不能像互相无关的散点\n8. 如果当前项目启用了 skills，优先吸收其中与大纲阶段相关的规则和限制\n9. 如果当前分卷已有节点偏少，优先补桥接节点；如果已有节点较多，优先补冲突升级和转折节点\n10. 必须保持与当前分卷摘要、已有角色关系和世界观一致\n11. ${writingStyleInstruction}\n\n返回格式：{"entries":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
     }
   }
 
@@ -96,7 +109,7 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
     return {
       system:
         '你是小说剧情链规划助手。请只返回 JSON 对象，不要返回 Markdown。字段必须包含 entries，entries 中每项都必须包含 title、wordTarget、conflict、summary。',
-      user: `请基于以下上下文，为当前章节之后连续规划 2 到 4 个后续剧情大纲节点。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n当前章节正文：\n${String(context.chapterContent ?? '')}\n当前关联大纲节点：${JSON.stringify(context.currentOutlineItem ?? {})}\n当前分卷已有节点：${JSON.stringify(context.currentVolumeOutlineItems ?? [])}\n世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}\n角色参考：${JSON.stringify(context.characters ?? [])}\n补充要求：${String(context.userPrompt ?? '')}\n\n要求：\n1. entries 返回 2 到 4 个后续节点，必须严格体现“当前章节之后”的连续推进\n2. 每条都必须包含 title、wordTarget、conflict、summary\n3. 第一条要紧贴当前章节收束后的直接后果或下一步动作\n4. 后续条目之间要形成递进，至少包含一次冲突升级或转折\n5. wordTarget 使用"预估 xxxx字"格式\n6. summary 用中文描述剧情推进，80 到 180 字\n7. 不要重复当前分卷中已有节点标题和主要推进\n8. 必须保持与当前角色关系、组织立场和世界观一致\n9. ${writingStyleInstruction}\n\n返回格式：{"entries":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
+      user: `请基于以下上下文，为当前章节之后连续规划 2 到 4 个后续剧情大纲节点。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n当前章节正文：\n${String(context.chapterContent ?? '')}\n当前关联大纲节点：${JSON.stringify(context.currentOutlineItem ?? {})}\n当前分卷已有节点：${JSON.stringify(context.currentVolumeOutlineItems ?? [])}\n世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}\n角色参考：${JSON.stringify(context.characters ?? [])}\n当前项目启用 skills：\n${projectSkills || '暂无'}\n补充要求：${String(context.userPrompt ?? '')}\n\n要求：\n1. entries 返回 2 到 4 个后续节点，必须严格体现“当前章节之后”的连续推进\n2. 每条都必须包含 title、wordTarget、conflict、summary\n3. 第一条要紧贴当前章节收束后的直接后果或下一步动作\n4. 后续条目之间要形成递进，至少包含一次冲突升级或转折\n5. wordTarget 使用"预估 xxxx字"格式\n6. summary 用中文描述剧情推进，80 到 180 字\n7. 如果当前项目启用了 skills，优先吸收其中与大纲续推相关的规则和写法限制\n8. 不要重复当前分卷中已有节点标题和主要推进\n9. 必须保持与当前角色关系、组织立场和世界观一致\n10. ${writingStyleInstruction}\n\n返回格式：{"entries":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
     }
   }
 
@@ -214,7 +227,7 @@ export function buildTaskPrompt(task: AiTaskPayload): PromptPair {
     return {
       system:
         '你是 CharacterArc 的小说创作助理。请基于当前项目和章节上下文，用中文直接输出可供作者使用的正文、润色稿、分析或建议。不要输出 Markdown 标题，不要解释你是 AI，也不要返回 JSON。',
-      user: `请处理当前写作请求，并优先给出可直接使用的结果。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前项目默认风格：${String(context.writingStyleLabel ?? '未指定')}\n风格要求：${String(context.writingStylePrompt ?? '暂无')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n当前章节预估字数：${String(context.chapterWordTarget ?? '')}\n当前章节正文：\n${String(context.chapterContent ?? '')}\n\n当前选中文本：\n${selectedText || '暂无'}\n\n相邻章节参考：\n${relatedChapters || '暂无'}\n\n相关世界观：\n${worldviewEntries || '暂无'}\n\n相关角色：\n${characters || '暂无'}\n\n相关组织：\n${organizations || '暂无'}\n\n角色关系：\n${relationships || '暂无'}\n\n成员归属：\n${memberships || '暂无'}\n\n当前可用灵感：\n${inspirationEntries || '暂无'}\n\n相关大纲：\n${outlineItems || '暂无'}\n\n最近对话：\n${recentMessages || '暂无'}\n\n快捷动作：${quickAction}\n输出模式：${responseMode}\n输出长度：${responseLength}\n用户请求：${String(context.userPrompt ?? '')}\n\n要求：\n1. 回答要紧贴当前章节上下文\n2. 如果请求是润色、续写、描写，请优先输出可直接插入正文的内容\n3. 如果提供了当前选中文本，并且请求与润色、改写、分析有关，请优先只围绕这段文本处理，不要重写整章\n4. 如果请求是分析或建议，请给出清晰可执行的建议\n5. 避免与最近几条对话重复表达，除非用户明确要求重写\n6. 如果是续写，请尽量与相邻章节和当前分卷的情绪、节奏保持连续\n7. 若当前可用灵感不为空，可优先借用其中最贴合的一条，把它自然落到正文、桥段或冲突推进中\n8. 如果角色关系、组织立场或成员归属会影响人物行为、冲突走向或措辞，请优先把这些因素写进结果\n9. 必须遵循当前项目默认风格；若用户请求与风格冲突，以用户请求优先，但尽量保留风格骨架\n10. ${modeInstruction}\n11. ${lengthInstruction}\n12. ${quickActionInstruction}`
+      user: `请处理当前写作请求，并优先给出可直接使用的结果。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前项目默认风格：${String(context.writingStyleLabel ?? '未指定')}\n风格要求：${String(context.writingStylePrompt ?? '暂无')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n当前章节预估字数：${String(context.chapterWordTarget ?? '')}\n当前章节正文：\n${String(context.chapterContent ?? '')}\n\n当前选中文本：\n${selectedText || '暂无'}\n\n相邻章节参考：\n${relatedChapters || '暂无'}\n\n相关世界观：\n${worldviewEntries || '暂无'}\n\n相关角色：\n${characters || '暂无'}\n\n相关组织：\n${organizations || '暂无'}\n\n角色关系：\n${relationships || '暂无'}\n\n成员归属：\n${memberships || '暂无'}\n\n当前可用灵感：\n${inspirationEntries || '暂无'}\n\n相关大纲：\n${outlineItems || '暂无'}\n\n最近对话：\n${recentMessages || '暂无'}\n\n当前项目启用 skills：\n${projectSkills || '暂无'}\n\n快捷动作：${quickAction}\n输出模式：${responseMode}\n输出长度：${responseLength}\n用户请求：${String(context.userPrompt ?? '')}\n\n要求：\n1. 回答要紧贴当前章节上下文\n2. 如果请求是润色、续写、描写，请优先输出可直接插入正文的内容\n3. 如果提供了当前选中文本，并且请求与润色、改写、分析有关，请优先只围绕这段文本处理，不要重写整章\n4. 如果请求是分析或建议，请给出清晰可执行的建议\n5. 避免与最近几条对话重复表达，除非用户明确要求重写\n6. 如果是续写，请尽量与相邻章节和当前分卷的情绪、节奏保持连续\n7. 若当前可用灵感不为空，可优先借用其中最贴合的一条，把它自然落到正文、桥段或冲突推进中\n8. 如果角色关系、组织立场或成员归属会影响人物行为、冲突走向或措辞，请优先把这些因素写进结果\n9. 如果当前项目启用了 skills，优先吸收其中与正文创作、优化、审查相关的规则与口径\n10. 必须遵循当前项目默认风格；若用户请求与风格冲突，以用户请求优先，但尽量保留风格骨架\n11. ${modeInstruction}\n12. ${lengthInstruction}\n13. ${quickActionInstruction}`
     }
   }
 
@@ -372,6 +385,23 @@ function formatOrganizationMemberships(membershipsSource: unknown, organizations
       return `${characterName} 属于 ${organizationName} / 身份：${String(record.role ?? '')}${record.notes ? ` / 备注：${String(record.notes)}` : ''}`
     })
     .join('\n')
+}
+
+function formatProjectSkills(source: unknown): string {
+  if (!Array.isArray(source)) {
+    return ''
+  }
+
+  return source
+    .slice(0, 4)
+    .map((entry, index) => {
+      const record = entry as Record<string, unknown>
+      const name = String(record.name ?? `Skill ${index + 1}`)
+      const description = String(record.description ?? '').trim()
+      const content = String(record.content ?? '').trim().slice(0, 1200)
+      return `Skill ${index + 1}：${name}\n说明：${description || '暂无说明'}\n内容摘录：\n${content || '暂无内容'}`
+    })
+    .join('\n\n')
 }
 
 /**

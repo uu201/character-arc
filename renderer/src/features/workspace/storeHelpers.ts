@@ -1,4 +1,6 @@
 import { toRaw } from 'vue'
+import { createDefaultWorkflowDocuments, normalizeWorkflowDocuments } from '@/features/novelWorkflow/documents'
+import { createDefaultNovelWorkflowStages, normalizeNovelWorkflowStages } from '@/features/novelWorkflow/stages'
 import { createOutlineVolume as createWorkspaceVolume } from '@/features/workspace/outlineVolumes'
 import { createDemoWorkspace, normalizeWorkspace } from '@/features/workspace/projectWorkspace'
 import type {
@@ -15,6 +17,8 @@ import type {
   OutlineItem,
   OutlineVolume,
   ProjectSummary,
+  ProjectSkillItem,
+  ReferenceWorkItem,
   ProjectWorkspaceData,
   ThemeName,
   WorldviewEntry
@@ -59,7 +63,11 @@ export const defaultProjects: ProjectSummary[] = [
     cover: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)',
     writingStylePresetId: 'cinematic-cool',
     writingStylePrompt: '',
-    chapterAssistantTemplates: []
+    chapterAssistantTemplates: [],
+    novelWorkflowStages: createDefaultNovelWorkflowStages(),
+    projectSkills: [],
+    targetPlatform: '',
+    referenceWorks: []
   }
 ]
 
@@ -85,8 +93,36 @@ export function normalizeProjectSummary(project: ProjectSummary): ProjectSummary
     ...project,
     writingStylePresetId: project.writingStylePresetId?.trim() || 'cinematic-cool',
     writingStylePrompt: project.writingStylePrompt?.trim() || '',
-    chapterAssistantTemplates: normalizeChapterAssistantTemplates(project.chapterAssistantTemplates)
+    chapterAssistantTemplates: normalizeChapterAssistantTemplates(project.chapterAssistantTemplates),
+    novelWorkflowStages: normalizeNovelWorkflowStages(project.novelWorkflowStages),
+    projectSkills: normalizeProjectSkills(project.projectSkills),
+    targetPlatform: project.targetPlatform?.trim() || '',
+    referenceWorks: normalizeReferenceWorks(project.referenceWorks)
   }
+}
+
+export function normalizeProjectSkills(skills?: ProjectSkillItem[] | null): ProjectSkillItem[] {
+  return Array.isArray(skills)
+    ? skills.map((skill) => ({
+        ...skill,
+        name: skill.name?.trim() || '未命名 Skill',
+        path: skill.path?.trim() || '',
+        description: skill.description?.trim() || '',
+        enabled: Boolean(skill.enabled),
+        stageIds: Array.isArray(skill.stageIds) ? skill.stageIds : []
+      }))
+    : []
+}
+
+export function normalizeReferenceWorks(works?: ReferenceWorkItem[] | null): ReferenceWorkItem[] {
+  return Array.isArray(works)
+    ? works.map((work) => ({
+        ...work,
+        title: work.title?.trim() || '未命名参考作品',
+        source: work.source?.trim() || '未标注来源',
+        notes: work.notes?.trim() || ''
+      }))
+    : []
 }
 
 // 默认应用设置：使用 DeepSeek API，5分钟自动保存
@@ -163,7 +199,8 @@ export function normalizeProjectWorkspaceData(
     outlineItems: normalized.outlineItems,
     chapters: normalized.chapters.map(normalizeChapterDraft),
     chapterVersions: normalized.chapterVersions.map(normalizeChapterVersion),
-    messages: normalized.messages
+    messages: normalized.messages,
+    workflowDocuments: normalizeWorkflowDocuments(normalized.workflowDocuments)
   }
 }
 

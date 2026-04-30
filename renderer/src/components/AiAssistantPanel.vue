@@ -11,6 +11,7 @@ import {
   type ChapterAssistantQuickAction
 } from '@/features/ai/chapterAssistantOptions'
 import { getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
+import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { useAppStore } from '@/stores/app'
 import { isAssistantWindow } from '@/utils/windowKind'
@@ -184,7 +185,8 @@ async function sendPrompt(promptText?: string, quickAction?: string): Promise<vo
         responseLength: responseLength.value,
         quickAction,
         userPrompt: content,
-        chapterContent: getPlainTextFromEditorContent(currentChapter.value?.content ?? '')
+        chapterContent: getPlainTextFromEditorContent(currentChapter.value?.content ?? ''),
+        projectSkills: await loadEnabledProjectSkillsContext(currentProject.value, 'draft')
       })
     }))
 

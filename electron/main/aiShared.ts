@@ -20,6 +20,7 @@ export type AiTaskName =
   | 'outline-item'        // 生成一条剧情大纲节点
   | 'outline-batch'       // 批量生成多条剧情大纲节点
   | 'outline-chain'       // 基于当前章节生成连续剧情链
+  | 'workflow-documents'  // 生成项目流程文件
   | 'chapter-assistant'   // 章节创作助理（支持流式）
   | 'project-bootstrap'   // 项目初始化，批量生成世界观 + 大纲
   | 'chapter-analysis'    // 章节质量分析
@@ -89,6 +90,21 @@ export type ProjectBootstrapResult = {
   outlineItems: OutlineResult[]
 }
 
+/** AI 返回的流程文件结果 */
+export type WorkflowDocumentsResult = {
+  task_plan: string
+  findings: string
+  progress: string
+  current_status: string
+  novel_setting: string
+  character_relationships: string
+  pending_hooks: string
+  resource_ledger: string
+}
+
+/** AI 返回的阶段流程文件结果 */
+export type WorkflowStageDocumentsResult = Partial<WorkflowDocumentsResult>
+
 /** AI 返回的章节质量分析结果 */
 export type ChapterAnalysisResult = {
   /** 章节完成度、情绪和主要问题的概括 */
@@ -133,6 +149,8 @@ export type AiTaskResult =
   | OutlineBatchResult
   | ChapterAssistantResult
   | ProjectBootstrapResult
+  | WorkflowDocumentsResult
+  | WorkflowStageDocumentsResult
   | ChapterAnalysisResult
   | InspirationPackResult
 
@@ -244,6 +262,7 @@ export function resolveMaxTokens(task?: AiTaskPayload): number | undefined {
     case 'inspiration-pack':
     case 'outline-batch':
     case 'outline-chain':
+    case 'workflow-documents':
       // 分析和灵感包输出中等长度
       return 1200
     case 'chapter-assistant':

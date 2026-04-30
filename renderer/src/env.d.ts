@@ -137,6 +137,21 @@ declare global {
         meta?: CharacterArcImportMeta
         error?: string
       }>
+      scanProjectSkills: () => Promise<{
+        success: boolean
+        skills?: Array<import('@/types/app').ProjectSkillItem>
+        error?: string
+      }>
+      getProjectSkillsContext: () => Promise<{
+        success: boolean
+        skills?: Array<{
+          id: string
+          name: string
+          description: string
+          content: string
+        }>
+        error?: string
+      }>
       openAssistantWindow: () => Promise<{
         success: boolean
         visible?: boolean

@@ -22,6 +22,7 @@ import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTooltip
 import RichChapterEditor from '@/components/RichChapterEditor.vue'
 import { ensureEditorHtmlContent, getChapterCharacterCount, getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { pickRelevantInspirationEntries } from '@/features/inspiration/relevance'
+import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { useAppStore } from '@/stores/app'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
@@ -511,6 +512,20 @@ function syncChapterBackToOutline(): void {
     summary: chapter.summary?.trim() || outline.summary,
     status: mapChapterStatusToOutlineStatus(chapter.status)
   })
+  appStore.appendWorkflowDocumentEntry(
+    'progress',
+    `章节回写：${chapter.title}`,
+    [
+      `- 已将当前章节摘要同步回大纲节点。`,
+      `- 章节状态：${currentChapterStatusLabel.value}`,
+      `- 关联大纲节点：${outline.title}`
+    ].join('\n')
+  )
+  appStore.appendWorkflowDocumentEntry(
+    'findings',
+    `章节推进结论：${chapter.title}`,
+    `- 当前章节已回写到大纲，节点状态调整为：${mapChapterStatusToOutlineStatus(chapter.status)}。`
+  )
   message.success('已把当前章节摘要与推进状态同步回大纲节点')
 }
 
@@ -569,6 +584,7 @@ async function generateNextOutlineChain(): Promise<void> {
           role: character.role,
           description: character.description
         })),
+        projectSkills: await loadEnabledProjectSkillsContext(appStore.currentProject, 'draft'),
         userPrompt: '请紧接当前章节之后，连续规划下一段剧情链。'
       }
     })
@@ -600,6 +616,19 @@ async function generateNextOutlineChain(): Promise<void> {
         summary: entry.summary,
         status: 'planned' as const
       }))
+    )
+    appStore.appendWorkflowDocumentEntry(
+      'task_plan',
+      `后续剧情链：${chapter.title}`,
+      [
+        `- 已基于当前章节生成 ${entries.length} 个后续剧情节点。`,
+        ...entries.map((entry, index) => `- 节点${index + 1}：${entry.title ?? `后续节点 ${index + 1}`}`)
+      ].join('\n')
+    )
+    appStore.appendWorkflowDocumentEntry(
+      'pending_hooks',
+      `新剧情链钩子：${chapter.title}`,
+      entries.map((entry) => `- ${entry.title ?? '后续节点'}：${entry.conflict ?? '待补充核心冲突'}`).join('\n')
     )
     message.success(`已在当前节点后补充 ${entries.length} 个后续剧情节点`)
   } catch (error) {

@@ -18,6 +18,7 @@ import {
   type OutlineBatchResult,
   type OutlineResult,
   type ProjectBootstrapResult,
+  type WorkflowDocumentsResult,
   type WorldviewResult
 } from './aiShared'
 
@@ -120,6 +121,22 @@ function normalizeProjectBootstrapResult(result: AiTaskResult): ProjectBootstrap
   }
 }
 
+function normalizeWorkflowDocumentsResult(result: AiTaskResult): WorkflowDocumentsResult {
+  const payload = result as Partial<WorkflowDocumentsResult>
+  const normalizeText = (value: unknown, fallback: string) => String(value ?? '').trim() || fallback
+
+  return {
+    task_plan: normalizeText(payload.task_plan, '# 任务计划\n\n- 待补充。'),
+    findings: normalizeText(payload.findings, '# 发现记录\n\n- 待补充。'),
+    progress: normalizeText(payload.progress, '# 进度记录\n\n- 待补充。'),
+    current_status: normalizeText(payload.current_status, '# 当前状态卡\n\n- 待补充。'),
+    novel_setting: normalizeText(payload.novel_setting, '# 小说设定\n\n- 待补充。'),
+    character_relationships: normalizeText(payload.character_relationships, '# 人物关系盘\n\n- 待补充。'),
+    pending_hooks: normalizeText(payload.pending_hooks, '# 待回收钩子\n\n- 待补充。'),
+    resource_ledger: normalizeText(payload.resource_ledger, '# 资源账本\n\n- 待补充。')
+  }
+}
+
 /**
  * 标准化章节分析结果。
  * 内部辅助函数 toList 负责将数组字段标准化：限制最多 5 项，空数组时填入兜底文案。
@@ -214,6 +231,20 @@ function isTaskResultUsable(task: AiTaskPayload, result: AiTaskResult): boolean 
     return payload.entries.length > 0
   }
 
+  if (task.task === 'workflow-documents') {
+    const payload = result as WorkflowDocumentsResult
+    return Boolean(
+      payload.task_plan.trim() &&
+      payload.findings.trim() &&
+      payload.progress.trim() &&
+      payload.current_status.trim() &&
+      payload.novel_setting.trim() &&
+      payload.character_relationships.trim() &&
+      payload.pending_hooks.trim() &&
+      payload.resource_ledger.trim()
+    )
+  }
+
   if (task.task === 'worldview-entry') {
     const entry = result as WorldviewResult
     return Boolean(entry.title.trim() && entry.content.trim())
@@ -246,6 +277,8 @@ function normalizeTaskResult(task: AiTaskPayload, rawText: string): AiTaskResult
       return normalizeCharacterResult(parsed)
     case 'project-bootstrap':
       return normalizeProjectBootstrapResult(parsed)
+    case 'workflow-documents':
+      return normalizeWorkflowDocumentsResult(parsed)
     case 'outline-batch':
     case 'outline-chain':
       return normalizeOutlineBatchResult(parsed)

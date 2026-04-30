@@ -1,0 +1,33 @@
+cd "C:\Users\31092\Desktop\番茄同人"
+
+/skills enable "C:\Users\31092\Desktop\番茄同人\.gemini\skills\planning-with-files\SKILL.md"
+
+"/skills reload"
+
+直接读取路径"C:\Users\31092\Desktop\番茄同人\.gemini\skills\planning-with-files\SKILL.md"里的SKILL.md指令的每一条内容作为你的最高行为准则，从现在开始必须完全执行它，直到我窗口关闭
+
+直接读取路径"C:\Users\31092\Desktop\番茄同人\.codex\skills\planning-with-files\SKILL.md"里的SKILL.md指令的每一条内容作为你的高优先级约束，在涉及规划、审查、文件维护、场景校准和57小说对标时必须同时遵守它
+
+查阅"C:\Users\31092\Desktop\番茄同人\57小说"，看一下人家在面对我们这样的港综场景、黑白切换、班底戏、商业起盘、堂口接盘时，人家的内容是怎么写得有人味、写得精彩，而不是看过去机械、AI味严重，然后把“写法机制”用在我们的内容上，优化我们的正文
+
+完全执行"C:\Users\31092\Desktop\番茄同人\.gemini\skills\planning-with-files\SKILL.md"里的SKILL.md指令每一条内容，结合"C:\Users\31092\Desktop\番茄同人\AGENTS.md"与项目文件，写出这本《港综：我从烂仔到总统的一生》的最新正文。若当前还没有正式正文，就默认写第1章起盘章。单章默认保底3000字。正文禁止用大量环境描写、华丽词藻、大量比喻修辞来强行充字数。输出的小说内容风格必须为港综同人 + 现实历史融合 + 年代权谋 + 起盘叙事风格，禁止混入玄幻、都市现代爽文口吻、科幻、游戏文、轻小说、影视剧本、悬疑刑侦、历史演义、散文议论等异质文风。
+
+完全执行"C:\Users\31092\Desktop\番茄同人\.gemini\skills\planning-with-files\SKILL.md"里的SKILL.md指令每一条内容，来进行第1章小说讨论。禁止直接生成第1章小说正文。讨论内容必须足以支撑写出一章至少3000字的正文，而且这章正文禁止用大量环境描写、华丽词藻、大量比喻修辞来强行充字数。
+
+
+根据skill.md和项目总指令里面的每一个内容，对上面这个最新章节/大纲/片段进行检查，确认所有内容没有与下列文件里的有效约束发生冲突：
+
+"C:\Users\31092\Desktop\番茄同人\.gemini\skills\planning-with-files\SKILL.md"
+"C:\Users\31092\Desktop\番茄同人\.codex\skills\planning-with-files\SKILL.md"
+"C:\Users\31092\Desktop\番茄同人\AGENTS.md"
+"C:\Users\31092\Desktop\番茄同人\正文卷\卷1_001-020.md"
+"C:\Users\31092\Desktop\番茄同人\项目文件\99_当前状态卡.md"
+"C:\Users\31092\Desktop\番茄同人\项目文件\file_index.md"
+"C:\Users\31092\Desktop\番茄同人\项目文件\progress.md"
+"C:\Users\31092\Desktop\番茄同人\项目文件\findings.md"
+"C:\Users\31092\Desktop\番茄同人\项目文件\character_relationships.md"
+"C:\Users\31092\Desktop\番茄同人\项目文件\task_plan.md"
+"C:\Users\31092\Desktop\番茄同人\项目文件\pending_hooks.md"
+"C:\Users\31092\Desktop\番茄同人\项目文件\resource_ledger.md"
+"C:\Users\31092\Desktop\番茄同人\项目文件\小说设定.md"
+"C:\Users\31092\Desktop\番茄同人\New 0111.txt"

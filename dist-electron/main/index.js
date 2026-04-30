@@ -7,6 +7,7 @@ const node_crypto = require("node:crypto");
 function buildTaskPrompt(task) {
   const { context } = task;
   const writingStyleInstruction = resolveWritingStyleInstruction(context);
+  const projectSkills = formatProjectSkills(context.projectSkills);
   if (task.task === "worldview-entry") {
     return {
       system: "你是小说世界观设定助手。请只返回 JSON 对象，不要返回 Markdown。字段必须包含 type、title、content。",
@@ -78,6 +79,49 @@ ${memberships || "暂无"}
 6. ${writingStyleInstruction}
 
 返回格式：{"worldviewEntries":[{"type":"","title":"","content":""}],"outlineItems":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
+    };
+  }
+  if (task.task === "workflow-documents") {
+    const stageId = String(context.stageId ?? "reference");
+    const stageLabel = String(context.stageLabel ?? "选题与参考");
+    const requestedDocuments = Array.isArray(context.requestedDocuments) ? JSON.stringify(context.requestedDocuments) : "[]";
+    return {
+      system: "你是小说项目流程文件生成助手。请只返回 JSON 对象，不要返回 Markdown 代码块，不要解释。只生成本阶段要求的流程文件字段，字段值必须是 markdown 文本字符串。",
+      user: `请基于以下项目信息，只为当前阶段生成对应的流程文件内容。
+
+项目标题：${String(context.projectTitle ?? "")}
+项目题材：${String(context.projectGenre ?? "")}
+项目目标平台：${String(context.projectPlatform ?? "未指定")}
+项目当前阶段 ID：${stageId}
+项目当前阶段：${stageLabel}
+本阶段要求生成的文件：${requestedDocuments}
+当前世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}
+当前角色参考：${JSON.stringify(context.characters ?? [])}
+当前关系参考：${JSON.stringify(context.characterRelationships ?? [])}
+当前大纲参考：${JSON.stringify(context.outlineItems ?? [])}
+当前章节参考：${JSON.stringify(context.chapters ?? [])}
+当前已有流程文件：${JSON.stringify(context.workflowDocuments ?? [])}
+当前项目启用 skills：
+${projectSkills || "暂无"}
+补充要求：${String(context.userPrompt ?? "")}
+
+要求：
+1. 只生成 requestedDocuments 里列出的字段，不要额外输出其他字段
+2. 每个字段都必须贴当前小说项目，不要写成通用教程模板
+3. 如果当前已有流程文件里已经存在有效内容，要优先延续和整合，而不是完全重写成另一套口径
+4. 如果当前项目启用了 skills，优先吸收其中与当前阶段相关的规则和口径
+5. task_plan 重点写当前阶段接下来要推进的任务
+6. findings 重点写当前已锁定的关键信息、设定、事实和风险
+7. progress 重点写当前阶段真实进度与下一步
+8. current_status 重点写当前主角、当前卷章、当前主线和即时矛盾
+9. novel_setting 重点写题材、世界线、文风边界、主角路线和外挂设定
+10. character_relationships 重点写当前人物、势力和关系骨架
+11. pending_hooks 重点写当前阶段已埋或待埋的钩子
+12. resource_ledger 重点写当前已到账 / 未到账的资源与风险
+13. 所有字段内容都用简体中文 markdown 写法，但放在 JSON 字符串里返回
+14. 不要输出空壳模板，要生成可直接继续编辑的第一版内容
+
+返回示例：{"task_plan":"","findings":""}`
     };
   }
   if (task.task === "chapter-analysis") {
@@ -152,6 +196,8 @@ ${outlineItems || "暂无"}
 全局已有大纲标题：${JSON.stringify(context.outlineTitles ?? [])}
 世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}
 角色参考：${JSON.stringify(context.characters ?? [])}
+当前项目启用 skills：
+${projectSkills || "暂无"}
 补充要求：${String(context.userPrompt ?? "")}
 
 要求：
@@ -162,9 +208,10 @@ ${outlineItems || "暂无"}
 5. conflict 用一句话概括该节点最核心的矛盾或压力
 6. summary 用中文描述剧情推进，80 到 180 字
 7. 各节点之间要形成连续节奏，不能像互相无关的散点
-8. 如果当前分卷已有节点偏少，优先补桥接节点；如果已有节点较多，优先补冲突升级和转折节点
-9. 必须保持与当前分卷摘要、已有角色关系和世界观一致
-10. ${writingStyleInstruction}
+8. 如果当前项目启用了 skills，优先吸收其中与大纲阶段相关的规则和限制
+9. 如果当前分卷已有节点偏少，优先补桥接节点；如果已有节点较多，优先补冲突升级和转折节点
+10. 必须保持与当前分卷摘要、已有角色关系和世界观一致
+11. ${writingStyleInstruction}
 
 返回格式：{"entries":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
     };
@@ -187,6 +234,8 @@ ${String(context.chapterContent ?? "")}
 当前分卷已有节点：${JSON.stringify(context.currentVolumeOutlineItems ?? [])}
 世界观关键词：${JSON.stringify(context.worldviewTitles ?? [])}
 角色参考：${JSON.stringify(context.characters ?? [])}
+当前项目启用 skills：
+${projectSkills || "暂无"}
 补充要求：${String(context.userPrompt ?? "")}
 
 要求：
@@ -196,9 +245,10 @@ ${String(context.chapterContent ?? "")}
 4. 后续条目之间要形成递进，至少包含一次冲突升级或转折
 5. wordTarget 使用"预估 xxxx字"格式
 6. summary 用中文描述剧情推进，80 到 180 字
-7. 不要重复当前分卷中已有节点标题和主要推进
-8. 必须保持与当前角色关系、组织立场和世界观一致
-9. ${writingStyleInstruction}
+7. 如果当前项目启用了 skills，优先吸收其中与大纲续推相关的规则和写法限制
+8. 不要重复当前分卷中已有节点标题和主要推进
+9. 必须保持与当前角色关系、组织立场和世界观一致
+10. ${writingStyleInstruction}
 
 返回格式：{"entries":[{"title":"","wordTarget":"","conflict":"","summary":""}]}`
     };
@@ -338,6 +388,9 @@ ${outlineItems || "暂无"}
 最近对话：
 ${recentMessages || "暂无"}
 
+当前项目启用 skills：
+${projectSkills || "暂无"}
+
 快捷动作：${quickAction}
 输出模式：${responseMode}
 输出长度：${responseLength}
@@ -352,10 +405,11 @@ ${recentMessages || "暂无"}
 6. 如果是续写，请尽量与相邻章节和当前分卷的情绪、节奏保持连续
 7. 若当前可用灵感不为空，可优先借用其中最贴合的一条，把它自然落到正文、桥段或冲突推进中
 8. 如果角色关系、组织立场或成员归属会影响人物行为、冲突走向或措辞，请优先把这些因素写进结果
-9. 必须遵循当前项目默认风格；若用户请求与风格冲突，以用户请求优先，但尽量保留风格骨架
-10. ${modeInstruction}
-11. ${lengthInstruction}
-12. ${quickActionInstruction}`
+9. 如果当前项目启用了 skills，优先吸收其中与正文创作、优化、审查相关的规则与口径
+10. 必须遵循当前项目默认风格；若用户请求与风格冲突，以用户请求优先，但尽量保留风格骨架
+11. ${modeInstruction}
+12. ${lengthInstruction}
+13. ${quickActionInstruction}`
     };
   }
   return {
@@ -498,6 +552,21 @@ function formatOrganizationMemberships(membershipsSource, organizationsSource, c
     return `${characterName} 属于 ${organizationName} / 身份：${String(record.role ?? "")}${record.notes ? ` / 备注：${String(record.notes)}` : ""}`;
   }).join("\n");
 }
+function formatProjectSkills(source) {
+  if (!Array.isArray(source)) {
+    return "";
+  }
+  return source.slice(0, 4).map((entry, index) => {
+    const record = entry;
+    const name = String(record.name ?? `Skill ${index + 1}`);
+    const description = String(record.description ?? "").trim();
+    const content = String(record.content ?? "").trim().slice(0, 1200);
+    return `Skill ${index + 1}：${name}
+说明：${description || "暂无说明"}
+内容摘录：
+${content || "暂无内容"}`;
+  }).join("\n\n");
+}
 function resolveWritingStyleInstruction(context) {
   const label = String(context.writingStyleLabel ?? "").trim();
   const prompt = String(context.writingStylePrompt ?? "").trim();
@@ -576,6 +645,7 @@ function resolveMaxTokens(task) {
     case "inspiration-pack":
     case "outline-batch":
     case "outline-chain":
+    case "workflow-documents":
       return 1200;
     case "chapter-assistant":
       switch (String(task.context.responseLength ?? "medium")) {
@@ -886,6 +956,20 @@ function normalizeProjectBootstrapResult(result) {
     outlineItems
   };
 }
+function normalizeWorkflowDocumentsResult(result) {
+  const payload = result;
+  const normalizeText = (value, fallback) => String(value ?? "").trim() || fallback;
+  return {
+    task_plan: normalizeText(payload.task_plan, "# 任务计划\n\n- 待补充。"),
+    findings: normalizeText(payload.findings, "# 发现记录\n\n- 待补充。"),
+    progress: normalizeText(payload.progress, "# 进度记录\n\n- 待补充。"),
+    current_status: normalizeText(payload.current_status, "# 当前状态卡\n\n- 待补充。"),
+    novel_setting: normalizeText(payload.novel_setting, "# 小说设定\n\n- 待补充。"),
+    character_relationships: normalizeText(payload.character_relationships, "# 人物关系盘\n\n- 待补充。"),
+    pending_hooks: normalizeText(payload.pending_hooks, "# 待回收钩子\n\n- 待补充。"),
+    resource_ledger: normalizeText(payload.resource_ledger, "# 资源账本\n\n- 待补充。")
+  };
+}
 function normalizeChapterAnalysisResult(result) {
   const payload = result;
   const toList = (value, fallback) => {
@@ -944,6 +1028,12 @@ function isTaskResultUsable(task, result) {
     const payload = result;
     return payload.entries.length > 0;
   }
+  if (task.task === "workflow-documents") {
+    const payload = result;
+    return Boolean(
+      payload.task_plan.trim() && payload.findings.trim() && payload.progress.trim() && payload.current_status.trim() && payload.novel_setting.trim() && payload.character_relationships.trim() && payload.pending_hooks.trim() && payload.resource_ledger.trim()
+    );
+  }
   if (task.task === "worldview-entry") {
     const entry = result;
     return Boolean(entry.title.trim() && entry.content.trim());
@@ -967,6 +1057,8 @@ function normalizeTaskResult(task, rawText) {
       return normalizeCharacterResult(parsed);
     case "project-bootstrap":
       return normalizeProjectBootstrapResult(parsed);
+    case "workflow-documents":
+      return normalizeWorkflowDocumentsResult(parsed);
     case "outline-batch":
     case "outline-chain":
       return normalizeOutlineBatchResult(parsed);
@@ -1213,6 +1305,58 @@ function getWorkspaceFilePath() {
 function getWorkspaceDbPath() {
   return node_path.join(getWorkspaceDirPath(), WORKSPACE_DB);
 }
+function getProjectSkillsDirPath() {
+  return node_path.join(process.cwd(), ".project-skills");
+}
+async function readProjectSkillsFromDisk() {
+  const root = getProjectSkillsDirPath();
+  const entries = await promises.readdir(root, { withFileTypes: true });
+  const skills = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const skillPath = node_path.join(root, entry.name, "SKILL.md");
+    try {
+      const content = await promises.readFile(skillPath, "utf-8");
+      const nameMatch = content.match(/^name:\s*(.+)$/m);
+      const descriptionMatch = content.match(/^description:\s*(.+)$/m);
+      skills.push({
+        id: entry.name,
+        name: nameMatch?.[1]?.trim() || entry.name,
+        path: `.project-skills/${entry.name}`,
+        description: descriptionMatch?.[1]?.trim() || "",
+        enabled: true
+      });
+    } catch {
+    }
+  }
+  return skills;
+}
+async function readProjectSkillContextsFromDisk() {
+  const root = getProjectSkillsDirPath();
+  const entries = await promises.readdir(root, { withFileTypes: true });
+  const skills = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const skillPath = node_path.join(root, entry.name, "SKILL.md");
+    try {
+      const content = await promises.readFile(skillPath, "utf-8");
+      const nameMatch = content.match(/^name:\s*(.+)$/m);
+      const descriptionMatch = content.match(/^description:\s*(.+)$/m);
+      skills.push({
+        id: entry.name,
+        name: nameMatch?.[1]?.trim() || entry.name,
+        description: descriptionMatch?.[1]?.trim() || "",
+        content
+      });
+    } catch {
+    }
+  }
+  return skills;
+}
 let workspaceDb = null;
 async function ensureWorkspaceDir() {
   await promises.mkdir(getWorkspaceDirPath(), { recursive: true });
@@ -1233,8 +1377,13 @@ async function ensureWorkspaceDb() {
       word_count TEXT NOT NULL,
       last_edited TEXT NOT NULL,
       cover TEXT NOT NULL,
+      target_platform TEXT NOT NULL DEFAULT '',
+      reference_works_json TEXT NOT NULL DEFAULT '[]',
       writing_style_preset_id TEXT NOT NULL DEFAULT 'cinematic-cool',
-      writing_style_prompt TEXT NOT NULL DEFAULT ''
+      writing_style_prompt TEXT NOT NULL DEFAULT '',
+      novel_workflow_stages_json TEXT NOT NULL DEFAULT '[]',
+      project_skills_json TEXT NOT NULL DEFAULT '[]',
+      chapter_assistant_templates_json TEXT NOT NULL DEFAULT '[]'
     ) STRICT;
 
     CREATE TABLE IF NOT EXISTS worldview_entries (
@@ -1373,6 +1522,17 @@ async function ensureWorkspaceDb() {
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS workflow_documents (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      doc_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) STRICT;
+
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       theme TEXT NOT NULL,
@@ -1483,6 +1643,18 @@ function ensureProjectColumns(db) {
   if (!columnNames.has("chapter_assistant_templates_json")) {
     db.exec(`ALTER TABLE projects ADD COLUMN chapter_assistant_templates_json TEXT NOT NULL DEFAULT '[]';`);
   }
+  if (!columnNames.has("novel_workflow_stages_json")) {
+    db.exec(`ALTER TABLE projects ADD COLUMN novel_workflow_stages_json TEXT NOT NULL DEFAULT '[]';`);
+  }
+  if (!columnNames.has("project_skills_json")) {
+    db.exec(`ALTER TABLE projects ADD COLUMN project_skills_json TEXT NOT NULL DEFAULT '[]';`);
+  }
+  if (!columnNames.has("target_platform")) {
+    db.exec(`ALTER TABLE projects ADD COLUMN target_platform TEXT NOT NULL DEFAULT '';`);
+  }
+  if (!columnNames.has("reference_works_json")) {
+    db.exec(`ALTER TABLE projects ADD COLUMN reference_works_json TEXT NOT NULL DEFAULT '[]';`);
+  }
 }
 function normalizeAppSettings(settings) {
   const uiScale = settings?.uiScale !== void 0 && Number.isFinite(settings.uiScale) ? Math.min(1.75, Math.max(0.75, settings.uiScale)) : 1;
@@ -1511,8 +1683,12 @@ function normalizeProjectRecord(project) {
     wordCount: project.wordCount || "待统计",
     lastEdited: project.lastEdited || "刚刚更新",
     cover: project.cover || "linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)",
+    targetPlatform: project.targetPlatform || "",
+    referenceWorks: Array.isArray(project.referenceWorks) ? project.referenceWorks : [],
     writingStylePresetId: project.writingStylePresetId || "cinematic-cool",
     writingStylePrompt: project.writingStylePrompt || "",
+    novelWorkflowStages: Array.isArray(project.novelWorkflowStages) ? project.novelWorkflowStages : [],
+    projectSkills: Array.isArray(project.projectSkills) ? project.projectSkills : [],
     chapterAssistantTemplates: Array.isArray(project.chapterAssistantTemplates) ? project.chapterAssistantTemplates : []
   };
 }
@@ -1578,7 +1754,8 @@ function normalizeWorkspacePayload(payload) {
           volumeId: chapter.volumeId || legacyPayload.outlineVolumes?.[0]?.id || "volume-legacy-default"
         })) : [],
         chapterVersions: project.id === selectedProjectId ? legacyPayload.chapterVersions ?? [] : [],
-        messages: project.id === selectedProjectId ? legacyPayload.messages ?? [] : []
+        messages: project.id === selectedProjectId ? legacyPayload.messages ?? [] : [],
+        workflowDocuments: []
       }
     ])
   );
@@ -1593,8 +1770,12 @@ function normalizeWorkspacePayload(payload) {
 function readWorkspaceSnapshot(db) {
   const projectRows = db.prepare(`
     SELECT id, title, genre, word_count AS wordCount, last_edited AS lastEdited, cover,
+      target_platform AS targetPlatform,
+      reference_works_json AS referenceWorksJson,
       writing_style_preset_id AS writingStylePresetId,
       writing_style_prompt AS writingStylePrompt,
+      novel_workflow_stages_json AS novelWorkflowStagesJson,
+      project_skills_json AS projectSkillsJson,
       chapter_assistant_templates_json AS chapterAssistantTemplatesJson
     FROM projects
     ORDER BY rowid ASC
@@ -1602,6 +1783,27 @@ function readWorkspaceSnapshot(db) {
   const projects = projectRows.map(
     (project) => normalizeProjectRecord({
       ...project,
+      novelWorkflowStages: (() => {
+        try {
+          return JSON.parse(project.novelWorkflowStagesJson || "[]");
+        } catch {
+          return [];
+        }
+      })(),
+      referenceWorks: (() => {
+        try {
+          return JSON.parse(project.referenceWorksJson || "[]");
+        } catch {
+          return [];
+        }
+      })(),
+      projectSkills: (() => {
+        try {
+          return JSON.parse(project.projectSkillsJson || "[]");
+        } catch {
+          return [];
+        }
+      })(),
       chapterAssistantTemplates: (() => {
         try {
           return JSON.parse(project.chapterAssistantTemplatesJson || "[]");
@@ -1688,6 +1890,11 @@ function readWorkspaceSnapshot(db) {
     FROM ai_messages
     ORDER BY project_id ASC, sort_order ASC
   `).all();
+  const workflowDocuments = db.prepare(`
+    SELECT project_id AS projectId, doc_key AS docKey, title, content, updated_at AS updatedAt
+    FROM workflow_documents
+    ORDER BY project_id ASC, sort_order ASC
+  `).all();
   const settings = db.prepare(`
     SELECT theme, selected_project_id AS selectedProjectId, provider, api_key AS apiKey, base_url AS baseUrl, auto_save_interval AS autoSaveInterval
     , model, ui_scale AS uiScale
@@ -1711,7 +1918,11 @@ function readWorkspaceSnapshot(db) {
         outlineItems: outlineItems.filter((item) => item.projectId === project.id).map(({ projectId: _projectId, ...item }) => item),
         chapters: chapters.filter((chapter) => chapter.projectId === project.id).map(({ projectId: _projectId, ...chapter }) => chapter),
         chapterVersions: chapterVersions.filter((version) => version.projectId === project.id).map(({ projectId: _projectId, ...version }) => version),
-        messages: messages.filter((message) => message.projectId === project.id).map(({ projectId: _projectId, ...message }) => message)
+        messages: messages.filter((message) => message.projectId === project.id).map(({ projectId: _projectId, ...message }) => message),
+        workflowDocuments: workflowDocuments.filter((document) => document.projectId === project.id).map(({ projectId: _projectId, docKey: _docKey, ...document }) => ({
+          ...document,
+          key: _docKey
+        }))
       }
     ])
   );
@@ -1748,11 +1959,12 @@ function writeWorkspaceSnapshot(db, payload) {
       DELETE FROM chapter_versions;
       DELETE FROM chapters;
       DELETE FROM ai_messages;
+      DELETE FROM workflow_documents;
       DELETE FROM app_settings;
     `);
     const insertProject = db.prepare(`
-      INSERT INTO projects (id, title, genre, word_count, last_edited, cover, writing_style_preset_id, writing_style_prompt, chapter_assistant_templates_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO projects (id, title, genre, word_count, last_edited, cover, target_platform, reference_works_json, writing_style_preset_id, writing_style_prompt, novel_workflow_stages_json, project_skills_json, chapter_assistant_templates_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const project of payload.projects) {
       insertProject.run(
@@ -1762,8 +1974,12 @@ function writeWorkspaceSnapshot(db, payload) {
         project.wordCount,
         project.lastEdited,
         project.cover,
+        project.targetPlatform,
+        JSON.stringify(project.referenceWorks ?? []),
         project.writingStylePresetId,
         project.writingStylePrompt,
+        JSON.stringify(project.novelWorkflowStages ?? []),
+        JSON.stringify(project.projectSkills ?? []),
         JSON.stringify(project.chapterAssistantTemplates ?? [])
       );
     }
@@ -1811,16 +2027,24 @@ function writeWorkspaceSnapshot(db, payload) {
       INSERT INTO ai_messages (id, project_id, role, content, sort_order)
       VALUES (?, ?, ?, ?, ?)
     `);
+    const insertWorkflowDocument = db.prepare(`
+      INSERT INTO workflow_documents (id, project_id, doc_key, title, content, updated_at, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
     for (const project of payload.projects) {
       const workspace = payload.workspaces[project.id] ?? {
         worldviewEntries: [],
         characters: [],
+        organizations: [],
+        characterRelationships: [],
+        organizationMemberships: [],
         inspirationEntries: [],
         outlineVolumes: [],
         outlineItems: [],
         chapters: [],
         chapterVersions: [],
-        messages: []
+        messages: [],
+        workflowDocuments: []
       };
       workspace.worldviewEntries.forEach((entry, index) => {
         insertWorldview.run(
@@ -1943,6 +2167,17 @@ function writeWorkspaceSnapshot(db, payload) {
       });
       workspace.messages.forEach((message, index) => {
         insertMessage.run(message.id, project.id, message.role, message.content, index);
+      });
+      workspace.workflowDocuments.forEach((document, index) => {
+        insertWorkflowDocument.run(
+          `${project.id}-${document.key}`,
+          project.id,
+          document.key,
+          document.title,
+          document.content,
+          document.updatedAt,
+          index
+        );
       });
     }
     db.prepare(`
@@ -2455,6 +2690,34 @@ electron.ipcMain.handle("characterarc:assistant-command-publish", (_event, paylo
   return {
     success: true
   };
+});
+electron.ipcMain.handle("characterarc:project-skills-scan", async () => {
+  try {
+    const skills = await readProjectSkillsFromDisk();
+    return {
+      success: true,
+      skills
+    };
+  } catch {
+    return {
+      success: true,
+      skills: []
+    };
+  }
+});
+electron.ipcMain.handle("characterarc:project-skills-context", async () => {
+  try {
+    const skills = await readProjectSkillContextsFromDisk();
+    return {
+      success: true,
+      skills
+    };
+  } catch {
+    return {
+      success: true,
+      skills: []
+    };
+  }
 });
 electron.ipcMain.handle("characterarc:load-workspace", async () => {
   try {

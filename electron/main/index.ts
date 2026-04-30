@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import { join } from 'node:path'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
 import { generateAiTask, streamAiTask, testAiConnection, type AiTaskPayload } from './ai'
@@ -259,6 +259,91 @@ function getWorkspaceDbPath(): string {
   return join(getWorkspaceDirPath(), WORKSPACE_DB)
 }
 
+function getProjectSkillsDirPath(): string {
+  return join(process.cwd(), '.project-skills')
+}
+
+async function readProjectSkillsFromDisk(): Promise<Array<{
+  id: string
+  name: string
+  path: string
+  description: string
+  enabled: boolean
+}>> {
+  const root = getProjectSkillsDirPath()
+  const entries = await readdir(root, { withFileTypes: true })
+  const skills: Array<{
+    id: string
+    name: string
+    path: string
+    description: string
+    enabled: boolean
+  }> = []
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue
+    }
+
+    const skillPath = join(root, entry.name, 'SKILL.md')
+    try {
+      const content = await readFile(skillPath, 'utf-8')
+      const nameMatch = content.match(/^name:\s*(.+)$/m)
+      const descriptionMatch = content.match(/^description:\s*(.+)$/m)
+      skills.push({
+        id: entry.name,
+        name: nameMatch?.[1]?.trim() || entry.name,
+        path: `.project-skills/${entry.name}`,
+        description: descriptionMatch?.[1]?.trim() || '',
+        enabled: true
+      })
+    } catch {
+      // Ignore folders that are not valid skills.
+    }
+  }
+
+  return skills
+}
+
+async function readProjectSkillContextsFromDisk(): Promise<Array<{
+  id: string
+  name: string
+  description: string
+  content: string
+}>> {
+  const root = getProjectSkillsDirPath()
+  const entries = await readdir(root, { withFileTypes: true })
+  const skills: Array<{
+    id: string
+    name: string
+    description: string
+    content: string
+  }> = []
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue
+    }
+
+    const skillPath = join(root, entry.name, 'SKILL.md')
+    try {
+      const content = await readFile(skillPath, 'utf-8')
+      const nameMatch = content.match(/^name:\s*(.+)$/m)
+      const descriptionMatch = content.match(/^description:\s*(.+)$/m)
+      skills.push({
+        id: entry.name,
+        name: nameMatch?.[1]?.trim() || entry.name,
+        description: descriptionMatch?.[1]?.trim() || '',
+        content
+      })
+    } catch {
+      // Ignore invalid skill directories.
+    }
+  }
+
+  return skills
+}
+
 // 数据库连接单例，应用生命周期内只打开一次
 let workspaceDb: DatabaseSync | null = null
 
@@ -289,8 +374,13 @@ async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       word_count TEXT NOT NULL,
       last_edited TEXT NOT NULL,
       cover TEXT NOT NULL,
+      target_platform TEXT NOT NULL DEFAULT '',
+      reference_works_json TEXT NOT NULL DEFAULT '[]',
       writing_style_preset_id TEXT NOT NULL DEFAULT 'cinematic-cool',
-      writing_style_prompt TEXT NOT NULL DEFAULT ''
+      writing_style_prompt TEXT NOT NULL DEFAULT '',
+      novel_workflow_stages_json TEXT NOT NULL DEFAULT '[]',
+      project_skills_json TEXT NOT NULL DEFAULT '[]',
+      chapter_assistant_templates_json TEXT NOT NULL DEFAULT '[]'
     ) STRICT;
 
     CREATE TABLE IF NOT EXISTS worldview_entries (
@@ -425,6 +515,17 @@ async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       project_id TEXT NOT NULL,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS workflow_documents (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      doc_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
       sort_order INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     ) STRICT;
@@ -576,8 +677,27 @@ type WorkspacePayload = {
     wordCount: string
     lastEdited: string
     cover: string
+    targetPlatform: string
+    referenceWorks: Array<{
+      id: string
+      title: string
+      source: string
+      notes: string
+    }>
     writingStylePresetId: string
     writingStylePrompt: string
+    novelWorkflowStages: Array<{
+      id: 'reference' | 'premise' | 'setting' | 'outline' | 'draft'
+      status: 'todo' | 'doing' | 'done'
+    }>
+    projectSkills: Array<{
+      id: string
+      name: string
+      path: string
+      description: string
+      enabled: boolean
+      stageIds: Array<'reference' | 'premise' | 'setting' | 'outline' | 'draft'>
+    }>
     chapterAssistantTemplates: Array<{
       id: string
       label: string
@@ -691,6 +811,12 @@ type WorkspacePayload = {
         role: 'user' | 'assistant'
         content: string
       }>
+      workflowDocuments: Array<{
+        key: 'task_plan' | 'findings' | 'progress' | 'current_status' | 'novel_setting' | 'character_relationships' | 'pending_hooks' | 'resource_ledger'
+        title: string
+        content: string
+        updatedAt: string
+      }>
     }
   >
   appSettings: {
@@ -718,6 +844,22 @@ function ensureProjectColumns(db: DatabaseSync): void {
 
   if (!columnNames.has('chapter_assistant_templates_json')) {
     db.exec(`ALTER TABLE projects ADD COLUMN chapter_assistant_templates_json TEXT NOT NULL DEFAULT '[]';`)
+  }
+
+  if (!columnNames.has('novel_workflow_stages_json')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN novel_workflow_stages_json TEXT NOT NULL DEFAULT '[]';`)
+  }
+
+  if (!columnNames.has('project_skills_json')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN project_skills_json TEXT NOT NULL DEFAULT '[]';`)
+  }
+
+  if (!columnNames.has('target_platform')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN target_platform TEXT NOT NULL DEFAULT '';`)
+  }
+
+  if (!columnNames.has('reference_works_json')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN reference_works_json TEXT NOT NULL DEFAULT '[]';`)
   }
 }
 
@@ -859,8 +1001,12 @@ function normalizeProjectRecord(project: Partial<WorkspacePayload['projects'][nu
     wordCount: project.wordCount || '待统计',
     lastEdited: project.lastEdited || '刚刚更新',
     cover: project.cover || 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)',
+    targetPlatform: project.targetPlatform || '',
+    referenceWorks: Array.isArray(project.referenceWorks) ? project.referenceWorks : [],
     writingStylePresetId: project.writingStylePresetId || 'cinematic-cool',
     writingStylePrompt: project.writingStylePrompt || '',
+    novelWorkflowStages: Array.isArray(project.novelWorkflowStages) ? project.novelWorkflowStages : [],
+    projectSkills: Array.isArray(project.projectSkills) ? project.projectSkills : [],
     chapterAssistantTemplates: Array.isArray(project.chapterAssistantTemplates) ? project.chapterAssistantTemplates : []
   }
 }
@@ -958,7 +1104,8 @@ function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWorkspacePa
               }))
             : [],
         chapterVersions: project.id === selectedProjectId ? legacyPayload.chapterVersions ?? [] : [],
-        messages: project.id === selectedProjectId ? legacyPayload.messages ?? [] : []
+        messages: project.id === selectedProjectId ? legacyPayload.messages ?? [] : [],
+        workflowDocuments: []
       }
     ])
   )
@@ -980,16 +1127,48 @@ function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWorkspacePa
 function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
   const projectRows = db.prepare(`
     SELECT id, title, genre, word_count AS wordCount, last_edited AS lastEdited, cover,
+      target_platform AS targetPlatform,
+      reference_works_json AS referenceWorksJson,
       writing_style_preset_id AS writingStylePresetId,
       writing_style_prompt AS writingStylePrompt,
+      novel_workflow_stages_json AS novelWorkflowStagesJson,
+      project_skills_json AS projectSkillsJson,
       chapter_assistant_templates_json AS chapterAssistantTemplatesJson
     FROM projects
     ORDER BY rowid ASC
-  `).all() as Array<Omit<WorkspacePayload['projects'][number], 'chapterAssistantTemplates'> & { chapterAssistantTemplatesJson?: string }>
+  `).all() as Array<
+    Omit<WorkspacePayload['projects'][number], 'chapterAssistantTemplates' | 'novelWorkflowStages' | 'projectSkills' | 'referenceWorks'> & {
+      referenceWorksJson?: string
+      chapterAssistantTemplatesJson?: string
+      novelWorkflowStagesJson?: string
+      projectSkillsJson?: string
+    }
+  >
 
   const projects = projectRows.map((project) =>
     normalizeProjectRecord({
       ...project,
+      novelWorkflowStages: (() => {
+        try {
+          return JSON.parse(project.novelWorkflowStagesJson || '[]')
+        } catch {
+          return []
+        }
+      })(),
+      referenceWorks: (() => {
+        try {
+          return JSON.parse(project.referenceWorksJson || '[]')
+        } catch {
+          return []
+        }
+      })(),
+      projectSkills: (() => {
+        try {
+          return JSON.parse(project.projectSkillsJson || '[]')
+        } catch {
+          return []
+        }
+      })(),
       chapterAssistantTemplates: (() => {
         try {
           return JSON.parse(project.chapterAssistantTemplatesJson || '[]')
@@ -1089,6 +1268,17 @@ function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
     ORDER BY project_id ASC, sort_order ASC
   `).all() as Array<WorkspacePayload['workspaces'][string]['messages'][number] & { projectId: string }>
 
+  const workflowDocuments = db.prepare(`
+    SELECT project_id AS projectId, doc_key AS docKey, title, content, updated_at AS updatedAt
+    FROM workflow_documents
+    ORDER BY project_id ASC, sort_order ASC
+  `).all() as Array<
+    WorkspacePayload['workspaces'][string]['workflowDocuments'][number] & {
+      projectId: string
+      docKey: WorkspacePayload['workspaces'][string]['workflowDocuments'][number]['key']
+    }
+  >
+
   const settings = db.prepare(`
     SELECT theme, selected_project_id AS selectedProjectId, provider, api_key AS apiKey, base_url AS baseUrl, auto_save_interval AS autoSaveInterval
     , model, ui_scale AS uiScale
@@ -1147,7 +1337,13 @@ function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
           .map(({ projectId: _projectId, ...version }) => version),
         messages: messages
           .filter((message) => message.projectId === project.id)
-          .map(({ projectId: _projectId, ...message }) => message)
+          .map(({ projectId: _projectId, ...message }) => message),
+        workflowDocuments: workflowDocuments
+          .filter((document) => document.projectId === project.id)
+          .map(({ projectId: _projectId, docKey: _docKey, ...document }) => ({
+            ...document,
+            key: _docKey
+          }))
       }
     ])
   ) as WorkspacePayload['workspaces']
@@ -1190,12 +1386,13 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
       DELETE FROM chapter_versions;
       DELETE FROM chapters;
       DELETE FROM ai_messages;
+      DELETE FROM workflow_documents;
       DELETE FROM app_settings;
     `)
 
     const insertProject = db.prepare(`
-      INSERT INTO projects (id, title, genre, word_count, last_edited, cover, writing_style_preset_id, writing_style_prompt, chapter_assistant_templates_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO projects (id, title, genre, word_count, last_edited, cover, target_platform, reference_works_json, writing_style_preset_id, writing_style_prompt, novel_workflow_stages_json, project_skills_json, chapter_assistant_templates_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     for (const project of payload.projects) {
       insertProject.run(
@@ -1205,8 +1402,12 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
         project.wordCount,
         project.lastEdited,
         project.cover,
+        project.targetPlatform,
+        JSON.stringify(project.referenceWorks ?? []),
         project.writingStylePresetId,
         project.writingStylePrompt,
+        JSON.stringify(project.novelWorkflowStages ?? []),
+        JSON.stringify(project.projectSkills ?? []),
         JSON.stringify(project.chapterAssistantTemplates ?? [])
       )
     }
@@ -1265,17 +1466,25 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
       INSERT INTO ai_messages (id, project_id, role, content, sort_order)
       VALUES (?, ?, ?, ?, ?)
     `)
+    const insertWorkflowDocument = db.prepare(`
+      INSERT INTO workflow_documents (id, project_id, doc_key, title, content, updated_at, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
 
     for (const project of payload.projects) {
       const workspace = payload.workspaces[project.id] ?? {
         worldviewEntries: [],
         characters: [],
+        organizations: [],
+        characterRelationships: [],
+        organizationMemberships: [],
         inspirationEntries: [],
         outlineVolumes: [],
         outlineItems: [],
         chapters: [],
         chapterVersions: [],
-        messages: []
+        messages: [],
+        workflowDocuments: []
       }
 
       workspace.worldviewEntries.forEach((entry, index) => {
@@ -1409,6 +1618,18 @@ function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePayload): vo
 
       workspace.messages.forEach((message, index) => {
         insertMessage.run(message.id, project.id, message.role, message.content, index)
+      })
+
+      workspace.workflowDocuments.forEach((document, index) => {
+        insertWorkflowDocument.run(
+          `${project.id}-${document.key}`,
+          project.id,
+          document.key,
+          document.title,
+          document.content,
+          document.updatedAt,
+          index
+        )
       })
     }
 
@@ -2150,6 +2371,36 @@ ipcMain.handle('characterarc:assistant-command-publish', (_event, payload: unkno
   sendWindowEvent(mainWindow, 'characterarc:assistant-command', payload)
   return {
     success: true
+  }
+})
+
+ipcMain.handle('characterarc:project-skills-scan', async () => {
+  try {
+    const skills = await readProjectSkillsFromDisk()
+    return {
+      success: true,
+      skills
+    }
+  } catch {
+    return {
+      success: true,
+      skills: []
+    }
+  }
+})
+
+ipcMain.handle('characterarc:project-skills-context', async () => {
+  try {
+    const skills = await readProjectSkillContextsFromDisk()
+    return {
+      success: true,
+      skills
+    }
+  } catch {
+    return {
+      success: true,
+      skills: []
+    }
   }
 })
 

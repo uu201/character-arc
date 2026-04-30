@@ -11,8 +11,10 @@ import type {
   OutlineItem,
   OutlineVolume,
   ProjectWorkspaceData,
+  WorkflowDocument,
   WorldviewEntry
 } from '@/types/app'
+import { createDefaultWorkflowDocuments, normalizeWorkflowDocuments } from '@/features/novelWorkflow/documents'
 import { cloneOutlineVolumes, createOutlineVolume, ensureVolumeCollections } from '@/features/workspace/outlineVolumes'
 
 // 将日期字符串安全转为 ISO 时间戳，无效值回退到当前时间
@@ -577,7 +579,8 @@ export function createEmptyWorkspace(overrides?: Partial<ProjectWorkspaceData>):
     outlineItems: cloneOutlineItems(volumeState.outlineItems),
     chapters: cloneChapters(volumeState.chapters),
     chapterVersions: cloneChapterVersions(overrides?.chapterVersions),
-    messages: cloneMessages(overrides?.messages)
+    messages: cloneMessages(overrides?.messages),
+    workflowDocuments: normalizeWorkflowDocuments(overrides?.workflowDocuments as WorkflowDocument[] | undefined)
   }
 }
 
@@ -623,6 +626,7 @@ export function normalizeWorkspace(
     outlineItems: cloneOutlineItems(volumeState.outlineItems),
     chapters: cloneChapters(volumeState.chapters),
     chapterVersions: cloneChapterVersions(workspace.chapterVersions),
-    messages: cloneMessages(workspace.messages)
+    messages: cloneMessages(workspace.messages),
+    workflowDocuments: normalizeWorkflowDocuments(workspace.workflowDocuments as WorkflowDocument[] | undefined)
   }
 }

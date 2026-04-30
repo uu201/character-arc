@@ -2,7 +2,72 @@
 export type ThemeName = 'ocean' | 'jade' | 'amber' | 'rose'
 
 /** 工作台面板名称，对应 8 个功能面板 */
-export type PanelName = 'overview' | 'world' | 'characters' | 'relations' | 'inspiration' | 'outline' | 'chapters' | 'settings'
+export type PanelName = 'workflow' | 'overview' | 'world' | 'characters' | 'relations' | 'inspiration' | 'outline' | 'chapters' | 'settings'
+
+/** 小说流程阶段标识 */
+export type NovelWorkflowStageId = 'reference' | 'premise' | 'setting' | 'outline' | 'draft'
+
+/** 小说流程阶段状态 */
+export type NovelWorkflowStageStatus = 'todo' | 'doing' | 'done'
+
+/** 项目级小说流程阶段 */
+export interface NovelWorkflowStageState {
+  /** 阶段唯一标识 */
+  id: NovelWorkflowStageId
+  /** 当前阶段状态 */
+  status: NovelWorkflowStageStatus
+}
+
+/** 固定流程文件键 */
+export type WorkflowDocumentKey =
+  | 'task_plan'
+  | 'findings'
+  | 'progress'
+  | 'current_status'
+  | 'novel_setting'
+  | 'character_relationships'
+  | 'pending_hooks'
+  | 'resource_ledger'
+
+/** 项目级流程文件 */
+export interface WorkflowDocument {
+  /** 文件键 */
+  key: WorkflowDocumentKey
+  /** 展示标题 */
+  title: string
+  /** 文件正文 */
+  content: string
+  /** 最后更新时间 */
+  updatedAt: string
+}
+
+/** 项目级 skill 条目 */
+export interface ProjectSkillItem {
+  /** skill 唯一标识 */
+  id: string
+  /** 展示名称 */
+  name: string
+  /** 相对项目根目录路径 */
+  path: string
+  /** 描述 */
+  description: string
+  /** 是否启用 */
+  enabled: boolean
+  /** 适用阶段 */
+  stageIds: NovelWorkflowStageId[]
+}
+
+/** 项目参考作品条目 */
+export interface ReferenceWorkItem {
+  /** 唯一标识 */
+  id: string
+  /** 作品标题 */
+  title: string
+  /** 作品来源，如番茄 / 飞卢 / 起点 */
+  source: string
+  /** 备注 */
+  notes: string
+}
 
 /** 章节 AI 模板分组 */
 export type ChapterAssistantTemplateGroup = 'write' | 'rewrite' | 'planning' | 'reference'
@@ -56,6 +121,14 @@ export interface ProjectSummary {
   writingStylePrompt: string
   /** 项目级章节 AI 模板覆盖 */
   chapterAssistantTemplates: ChapterAssistantPromptTemplate[]
+  /** 小说流程阶段状态 */
+  novelWorkflowStages: NovelWorkflowStageState[]
+  /** 项目级 skills 启用状态 */
+  projectSkills: ProjectSkillItem[]
+  /** 项目目标平台 */
+  targetPlatform: string
+  /** 项目参考作品 */
+  referenceWorks: ReferenceWorkItem[]
 }
 
 /** 世界观设定条目 */
@@ -323,6 +396,8 @@ export interface ProjectWorkspaceData {
   chapterVersions: ChapterVersion[]
   /** AI 聊天消息列表 */
   messages: ChatMessage[]
+  /** 项目固定流程文件 */
+  workflowDocuments: WorkflowDocument[]
 }
 
 /** 导入/导出的模块类型标识 */

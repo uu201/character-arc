@@ -1,6 +1,7 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { FAST_PERSIST_DELAY_MS, formatAutoSaveIntervalLabel, isLiveAutoSaveInterval, resolveAutoSaveDelayMs } from '@/features/settings/autoSave'
+import { createDefaultNovelWorkflowStages } from '@/features/novelWorkflow/stages'
 import {
   buildVolumeGroups,
   createOutlineVolume as createWorkspaceVolume
@@ -63,6 +64,10 @@ interface ProjectWorkspacePayload {
     writingStylePresetId?: string
     writingStylePrompt?: string
     chapterAssistantTemplates?: ProjectSummary['chapterAssistantTemplates']
+    novelWorkflowStages?: ProjectSummary['novelWorkflowStages']
+    projectSkills?: ProjectSummary['projectSkills']
+    targetPlatform?: string
+    referenceWorks?: ProjectSummary['referenceWorks']
   }
   worldviewEntries?: WorldviewEntry[]
   characters?: CharacterCard[]
@@ -139,9 +144,9 @@ export const useAppStore = defineStore('app', () => {
   /** 当前视图：项目列表 / 新建向导 / 工作台 / 章节写作 */
   const currentView = ref<'projects' | 'wizard' | 'workbench' | 'chapter-studio'>('projects')
   /** 工作台中当前激活的面板 */
-  const activePanel = ref<PanelName>('world')
+  const activePanel = ref<PanelName>('workflow')
   /** 上一次在工作台中查看的面板（非 chapters），用于从章节写作返回时恢复 */
-  const lastWorkbenchPanel = ref<Exclude<PanelName, 'chapters'>>('world')
+  const lastWorkbenchPanel = ref<Exclude<PanelName, 'chapters'>>('workflow')
   /** AI 助手窗口是否可见 */
   const aiVisible = ref(true)
   /** 当前主题名称 */
@@ -192,6 +197,8 @@ export const useAppStore = defineStore('app', () => {
   const chapterVersions = computed(() => currentWorkspace.value.chapterVersions)
   /** 当前项目的 AI 聊天消息列表 */
   const messages = computed(() => currentWorkspace.value.messages)
+  /** 当前项目的固定流程文件 */
+  const workflowDocuments = computed(() => currentWorkspace.value.workflowDocuments)
   /** 自动保存间隔的人类可读标签 */
   const autoSaveIntervalLabel = computed(() => formatAutoSaveIntervalLabel(appSettings.value.autoSaveInterval))
   /** 是否为实时自动保存模式 */
@@ -525,10 +532,14 @@ export const useAppStore = defineStore('app', () => {
       cover: payload.project?.cover || 'linear-gradient(135deg, #9be15d 0%, #00e3ae 100%)',
       writingStylePresetId: payload.project?.writingStylePresetId?.trim() || 'cinematic-cool',
       writingStylePrompt: payload.project?.writingStylePrompt?.trim() || '',
-      chapterAssistantTemplates: normalizeChapterAssistantTemplates(payload.project?.chapterAssistantTemplates)
+      chapterAssistantTemplates: normalizeChapterAssistantTemplates(payload.project?.chapterAssistantTemplates),
+      novelWorkflowStages: payload.project?.novelWorkflowStages ?? createDefaultNovelWorkflowStages(),
+      projectSkills: payload.project?.projectSkills ?? [],
+      targetPlatform: payload.project?.targetPlatform?.trim() || '',
+      referenceWorks: payload.project?.referenceWorks ?? []
     }
 
-    projects.value = [project, ...projects.value]
+    projects.value = [normalizeProjectSummary(project), ...projects.value]
     projectWorkspaces.value = {
       ...projectWorkspaces.value,
       [projectId]: normalizeProjectWorkspaceData({
@@ -547,7 +558,7 @@ export const useAppStore = defineStore('app', () => {
     selectedProjectId.value = project.id
     pendingChapterInsertion.value = null
     currentView.value = 'workbench'
-    activePanel.value = 'overview'
+    activePanel.value = 'workflow'
     syncSelectedChapter(project.id)
     schedulePersist('fast')
   }
@@ -817,8 +828,8 @@ export const useAppStore = defineStore('app', () => {
     selectedProjectId.value = projectId
     pendingChapterInsertion.value = null
     currentView.value = 'workbench'
-    activePanel.value = 'world'
-    lastWorkbenchPanel.value = 'world'
+    activePanel.value = 'workflow'
+    lastWorkbenchPanel.value = 'workflow'
     syncSelectedChapter(projectId)
     schedulePersist('fast')
   }
@@ -854,7 +865,11 @@ export const useAppStore = defineStore('app', () => {
       cover: payload.project.cover || 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)',
       writingStylePresetId: payload.project.writingStylePresetId?.trim() || 'cinematic-cool',
       writingStylePrompt: payload.project.writingStylePrompt?.trim() || '',
-      chapterAssistantTemplates: normalizeChapterAssistantTemplates(payload.project.chapterAssistantTemplates)
+      chapterAssistantTemplates: normalizeChapterAssistantTemplates(payload.project.chapterAssistantTemplates),
+      novelWorkflowStages: payload.project.novelWorkflowStages ?? createDefaultNovelWorkflowStages(),
+      projectSkills: payload.project.projectSkills ?? [],
+      targetPlatform: payload.project.targetPlatform?.trim() || '',
+      referenceWorks: payload.project.referenceWorks ?? []
     }))
 
     // A new project gets its own isolated workspace instead of reusing the previous project's draft state.
@@ -933,10 +948,86 @@ export const useAppStore = defineStore('app', () => {
             chapterAssistantTemplates:
               payload.chapterAssistantTemplates !== undefined
                 ? normalizeChapterAssistantTemplates(payload.chapterAssistantTemplates)
-                : project.chapterAssistantTemplates
+                : project.chapterAssistantTemplates,
+            novelWorkflowStages:
+              payload.novelWorkflowStages !== undefined ? payload.novelWorkflowStages : project.novelWorkflowStages,
+            projectSkills: payload.projectSkills !== undefined ? payload.projectSkills : project.projectSkills,
+            targetPlatform: payload.targetPlatform !== undefined ? payload.targetPlatform.trim() : project.targetPlatform,
+            referenceWorks: payload.referenceWorks !== undefined ? payload.referenceWorks : project.referenceWorks
           }
         : project
     )
+    schedulePersist('fast')
+  }
+
+  function updateWorkflowDocument(documentKey: string, content: string): void {
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      workflowDocuments: workspace.workflowDocuments.map((document) =>
+        document.key === documentKey
+          ? {
+              ...document,
+              content,
+              updatedAt: new Date().toISOString()
+            }
+          : document
+      )
+    }))
+    schedulePersist('fast')
+  }
+
+  function updateWorkflowDocuments(
+    payloads: Array<{
+      key: string
+      content: string
+    }>
+  ): void {
+    if (!payloads.length) {
+      return
+    }
+
+    const payloadMap = new Map(payloads.map((payload) => [payload.key, payload.content]))
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      workflowDocuments: workspace.workflowDocuments.map((document) =>
+        payloadMap.has(document.key)
+          ? {
+              ...document,
+              content: payloadMap.get(document.key) ?? document.content,
+              updatedAt: new Date().toISOString()
+            }
+          : document
+      )
+    }))
+    schedulePersist('fast')
+  }
+
+  function appendWorkflowDocumentEntry(documentKey: string, entryTitle: string, body: string): void {
+    const normalizedBody = body.trim()
+    if (!normalizedBody) {
+      return
+    }
+
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      workflowDocuments: workspace.workflowDocuments.map((document) => {
+        if (document.key !== documentKey) {
+          return document
+        }
+
+        const header = document.content.split('\n')[0] || `# ${document.title.replace(/\.md$/i, '')}`
+        const isPlaceholder = /待 AI 生成|待补充/.test(document.content) && document.content.trim().split('\n').length <= 3
+        const nextContent = isPlaceholder
+          ? `${header}\n\n## ${entryTitle}\n${normalizedBody}\n`
+          : `${document.content.trim()}\n\n## ${entryTitle}\n${normalizedBody}\n`
+
+        return {
+          ...document,
+          content: nextContent,
+          updatedAt: new Date().toISOString()
+        }
+      })
+    }))
     schedulePersist('fast')
   }
 
@@ -2033,6 +2124,10 @@ export const useAppStore = defineStore('app', () => {
     consumeChapterInsertion,
     updateAppSetting,
     updateProject,
+    updateWorkflowDocument,
+    updateWorkflowDocuments,
+    appendWorkflowDocumentEntry,
+    workflowDocuments,
     updateChapter,
     updateChapterContent,
     updateChapterSelection,

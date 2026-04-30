@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
+  BookOpenText,
   ChevronLeft,
   FileText,
   Globe2,
@@ -15,6 +16,7 @@ import {
   GitMerge
 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
+import NovelWorkflowPanel from '@/components/NovelWorkflowPanel.vue'
 import OverviewPanel from '@/components/OverviewPanel.vue'
 import WorldviewPanel from '@/components/WorldviewPanel.vue'
 import CharactersPanel from '@/components/CharactersPanel.vue'
@@ -34,6 +36,7 @@ const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWid
 
 // 各面板独立的搜索关键词缓存，切换面板时保留搜索状态
 const panelSearch = reactive<Record<string, string>>({
+  workflow: '',
   overview: '',
   world: '',
   characters: '',
@@ -49,6 +52,7 @@ const searchKeyword = ref(panelSearch[appStore.activePanel] ?? '')
 
 // 侧边栏导航项配置列表，定义各模块的 id、标签、描述和图标
 const sidebarItems = [
+  { id: 'workflow', label: '小说流程', description: '维护固定流程文件并驱动写作阶段', icon: BookOpenText },
   { id: 'overview', label: '作品概览', description: '掌握项目进度与全局信息', icon: LayoutDashboard },
   { id: 'world', label: '世界观设定', description: '沉淀世界规则、地点与设定条目', icon: Globe2 },
   { id: 'characters', label: '角色图鉴', description: '维护人物卡、关系与成长线索', icon: Users },
@@ -83,6 +87,7 @@ const projectMeta = computed(() =>
 
 // 侧边栏各导航项的角标数字，展示各模块的数据条数
 const sidebarBadgeMap = computed<Record<string, string | null>>(() => ({
+  workflow: null,
   overview: null,
   world: String(appStore.worldviewEntries.length),
   characters: String(appStore.characters.length),
@@ -276,6 +281,7 @@ watch(searchKeyword, (value) => {
             @open-result="openSearchResult"
           />
           <!-- 非搜索模式下根据当前激活的面板渲染对应组件 -->
+          <NovelWorkflowPanel v-else-if="appStore.activePanel === 'workflow'" key="workflow" />
           <OverviewPanel v-else-if="appStore.activePanel === 'overview'" key="overview" :search-query="normalizedSearch" />
           <WorldviewPanel v-else-if="appStore.activePanel === 'world'" key="world" :search-query="normalizedSearch" />
           <CharactersPanel v-else-if="appStore.activePanel === 'characters'" key="characters" :search-query="normalizedSearch" />

@@ -1,0 +1,34 @@
+{
+  "hooksConfig": {
+    "enabled": true,
+    "notifications": true
+  },
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "glob|read_file|write_file|replace",
+        "hooks": [
+          {
+            "name": "planning-with-files-status",
+            "type": "command",
+            "command": "node .gemini/hooks/planning-with-files-status.cjs",
+            "description": "Show lightweight status messages for file discovery and file I/O used by planning-with-files.",
+            "timeout": 2000
+          }
+        ]
+      }
+    ]
+  },
+  "skills": {
+    "disabled": [
+      "skill-creator"
+    ]
+  },
+  "mcpServers": {
+    "tavily-remote-mcp": {
+      "url": "https://mcp.tavily.com/mcp/?tavilyApiKey=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",
+      "type": "http",
+      "description": "Tavily remote MCP for web search and extraction"
+    }
+  }
+}

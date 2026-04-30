@@ -19,6 +19,10 @@ electron.contextBridge.exposeInMainWorld("characterArc", {
   exportText: (payload) => electron.ipcRenderer.invoke("characterarc:export-text", payload),
   /** 从 JSON 文件导入项目数据 */
   importJson: () => electron.ipcRenderer.invoke("characterarc:import-json"),
+  /** 扫描当前项目目录下的 .project-skills/ */
+  scanProjectSkills: () => electron.ipcRenderer.invoke("characterarc:project-skills-scan"),
+  /** 读取当前项目已安装 skills 的正文内容（供 AI 内部使用） */
+  getProjectSkillsContext: () => electron.ipcRenderer.invoke("characterarc:project-skills-context"),
   // ── AI 任务 ──
   /** 发送一次非流式 AI 生成请求，返回完整结果 */
   generateAi: (payload) => electron.ipcRenderer.invoke("characterarc:ai-generate", payload),

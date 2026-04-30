@@ -37,6 +37,12 @@ type ChapterAssistantContextInput = {
   organizationMemberships: OrganizationMembership[]     // 组织成员关系列表
   inspirationEntries: InspirationEntry[]                // 灵感条目列表
   outlineItems: OutlineItem[]                           // 大纲条目列表
+  projectSkills?: Array<{                               // 当前项目启用的 skills 摘要
+    id: string
+    name: string
+    description: string
+    content: string
+  }>
   selectedText: string                                  // 编辑器中用户选中的文本片段
   responseMode: 'freeform' | 'polish' | 'continue' | 'suggest' | 'reference'  // 响应模式
   responseLength: 'short' | 'medium' | 'long'          // 期望的响应长度
@@ -123,6 +129,7 @@ export function buildChapterAssistantContext(input: ChapterAssistantContextInput
       title: item.title,
       summary: item.summary
     })),
+    projectSkills: input.projectSkills ?? [],
     selectedText: input.selectedText,
     responseMode: input.responseMode,
     responseLength: input.responseLength,

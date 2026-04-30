@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { FilePlus2, GripVertical, MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
+import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
 import { useAppStore } from '@/stores/app'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
@@ -172,6 +173,7 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
             summary: item.summary,
             status: item.status
           })),
+        projectSkills: await loadEnabledProjectSkillsContext(appStore.currentProject, 'outline'),
         userPrompt: '请优先补足当前分卷从现有节点往后最需要的 3 到 5 个剧情节点。'
       }
     })
@@ -203,6 +205,20 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
         status: 'planned'
       })
     })
+
+    appStore.appendWorkflowDocumentEntry(
+      'task_plan',
+      `分卷补全：${volume.title}`,
+      [
+        `- 已为当前分卷补充 ${entries.length} 个大纲节点。`,
+        ...entries.map((entry, index) => `- 节点${index + 1}：${entry.title ?? `新节点 ${index + 1}`}`)
+      ].join('\n')
+    )
+    appStore.appendWorkflowDocumentEntry(
+      'pending_hooks',
+      `分卷补全后待观察钩子：${volume.title}`,
+      entries.map((entry) => `- ${entry.title ?? '新节点'}：${entry.conflict ?? '待补充核心冲突'}`).join('\n')
+    )
 
     message.success(`已为 ${volume.title} 补充 ${entries.length} 个大纲节点`)
   } catch (error) {
