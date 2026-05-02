@@ -11,6 +11,9 @@ importers:
       '@node-rs/jieba':
         specifier: ^2.0.1
         version: 2.0.1
+      '@node-rs/jieba-win32-x64-msvc':
+        specifier: ^2.0.1
+        version: 2.0.1
       '@tiptap/extension-character-count':
         specifier: ^3.22.5
         version: 3.22.5(@tiptap/extensions@3.22.5(@tiptap/core@3.22.5(@tiptap/pm@3.22.5))(@tiptap/pm@3.22.5))
@@ -2890,8 +2893,7 @@ snapshots:
   '@node-rs/jieba-win32-ia32-msvc@2.0.1':
     optional: true
 
-  '@node-rs/jieba-win32-x64-msvc@2.0.1':
-    optional: true
+  '@node-rs/jieba-win32-x64-msvc@2.0.1': {}
 
   '@node-rs/jieba@2.0.1':
     optionalDependencies:

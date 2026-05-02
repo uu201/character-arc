@@ -98,7 +98,9 @@ function loadRendererWindow(window: BrowserWindow, kind: AppWindowKind): void {
     return
   }
 
-  void window.loadFile(join(__dirname, '../../dist/index.html'), search ? { search } : undefined)
+  const rendererHtml = join(__dirname, '../../out/renderer/index.html')
+  console.log('[renderer] loadFile →', rendererHtml)
+  void window.loadFile(rendererHtml, search ? { search } : undefined)
 }
 
 /** 向指定窗口发送 IPC 事件，窗口已销毁时静默跳过 */

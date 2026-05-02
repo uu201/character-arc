@@ -1,11 +1,31 @@
 "use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 const electron = require("electron");
 const node_path = require("node:path");
 const promises = require("node:fs/promises");
 const node_sqlite = require("node:sqlite");
 const node_crypto = require("node:crypto");
-const jieba$1 = require("@node-rs/jieba");
-const dict = require("@node-rs/jieba/dict");
 const DEFAULT_STRATEGY = {
   storyFocus: "先锁定主角最明确的欲望、最现实的阻力和最有辨识度的切入场景。",
   worldviewBias: "世界观只保留最支撑剧情推进的 3 条骨架信息，避免泛泛堆设定。",
@@ -1925,8 +1945,7 @@ async function streamAiTask(task, handlers, signal) {
   const rawText = await requestAiTextStream(settings, prompt, handlers, signal, task);
   return normalizeAssistantText(rawText);
 }
-const jieba = jieba$1.Jieba.withDict(dict.dict);
-const tfidf = jieba$1.TfIdf.withDict(dict.idf);
+let jiebaRuntimePromise = null;
 const CHAPTER_HEADING_RE = /^(第[0-9零一二三四五六七八九十百千万两]+[章节回卷部集][^\n]{0,40})$/gm;
 const MAX_ANALYSIS_CHUNKS = 12;
 const MAX_CHUNK_CHAR_COUNT = 6e3;
@@ -1974,6 +1993,21 @@ const STOP_WORDS = /* @__PURE__ */ new Set([
   "这种",
   "那种"
 ]);
+async function getJiebaRuntime() {
+  if (!jiebaRuntimePromise) {
+    jiebaRuntimePromise = (async () => {
+      const [{ Jieba, TfIdf }, { dict, idf }] = await Promise.all([
+        import("@node-rs/jieba"),
+        import("@node-rs/jieba/dict")
+      ]);
+      return {
+        jieba: Jieba.withDict(dict),
+        tfidf: TfIdf.withDict(idf)
+      };
+    })();
+  }
+  return jiebaRuntimePromise;
+}
 function resolveFileType(filePath) {
   const extension = node_path.extname(filePath).toLowerCase();
   if (extension === ".docx") {
@@ -2068,7 +2102,8 @@ function computeMetrics(text, chapters) {
     { label: "情绪标点密度", value: `每千字 ${emotionMarksPerThousand.toFixed(1)} 个` }
   ];
 }
-function extractKeywords(text, limit = 10) {
+async function extractKeywords(text, limit = 10) {
+  const { jieba, tfidf } = await getJiebaRuntime();
   const keywords = tfidf.extractKeywords(jieba, clipText(text, 36e3), Math.max(limit * 2, 18));
   return keywords.map((entry) => entry.keyword.trim()).filter((keyword) => keyword.length >= 2 && !STOP_WORDS.has(keyword)).slice(0, limit);
 }
@@ -2134,10 +2169,10 @@ function buildChunkLabel(index, total) {
   }
   return "中段";
 }
-function buildAnalysisChunks(chapters) {
+async function buildAnalysisChunks(chapters) {
   const mergedChunks = mergeSectionsIntoChunks(chapters);
   const selectedIndexes = pickRepresentativeChunkIndexes(mergedChunks.length);
-  return selectedIndexes.map((chunkIndex, order) => {
+  return Promise.all(selectedIndexes.map(async (chunkIndex, order) => {
     const text = mergedChunks[chunkIndex];
     const plainText = text.replace(/\s+/g, "");
     const label = `${buildChunkLabel(chunkIndex, mergedChunks.length)} ${chunkIndex + 1}/${mergedChunks.length}`;
@@ -2147,10 +2182,10 @@ function buildAnalysisChunks(chapters) {
       order,
       text,
       characterCount: plainText.length,
-      topKeywords: extractKeywords(text, CHUNK_KEYWORD_LIMIT),
+      topKeywords: await extractKeywords(text, CHUNK_KEYWORD_LIMIT),
       metrics: computeMetrics(text, [text])
     };
-  });
+  }));
 }
 async function extractReferenceNovelContext(filePath) {
   const fileType = resolveFileType(filePath);
@@ -2162,6 +2197,10 @@ async function extractReferenceNovelContext(filePath) {
   }
   const chapters = splitChapters(text);
   const excerpt = clipText(chapters[0] ?? text, 800);
+  const [topKeywords, analysisChunks] = await Promise.all([
+    extractKeywords(text),
+    buildAnalysisChunks(chapters)
+  ]);
   return {
     title,
     fileName,
@@ -2170,9 +2209,9 @@ async function extractReferenceNovelContext(filePath) {
     analysisSample: buildAnalysisSample(chapters, text),
     characterCount: text.replace(/\s+/g, "").length,
     chapterCount: Math.max(chapters.length, 1),
-    topKeywords: extractKeywords(text),
+    topKeywords,
     metrics: computeMetrics(text, chapters),
-    analysisChunks: buildAnalysisChunks(chapters)
+    analysisChunks
   };
 }
 const APP_DEFAULT_WIDTH = 1480;
@@ -2217,7 +2256,9 @@ function loadRendererWindow(window, kind) {
     }
     return;
   }
-  void window.loadFile(node_path.join(__dirname, "../../dist/index.html"), search ? { search } : void 0);
+  const rendererHtml = node_path.join(__dirname, "../../out/renderer/index.html");
+  console.log("[renderer] loadFile →", rendererHtml);
+  void window.loadFile(rendererHtml, search ? { search } : void 0);
 }
 function sendWindowEvent(window, channel, payload) {
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
@@ -2249,7 +2290,7 @@ function createMainWindow() {
     minWidth,
     minHeight,
     autoHideMenuBar: true,
-    title: `character-arc v${electron.app.getVersion()}`,
+    title: `弧光 v${electron.app.getVersion()}`,
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     // Keep native caption buttons while giving the renderer a compact title-bar area to style around.
     titleBarOverlay: process.platform === "win32" ? {

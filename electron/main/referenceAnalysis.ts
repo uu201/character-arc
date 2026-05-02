@@ -1,7 +1,5 @@
 import { basename, extname } from 'node:path'
 import { readFile } from 'node:fs/promises'
-import { Jieba, TfIdf } from '@node-rs/jieba'
-import { dict, idf } from '@node-rs/jieba/dict'
 
 export type ReferenceFileType = 'txt' | 'md' | 'docx'
 
@@ -33,8 +31,20 @@ export type ReferenceNovelLocalContext = {
   analysisChunks: ReferenceNovelChunk[]
 }
 
-const jieba = Jieba.withDict(dict)
-const tfidf = TfIdf.withDict(idf)
+type JiebaRuntime = {
+  jieba: {
+    cut(text: string, hmm?: boolean): string[]
+  }
+  tfidf: {
+    extractKeywords(
+      jieba: { cut(text: string, hmm?: boolean): string[] },
+      text: string,
+      limit: number
+    ): Array<{ keyword: string }>
+  }
+}
+
+let jiebaRuntimePromise: Promise<JiebaRuntime> | null = null
 const CHAPTER_HEADING_RE = /^(第[0-9零一二三四五六七八九十百千万两]+[章节回卷部集][^\n]{0,40})$/gm
 const MAX_ANALYSIS_CHUNKS = 12
 const MAX_CHUNK_CHAR_COUNT = 6_000
@@ -82,6 +92,24 @@ const STOP_WORDS = new Set([
   '这种',
   '那种'
 ])
+
+async function getJiebaRuntime(): Promise<JiebaRuntime> {
+  if (!jiebaRuntimePromise) {
+    jiebaRuntimePromise = (async () => {
+      const [{ Jieba, TfIdf }, { dict, idf }] = await Promise.all([
+        import('@node-rs/jieba'),
+        import('@node-rs/jieba/dict')
+      ])
+
+      return {
+        jieba: Jieba.withDict(dict),
+        tfidf: TfIdf.withDict(idf)
+      }
+    })()
+  }
+
+  return jiebaRuntimePromise
+}
 
 function resolveFileType(filePath: string): ReferenceFileType {
   const extension = extname(filePath).toLowerCase()
@@ -212,7 +240,8 @@ function computeMetrics(text: string, chapters: string[]): ReferenceStyleMetric[
   ]
 }
 
-function extractKeywords(text: string, limit = 10): string[] {
+async function extractKeywords(text: string, limit = 10): Promise<string[]> {
+  const { jieba, tfidf } = await getJiebaRuntime()
   const keywords = tfidf.extractKeywords(jieba, clipText(text, 36_000), Math.max(limit * 2, 18))
   return keywords
     .map((entry) => entry.keyword.trim())
@@ -299,11 +328,11 @@ function buildChunkLabel(index: number, total: number): string {
   return '中段'
 }
 
-function buildAnalysisChunks(chapters: string[]): ReferenceNovelChunk[] {
+async function buildAnalysisChunks(chapters: string[]): Promise<ReferenceNovelChunk[]> {
   const mergedChunks = mergeSectionsIntoChunks(chapters)
   const selectedIndexes = pickRepresentativeChunkIndexes(mergedChunks.length)
 
-  return selectedIndexes.map((chunkIndex, order) => {
+  return Promise.all(selectedIndexes.map(async (chunkIndex, order) => {
     const text = mergedChunks[chunkIndex]
     const plainText = text.replace(/\s+/g, '')
     const label = `${buildChunkLabel(chunkIndex, mergedChunks.length)} ${chunkIndex + 1}/${mergedChunks.length}`
@@ -313,10 +342,10 @@ function buildAnalysisChunks(chapters: string[]): ReferenceNovelChunk[] {
       order,
       text,
       characterCount: plainText.length,
-      topKeywords: extractKeywords(text, CHUNK_KEYWORD_LIMIT),
+      topKeywords: await extractKeywords(text, CHUNK_KEYWORD_LIMIT),
       metrics: computeMetrics(text, [text])
     }
-  })
+  }))
 }
 
 export async function extractReferenceNovelContext(filePath: string): Promise<ReferenceNovelLocalContext> {
@@ -331,6 +360,10 @@ export async function extractReferenceNovelContext(filePath: string): Promise<Re
 
   const chapters = splitChapters(text)
   const excerpt = clipText(chapters[0] ?? text, 800)
+  const [topKeywords, analysisChunks] = await Promise.all([
+    extractKeywords(text),
+    buildAnalysisChunks(chapters)
+  ])
 
   return {
     title,
@@ -340,8 +373,8 @@ export async function extractReferenceNovelContext(filePath: string): Promise<Re
     analysisSample: buildAnalysisSample(chapters, text),
     characterCount: text.replace(/\s+/g, '').length,
     chapterCount: Math.max(chapters.length, 1),
-    topKeywords: extractKeywords(text),
+    topKeywords,
     metrics: computeMetrics(text, chapters),
-    analysisChunks: buildAnalysisChunks(chapters)
+    analysisChunks
   }
 }

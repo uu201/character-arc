@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@node-rs/jieba": "^2.0.1",
+    "@node-rs/jieba-win32-x64-msvc": "^2.0.1",
     "@tiptap/extension-character-count": "^3.22.5",
     "@tiptap/extension-placeholder": "^3.22.5",
     "@tiptap/extension-underline": "^3.22.5",
@@ -42,8 +43,12 @@
       "buildResources": "resources"
     },
     "files": [
-      "dist/**",
-      "dist-electron/**"
+      "out/**",
+      "dist-electron/**",
+      "node_modules/@node-rs/**"
+    ],
+    "asarUnpack": [
+      "node_modules/@node-rs/**"
     ],
     "win": {
       "target": [
@@ -53,7 +58,6 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installationPath": "C:\\Program Files\\character-arc",
       "installerLanguages": ["zh_CN", "en_US"],
       "language": "2052",
       "artifactName": "${productName}-${version}-setup.${ext}"

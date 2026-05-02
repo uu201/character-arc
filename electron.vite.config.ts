@@ -39,7 +39,7 @@ export default defineConfig({
       port: 3000
     },
     build: {
-      outDir: '../dist',
+      outDir: resolve(__dirname, 'out/renderer'),
       rollupOptions: {
         input: resolve(__dirname, 'renderer/index.html')
       }
