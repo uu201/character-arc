@@ -14,6 +14,8 @@ import { isAssistantWindow } from '@/utils/windowKind'
 const appStore = useAppStore()
 // 当前运行平台（win32 / darwin / linux），用于适配标题栏高度
 const platform = window.characterArc?.platform ?? 'unknown'
+const appVersion = window.characterArc?.version ?? '0.0.0'
+const appTitle = `弧光 v${appVersion}`
 
 // 根据当前选中主题生成 Naive UI 主题覆盖变量
 const themeOverrides = computed(() => createNaiveThemeOverrides(appStore.theme))
@@ -64,7 +66,9 @@ watch(
       <n-dialog-provider>
         <n-global-style />
         <div class="app-shell" :style="appStyleVars">
-          <div class="app-titlebar arc-drag-region"></div>
+          <div class="app-titlebar arc-drag-region">
+            <span class="app-titlebar__label">{{ appTitle }}</span>
+          </div>
           <div class="app-content">
             <div v-if="appStore.persistenceError" class="app-error-banner">
               <strong>本地数据读写异常</strong>
@@ -87,3 +91,27 @@ watch(
     </n-message-provider>
   </n-config-provider>
 </template>
+
+<style scoped>
+.app-titlebar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding-top: 4px;
+  padding-right: calc(var(--arc-window-controls-width) + 16px);
+  padding-left: 16px;
+  color: rgba(32, 33, 36, 0.7);
+  pointer-events: none;
+}
+
+.app-titlebar__label {
+  max-width: min(60vw, 420px);
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>

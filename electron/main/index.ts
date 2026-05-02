@@ -141,6 +141,7 @@ function createMainWindow(): BrowserWindow {
     minWidth,
     minHeight,
     autoHideMenuBar: true,
+    title: `弧光 v${app.getVersion()}`,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     // Keep native caption buttons while giving the renderer a compact title-bar area to style around.
     titleBarOverlay:
@@ -215,7 +216,7 @@ function createAssistantWindow(): BrowserWindow {
     y: assistantY,
     parent: mainWindow ?? undefined,
     autoHideMenuBar: true,
-    title: 'AI 创作助理',
+    title: `character-arc v${app.getVersion()} - AI 创作助理`,
     maximizable: false,
     fullscreenable: false,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',

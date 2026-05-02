@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import packageJson from '../../package.json'
 
 function toIpcPayload<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
@@ -10,7 +11,7 @@ contextBridge.exposeInMainWorld('characterArc', {
   /** 当前操作系统平台标识（如 'win32'、'darwin'） */
   platform: process.platform,
   /** 应用版本号 */
-  version: '0.1.0',
+  version: packageJson.version,
 
   // ── 工作区持久化 ──
   /** 从 SQLite 加载当前项目的完整工作区快照 */

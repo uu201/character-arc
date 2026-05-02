@@ -2249,6 +2249,7 @@ function createMainWindow() {
     minWidth,
     minHeight,
     autoHideMenuBar: true,
+    title: `character-arc v${electron.app.getVersion()}`,
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     // Keep native caption buttons while giving the renderer a compact title-bar area to style around.
     titleBarOverlay: process.platform === "win32" ? {
@@ -2308,7 +2309,7 @@ function createAssistantWindow() {
     y: assistantY,
     parent: mainWindow ?? void 0,
     autoHideMenuBar: true,
-    title: "AI 创作助理",
+    title: `character-arc v${electron.app.getVersion()} - AI 创作助理`,
     maximizable: false,
     fullscreenable: false,
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
