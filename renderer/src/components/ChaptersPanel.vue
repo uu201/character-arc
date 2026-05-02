@@ -186,6 +186,20 @@ const currentVolumeLabel = computed(() => {
 const currentChapterTitle = computed(() => appStore.selectedChapter?.title || '未命名章节')
 const chapterCountLabel = computed(() => `${appStore.chapters.length} 个章节`)
 const volumeCountLabel = computed(() => `${appStore.outlineVolumes.length} 个分卷`)
+const formatChapterStatusLabel = (status: ChapterDraft['status']) =>
+  chapterStatusOptions.find((option) => option.value === status)?.label ?? '草稿中'
+const resolveChapterStatusTone = (status: ChapterDraft['status']) => {
+  switch (status) {
+    case 'final':
+      return 'success'
+    case 'polish':
+      return 'accent'
+    case 'review':
+      return 'warning'
+    default:
+      return 'neutral'
+  }
+}
 const currentTargetWordCount = computed(() => parseChapterWordTarget(appStore.selectedChapter?.wordTarget))
 // 当前章节的写作进度百分比（0-100），无目标字数时为 0
 const currentProgressPercent = computed(() => {
@@ -1028,10 +1042,11 @@ onBeforeUnmount(() => {
         <div class="chapter-groups arc-scrollbar">
           <section v-for="group in filteredChapterGroups" :key="group.volume.id" class="chapter-group">
             <div class="chapter-group-head">
-              <div>
+              <div class="chapter-group-head-copy">
                 <strong>{{ formatVolumeLabel(group.volume, group.index, 'compact') }}</strong>
-                <p>{{ group.items.length }} 个章节 · {{ group.volume.wordTarget }}</p>
+                <p>{{ group.items.length }} 个章节</p>
               </div>
+              <span class="chapter-group-target">{{ group.volume.wordTarget }}</span>
               <n-tooltip trigger="hover">
                 <template #trigger>
                   <button class="mini-icon" @click="appStore.createChapter(group.volume.id)">
@@ -1068,9 +1083,11 @@ onBeforeUnmount(() => {
                     <span v-if="appStore.selectedChapterId === chapter.id" class="chapter-pill-current">当前章节</span>
                   </span>
                   <span class="chapter-pill-meta">
-                    <span>{{ formatChapterWordTargetLabel(chapter.wordTarget) }}</span>
+                    <span class="chapter-pill-word-target">{{ formatChapterWordTargetLabel(chapter.wordTarget) }}</span>
                     <span class="chapter-pill-dot"></span>
-                    <span>{{ chapterStatusOptions.find((option) => option.value === chapter.status)?.label ?? '草稿中' }}</span>
+                    <span class="chapter-pill-status" :class="resolveChapterStatusTone(chapter.status)">
+                      {{ formatChapterStatusLabel(chapter.status) }}
+                    </span>
                   </span>
                 </span>
                 <n-dropdown :options="chapterMenuOptions" placement="bottom-end" @select="(key) => handleChapterMenuSelect(key, chapter)">
@@ -1453,10 +1470,11 @@ onBeforeUnmount(() => {
         <div class="chapter-groups compact-panel-groups arc-scrollbar">
           <section v-for="group in filteredChapterGroups" :key="`compact-${group.volume.id}`" class="chapter-group">
             <div class="chapter-group-head">
-              <div>
+              <div class="chapter-group-head-copy">
                 <strong>{{ formatVolumeLabel(group.volume, group.index, 'compact') }}</strong>
-                <p>{{ group.items.length }} 个章节 · {{ group.volume.wordTarget }}</p>
+                <p>{{ group.items.length }} 个章节</p>
               </div>
+              <span class="chapter-group-target">{{ group.volume.wordTarget }}</span>
               <n-tooltip trigger="hover">
                 <template #trigger>
                   <button class="mini-icon" @click="appStore.createChapter(group.volume.id)">
@@ -1481,9 +1499,11 @@ onBeforeUnmount(() => {
                     <span v-if="appStore.selectedChapterId === chapter.id" class="chapter-pill-current">当前章节</span>
                   </span>
                   <span class="chapter-pill-meta">
-                    <span>{{ formatChapterWordTargetLabel(chapter.wordTarget) }}</span>
+                    <span class="chapter-pill-word-target">{{ formatChapterWordTargetLabel(chapter.wordTarget) }}</span>
                     <span class="chapter-pill-dot"></span>
-                    <span>{{ chapterStatusOptions.find((option) => option.value === chapter.status)?.label ?? '草稿中' }}</span>
+                    <span class="chapter-pill-status" :class="resolveChapterStatusTone(chapter.status)">
+                      {{ formatChapterStatusLabel(chapter.status) }}
+                    </span>
                   </span>
                 </span>
               </button>
@@ -1823,29 +1843,200 @@ onBeforeUnmount(() => {
 .chapter-side-badge { display: inline-flex; align-items: center; border: 1px solid var(--chapter-border); border-radius: 999px; background: rgba(255, 255, 255, 0.9); color: #667085; font-size: 11px; font-weight: 700; padding: 5px 10px; }
 .chapter-side-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; flex-shrink: 0; }
 .chapter-side-summary span { display: inline-flex; align-items: center; border: 1px solid var(--chapter-border); border-radius: 999px; background: rgba(255, 255, 255, 0.84); color: #475467; font-size: 11px; font-weight: 700; padding: 6px 9px; }
-.chapter-groups { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 8px; overflow-y: auto; padding-right: 4px; }
-.chapter-group { border: 1px solid var(--chapter-border); border-radius: 18px; background: rgba(255, 255, 255, 0.76); padding: 9px; }
-.chapter-group-head { display: flex; justify-content: space-between; gap: 12px; padding: 4px 4px 10px; }
-.chapter-group-head strong { color: var(--chapter-ink); font-size: 13px; font-weight: 700; }
-.chapter-group-head p { margin: 4px 0 0; color: #7a7f87; font-size: 11px; font-weight: 700; }
-.mini-icon { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border: 1px solid var(--chapter-border); border-radius: 10px; background: rgba(255, 255, 255, 0.9); color: #60656d; cursor: pointer; transition: all 0.18s ease; }
-.mini-icon:hover { border-color: var(--chapter-border-strong); background: #f7f7f7; color: var(--arc-primary); }
-.chapter-items { display: flex; flex-direction: column; gap: 6px; }
-.chapter-pill { position: relative; width: 100%; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; border: 1px solid transparent; border-radius: 14px; background: rgba(255, 255, 255, 0.4); color: #404349; cursor: pointer; padding: 9px 10px; transition: all 0.18s ease; }
-.chapter-pill::before { content: ''; position: absolute; left: 9px; top: 10px; bottom: 10px; width: 3px; border-radius: 999px; background: transparent; opacity: 0; transition: all 0.18s ease; }
-.chapter-pill:hover { border-color: var(--chapter-border); background: rgba(255, 255, 255, 0.88); box-shadow: 0 10px 22px rgba(15, 23, 42, 0.04); transform: translateY(-1px); }
-.chapter-pill.active { border-color: color-mix(in srgb, var(--arc-primary) 14%, var(--chapter-border)); background: linear-gradient(145deg, color-mix(in srgb, var(--arc-primary) 10%, white), rgba(255, 255, 255, 0.98)); color: #1f4ea3; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 12px 26px color-mix(in srgb, var(--arc-primary) 12%, transparent); }
-.chapter-pill.active::before { background: var(--arc-primary); opacity: 1; width: 4px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--arc-primary) 12%, transparent); }
-.chapter-pill-grip { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; color: #c4cad4; flex-shrink: 0; }
-.chapter-pill:hover .chapter-pill-grip { color: #9ca3af; }
-.chapter-pill-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
-.chapter-pill-heading { display: flex; min-width: 0; align-items: center; gap: 8px; }
-.chapter-pill-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; }
-.chapter-pill-meta { display: inline-flex; align-items: center; gap: 5px; color: #7a7f87; font-size: 11px; font-weight: 700; }
-.chapter-pill-current { border: 1px solid rgba(147, 197, 253, 0.92); background: linear-gradient(135deg, rgba(239, 246, 255, 0.98), rgba(219, 234, 254, 0.92)); color: #1d4ed8; font-size: 10px; font-weight: 800; border-radius: 999px; padding: 0 8px; }
+.chapter-groups { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 12px; overflow-y: auto; padding-right: 6px; }
+.chapter-group {
+  border: 1px solid rgba(214, 223, 236, 0.9);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 250, 253, 0.9)),
+    radial-gradient(circle at top left, rgba(191, 219, 254, 0.18), transparent 55%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 14px 28px rgba(15, 23, 42, 0.05);
+  padding: 12px;
+}
+.chapter-group-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 2px 12px;
+}
+.chapter-group-head-copy { min-width: 0; }
+.chapter-group-head strong {
+  display: block;
+  color: var(--chapter-ink);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.chapter-group-head p {
+  margin: 5px 0 0;
+  color: #7b8698;
+  font-size: 11px;
+  font-weight: 700;
+}
+.chapter-group-target {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(191, 219, 254, 0.82);
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.88);
+  color: #2756b5;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.mini-icon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(214, 223, 236, 0.96);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 252, 0.96));
+  color: #5f6b7d;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+  transition: all 0.18s ease;
+}
+.mini-icon:hover {
+  border-color: color-mix(in srgb, var(--arc-primary) 18%, rgba(214, 223, 236, 0.96));
+  background: rgba(255, 255, 255, 1);
+  color: var(--arc-primary);
+  transform: translateY(-1px);
+}
+.chapter-items { display: flex; flex-direction: column; gap: 8px; }
+.chapter-pill {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(221, 228, 239, 0.96);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 251, 253, 0.92));
+  color: #404349;
+  cursor: pointer;
+  padding: 11px 12px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.03);
+  transition: all 0.18s ease;
+}
+.chapter-pill::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 11px;
+  bottom: 11px;
+  width: 4px;
+  border-radius: 999px;
+  background: rgba(201, 209, 223, 0.8);
+  transition: all 0.18s ease;
+}
+.chapter-pill:hover {
+  border-color: rgba(191, 219, 254, 0.9);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(246, 249, 255, 0.96));
+  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.07);
+  transform: translateY(-1px);
+}
+.chapter-pill.active {
+  border-color: rgba(147, 197, 253, 0.92);
+  background:
+    linear-gradient(180deg, rgba(247, 251, 255, 0.98), rgba(236, 245, 255, 0.96)),
+    radial-gradient(circle at top left, rgba(96, 165, 250, 0.12), transparent 55%);
+  color: #18428b;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 16px 30px rgba(37, 99, 235, 0.12);
+}
+.chapter-pill.active::before {
+  background: linear-gradient(180deg, #60a5fa, #2563eb);
+  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.14);
+}
+.chapter-pill-grip {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  color: #c2cad8;
+  flex-shrink: 0;
+}
+.chapter-pill:hover .chapter-pill-grip { color: #8fa1bb; }
+.chapter-pill-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 6px; padding-left: 12px; }
+.chapter-pill-heading { display: flex; min-width: 0; align-items: flex-start; gap: 8px; }
+.chapter-pill-label {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+.chapter-pill-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: #7a7f87;
+  font-size: 11px;
+  font-weight: 700;
+}
+.chapter-pill-word-target {
+  color: #516177;
+  font-weight: 800;
+}
+.chapter-pill-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.chapter-pill-status.neutral {
+  background: rgba(243, 244, 246, 0.92);
+  color: #667085;
+}
+.chapter-pill-status.warning {
+  background: rgba(255, 247, 218, 0.96);
+  color: #a16207;
+}
+.chapter-pill-status.accent {
+  background: rgba(225, 239, 255, 0.96);
+  color: #1d4ed8;
+}
+.chapter-pill-status.success {
+  background: rgba(234, 250, 239, 0.96);
+  color: #15803d;
+}
+.chapter-pill-current {
+  border: 1px solid rgba(147, 197, 253, 0.92);
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.98), rgba(219, 234, 254, 0.92));
+  color: #1d4ed8;
+  font-size: 10px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
 .chapter-pill-dot { width: 4px; height: 4px; border-radius: 999px; background: #d1d5db; }
-.chapter-pill-action { display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 4px; color: #9aa0a6; }
-.chapter-pill:hover .chapter-pill-action:hover { background: rgba(0, 0, 0, 0.05); color: #6b7280; }
+.chapter-pill-action {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #9aa0a6;
+  flex-shrink: 0;
+}
+.chapter-pill:hover .chapter-pill-action:hover {
+  background: rgba(15, 23, 42, 0.05);
+  color: #4f5f79;
+}
 
 /* =========== 顶部工具栏与外壳结构 =========== */
 .editor-shell {
@@ -2146,6 +2337,17 @@ onBeforeUnmount(() => {
 .inspiration-source { background: rgba(241, 245, 249, 0.95); color: #64748b; padding: 5px 8px; font-size: 11px; font-weight: 700; border-radius: 999px; }
 .inspiration-item strong { display: block; color: #18212f; font-size: 13px; font-weight: 700; line-height: 1.5; }
 .inspiration-item p { margin: 8px 0 0; color: #4f5b67; font-size: 12px; line-height: 1.75; }
+
+@media (max-width: 860px) {
+  .chapter-group-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .chapter-group-target {
+    grid-column: 1 / -1;
+    justify-self: flex-start;
+  }
+}
 
 /* =========== 底部状态栏 =========== */
 .editor-status {

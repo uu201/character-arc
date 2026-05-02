@@ -17,7 +17,7 @@ const emit = defineEmits<{
     <div class="hero-actions arc-no-drag">
       <button class="secondary-action" @click="emit('openSettings')">
         <Settings2 :size="18" />
-        <span>主页设置</span>
+        <span>设置</span>
       </button>
       <button class="primary-action" @click="emit('create')">
         <Plus :size="18" />

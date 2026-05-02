@@ -141,7 +141,7 @@ function saveSettings(): void {
     appStore.setTheme(draftTheme.value)
   }
 
-  message.success('主页设置已保存')
+  message.success('设置已保存')
   emit('update:show', false)
 }
 </script>
@@ -151,17 +151,13 @@ function saveSettings(): void {
     :show="show"
     preset="card"
     class="arc-settings-modal"
-    title="主页设置"
+    title="设置"
     :bordered="false"
     @close="closeModal"
   >
     <div class="settings-layout">
       <aside class="settings-rail">
-        <div class="settings-rail-head">
-          <span class="rail-kicker">应用级设置</span>
-          <h3>AI、主题与偏好统一放在首页管理</h3>
-          <p>先在这里调整草稿，确认后再统一保存到整个应用。</p>
-        </div>
+
 
         <div class="rail-stack">
           <div class="rail-card">
@@ -192,7 +188,7 @@ function saveSettings(): void {
           <div class="section-title">
             <Cpu :size="18" />
             <div>
-              <strong>AI 连接</strong>
+              <strong>AI 接口配置</strong>
               <p>选择供应商并维护模型连接参数。</p>
             </div>
           </div>
