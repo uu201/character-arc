@@ -244,6 +244,7 @@ function saveSettings(): void {
             <n-form-item label="API Key">
               <n-input
                 type="password"
+                show-password-on="click"
                 :value="draftSettings.apiKey"
                 :placeholder="draftSettings.provider === 'ollama' ? '本地 Ollama 通常不需要 API Key' : '填写对应平台或网关的 Token'"
                 @update:value="(value) => { draftSettings.apiKey = value }"
