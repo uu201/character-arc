@@ -7,6 +7,11 @@ import type { Node as PmNode } from '@tiptap/pm/model'
 
 export type SearchMatch = { from: number; to: number }
 
+export interface EditorSearchStorage {
+  matches: SearchMatch[]
+  currentIndex: number
+}
+
 // TipTap 3.x requires module augmentation to type custom commands
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -17,6 +22,10 @@ declare module '@tiptap/core' {
       replaceCurrentMatch: (replacement: string) => ReturnType
       replaceAllMatches: (replacement: string) => ReturnType
     }
+  }
+
+  interface Storage {
+    editorSearch: EditorSearchStorage
   }
 }
 
@@ -52,11 +61,6 @@ function buildDecorations(doc: PmNode, matches: SearchMatch[], currentIndex: num
       class: i === currentIndex ? 'search-hl search-hl-cur' : 'search-hl'
     })
   ))
-}
-
-export interface EditorSearchStorage {
-  matches: SearchMatch[]
-  currentIndex: number
 }
 
 export const EditorSearchExtension = Extension.create<object, EditorSearchStorage>({
@@ -107,7 +111,7 @@ export const EditorSearchExtension = Extension.create<object, EditorSearchStorag
         const tr = state.tr.setMeta(SEARCH_KEY, { term, caseSensitive, currentIndex: 0 })
         dispatch(tr)
         const pluginState = SEARCH_KEY.getState(editor.state)
-        const storage = (editor.storage as Record<string, EditorSearchStorage>).editorSearch
+        const storage = editor.storage.editorSearch
         storage.matches = pluginState?.matches ?? []
         storage.currentIndex = 0
         const first = pluginState?.matches[0]
@@ -122,7 +126,7 @@ export const EditorSearchExtension = Extension.create<object, EditorSearchStorag
         if (!pluginState?.matches.length || !dispatch) return false
         const nextIndex = (pluginState.currentIndex + 1) % pluginState.matches.length
         dispatch(state.tr.setMeta(SEARCH_KEY, { currentIndex: nextIndex }))
-        ;(editor.storage as Record<string, EditorSearchStorage>).editorSearch.currentIndex = nextIndex
+        editor.storage.editorSearch.currentIndex = nextIndex
         const match = pluginState.matches[nextIndex]
         editor.chain().setTextSelection(match).scrollIntoView().run()
         return true
@@ -133,7 +137,7 @@ export const EditorSearchExtension = Extension.create<object, EditorSearchStorag
         if (!pluginState?.matches.length || !dispatch) return false
         const prevIndex = (pluginState.currentIndex - 1 + pluginState.matches.length) % pluginState.matches.length
         dispatch(state.tr.setMeta(SEARCH_KEY, { currentIndex: prevIndex }))
-        ;(editor.storage as Record<string, EditorSearchStorage>).editorSearch.currentIndex = prevIndex
+        editor.storage.editorSearch.currentIndex = prevIndex
         const match = pluginState.matches[prevIndex]
         editor.chain().setTextSelection(match).scrollIntoView().run()
         return true

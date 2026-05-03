@@ -48,7 +48,7 @@ function closeSearch() {
 }
 
 function syncSearchRefs() {
-  const storage = editor.value?.storage['editorSearch'] as { matches: unknown[]; currentIndex: number } | undefined
+  const storage = editor.value?.storage.editorSearch
   matchCount.value = storage?.matches?.length ?? 0
   currentMatchIndex.value = storage?.currentIndex ?? 0
 }
