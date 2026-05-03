@@ -297,8 +297,8 @@ onBeforeUnmount(() => {
 }
 
 .rich-editor-shell.focused {
-  border-color: #b8cdf5;
-  box-shadow: 0 0 0 1px #b8cdf5;
+  border-color: color-mix(in srgb, var(--arc-primary) 48%, var(--arc-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--arc-primary) 48%, var(--arc-border));
 }
 
 .rich-editor-toolbar {
@@ -306,8 +306,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  border-bottom: 1px solid #d4d4d8;
-  background: #f7f7f7;
+  border-bottom: 1px solid var(--arc-border);
+  background: var(--arc-bg-sidebar);
   padding: 8px 10px;
 }
 
@@ -345,15 +345,15 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-button:hover:not(:disabled) {
-  border-color: #c7c7cf;
-  background: #fafafa;
+  border-color: var(--arc-border-strong);
+  background: var(--arc-bg-weak);
   color: var(--arc-primary);
 }
 
 .toolbar-button.active {
-  border-color: #b8cdf5;
-  background: #eaf2ff;
-  color: #1f4ea3;
+  border-color: color-mix(in srgb, var(--arc-primary) 30%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-surface));
+  color: var(--arc-primary);
 }
 
 .toolbar-button.icon-only {
@@ -370,7 +370,7 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-metric {
-  color: #6a7078;
+  color: var(--arc-text-hint);
   font-size: 12px;
   font-weight: 600;
   margin-right: 4px;
@@ -386,7 +386,7 @@ onBeforeUnmount(() => {
 .rich-editor-content :deep(.chapter-rich-text) {
   height: 100%;
   min-height: 0;
-  color: #333336;
+  color: var(--arc-text-primary);
   font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
   font-size: 16px;
   line-height: 1.85;
@@ -400,13 +400,13 @@ onBeforeUnmount(() => {
   content: attr(data-placeholder);
   float: left;
   height: 0;
-  color: #9ca3af;
+  color: var(--arc-text-hint);
   pointer-events: none;
 }
 
 .rich-editor-content :deep(.chapter-rich-text h2),
 .rich-editor-content :deep(.chapter-rich-text h3) {
-  color: #202124;
+  color: var(--arc-text-primary);
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.3;
@@ -432,8 +432,8 @@ onBeforeUnmount(() => {
 }
 
 .rich-editor-content :deep(.chapter-rich-text blockquote) {
-  border-left: 3px solid #d4d4d8;
-  color: #475569;
+  border-left: 3px solid var(--arc-border-strong);
+  color: var(--arc-text-secondary);
   margin: 0 0 1.2em;
   padding-left: 12px;
 }
