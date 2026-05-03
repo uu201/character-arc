@@ -34,10 +34,7 @@ const hasChapterContext = computed(() => Boolean(appStore.currentProject && appS
   min-width: 0;
   min-height: 0;
   padding: 18px;
-  background:
-    linear-gradient(180deg, #f4f6fb, #f7f9fc 24%, #eef2f7 100%),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--arc-primary) 10%, white), transparent 28%),
-    radial-gradient(circle at bottom left, rgba(255, 255, 255, 0.82), transparent 26%);
+  background: var(--arc-bg-body);
 }
 
 .assistant-window-frame {
@@ -46,22 +43,17 @@ const hasChapterContext = computed(() => Boolean(appStore.currentProject && appS
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 26px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(244, 248, 253, 0.9));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.88),
-    0 28px 70px rgba(15, 23, 42, 0.08);
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
+  box-shadow: var(--arc-shadow-sm);
 }
 
 .assistant-window-frame :deep(.assistant-shell) {
   width: 100%;
   min-width: 0;
   border-left: none;
-  background:
-    linear-gradient(180deg, rgba(249, 251, 254, 0.94), rgba(241, 245, 251, 0.98)),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--arc-primary) 8%, white), transparent 32%);
+  background: var(--arc-bg-surface);
 }
 
 .assistant-window-empty {
@@ -81,20 +73,20 @@ const hasChapterContext = computed(() => Boolean(appStore.currentProject && appS
   height: 52px;
   align-items: center;
   justify-content: center;
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 
 .assistant-window-empty strong {
-  color: #111827;
+  color: var(--arc-text-primary);
   font-size: 16px;
 }
 
 .assistant-window-empty p {
   max-width: 260px;
   margin: 0;
-  color: #6b7280;
+  color: var(--arc-text-secondary);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -105,7 +97,7 @@ const hasChapterContext = computed(() => Boolean(appStore.currentProject && appS
   }
 
   .assistant-window-frame {
-    border-radius: 20px;
+    border-radius: 10px;
   }
 }
 </style>

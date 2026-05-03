@@ -528,9 +528,9 @@ async function goNext(): Promise<void> {
   margin: 0 auto;
   overflow: hidden;
   border: 1px solid var(--arc-border);
-  border-radius: 26px;
-  background: color-mix(in srgb, var(--arc-bg-surface) 96%, white);
-  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
+  border-radius: 12px;
+  background: var(--arc-bg-surface);
+  box-shadow: var(--arc-shadow-md);
 }
 
 .wizard-sidebar {
@@ -541,8 +541,7 @@ async function goNext(): Promise<void> {
   padding: 28px 24px;
   border-right: 1px solid var(--arc-border);
   overflow-y: auto;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--arc-primary) 4%, white), color-mix(in srgb, var(--arc-bg-surface) 96%, white));
+  background: var(--arc-bg-sidebar);
 }
 
 .sidebar-copy h1 {
@@ -590,10 +589,7 @@ async function goNext(): Promise<void> {
   align-items: start;
   gap: 12px;
   border: 1px solid transparent;
-  border-radius: 18px;
-  background: transparent;
-  color: inherit;
-  cursor: default;
+  border-radius: 10px;
   padding: 12px;
   text-align: left;
   transition:
@@ -608,7 +604,7 @@ async function goNext(): Promise<void> {
 
 .step-item.clickable:hover {
   border-color: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-border));
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--arc-bg-surface);
 }
 
 .step-item:disabled {
@@ -617,11 +613,11 @@ async function goNext(): Promise<void> {
 
 .step-item.active {
   border-color: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-border));
-  background: white;
+  background: var(--arc-bg-surface);
 }
 
 .step-item.done:not(.active) {
-  background: color-mix(in srgb, var(--arc-primary) 4%, white);
+  background: var(--arc-bg-weak);
 }
 
 .step-marker {
@@ -639,13 +635,13 @@ async function goNext(): Promise<void> {
 }
 
 .step-item.active .step-marker {
-  border-color: color-mix(in srgb, var(--arc-primary) 25%, white);
-  background: color-mix(in srgb, var(--arc-primary) 12%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 25%, var(--arc-bg-mix));
+  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 
 .step-item.done .step-marker {
-  border-color: color-mix(in srgb, var(--arc-primary) 18%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 18%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 
@@ -675,8 +671,8 @@ async function goNext(): Promise<void> {
   justify-content: flex-end;
   padding: 18px;
   border: 1px solid var(--arc-border);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.78);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
 }
 
 .sidebar-panel h2 {
@@ -726,7 +722,7 @@ async function goNext(): Promise<void> {
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  background: color-mix(in srgb, var(--arc-bg-surface) 94%, white);
+  background: var(--arc-bg-surface);
 }
 
 .wizard-header {
@@ -739,7 +735,7 @@ async function goNext(): Promise<void> {
   flex-shrink: 0;
   padding: 28px 28px 18px;
   border-bottom: 1px solid var(--arc-border);
-  background: color-mix(in srgb, var(--arc-bg-surface) 94%, white);
+  background: var(--arc-bg-surface);
 }
 
 .back-button {
@@ -749,11 +745,7 @@ async function goNext(): Promise<void> {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--arc-border);
-  border-radius: 12px;
-  background: var(--arc-bg-surface);
-  color: var(--arc-text-secondary);
-  cursor: pointer;
-  flex-shrink: 0;
+  border-radius: 8px;
   transition:
     border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
     background 0.2s cubic-bezier(0.16, 1, 0.3, 1),
@@ -762,7 +754,7 @@ async function goNext(): Promise<void> {
 
 .back-button:hover {
   border-color: color-mix(in srgb, var(--arc-primary) 16%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 4%, white);
+  background: var(--arc-bg-weak);
   color: var(--arc-text-primary);
 }
 
@@ -810,9 +802,7 @@ async function goNext(): Promise<void> {
 
 .content-card {
   border: 1px solid var(--arc-border);
-  border-radius: 22px;
-  background: var(--arc-bg-surface);
-  padding: 22px;
+  border-radius: 10px;
 }
 
 .section-head {
@@ -847,12 +837,7 @@ async function goNext(): Promise<void> {
 .field label {
   display: block;
   margin-bottom: 8px;
-  color: #4b5563;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.inline-label {
+  color: var(--arc-text-secondary);
   display: inline-flex !important;
   align-items: center;
   gap: 6px;
@@ -874,8 +859,8 @@ async function goNext(): Promise<void> {
 .wizard-textarea {
   width: 100%;
   border: 1px solid var(--arc-border);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--arc-bg-weak) 72%, white);
+  border-radius: 8px;
+  background: var(--arc-bg-weak);
   color: var(--arc-text-primary);
   outline: none;
   transition:
@@ -887,8 +872,7 @@ async function goNext(): Promise<void> {
 .wizard-input:focus,
 .wizard-textarea:focus {
   border-color: color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
-  background: white;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--arc-primary) 12%, transparent);
+  background: var(--arc-bg-surface);
 }
 
 .wizard-input {
@@ -915,12 +899,7 @@ async function goNext(): Promise<void> {
 
 .genre-section h4 {
   margin: 0;
-  color: #6b7280;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.genre-grid {
+  color: var(--arc-text-hint);
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
@@ -929,7 +908,7 @@ async function goNext(): Promise<void> {
 .genre-chip,
 .length-card {
   border: 1px solid var(--arc-border);
-  background: color-mix(in srgb, var(--arc-bg-weak) 76%, white);
+  background: var(--arc-bg-weak);
   transition:
     border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
     background 0.2s cubic-bezier(0.16, 1, 0.3, 1),
@@ -937,8 +916,8 @@ async function goNext(): Promise<void> {
 }
 
 .genre-chip {
-  border-radius: 14px;
-  color: #5f6368;
+  border-radius: 8px;
+  color: var(--arc-text-secondary);
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
@@ -948,10 +927,9 @@ async function goNext(): Promise<void> {
 .genre-chip:hover,
 .length-card:hover {
   border-color: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-border));
-  background: white;
+  background: var(--arc-bg-surface);
 }
 
-.genre-chip:active,
 .length-card:active,
 .primary-action:active:not(:disabled),
 .secondary-action:active:not(:disabled) {
@@ -961,7 +939,7 @@ async function goNext(): Promise<void> {
 .genre-chip.active,
 .length-card.active {
   border-color: color-mix(in srgb, var(--arc-primary) 22%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 
@@ -990,8 +968,8 @@ async function goNext(): Promise<void> {
   align-items: flex-start;
   justify-content: center;
   gap: 8px;
-  border-radius: 18px;
-  color: #4b5563;
+  border-radius: 10px;
+  color: var(--arc-text-secondary);
   cursor: pointer;
   padding: 16px;
   text-align: left;
@@ -1017,12 +995,7 @@ async function goNext(): Promise<void> {
 
 .field-hint {
   margin: 8px 0 0;
-  color: #7a7f87;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.premise-card {
+  color: var(--arc-text-hint);
   display: flex;
   flex-direction: column;
   min-height: 100%;
@@ -1038,11 +1011,8 @@ async function goNext(): Promise<void> {
 .helper-card,
 .toggle-panel {
   border: 1px solid var(--arc-border);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--arc-bg-weak) 76%, white);
-}
-
-.helper-card {
+  border-radius: 8px;
+  background: var(--arc-bg-weak);
   padding: 14px 16px;
 }
 
@@ -1085,8 +1055,7 @@ async function goNext(): Promise<void> {
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--arc-primary) 14%, var(--arc-border));
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--arc-primary) 8%, white);
+  border-radius: 12px;
   color: var(--arc-primary);
 }
 
@@ -1097,12 +1066,12 @@ async function goNext(): Promise<void> {
 .progress-ring {
   position: absolute;
   inset: -4px;
-  border-radius: 22px;
+  border-radius: 24px;
   background: conic-gradient(
     from 0deg,
-    color-mix(in srgb, var(--arc-primary) 92%, white),
-    color-mix(in srgb, var(--arc-primary) 24%, white),
-    color-mix(in srgb, var(--arc-primary) 92%, white)
+    color-mix(in srgb, var(--arc-primary) 92%, var(--arc-bg-mix)),
+    color-mix(in srgb, var(--arc-primary) 24%, var(--arc-bg-mix)),
+    color-mix(in srgb, var(--arc-primary) 92%, var(--arc-bg-mix))
   );
   mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
   animation: spinRing 1.8s linear infinite;
@@ -1184,7 +1153,7 @@ async function goNext(): Promise<void> {
   flex-shrink: 0;
   padding: 18px 28px 24px;
   border-top: 1px solid var(--arc-border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), white);
+  background: var(--arc-bg-surface);
 }
 
 .footer-meta p {
@@ -1208,10 +1177,7 @@ async function goNext(): Promise<void> {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 14px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 650;
+  border-radius: 8px;
   padding: 0 18px;
   transition:
     border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
@@ -1228,7 +1194,7 @@ async function goNext(): Promise<void> {
 
 .secondary-action:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 3%, white);
+  background: var(--arc-bg-weak);
 }
 
 .primary-action {
@@ -1281,7 +1247,7 @@ async function goNext(): Promise<void> {
 
   .step-item {
     padding: 10px;
-    border-radius: 14px;
+    border-radius: 10px;
   }
 
   .step-text small {
@@ -1291,7 +1257,7 @@ async function goNext(): Promise<void> {
   .sidebar-panel {
     justify-content: flex-start;
     padding: 14px;
-    border-radius: 16px;
+    border-radius: 10px;
   }
 
   .sidebar-panel h2 {
@@ -1370,7 +1336,7 @@ async function goNext(): Promise<void> {
   }
 
   .content-card {
-    border-radius: 16px;
+    border-radius: 10px;
     padding: 14px;
   }
 
@@ -1391,17 +1357,13 @@ async function goNext(): Promise<void> {
   .genre-chip {
     padding: 10px 8px;
     font-size: 12px;
-    border-radius: 12px;
-  }
-
-  .length-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-radius: 8px;
   }
 
   .length-card {
     min-height: 68px;
     padding: 12px;
-    border-radius: 14px;
+    border-radius: 10px;
   }
 
   .premise-helper-grid {
@@ -1421,18 +1383,14 @@ async function goNext(): Promise<void> {
   .generate-icon {
     width: 52px;
     height: 52px;
-    border-radius: 14px;
-  }
-
-  .wizard-textarea {
-    min-height: 180px;
+    border-radius: 10px;
   }
 
   .primary-action,
   .secondary-action {
     min-height: 40px;
     font-size: 13px;
-    border-radius: 12px;
+    border-radius: 8px;
   }
 }
 
@@ -1455,18 +1413,13 @@ async function goNext(): Promise<void> {
 
   .content-card {
     padding: 12px 10px;
-    border-radius: 14px;
+    border-radius: 10px;
   }
 
   .wizard-input,
   .wizard-textarea {
     font-size: 14px;
-    border-radius: 12px;
-  }
-
-  .wizard-textarea {
-    min-height: 140px;
-    padding: 12px;
+    border-radius: 8px;
   }
 
   .header-copy h2 {
@@ -1549,7 +1502,7 @@ async function goNext(): Promise<void> {
 
 .compact-step.active {
   color: var(--arc-primary);
-  background: color-mix(in srgb, var(--arc-primary) 8%, white);
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
 }
 
 .compact-step.done:not(.active) {
@@ -1571,13 +1524,13 @@ async function goNext(): Promise<void> {
 }
 
 .compact-step.active .compact-step-marker {
-  border-color: color-mix(in srgb, var(--arc-primary) 25%, white);
-  background: color-mix(in srgb, var(--arc-primary) 12%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 25%, var(--arc-bg-mix));
+  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 
 .compact-step.done .compact-step-marker {
-  border-color: color-mix(in srgb, var(--arc-primary) 18%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 18%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 
@@ -1610,7 +1563,7 @@ async function goNext(): Promise<void> {
     position: relative;
     padding: 10px 18px 14px;
     border-bottom: 1px solid var(--arc-border);
-    background: color-mix(in srgb, var(--arc-bg-surface) 94%, white);
+    background: var(--arc-bg-surface);
   }
 }
 

@@ -341,9 +341,9 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
 }
 
 .world-card {
-  border: 1px solid rgba(243, 244, 246, 0.9);
-  border-radius: 28px;
-  background: white;
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
   cursor: pointer;
   padding: clamp(18px, 2.2vw, 24px);
@@ -396,7 +396,7 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
 }
 
 .world-card:hover .entry-type {
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 
@@ -450,8 +450,8 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
   align-items: center;
   justify-content: center;
   gap: 10px;
-  border: 2px dashed rgba(229, 231, 235, 0.95);
-  border-radius: 28px;
+  border: 2px dashed var(--arc-border);
+  border-radius: 10px;
   background: transparent;
   color: #86868b;
   cursor: pointer;
@@ -461,8 +461,8 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
 }
 
 .empty-card:hover {
-  background: color-mix(in srgb, var(--arc-primary) 5%, white);
-  border-color: color-mix(in srgb, var(--arc-primary) 20%, white);
+  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-mix));
+  border-color: color-mix(in srgb, var(--arc-primary) 20%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 

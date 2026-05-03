@@ -63,14 +63,16 @@ export function createNaiveThemeOverrides(name: ThemeName): GlobalThemeOverrides
       primaryColorPressed: preset.primaryPressed,
       primaryColorSuppl: preset.primaryHover,
       borderRadius: '6px',
-      // 优先使用系统原生中文字体，提升各平台渲染效果
+      borderRadiusSmall: '4px',
       fontFamily:
         '-apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif'
     },
     Button: {
       borderRadiusMedium: '6px',
-      paddingMedium: '0 16px',
-      fontWeight: '500'
+      borderRadiusSmall: '6px',
+      borderRadiusLarge: '8px',
+      paddingMedium: '0 14px',
+      fontWeight: '600'
     },
     Input: {
       borderRadius: '6px'
@@ -82,8 +84,14 @@ export function createNaiveThemeOverrides(name: ThemeName): GlobalThemeOverrides
         }
       }
     },
+    Card: {
+      borderRadius: '10px'
+    },
     Modal: {
-      borderRadius: '8px'
+      borderRadius: '10px'
+    },
+    Dialog: {
+      borderRadius: '10px'
     }
   }
 }

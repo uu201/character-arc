@@ -151,7 +151,7 @@ function clearCover(): void {
 
 <style scoped>
 .project-editor-modal :deep(.n-card) {
-  border-radius: 24px;
+  border-radius: 10px;
 }
 
 .cover-editor {
@@ -166,7 +166,7 @@ function clearCover(): void {
   height: 112px;
   align-items: center;
   justify-content: center;
-  border-radius: 22px;
+  border-radius: 10px;
   color: white;
   flex-shrink: 0;
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.1);
@@ -200,8 +200,8 @@ function clearCover(): void {
   justify-content: center;
   gap: 8px;
   border: 2px solid transparent;
-  border-radius: 18px;
-  background: rgba(249, 250, 251, 0.9);
+  border-radius: 8px;
+  background: var(--arc-bg-weak);
   color: #4b5563;
   cursor: pointer;
   padding: 16px;
@@ -214,8 +214,8 @@ function clearCover(): void {
 }
 
 .length-card.active {
-  border-color: color-mix(in srgb, var(--arc-primary) 18%, white);
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 18%, var(--arc-bg-mix));
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 

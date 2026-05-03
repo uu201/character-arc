@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Plus, Settings2 } from 'lucide-vue-next'
+import { NButton } from 'naive-ui'
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -15,14 +16,14 @@ const emit = defineEmits<{
     </div>
 
     <div class="hero-actions arc-no-drag">
-      <button class="secondary-action" @click="emit('openSettings')">
-        <Settings2 :size="18" />
-        <span>设置</span>
-      </button>
-      <button class="primary-action" @click="emit('create')">
-        <Plus :size="18" />
-        <span>新建作品</span>
-      </button>
+      <n-button size="large" class="hero-btn arc-no-drag" @click="emit('openSettings')">
+        <template #icon><Settings2 :size="18" /></template>
+        设置
+      </n-button>
+      <n-button type="primary" size="large" class="hero-btn arc-no-drag" @click="emit('create')">
+        <template #icon><Plus :size="18" /></template>
+        新建作品
+      </n-button>
     </div>
   </header>
 </template>
@@ -63,50 +64,9 @@ const emit = defineEmits<{
   flex-shrink: 0;
 }
 
-.primary-action,
-.secondary-action {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: 14px;
-  cursor: pointer;
-  font-size: 14px;
+.hero-btn {
+  border-radius: 14px !important;
   font-weight: 650;
-  padding: 0 16px;
-  transition:
-    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-    background 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.primary-action {
-  border: none;
-  background: var(--arc-primary);
-  color: white;
-}
-
-.primary-action:hover {
-  background: var(--arc-primary-hover);
-  box-shadow: 0 10px 20px color-mix(in srgb, var(--arc-primary) 16%, transparent);
-}
-
-.secondary-action {
-  border: 1px solid var(--arc-border);
-  background: color-mix(in srgb, var(--arc-bg-surface) 90%, white);
-  color: var(--arc-text-primary);
-}
-
-.secondary-action:hover {
-  border-color: color-mix(in srgb, var(--arc-primary) 14%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 3%, white);
-}
-
-.primary-action:active,
-.secondary-action:active {
-  transform: scale(0.98);
 }
 
 @media (max-width: 720px) {
@@ -119,15 +79,8 @@ const emit = defineEmits<{
     width: 100%;
   }
 
-  .hero-actions button {
+  .hero-actions :deep(.n-button) {
     flex: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .primary-action,
-  .secondary-action {
-    transition: none;
   }
 }
 </style>

@@ -663,7 +663,7 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
 }
 
 .section-kicker {
-  color: color-mix(in srgb, var(--arc-primary) 74%, white);
+  color: var(--arc-primary);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.2em;
@@ -695,7 +695,7 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   gap: 8px;
   border: none;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 12%, white);
+  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
   color: var(--arc-primary);
   cursor: pointer;
   font-size: 14px;
@@ -724,8 +724,8 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  background: rgba(248, 250, 252, 0.9);
-  color: #64748b;
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-secondary);
   font-size: 12px;
   font-weight: 700;
   padding: 9px 14px;
@@ -738,11 +738,9 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
 }
 
 .volume-section {
-  border: 1px solid rgba(226, 232, 240, 0.76);
-  border-radius: 30px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.92)),
-    radial-gradient(circle at top left, color-mix(in srgb, var(--arc-primary) 8%, white), transparent 38%);
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   padding: 22px;
 }
 
@@ -753,7 +751,7 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   gap: 18px;
   padding-bottom: 18px;
   margin-bottom: 18px;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.72);
+  border-bottom: 1px solid var(--arc-border);
 }
 
 .volume-copy {
@@ -781,7 +779,7 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
 .volume-copy p {
   max-width: 720px;
   margin: 0;
-  color: #64748b;
+  color: var(--arc-text-secondary);
   font-size: 14px;
   line-height: 1.75;
 }
@@ -802,9 +800,9 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border: 1px solid rgba(243, 244, 246, 0.9);
-  border-radius: 20px;
-  background: white;
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.03);
   padding: 16px 20px;
   cursor: pointer;
@@ -823,7 +821,7 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
 }
 
 .outline-item.drop-target {
-  border-color: color-mix(in srgb, var(--arc-primary) 26%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 26%, var(--arc-bg-mix));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 12%, transparent);
 }
 
@@ -889,7 +887,7 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
   height: 7px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(226, 232, 240, 0.92);
+  background: var(--arc-border);
 }
 
 .outline-progress-track span {
@@ -934,7 +932,7 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
 }
 
 .outline-status-pill.chapter {
-  border: 1px solid rgba(226, 232, 240, 0.76);
+  border: 1px solid var(--arc-border);
 }
 
 .outline-grip {

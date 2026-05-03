@@ -177,7 +177,8 @@ export const defaultAppSettings: AppSettings = {
   apiKey: '',
   baseUrl: 'https://api.deepseek.com/v1',
   autoSaveInterval: '5m',
-  uiScale: 1
+  uiScale: 1,
+  darkMode: false
 }
 
 // 合并用户设置与默认设置，uiScale 限制在 0.75-1.75 的合理范围内

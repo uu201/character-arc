@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { Cpu, Download, MonitorCog, Palette, PlugZap, RefreshCw, Save } from 'lucide-vue-next'
-import { NButton, NFormItem, NInput, NModal, NSelect, useMessage } from 'naive-ui'
+import { Cpu, Download, MonitorCog, Moon, Palette, PlugZap, RefreshCw, Save } from 'lucide-vue-next'
+import { NButton, NFormItem, NInput, NModal, NSelect, NSwitch, useMessage } from 'naive-ui'
 import { autoSaveOptions, formatAutoSaveIntervalLabel, isLiveAutoSaveInterval } from '@/features/settings/autoSave'
 import { getProviderPreset, providerOptions, resolveProviderDefaults } from '@/features/settings/providerPresets'
 import { useAppStore } from '@/stores/app'
@@ -40,7 +40,8 @@ const draftSettings = reactive<AppSettings>({
   apiKey: '',
   baseUrl: '',
   autoSaveInterval: '5m',
-  uiScale: 1
+  uiScale: 1,
+  darkMode: false
 })
 const draftTheme = ref<ThemeName>('ocean')
 
@@ -59,6 +60,7 @@ const hasPendingChanges = computed(() =>
   || draftSettings.baseUrl !== appStore.appSettings.baseUrl
   || draftSettings.autoSaveInterval !== appStore.appSettings.autoSaveInterval
   || draftSettings.uiScale !== appStore.appSettings.uiScale
+  || draftSettings.darkMode !== appStore.appSettings.darkMode
 )
 
 function syncDraftFromStore(): void {
@@ -68,6 +70,7 @@ function syncDraftFromStore(): void {
   draftSettings.baseUrl = appStore.appSettings.baseUrl
   draftSettings.autoSaveInterval = appStore.appSettings.autoSaveInterval
   draftSettings.uiScale = appStore.appSettings.uiScale
+  draftSettings.darkMode = appStore.appSettings.darkMode
   draftTheme.value = appStore.theme
 }
 
@@ -136,6 +139,7 @@ function saveSettings(): void {
   appStore.updateAppSetting('baseUrl', draftSettings.baseUrl)
   appStore.updateAppSetting('autoSaveInterval', draftSettings.autoSaveInterval)
   appStore.updateAppSetting('uiScale', draftSettings.uiScale)
+  appStore.updateAppSetting('darkMode', draftSettings.darkMode)
 
   if (draftTheme.value !== appStore.theme) {
     appStore.setTheme(draftTheme.value)
@@ -316,6 +320,17 @@ function saveSettings(): void {
               />
             </n-form-item>
           </div>
+          <div class="dark-mode-row">
+            <div class="dark-mode-label">
+              <Moon :size="15" />
+              <span>深色模式</span>
+              <span class="dark-mode-hint">将界面切换为深色背景，适合夜间长时间写作。</span>
+            </div>
+            <n-switch
+              :value="draftSettings.darkMode"
+              @update:value="(value) => { draftSettings.darkMode = value }"
+            />
+          </div>
           <div class="storage-note">
             <Save :size="16" />
             <span>{{ appStore.persistenceError || '当前工作区内容已接入本地 SQLite 持久化。' }}</span>
@@ -355,7 +370,7 @@ function saveSettings(): void {
   min-height: 30px;
   align-items: center;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
   color: var(--arc-primary);
   font-size: 12px;
   font-weight: 700;
@@ -385,14 +400,14 @@ function saveSettings(): void {
 
 .rail-card {
   border: 1px solid color-mix(in srgb, var(--arc-primary) 12%, var(--arc-border));
-  border-radius: 20px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--arc-bg-surface) 94%, white), var(--arc-bg-body));
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
   padding: 16px;
 }
 
 .draft-state-card.pending {
   border-color: color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 6%, white);
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-mix));
 }
 
 .rail-card-label {
@@ -434,8 +449,8 @@ function saveSettings(): void {
 
 .settings-section {
   border: 1px solid var(--arc-border);
-  border-radius: 24px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--arc-bg-surface) 96%, white), var(--arc-bg-body));
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   padding: 20px;
 }
 
@@ -477,8 +492,8 @@ function saveSettings(): void {
 .provider-hint-block {
   margin: -2px 0 16px;
   border: 1px solid color-mix(in srgb, var(--arc-primary) 12%, var(--arc-border));
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--arc-primary) 4%, white);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--arc-primary) 4%, var(--arc-bg-mix));
   padding: 14px 16px;
 }
 
@@ -500,7 +515,7 @@ function saveSettings(): void {
 .provider-hint-block code {
   display: inline-block;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--arc-glass-08);
   color: var(--arc-text-hint);
   font-size: 12px;
   padding: 3px 8px;
@@ -551,7 +566,7 @@ function saveSettings(): void {
   align-items: flex-end;
   justify-content: center;
   border: 2px solid transparent;
-  border-radius: 20px;
+  border-radius: 8px;
   color: white;
   cursor: pointer;
   font-size: 12px;
@@ -584,7 +599,7 @@ function saveSettings(): void {
   min-height: 40px;
   margin-top: 4px;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--arc-primary) 5%, white);
+  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-mix));
   color: var(--arc-text-secondary);
   font-size: 12px;
   padding: 0 12px;
@@ -592,6 +607,37 @@ function saveSettings(): void {
 
 .storage-note :deep(svg) {
   color: var(--arc-primary);
+}
+
+.dark-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+  border: 1px solid var(--arc-border);
+  border-radius: 14px;
+  padding: 12px 16px;
+}
+
+.dark-mode-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--arc-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dark-mode-label :deep(svg) {
+  color: var(--arc-primary);
+  flex-shrink: 0;
+}
+
+.dark-mode-hint {
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .settings-footer-actions {
@@ -614,7 +660,7 @@ function saveSettings(): void {
 
   .settings-section,
   .rail-card {
-    border-radius: 20px;
+    border-radius: 8px;
   }
 
   .settings-footer-actions {

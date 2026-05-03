@@ -154,9 +154,7 @@ function requestDeleteProject(projectId: string): void {
   width: 100%;
   min-height: 100%;
   overflow-y: auto;
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--arc-primary) 4%, transparent), transparent 24%),
-    linear-gradient(180deg, color-mix(in srgb, var(--arc-bg-surface) 52%, white), var(--arc-bg-body));
+  background: var(--arc-bg-body);
 }
 
 .project-shell {

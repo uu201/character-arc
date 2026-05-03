@@ -294,12 +294,10 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
   flex-wrap: wrap;
   margin-bottom: 28px;
   padding: clamp(22px, 2.4vw, 30px);
-  border: 1px solid rgba(229, 231, 235, 0.82);
-  border-radius: 30px;
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--arc-primary) 12%, white), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94));
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
+  box-shadow: var(--arc-shadow-sm);
 }
 
 .search-badge {
@@ -307,7 +305,7 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
   align-items: center;
   gap: 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
   color: var(--arc-primary);
   font-size: 12px;
   font-weight: 700;
@@ -325,7 +323,7 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
 .search-hero-copy p {
   max-width: 52rem;
   margin: 0;
-  color: #6b7280;
+  color: var(--arc-text-secondary);
   font-size: 15px;
   line-height: 1.75;
 }
@@ -336,8 +334,8 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border-radius: 26px;
-  background: white;
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   padding: 20px 18px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
 }
@@ -350,7 +348,7 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
 
 .search-summary span {
   margin-top: 6px;
-  color: #6b7280;
+  color: var(--arc-text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -362,9 +360,9 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
 }
 
 .result-group {
-  border: 1px solid rgba(243, 244, 246, 0.92);
-  border-radius: 30px;
-  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   padding: clamp(18px, 2.2vw, 24px);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.03);
 }
@@ -386,7 +384,7 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
   align-items: center;
   justify-content: center;
   border-radius: 14px;
-  color: #1d1d1f;
+  color: var(--arc-text-primary);
   flex-shrink: 0;
 }
 
@@ -412,9 +410,9 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
   display: flex;
   min-height: 208px;
   flex-direction: column;
-  border: 1px solid rgba(243, 244, 246, 0.95);
-  border-radius: 24px;
-  background: white;
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   cursor: pointer;
   padding: 18px;
   text-align: left;
@@ -426,7 +424,7 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
 
 .result-card:hover {
   transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--arc-primary) 14%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 14%, var(--arc-border));
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.05);
 }
 
@@ -436,14 +434,14 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
-  color: #9ca3af;
+  color: var(--arc-text-hint);
   font-size: 11px;
   font-weight: 700;
 }
 
 .result-card h4 {
   margin: 0 0 10px;
-  color: #1d1d1f;
+  color: var(--arc-text-primary);
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -473,9 +471,9 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border: 1px dashed rgba(209, 213, 219, 0.9);
-  border-radius: 30px;
-  background: rgba(255, 255, 255, 0.9);
+  border: 1px dashed var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   text-align: center;
   padding: 32px;
 }
@@ -486,8 +484,8 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
   height: 56px;
   align-items: center;
   justify-content: center;
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
   color: var(--arc-primary);
   margin-bottom: 16px;
 }
@@ -501,7 +499,7 @@ function openGroupResult(group: ResultGroup, item: ResultGroup['items'][number])
 .search-empty p {
   max-width: 34rem;
   margin: 0;
-  color: #6b7280;
+  color: var(--arc-text-secondary);
   font-size: 14px;
   line-height: 1.7;
 }

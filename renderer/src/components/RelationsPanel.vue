@@ -798,7 +798,7 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   align-items: center;
   gap: 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
   color: var(--arc-primary);
   font-size: 12px;
   font-weight: 700;
@@ -834,9 +834,9 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
+  border: 1px solid var(--arc-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--arc-bg-surface);
   padding: 4px;
 }
 
@@ -864,7 +864,7 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
 }
 
 .view-switch-button.active {
-  background: color-mix(in srgb, var(--arc-primary) 12%, white);
+  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 
@@ -875,7 +875,7 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   gap: 8px;
   border: 1px solid var(--arc-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-hint);
   padding: 10px 14px;
   transition:
@@ -885,9 +885,9 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
 }
 
 .search-input:focus-within {
-  border-color: color-mix(in srgb, var(--arc-primary) 26%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 26%, var(--arc-bg-mix));
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--arc-primary) 10%, transparent);
-  background: white;
+  background: var(--arc-bg-surface);
 }
 
 .search-input input {
@@ -909,10 +909,9 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  border: 1px solid rgba(226, 232, 240, 0.88);
-  border-radius: 24px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   padding: 16px 18px;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.03);
 }
@@ -924,7 +923,7 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   align-items: center;
   justify-content: center;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--arc-primary) 12%, white);
+  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
   color: var(--arc-primary);
   flex-shrink: 0;
 }
@@ -958,25 +957,23 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   gap: 12px;
   align-items: flex-start;
   margin-bottom: 18px;
-  border: 1px solid rgba(191, 219, 254, 0.8);
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at right top, rgba(219, 234, 254, 0.78), transparent 36%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.98));
-  color: #1e3a8a;
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 16%, var(--arc-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
+  color: var(--arc-text-primary);
   padding: 16px 18px;
 }
 
 .tip-card strong {
   display: block;
   margin-bottom: 6px;
-  color: #0f172a;
+  color: var(--arc-text-primary);
   font-size: 14px;
 }
 
 .tip-card p {
   margin: 0;
-  color: #475569;
+  color: var(--arc-text-secondary);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -988,9 +985,9 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
 }
 
 .module-card {
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   padding: 20px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.03);
 }
@@ -1031,7 +1028,7 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
   color: var(--arc-primary);
   font-size: 12px;
   font-weight: 800;
@@ -1047,9 +1044,9 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
 
 .entity-card,
 .membership-card {
-  border: 1px solid rgba(226, 232, 240, 0.84);
-  border-radius: 22px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   padding: 16px;
 }
 
@@ -1066,7 +1063,7 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   height: 40px;
   border-radius: 14px;
   flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--arc-border);
 }
 
 .entity-head-copy {
@@ -1124,9 +1121,9 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   height: 34px;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  border: 1px solid var(--arc-border);
   border-radius: 12px;
-  background: white;
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   cursor: pointer;
   transition:
@@ -1136,7 +1133,7 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
 }
 
 .icon-button:hover {
-  border-color: color-mix(in srgb, var(--arc-primary) 18%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 18%, var(--arc-border));
   color: var(--arc-primary);
 }
 
@@ -1160,7 +1157,7 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   display: inline-flex;
   margin-top: 12px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, white);
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
   color: var(--arc-primary);
   font-size: 11px;
   font-weight: 800;
@@ -1188,7 +1185,7 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   margin-top: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(226, 232, 240, 0.9);
+  background: var(--arc-border);
 }
 
 .intensity-bar span {
@@ -1222,9 +1219,9 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
   align-items: center;
   justify-content: center;
   gap: 10px;
-  border: 1px dashed rgba(203, 213, 225, 0.92);
-  border-radius: 24px;
-  background: rgba(248, 250, 252, 0.78);
+  border: 1px dashed var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-weak);
   color: var(--arc-text-secondary);
   text-align: center;
   padding: 24px;

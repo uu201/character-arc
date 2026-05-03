@@ -445,9 +445,9 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 }
 
 .soft-button {
-  background: linear-gradient(180deg, #f8fbff, #eef4ff);
-  color: #0f172a;
-  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.9);
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-primary);
+  border: 1px solid var(--arc-border);
 }
 
 .soft-button:hover:not(:disabled) {
@@ -458,9 +458,9 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 }
 
 .primary-button {
-  background: linear-gradient(135deg, var(--arc-primary), color-mix(in srgb, var(--arc-primary) 72%, white));
+  background: var(--arc-primary);
   color: white;
-  box-shadow: 0 14px 30px color-mix(in srgb, var(--arc-primary) 22%, transparent);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--arc-primary) 22%, transparent);
 }
 
 .primary-button:hover:not(:disabled) {
@@ -477,11 +477,9 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 
 .hero-copy,
 .hero-stats {
-  border: 1px solid rgba(226, 232, 240, 0.94);
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at top right, rgba(191, 219, 254, 0.28), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.98));
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   box-shadow: 0 16px 34px rgba(15, 23, 42, 0.04);
 }
 
@@ -494,8 +492,8 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
   align-items: center;
   gap: 8px;
   border-radius: 999px;
-  background: rgba(239, 246, 255, 0.95);
-  color: #2563eb;
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
+  color: var(--arc-primary);
   font-size: 12px;
   font-weight: 700;
   padding: 8px 12px;
@@ -504,7 +502,7 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 
 .hero-copy h3 {
   margin: 0 0 12px;
-  color: #111827;
+  color: var(--arc-text-primary);
   font-size: clamp(26px, 3.1vw, 34px);
   font-weight: 700;
   letter-spacing: -0.04em;
@@ -513,7 +511,7 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 
 .hero-copy p {
   margin: 0;
-  color: #64748b;
+  color: var(--arc-text-secondary);
   font-size: 15px;
   line-height: 1.75;
 }
@@ -530,10 +528,10 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
   min-height: 44px;
   align-items: center;
   gap: 10px;
-  border: 1px solid rgba(226, 232, 240, 0.95);
+  border: 1px solid var(--arc-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #334155;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-primary);
   padding: 10px 14px;
   cursor: pointer;
   transition:
@@ -548,16 +546,16 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
   min-width: 22px;
   justify-content: center;
   border-radius: 999px;
-  background: #f1f5f9;
-  color: #64748b;
+  background: var(--arc-glass-08);
+  color: var(--arc-text-secondary);
   padding: 3px 8px;
   font-size: 11px;
   font-weight: 700;
 }
 
 .focus-chip.active {
-  border-color: color-mix(in srgb, var(--arc-primary) 36%, white);
-  background: rgba(239, 246, 255, 0.96);
+  border-color: color-mix(in srgb, var(--arc-primary) 36%, var(--arc-bg-mix));
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
   color: var(--arc-primary);
   box-shadow: 0 10px 26px rgba(59, 130, 246, 0.1);
 }
@@ -578,9 +576,9 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 }
 
 .stat-card {
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
+  border: 1px solid var(--arc-border);
   padding: 18px 18px 16px;
 }
 
@@ -590,7 +588,7 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 }
 
 .stat-card span {
-  color: #64748b;
+  color: var(--arc-text-secondary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -598,7 +596,7 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 .stat-card strong {
   display: block;
   margin: 8px 0 6px;
-  color: #0f172a;
+  color: var(--arc-text-primary);
   font-size: 30px;
   font-weight: 700;
   line-height: 1;
@@ -621,10 +619,9 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
   display: flex;
   min-height: 280px;
   flex-direction: column;
-  border: 1px solid rgba(226, 232, 240, 0.88);
-  border-radius: 26px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.96));
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   padding: 18px 18px 16px;
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.04);
   transition:
@@ -641,7 +638,7 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 .inspiration-card:hover,
 .empty-card:hover {
   transform: translateY(-4px);
-  border-color: color-mix(in srgb, var(--arc-primary) 22%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 22%, var(--arc-border));
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.07);
 }
 
@@ -675,13 +672,13 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 }
 
 .entry-type {
-  background: rgba(239, 246, 255, 0.92);
-  color: #2563eb;
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
+  color: var(--arc-primary);
 }
 
 .entry-source {
   background: #f8fafc;
-  color: #64748b;
+  color: var(--arc-text-secondary);
 }
 
 .entry-source.ai {
@@ -707,8 +704,8 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
   width: 34px;
   height: 34px;
   border-radius: 12px;
-  background: rgba(248, 250, 252, 0.96);
-  color: #64748b;
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-secondary);
 }
 
 .more-button:hover {
@@ -718,7 +715,7 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 
 .inspiration-card h4 {
   margin: 16px 0 10px;
-  color: #0f172a;
+  color: var(--arc-text-primary);
   font-size: 20px;
   font-weight: 700;
   line-height: 1.25;
@@ -750,7 +747,7 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 .link-button {
   gap: 6px;
   border-radius: 999px;
-  background: rgba(239, 246, 255, 0.96);
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
   color: var(--arc-primary);
   padding: 8px 12px;
   font-size: 12px;
@@ -765,7 +762,7 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: #64748b;
+  color: var(--arc-text-secondary);
   border-style: dashed;
   cursor: pointer;
 }
@@ -778,7 +775,7 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 
 .modal-chip {
   min-height: 40px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
+  border: 1px solid var(--arc-border);
   border-radius: 999px;
   background: #f8fafc;
   color: #334155;
@@ -789,8 +786,8 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 }
 
 .modal-chip.active {
-  border-color: color-mix(in srgb, var(--arc-primary) 34%, white);
-  background: rgba(239, 246, 255, 0.98);
+  border-color: color-mix(in srgb, var(--arc-primary) 34%, var(--arc-bg-mix));
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 

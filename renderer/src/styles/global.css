@@ -159,6 +159,14 @@ input {
   background: transparent;
 }
 
+.dark-mode .arc-scrollbar {
+  scrollbar-color: #3a3a46 transparent;
+}
+
+.dark-mode .arc-scrollbar::-webkit-scrollbar-thumb {
+  background: #3a3a46;
+}
+
 /* view-fade: 页面级切换（项目中心 ↔ 工作台 ↔ 向导）
    进入：ease-out 200ms，轻微上浮 6px；退出：ease-in 120ms，纯淡出无位移
    出比进快约 60%，避免两段动画叠加产生视觉混乱 */

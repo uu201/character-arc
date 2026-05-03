@@ -1062,9 +1062,9 @@ function resolveStageStatusLabel(status: string): string {
 .workflow-stage-rail,
 .workflow-stage-shell,
 .workflow-doc-shell {
-  border: 1px solid rgba(226, 232, 240, 0.84);
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   box-shadow: 0 18px 32px rgba(15, 23, 42, 0.04);
 }
 
@@ -1121,9 +1121,9 @@ function resolveStageStatusLabel(status: string): string {
   display: flex;
   align-items: center;
   gap: 12px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.94);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   cursor: pointer;
   padding: 12px;
@@ -1131,9 +1131,9 @@ function resolveStageStatusLabel(status: string): string {
 }
 
 .workflow-stage-item.active {
-  border-color: rgba(59, 130, 246, 0.28);
-  background: rgba(239, 246, 255, 0.94);
-  color: #1d4ed8;
+  border-color: color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
+  color: var(--arc-primary);
 }
 
 .workflow-stage-copy {
@@ -1186,7 +1186,7 @@ function resolveStageStatusLabel(status: string): string {
 .workflow-volume-tabs {
   margin-bottom: 6px;
   padding-bottom: 10px;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.7);
+  border-bottom: 1px solid var(--arc-border);
 }
 
 .status-chip,
@@ -1203,32 +1203,30 @@ function resolveStageStatusLabel(status: string): string {
 
 .status-chip,
 .doc-tab {
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  background: white;
+  border: 1px solid var(--arc-border);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   padding: 8px 10px;
 }
 
 .status-chip.active,
 .doc-tab.active {
-  border-color: rgba(59, 130, 246, 0.26);
-  background: rgba(239, 246, 255, 0.94);
-  color: #1d4ed8;
+  border-color: color-mix(in srgb, var(--arc-primary) 26%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
+  color: var(--arc-primary);
 }
 
 .panel-action-button {
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  background: rgba(248, 250, 252, 0.96);
+  border: 1px solid var(--arc-border);
+  background: var(--arc-bg-body);
   color: var(--arc-text-primary);
   padding: 8px 12px;
 }
 
 .workflow-focus-card {
-  border: 1px solid rgba(226, 232, 240, 0.78);
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at right top, rgba(219, 234, 254, 0.22), transparent 36%),
-    rgba(248, 250, 252, 0.96);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--arc-primary) 4%, var(--arc-bg-body));
   padding: 14px 16px;
   margin-bottom: 14px;
 }
@@ -1251,11 +1249,8 @@ function resolveStageStatusLabel(status: string): string {
 .reference-analysis-card {
   position: relative;
   overflow: hidden;
-  border-color: rgba(191, 219, 254, 0.9);
-  background:
-    radial-gradient(circle at top right, rgba(125, 211, 252, 0.18), transparent 30%),
-    radial-gradient(circle at left bottom, rgba(253, 230, 138, 0.16), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  border-color: color-mix(in srgb, var(--arc-primary) 16%, var(--arc-border));
+  background: var(--arc-bg-surface);
   padding: 20px;
 }
 
@@ -1264,8 +1259,7 @@ function resolveStageStatusLabel(status: string): string {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.42), transparent 42%),
-    repeating-linear-gradient(90deg, rgba(148, 163, 184, 0.06) 0 1px, transparent 1px 18px);
+    repeating-linear-gradient(90deg, var(--arc-glass-06) 0 1px, transparent 1px 18px);
   pointer-events: none;
 }
 
@@ -1327,9 +1321,9 @@ function resolveStageStatusLabel(status: string): string {
 }
 
 .reference-analysis-stat {
-  border: 1px solid rgba(226, 232, 240, 0.86);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-glass-08);
   padding: 12px;
 }
 
@@ -1353,11 +1347,10 @@ function resolveStageStatusLabel(status: string): string {
   flex-direction: column;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid rgba(191, 219, 254, 0.84);
-  border-radius: 22px;
-  background: linear-gradient(180deg, rgba(239, 246, 255, 0.9), rgba(255, 255, 255, 0.86));
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 16%, var(--arc-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
   padding: 16px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
 }
 
 .reference-analysis-phase-wrap {
@@ -1372,8 +1365,8 @@ function resolveStageStatusLabel(status: string): string {
   align-self: flex-start;
   justify-content: center;
   border-radius: 999px;
-  background: rgba(37, 99, 235, 0.12);
-  color: #1d4ed8;
+  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
+  color: var(--arc-primary);
   font-size: 11px;
   font-weight: 800;
   padding: 6px 10px;
@@ -1400,9 +1393,9 @@ function resolveStageStatusLabel(status: string): string {
 }
 
 .reference-flow-card {
-  border: 1px solid rgba(226, 232, 240, 0.82);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
   padding: 14px;
 }
 
@@ -1439,15 +1432,15 @@ function resolveStageStatusLabel(status: string): string {
 }
 
 .reference-progress-card {
-  border: 1px solid rgba(226, 232, 240, 0.84);
-  border-radius: 22px;
-  background: rgba(248, 250, 252, 0.82);
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-body);
   padding: 16px;
 }
 
 .reference-progress-card.active {
-  border-color: rgba(59, 130, 246, 0.28);
-  background: linear-gradient(180deg, rgba(239, 246, 255, 0.86), rgba(248, 250, 252, 0.88));
+  border-color: color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
 }
 
 .reference-progress-meta {
@@ -1469,7 +1462,7 @@ function resolveStageStatusLabel(status: string): string {
 }
 
 .reference-progress-meta span {
-  color: #1d4ed8;
+  color: var(--arc-primary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1478,7 +1471,7 @@ function resolveStageStatusLabel(status: string): string {
   overflow: hidden;
   height: 8px;
   border-radius: 999px;
-  background: rgba(226, 232, 240, 0.88);
+  background: var(--arc-border);
   margin-top: 10px;
 }
 
@@ -1514,8 +1507,8 @@ function resolveStageStatusLabel(status: string): string {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--arc-border);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-hint);
   font-size: 11px;
   font-weight: 700;
@@ -1523,15 +1516,15 @@ function resolveStageStatusLabel(status: string): string {
 }
 
 .reference-progress-steps span.active {
-  border-color: rgba(96, 165, 250, 0.3);
-  background: rgba(219, 234, 254, 0.92);
-  color: #1d4ed8;
+  border-color: color-mix(in srgb, var(--arc-primary) 30%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
+  color: var(--arc-primary);
 }
 
 .reference-usage-panel {
-  border: 1px solid rgba(226, 232, 240, 0.82);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   padding: 16px;
 }
 
@@ -1567,15 +1560,15 @@ function resolveStageStatusLabel(status: string): string {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border: 1px solid rgba(226, 232, 240, 0.84);
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.74);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-body);
   padding: 14px;
 }
 
 .reference-usage-card.emphasis {
-  border-color: rgba(96, 165, 250, 0.24);
-  background: linear-gradient(180deg, rgba(239, 246, 255, 0.82), rgba(255, 255, 255, 0.94));
+  border-color: color-mix(in srgb, var(--arc-primary) 24%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
 }
 
 .reference-usage-icon {
@@ -1652,9 +1645,9 @@ function resolveStageStatusLabel(status: string): string {
 }
 
 .reference-work-card {
-  border: 1px solid rgba(226, 232, 240, 0.84);
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.86);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
   padding: 14px;
 }
 
@@ -1684,7 +1677,7 @@ function resolveStageStatusLabel(status: string): string {
   justify-content: center;
   border-radius: 999px;
   background: rgba(219, 234, 254, 0.92);
-  color: #1d4ed8;
+  color: var(--arc-primary);
   font-size: 11px;
   font-weight: 700;
   padding: 5px 10px;
@@ -1708,7 +1701,7 @@ function resolveStageStatusLabel(status: string): string {
 .reference-work-metrics span {
   display: inline-flex;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   font-size: 11px;
   padding: 5px 10px;
@@ -1785,9 +1778,9 @@ function resolveStageStatusLabel(status: string): string {
 }
 
 .project-skill-card {
-  border: 1px solid rgba(226, 232, 240, 0.84);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
   padding: 14px 16px;
 }
 
@@ -1823,9 +1816,9 @@ function resolveStageStatusLabel(status: string): string {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px dashed rgba(203, 213, 225, 0.92);
-  border-radius: 22px;
-  background: rgba(248, 250, 252, 0.82);
+  border: 1px dashed var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-body);
   color: var(--arc-text-secondary);
   text-align: center;
   padding: 20px;

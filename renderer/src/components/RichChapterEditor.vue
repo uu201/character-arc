@@ -287,9 +287,9 @@ onBeforeUnmount(() => {
   margin-right: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #d4d4d8;
+  border: 1px solid var(--arc-border);
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--arc-bg-surface);
   box-shadow: none;
   transition:
     border-color 0.22s ease,
@@ -330,10 +330,10 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  border: 1px solid #d4d4d8;
+  border: 1px solid var(--arc-border);
   border-radius: 4px;
-  background: #ffffff;
-  color: #5f6368;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;

@@ -912,11 +912,9 @@ function buildStylesheet(): StylesheetJson {
   min-width: 110px;
   flex-direction: column;
   gap: 4px;
-  border: 1px solid rgba(226, 232, 240, 0.84);
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at right top, rgba(219, 234, 254, 0.28), transparent 48%),
-    rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
   padding: 13px 15px;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.035);
 }
@@ -952,8 +950,8 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .filter-chip {
-  border: 1px solid rgba(226, 232, 240, 0.96);
-  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--arc-border);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   cursor: pointer;
   transition:
@@ -969,26 +967,26 @@ function buildStylesheet(): StylesheetJson {
 
 .filter-chip:hover:not(.static) {
   transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--arc-primary) 20%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border));
   color: var(--arc-primary);
 }
 
 .filter-chip.active {
-  border-color: color-mix(in srgb, var(--arc-primary) 20%, white);
-  background: color-mix(in srgb, var(--arc-primary) 12%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
   color: var(--arc-primary);
 }
 
 .filter-chip.accent.active {
   border-color: rgba(249, 115, 22, 0.3);
-  background: rgba(255, 237, 213, 0.92);
+  background: color-mix(in srgb, #fb923c 12%, var(--arc-bg-mix));
   color: #c2410c;
 }
 
 .query-pill {
-  border: 1px solid rgba(191, 219, 254, 0.84);
-  background: rgba(239, 246, 255, 0.92);
-  color: #1d4ed8;
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
+  color: var(--arc-primary);
 }
 
 .organization-focus-row {
@@ -997,13 +995,10 @@ function buildStylesheet(): StylesheetJson {
   justify-content: space-between;
   gap: 14px;
   flex-wrap: wrap;
-  border: 1px solid rgba(226, 232, 240, 0.82);
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at right top, rgba(219, 234, 254, 0.3), transparent 32%),
-    rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   padding: 14px 16px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .organization-focus-copy {
@@ -1038,9 +1033,9 @@ function buildStylesheet(): StylesheetJson {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
+  border: 1px solid var(--arc-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   font-size: 12px;
   font-weight: 700;
@@ -1058,9 +1053,9 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .organization-chip.active {
-  border-color: rgba(59, 130, 246, 0.22);
-  background: rgba(239, 246, 255, 0.92);
-  color: #1d4ed8;
+  border-color: color-mix(in srgb, var(--arc-primary) 22%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
+  color: var(--arc-primary);
 }
 
 .organization-chip-dot {
@@ -1070,9 +1065,9 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .subgraph-toggle {
-  border: 1px solid rgba(226, 232, 240, 0.92);
+  border: 1px solid var(--arc-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   font-size: 12px;
   font-weight: 700;
@@ -1091,7 +1086,7 @@ function buildStylesheet(): StylesheetJson {
 
 .subgraph-toggle.active {
   border-color: rgba(16, 185, 129, 0.24);
-  background: rgba(236, 253, 245, 0.96);
+  background: color-mix(in srgb, #10b981 10%, var(--arc-bg-mix));
   color: #0f766e;
 }
 
@@ -1127,8 +1122,8 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .focus-mode-button {
-  border: 1px solid rgba(226, 232, 240, 0.94);
-  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--arc-border);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   padding: 8px 12px;
   cursor: pointer;
@@ -1149,9 +1144,9 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .focus-mode-button.active {
-  border-color: rgba(59, 130, 246, 0.22);
-  background: rgba(239, 246, 255, 0.92);
-  color: #1d4ed8;
+  border-color: color-mix(in srgb, var(--arc-primary) 22%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
+  color: var(--arc-primary);
 }
 
 .hotspot-label {
@@ -1163,8 +1158,8 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .hotspot-chip {
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--arc-border);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   padding: 8px 10px;
   cursor: pointer;
@@ -1186,9 +1181,9 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .hotspot-chip.active {
-  border-color: rgba(59, 130, 246, 0.2);
-  background: rgba(239, 246, 255, 0.92);
-  color: #1d4ed8;
+  border-color: color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
+  color: var(--arc-primary);
 }
 
 .graph-body {
@@ -1199,29 +1194,24 @@ function buildStylesheet(): StylesheetJson {
 
 .graph-stage,
 .detail-card {
-  border: 1px solid rgba(226, 232, 240, 0.82);
-  border-radius: 30px;
-  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   box-shadow: 0 18px 34px rgba(15, 23, 42, 0.05);
 }
 
 .graph-stage {
   overflow: hidden;
   padding: 18px;
-  background:
-    radial-gradient(circle at top left, rgba(219, 234, 254, 0.28), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
+  background: var(--arc-bg-surface);
 }
 
 .graph-canvas {
   width: 100%;
   height: 660px;
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at top, rgba(219, 234, 254, 0.36), transparent 26%),
-    radial-gradient(circle at bottom right, rgba(254, 215, 170, 0.18), transparent 28%),
-    linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.99));
-  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.58);
+  border-radius: 10px;
+  background: var(--arc-bg-body);
+  box-shadow: inset 0 0 0 1px var(--arc-border);
 }
 
 .graph-legend {
@@ -1269,9 +1259,7 @@ function buildStylesheet(): StylesheetJson {
   flex-direction: column;
   gap: 16px;
   padding: 20px;
-  background:
-    radial-gradient(circle at right top, rgba(219, 234, 254, 0.22), transparent 32%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  background: var(--arc-bg-surface);
 }
 
 .detail-card-top {
@@ -1291,9 +1279,9 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .detail-action {
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  border: 1px solid var(--arc-border);
   border-radius: 999px;
-  background: white;
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   font-size: 12px;
   font-weight: 700;
@@ -1308,9 +1296,9 @@ function buildStylesheet(): StylesheetJson {
 
 .detail-action:hover {
   transform: translateY(-1px);
-  border-color: rgba(59, 130, 246, 0.22);
-  color: #1d4ed8;
-  background: rgba(239, 246, 255, 0.92);
+  border-color: color-mix(in srgb, var(--arc-primary) 22%, var(--arc-border));
+  color: var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
 }
 
 .detail-card h4 {
@@ -1334,7 +1322,7 @@ function buildStylesheet(): StylesheetJson {
   height: 72px;
   align-items: center;
   justify-content: center;
-  border-radius: 24px;
+  border-radius: 10px;
   color: white;
   box-shadow: 0 14px 26px rgba(15, 23, 42, 0.12);
 }
@@ -1415,7 +1403,7 @@ function buildStylesheet(): StylesheetJson {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  background: rgba(241, 245, 249, 0.94);
+  background: var(--arc-bg-weak);
   color: var(--arc-text-secondary);
   font-size: 11px;
   font-weight: 700;
@@ -1429,17 +1417,14 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .dossier-card {
-  border: 1px solid rgba(226, 232, 240, 0.7);
-  border-radius: 20px;
-  background:
-    linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 0.98));
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
   padding: 14px;
 }
 
 .dossier-card.primary {
-  background:
-    radial-gradient(circle at right top, rgba(219, 234, 254, 0.34), transparent 44%),
-    linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.98));
+  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-surface));
 }
 
 .dossier-label {
@@ -1472,17 +1457,15 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .camp-summary-card {
-  border: 1px solid rgba(191, 219, 254, 0.7);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at right top, rgba(191, 219, 254, 0.38), transparent 42%),
-    linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 0.98));
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
   padding: 14px;
 }
 
 .camp-summary-card strong {
   display: block;
-  color: #0f172a;
+  color: var(--arc-text-primary);
   font-size: 20px;
   font-weight: 700;
 }
@@ -1493,11 +1476,9 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .signature-card {
-  border: 1px solid rgba(191, 219, 254, 0.72);
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at right top, rgba(219, 234, 254, 0.3), transparent 46%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.96));
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--arc-primary) 4%, var(--arc-bg-surface));
   padding: 14px;
 }
 
@@ -1539,7 +1520,7 @@ function buildStylesheet(): StylesheetJson {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  background: rgba(248, 250, 252, 0.94);
+  background: var(--arc-bg-weak);
   color: var(--arc-text-secondary);
   font-size: 12px;
   font-weight: 700;
@@ -1575,9 +1556,9 @@ function buildStylesheet(): StylesheetJson {
 }
 
 .connection-card {
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
   padding: 12px 13px;
   transition:
     transform 0.16s ease,
@@ -1602,8 +1583,8 @@ function buildStylesheet(): StylesheetJson {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  background: rgba(219, 234, 254, 0.9);
-  color: #1d4ed8;
+  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
+  color: var(--arc-primary);
   font-size: 11px;
   font-weight: 800;
   padding: 5px 8px;
@@ -1633,9 +1614,9 @@ function buildStylesheet(): StylesheetJson {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px dashed rgba(203, 213, 225, 0.92);
-  border-radius: 24px;
-  background: rgba(248, 250, 252, 0.84);
+  border: 1px dashed var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-weak);
   color: var(--arc-text-secondary);
   text-align: center;
   padding: 26px;

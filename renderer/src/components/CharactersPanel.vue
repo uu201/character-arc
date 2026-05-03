@@ -336,8 +336,8 @@ function handleMenuSelect(action: string | number, character: CharacterCard): vo
 }
 
 .search-input:focus-within {
-  border-color: color-mix(in srgb, var(--arc-primary) 22%, white);
-  background: white;
+  border-color: color-mix(in srgb, var(--arc-primary) 22%, var(--arc-bg-mix));
+  background: var(--arc-bg-surface);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--arc-primary) 10%, transparent);
 }
 
@@ -391,9 +391,9 @@ function handleMenuSelect(action: string | number, character: CharacterCard): vo
 .character-card {
   display: flex;
   gap: 16px;
-  border: 1px solid rgba(243, 244, 246, 0.9);
-  border-radius: 28px;
-  background: white;
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
   padding: 18px;
   transition:

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Download, FileJson, FileStack, FileText, FolderOutput, Lightbulb, Network, PenTool, Save, Users } from 'lucide-vue-next'
-import { NButton, NCard, NFormItem, NInput, NModal, NSelect, useMessage } from 'naive-ui'
+import { Download, FileJson, FileStack, FileText, FolderOutput, Lightbulb, Moon, Network, PenTool, Save, Users } from 'lucide-vue-next'
+import { NButton, NCard, NFormItem, NInput, NModal, NSelect, NSwitch, useMessage } from 'naive-ui'
 import { getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { autoSaveOptions } from '@/features/settings/autoSave'
 import { buildProjectWritingStyleContext, writingStylePresets } from '@/features/writingStyles/presets'
@@ -313,6 +313,15 @@ function closeImportModal(): void {
   pendingImportPayload.value = null
   pendingImportMeta.value = null
 }
+
+watch(
+  () => appStore.currentProject,
+  (project) => {
+    draftWritingStylePresetId.value = project?.writingStylePresetId ?? ''
+    draftWritingStylePrompt.value = project?.writingStylePrompt ?? ''
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -362,6 +371,19 @@ function closeImportModal(): void {
             :options="uiScaleOptions"
             :value="appStore.appSettings.uiScale"
             @update:value="(value) => appStore.updateAppSetting('uiScale', value ?? 1)"
+          />
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-name">
+              <Moon :size="14" style="vertical-align: -2px; margin-right: 5px;" />
+              深色模式
+            </div>
+            <div class="setting-hint">将界面切换为深色背景，适合夜间长时间写作。</div>
+          </div>
+          <n-switch
+            :value="appStore.appSettings.darkMode"
+            @update:value="(value) => appStore.updateAppSetting('darkMode', value)"
           />
         </div>
         <div class="setting-actions">
@@ -533,7 +555,7 @@ function closeImportModal(): void {
 
 .section-head p {
   margin: 0;
-  color: #86868b;
+  color: var(--arc-text-secondary);
   font-size: 15px;
 }
 
@@ -556,25 +578,23 @@ function closeImportModal(): void {
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at top right, rgba(191, 219, 254, 0.28), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.96));
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--arc-primary) 4%, var(--arc-bg-surface));
   padding: 16px 18px;
   margin-bottom: 16px;
 }
 
 .style-hero strong {
   display: block;
-  color: #0f172a;
+  color: var(--arc-text-primary);
   font-size: 16px;
   font-weight: 700;
 }
 
 .style-hero p {
   margin: 8px 0 0;
-  color: #64748b;
+  color: var(--arc-text-secondary);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -583,7 +603,7 @@ function closeImportModal(): void {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  background: rgba(239, 246, 255, 0.95);
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-surface));
   color: var(--arc-primary);
   font-size: 11px;
   font-weight: 800;
@@ -605,9 +625,9 @@ function closeImportModal(): void {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid rgba(226, 232, 240, 0.94);
-  border-radius: 20px;
-  color: #0f172a;
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  color: var(--arc-text-primary);
   cursor: pointer;
   padding: 14px;
   text-align: left;
@@ -623,7 +643,7 @@ function closeImportModal(): void {
 }
 
 .style-preset-card.active {
-  border-color: color-mix(in srgb, var(--arc-primary) 34%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 34%, var(--arc-bg-mix));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 10%, transparent);
 }
 
@@ -633,13 +653,13 @@ function closeImportModal(): void {
 }
 
 .style-preset-card span {
-  color: #475569;
+  color: var(--arc-text-secondary);
   font-size: 12px;
   line-height: 1.6;
 }
 
 .style-footnote {
-  color: #64748b;
+  color: var(--arc-text-secondary);
   font-size: 12px;
   line-height: 1.7;
 }
@@ -651,9 +671,9 @@ function closeImportModal(): void {
   gap: 14px;
   margin-top: 14px;
   padding: 14px 16px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.84);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
 }
 
 .style-save-hint {
@@ -668,7 +688,7 @@ function closeImportModal(): void {
 }
 
 .style-save-hint span {
-  color: #64748b;
+  color: var(--arc-text-secondary);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -713,7 +733,7 @@ function closeImportModal(): void {
 .module-export-block {
   margin-top: 22px;
   padding-top: 22px;
-  border-top: 1px solid rgba(229, 231, 235, 0.88);
+  border-top: 1px solid var(--arc-border);
 }
 
 .module-export-copy {
@@ -732,10 +752,10 @@ function closeImportModal(): void {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  border: 1px solid rgba(229, 231, 235, 0.92);
-  border-radius: 20px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
-  color: #374151;
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-primary);
   cursor: pointer;
   padding: 16px;
   text-align: left;
@@ -747,7 +767,7 @@ function closeImportModal(): void {
 
 .module-export-card:hover {
   transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--arc-primary) 18%, white);
+  border-color: color-mix(in srgb, var(--arc-primary) 18%, var(--arc-border));
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.05);
 }
 
@@ -760,7 +780,7 @@ function closeImportModal(): void {
 }
 
 .module-export-card span {
-  color: #6b7280;
+  color: var(--arc-text-secondary);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -769,9 +789,9 @@ function closeImportModal(): void {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  border: 1px solid rgba(229, 231, 235, 0.9);
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.82);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
   padding: 14px 16px;
   margin-bottom: 18px;
 }
@@ -781,7 +801,7 @@ function closeImportModal(): void {
 }
 
 .storage-status span {
-  color: #6b7280;
+  color: var(--arc-text-secondary);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -807,10 +827,10 @@ function closeImportModal(): void {
   align-items: center;
   justify-content: center;
   min-width: 76px;
-  border: 1px solid rgba(191, 219, 254, 0.92);
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border));
   border-radius: 999px;
-  background: rgba(239, 246, 255, 0.96);
-  color: #1d4ed8;
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-surface));
+  color: var(--arc-primary);
   font-size: 12px;
   font-weight: 700;
   padding: 8px 12px;
@@ -855,11 +875,3 @@ function closeImportModal(): void {
   }
 }
 </style>
-watch(
-  () => appStore.currentProject,
-  (project) => {
-    draftWritingStylePresetId.value = project?.writingStylePresetId ?? ''
-    draftWritingStylePrompt.value = project?.writingStylePrompt ?? ''
-  },
-  { immediate: true }
-)

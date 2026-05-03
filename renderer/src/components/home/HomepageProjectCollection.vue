@@ -49,8 +49,8 @@ const emit = defineEmits<{
   gap: 8px;
   margin-top: 0;
   border-style: solid;
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--arc-bg-surface) 94%, white);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
 }
 
 .homepage-empty-state strong {

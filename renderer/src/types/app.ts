@@ -510,4 +510,6 @@ export interface AppSettings {
   autoSaveInterval: string
   /** UI 缩放比例，范围 0.75-1.75 */
   uiScale: number
+  /** 是否启用深色模式 */
+  darkMode: boolean
 }

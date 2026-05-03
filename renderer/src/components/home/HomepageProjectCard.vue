@@ -56,8 +56,8 @@ const emit = defineEmits<{
   flex-direction: column;
   justify-content: space-between;
   border: 1px solid var(--arc-border);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--arc-bg-surface) 94%, white);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
   cursor: pointer;
   padding: 18px;
   animation: card-enter 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -69,7 +69,7 @@ const emit = defineEmits<{
 
 .homepage-project-card:hover {
   border-color: color-mix(in srgb, var(--arc-primary) 16%, var(--arc-border));
-  background: white;
+  background: var(--arc-bg-surface);
   transform: translateY(-1px);
 }
 
@@ -114,8 +114,7 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 10px;
-  background: transparent;
+  border-radius: 8px;
   color: var(--arc-text-hint);
   cursor: pointer;
   transition:
@@ -124,7 +123,7 @@ const emit = defineEmits<{
 }
 
 .card-menu:hover {
-  background: color-mix(in srgb, var(--arc-primary) 5%, white);
+  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-mix));
   color: var(--arc-text-primary);
 }
 
@@ -138,7 +137,7 @@ const emit = defineEmits<{
 @keyframes card-enter {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(3px);
   }
 
   to {

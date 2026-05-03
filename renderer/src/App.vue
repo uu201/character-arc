@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import { NConfigProvider, NDialogProvider, NGlobalStyle, NMessageProvider, NSpin } from 'naive-ui'
+import { NConfigProvider, NDialogProvider, NGlobalStyle, NMessageProvider, NSpin, darkTheme } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { createNaiveThemeOverrides } from '@/theme/presets'
 import ProjectCenter from '@/pages/ProjectCenter.vue'
@@ -19,35 +19,51 @@ const appTitle = `弧光 v${appVersion}`
 
 // 根据当前选中主题生成 Naive UI 主题覆盖变量
 const themeOverrides = computed(() => createNaiveThemeOverrides(appStore.theme))
+// 深色模式时启用 Naive UI 官方 darkTheme
+const naiveTheme = computed(() => appStore.appSettings.darkMode ? darkTheme : null)
 
 // 应用级 CSS 自定义变量集合，供全局样式引用
-const appStyleVars = computed(() => ({
-  '--arc-bg-body': '#f5f5f7',              // 页面整体背景色
-  '--arc-bg-weak': '#fafafa',              // 弱背景色（辅助区域）
-  '--arc-bg-surface': '#ffffff',           // 卡片/面板表面色
-  '--arc-bg-surface-hover': '#f2f2f7',     // 表面色悬停态
-  '--arc-text-primary': '#202124',         // 主文字颜色
-  '--arc-text-secondary': '#5f6368',       // 次要文字颜色
-  '--arc-text-hint': '#7a7f87',            // 提示/占位文字颜色
-  '--arc-primary': appStore.currentTheme.primary,
-  '--arc-primary-hover': appStore.currentTheme.primaryHover,
-  '--arc-primary-pressed': appStore.currentTheme.primaryPressed,
-  '--arc-primary-soft': appStore.currentTheme.softBackground,
-  '--arc-border': '#d4d4d8',              // 常规边框色
-  '--arc-border-strong': '#c7c7cf',        // 强调边框色
-  '--arc-shadow-sm': '0 1px 4px rgba(0, 0, 0, 0.07)',   // 小阴影
-  '--arc-shadow-md': '0 4px 16px rgba(0, 0, 0, 0.09)',   // 中阴影
-  '--arc-radius-sm': '4px',               // 小圆角
-  '--arc-radius-md': '6px',               // 中圆角
-  '--arc-radius-lg': '8px',               // 大圆角
-  // 标题栏高度：Windows 使用系统安全区域，macOS 使用固定值，其他平台为 0
-  '--arc-titlebar-height': platform === 'win32' ? 'env(titlebar-area-height, 28px)' : platform === 'darwin' ? '24px' : '0px',
-  // 窗口控制按钮区域宽度：Windows 使用 CSS 环境变量自适应，macOS 控件在左侧不占右侧宽度
-  '--arc-window-controls-width':
-    platform === 'win32'
-      ? 'max(0px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)))'
-      : '0px'
-}))
+const appStyleVars = computed(() => {
+  const dark = appStore.appSettings.darkMode
+  return {
+    '--arc-bg-body': dark ? '#0c0c0e' : '#f4f4f5',
+    '--arc-bg-weak': dark ? '#111115' : '#fafafa',
+    '--arc-bg-surface': dark ? '#18181b' : '#ffffff',
+    '--arc-bg-surface-hover': dark ? '#27272a' : '#f9f9fb',
+    '--arc-bg-sidebar': dark ? '#111115' : '#fafafa',
+    '--arc-sidebar-border': dark ? '#27272a' : '#e5e7eb',
+    '--arc-text-primary': dark ? '#f4f4f5' : '#18181b',
+    '--arc-text-secondary': dark ? '#a1a1aa' : '#52525b',
+    '--arc-text-hint': dark ? '#71717a' : '#a1a1aa',
+    '--arc-primary': appStore.currentTheme.primary,
+    '--arc-primary-hover': appStore.currentTheme.primaryHover,
+    '--arc-primary-pressed': appStore.currentTheme.primaryPressed,
+    '--arc-primary-soft': dark
+      ? `color-mix(in srgb, ${appStore.currentTheme.primary} 18%, #18181b)`
+      : appStore.currentTheme.softBackground,
+    '--arc-border': dark ? '#27272a' : '#e5e7eb',
+    '--arc-border-strong': dark ? '#3f3f46' : '#d1d5db',
+    '--arc-shadow-sm': dark ? '0 1px 3px rgba(0, 0, 0, 0.36)' : '0 1px 3px rgba(0, 0, 0, 0.06)',
+    '--arc-shadow-md': dark ? '0 4px 12px rgba(0, 0, 0, 0.5)' : '0 2px 8px rgba(0, 0, 0, 0.07)',
+    '--arc-shadow-lg': dark ? '0 8px 24px rgba(0, 0, 0, 0.6)' : '0 4px 16px rgba(0, 0, 0, 0.09)',
+    '--arc-bg-mix': dark ? '#18181b' : '#ffffff',
+    '--arc-glass-04': dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+    '--arc-glass-06': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)',
+    '--arc-glass-08': dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+    '--arc-glass-10': dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.05)',
+    '--arc-glass-12': dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.06)',
+    '--arc-radius-sm': '4px',
+    '--arc-radius-md': '6px',
+    '--arc-radius-lg': '10px',
+    // 标题栏高度：Windows 使用系统安全区域，macOS 使用固定值，其他平台为 0
+    '--arc-titlebar-height': platform === 'win32' ? 'env(titlebar-area-height, 28px)' : platform === 'darwin' ? '24px' : '0px',
+    // 窗口控制按钮区域宽度：Windows 使用 CSS 环境变量自适应，macOS 控件在左侧不占右侧宽度
+    '--arc-window-controls-width':
+      platform === 'win32'
+        ? 'max(0px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)))'
+        : '0px'
+  }
+})
 
 // 监听 UI 缩放比例变化，限制在 0.75~1.75 倍之间并同步给 Electron 窗口
 watch(
@@ -61,11 +77,11 @@ watch(
 </script>
 
 <template>
-  <n-config-provider :theme-overrides="themeOverrides">
+  <n-config-provider :theme="naiveTheme" :theme-overrides="themeOverrides">
     <n-message-provider>
       <n-dialog-provider>
         <n-global-style />
-        <div class="app-shell" :style="appStyleVars">
+        <div class="app-shell" :style="appStyleVars" :class="{ 'dark-mode': appStore.appSettings.darkMode }">
           <div class="app-titlebar arc-drag-region">
             <span class="app-titlebar__label">{{ appTitle }}</span>
           </div>
@@ -100,8 +116,12 @@ watch(
   padding-top: 4px;
   padding-right: calc(var(--arc-window-controls-width) + 16px);
   padding-left: 16px;
-  color: rgba(32, 33, 36, 0.7);
+  color: var(--arc-text-hint);
   pointer-events: none;
+}
+
+.dark-mode .app-titlebar {
+  color: var(--arc-text-hint);
 }
 
 .app-titlebar__label {

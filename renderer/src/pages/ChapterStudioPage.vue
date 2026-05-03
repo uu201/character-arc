@@ -21,10 +21,7 @@ import ChaptersPanel from '@/components/ChaptersPanel.vue'
   min-width: 0;
   height: 100%;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, #f4f6fb, #f7f9fc 24%, #eef2f7 100%),
-    radial-gradient(circle at top left, color-mix(in srgb, var(--arc-primary) 8%, white), transparent 24%),
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.82), transparent 22%);
+  background: var(--arc-bg-body);
 }
 
 .chapter-studio-main {
