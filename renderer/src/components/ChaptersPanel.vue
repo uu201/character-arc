@@ -19,7 +19,7 @@ import {
   Sparkles,
   Trash2
 } from 'lucide-vue-next'
-import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTooltip, useDialog, useMessage } from 'naive-ui'
+import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTag, NTooltip, useDialog, useMessage } from 'naive-ui'
 import RichChapterEditor from '@/components/RichChapterEditor.vue'
 import { ensureEditorHtmlContent, getChapterCharacterCount, getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { DEFAULT_CHAPTER_WORD_TARGET, formatChapterWordTargetLabel, normalizeChapterWordTarget, parseChapterWordTarget } from '@/features/chapters/wordTarget'
@@ -198,6 +198,14 @@ const resolveChapterStatusTone = (status: ChapterDraft['status']) => {
       return 'warning'
     default:
       return 'neutral'
+  }
+}
+const resolveChapterStatusNaiveType = (status: ChapterDraft['status']): 'default' | 'warning' | 'info' | 'success' => {
+  switch (status) {
+    case 'final': return 'success'
+    case 'polish': return 'info'
+    case 'review': return 'warning'
+    default: return 'default'
   }
 }
 const currentTargetWordCount = computed(() => parseChapterWordTarget(appStore.selectedChapter?.wordTarget))
@@ -1019,12 +1027,12 @@ onBeforeUnmount(() => {
     <div class="chapters-shell" :class="{ 'reading-mode': readingMode }">
       <aside v-if="!readingMode && !isCompactStudio" class="chapter-sidebar">
         <div class="chapter-side-head">
-          <div class="chapter-side-head-main">
+          <div class="sidebar-head-main">
             <n-tooltip trigger="hover">
               <template #trigger>
-                <button class="tool-badge neutral chapter-back-button" @click="appStore.backToWorkbench()">
-                  <ChevronLeft :size="16" />
-                </button>
+                <n-button size="small" quaternary class="chapter-back-button" @click="appStore.backToWorkbench()">
+                  <template #icon><ChevronLeft :size="15" /></template>
+                </n-button>
               </template>
               返回工作台
             </n-tooltip>
@@ -1081,9 +1089,9 @@ onBeforeUnmount(() => {
                 <div class="chapter-card-title">{{ chapter.title }}</div>
                 <div class="chapter-card-footer">
                   <span class="chapter-card-words">{{ getChapterCharacterCount(chapter.content) }} 字</span>
-                  <span class="chapter-card-status" :class="resolveChapterStatusTone(chapter.status)">
+                  <n-tag :type="resolveChapterStatusNaiveType(chapter.status)" size="small" :bordered="false" class="chapter-card-status-tag">
                     {{ formatChapterStatusLabel(chapter.status) }}
-                  </span>
+                  </n-tag>
                 </div>
               </button>
             </div>
@@ -1102,22 +1110,20 @@ onBeforeUnmount(() => {
               <span v-if="!readingMode && !isTinyStudio" class="progress-inline">
                 {{ currentWordCount }} / {{ currentTargetWordCount || '自由字数' }} · {{ currentProgressPercent }}%
               </span>
-              <span v-else-if="!readingMode" class="meta-chip neutral">进度 {{ currentProgressPercent }}%</span>
-              <span class="meta-chip" :class="currentChapterStatusTone">{{ currentChapterStatusLabel }}</span>
-              <span v-if="(!isCondensedTopbar || readingMode) && !isTinyStudio" class="meta-chip neutral">目标 {{ currentTargetWordCount || '自由字数' }}</span>
-              <span v-if="(!isCondensedTopbar || readingMode) && !isTinyStudio" class="meta-chip ghost">本卷第 {{ selectedChapterIndexInVolume }} 章</span>
-              <span v-if="(!isCondensedTopbar || readingMode) && !isTinyStudio" class="meta-chip ghost">全书第 {{ selectedChapterIndex }} 章</span>
+              <n-tag v-else-if="!readingMode" size="small" :bordered="false">进度 {{ currentProgressPercent }}%</n-tag>
+              <n-tag size="small" :type="resolveChapterStatusNaiveType(appStore.selectedChapter?.status ?? 'draft')" :bordered="false">{{ currentChapterStatusLabel }}</n-tag>
+              <n-tag v-if="(!isCondensedTopbar || readingMode) && !isTinyStudio" size="small" :bordered="false">目标 {{ currentTargetWordCount || '自由字数' }}</n-tag>
+              <n-tag v-if="(!isCondensedTopbar || readingMode) && !isTinyStudio" size="small" :bordered="false">本卷第 {{ selectedChapterIndexInVolume }} 章</n-tag>
+              <n-tag v-if="(!isCondensedTopbar || readingMode) && !isTinyStudio" size="small" :bordered="false">全书第 {{ selectedChapterIndex }} 章</n-tag>
             </div>
           </div>
 
           <div class="editor-floating-actions">
             <div v-if="isCompactStudio && !readingMode" class="compact-utility-cluster" :class="{ narrow: isNarrowStudio }">
-              <button class="tool-badge neutral compact-back-button" @click="appStore.backToWorkbench()">
-                <span class="compact-back-icon">
-                  <ChevronLeft :size="14" />
-                </span>
-                <span class="compact-back-label">返回</span>
-              </button>
+              <n-button size="small" quaternary class="compact-back-button" @click="appStore.backToWorkbench()">
+                <template #icon><ChevronLeft :size="14" /></template>
+                返回
+              </n-button>
 
               <div class="compact-utility-switcher">
                 <button
@@ -1138,26 +1144,26 @@ onBeforeUnmount(() => {
             </div>
             <n-tooltip trigger="hover">
               <template #trigger>
-                <button class="tool-badge neutral" :class="{ active: readingMode }" @click="toggleReadingMode">
-                  <BookOpen :size="16" />
-                </button>
+                <n-button size="small" :type="readingMode ? 'primary' : 'default'" :secondary="readingMode" @click="toggleReadingMode">
+                  <template #icon><BookOpen :size="15" /></template>
+                </n-button>
               </template>
               {{ readingMode ? '返回编辑模式' : '进入阅读模式' }}
             </n-tooltip>
             <template v-if="readingMode">
               <n-tooltip trigger="hover">
                 <template #trigger>
-                  <button class="tool-badge neutral" :disabled="!previousChapter" @click="openAdjacentChapter(-1)">
-                    <ChevronLeft :size="16" />
-                  </button>
+                  <n-button size="small" quaternary :disabled="!previousChapter" @click="openAdjacentChapter(-1)">
+                    <template #icon><ChevronLeft :size="15" /></template>
+                  </n-button>
                 </template>
                 上一章
               </n-tooltip>
               <n-tooltip trigger="hover">
                 <template #trigger>
-                  <button class="tool-badge neutral" :disabled="!nextChapter" @click="openAdjacentChapter(1)">
-                    <ChevronRight :size="16" />
-                  </button>
+                  <n-button size="small" quaternary :disabled="!nextChapter" @click="openAdjacentChapter(1)">
+                    <template #icon><ChevronRight :size="15" /></template>
+                  </n-button>
                 </template>
                 下一章
               </n-tooltip>
@@ -1166,25 +1172,25 @@ onBeforeUnmount(() => {
               <div class="editor-action-group topbar-group topbar-group-primary">
                 <n-tooltip trigger="hover">
                   <template #trigger>
-                    <button class="tool-badge" @click="saveCurrentVersion">
-                      <Save :size="16" />
-                    </button>
+                    <n-button size="small" quaternary @click="saveCurrentVersion">
+                      <template #icon><Save :size="15" /></template>
+                    </n-button>
                   </template>
                   手动保存版本
                 </n-tooltip>
                 <n-tooltip trigger="hover">
                   <template #trigger>
-                    <button class="tool-badge neutral" @click="openVersionHistory">
-                      <History :size="16" />
-                    </button>
+                    <n-button size="small" quaternary @click="openVersionHistory">
+                      <template #icon><History :size="15" /></template>
+                    </n-button>
                   </template>
                   历史版本
                 </n-tooltip>
                 <n-tooltip trigger="hover">
                   <template #trigger>
-                    <button class="tool-badge neutral" @click="openChapterMetaEditor(appStore.selectedChapter)">
-                      <FilePenLine :size="16" />
-                    </button>
+                    <n-button size="small" quaternary @click="openChapterMetaEditor(appStore.selectedChapter)">
+                      <template #icon><FilePenLine :size="15" /></template>
+                    </n-button>
                   </template>
                   编辑章节信息
                 </n-tooltip>
@@ -1193,47 +1199,46 @@ onBeforeUnmount(() => {
               <div class="editor-action-group emphasis topbar-group topbar-group-assistant">
                 <n-tooltip trigger="hover">
                   <template #trigger>
-                    <button
-                        class="tool-badge primary"
+                    <n-button
+                        size="small"
+                        type="primary"
+                        :loading="isGeneratingChapterDraft"
                         :disabled="isGeneratingChapterDraft"
                         @click="generateChapterFirstDraft()"
                     >
-                      <Sparkles :size="16" />
-                      <span>{{ isGeneratingChapterDraft ? '生成中' : 'AI 初稿' }}</span>
-                    </button>
+                      <template #icon><Sparkles :size="15" /></template>
+                      {{ isGeneratingChapterDraft ? '生成中' : 'AI 初稿' }}
+                    </n-button>
                   </template>
                   直接流式生成本章初稿，完成后覆盖当前章节全部内容
                 </n-tooltip>
                 <n-tooltip v-if="isGeneratingChapterDraft" trigger="hover">
                   <template #trigger>
-                    <button
-                        class="tool-badge neutral danger"
+                    <n-button
+                        size="small"
+                        type="warning"
+                        secondary
+                        :loading="isStoppingChapterDraft"
                         :disabled="isStoppingChapterDraft"
                         @click="stopChapterFirstDraft()"
                     >
-                      <span>{{ isStoppingChapterDraft ? '停止中' : '停止生成' }}</span>
-                    </button>
+                      {{ isStoppingChapterDraft ? '停止中' : '停止生成' }}
+                    </n-button>
                   </template>
                   停止本次 AI 初稿生成，保持当前章节原内容不变
                 </n-tooltip>
                 <n-tooltip trigger="hover">
                   <template #trigger>
-                    <button
-                        class="tool-badge neutral assistant-toggle"
-                        :class="{ active: appStore.aiVisible }"
+                    <n-button
+                        size="small"
+                        :type="appStore.aiVisible ? 'primary' : 'default'"
+                        :secondary="appStore.aiVisible"
+                        class="assistant-toggle-btn"
                         @click="appStore.toggleAi()"
                     >
-                    <span class="assistant-toggle-icons" aria-hidden="true">
-                      <Bot :size="16" />
-                    </span>
-                      <span class="assistant-toggle-copy">
-                      <span class="assistant-toggle-label">AI 助手</span>
-                      <span class="assistant-toggle-state">
-                        <span class="assistant-toggle-indicator" :class="{ active: appStore.aiVisible }"></span>
-                        {{ appStore.aiVisible ? '已打开' : '已关闭' }}
-                      </span>
-                    </span>
-                    </button>
+                      <template #icon><Bot :size="15" /></template>
+                      AI 助手
+                    </n-button>
                   </template>
                   {{ appStore.aiVisible ? '关闭 AI 助手窗口' : '打开 AI 助手窗口' }}
                 </n-tooltip>
@@ -1242,13 +1247,15 @@ onBeforeUnmount(() => {
               <div class="editor-action-group danger topbar-group topbar-group-danger">
                 <n-tooltip trigger="hover">
                   <template #trigger>
-                    <button
-                        class="tool-badge neutral danger"
+                    <n-button
+                        size="small"
+                        quaternary
+                        type="error"
                         :disabled="appStore.chapters.length <= 1"
                         @click="requestDeleteChapter"
                     >
-                      <Trash2 :size="16" />
-                    </button>
+                      <template #icon><Trash2 :size="15" /></template>
+                    </n-button>
                   </template>
                   删除章节
                 </n-tooltip>
@@ -1262,10 +1269,10 @@ onBeforeUnmount(() => {
             <template v-if="readingMode">
               <div class="reading-header">
                 <div class="reading-header-meta">
-                  <span class="meta-chip" :class="currentChapterStatusTone">{{ currentChapterStatusLabel }}</span>
-                  <span class="meta-chip neutral">{{ currentVolumeLabel }}</span>
-                  <span class="meta-chip ghost">本卷第 {{ selectedChapterIndexInVolume }} 章</span>
-                  <span class="meta-chip ghost">{{ readingProgressLabel }}</span>
+                  <n-tag size="small" :type="resolveChapterStatusNaiveType(appStore.selectedChapter?.status ?? 'draft')" :bordered="false">{{ currentChapterStatusLabel }}</n-tag>
+                  <n-tag size="small" :bordered="false">{{ currentVolumeLabel }}</n-tag>
+                  <n-tag size="small" :bordered="false">本卷第 {{ selectedChapterIndexInVolume }} 章</n-tag>
+                  <n-tag size="small" :bordered="false">{{ readingProgressLabel }}</n-tag>
                 </div>
 
                 <div class="reading-heading">
@@ -1282,14 +1289,14 @@ onBeforeUnmount(() => {
               </div>
 
               <div class="reading-footer">
-                <button class="reading-nav" :disabled="!previousChapter" @click="openAdjacentChapter(-1)">
-                  <ChevronLeft :size="16" />
-                  <span>{{ previousChapter?.title || '已经是第一章' }}</span>
-                </button>
-                <button class="reading-nav primary" :disabled="!nextChapter" @click="openAdjacentChapter(1)">
-                  <span>{{ nextChapter?.title || '已经是最后一章' }}</span>
-                  <ChevronRight :size="16" />
-                </button>
+                <n-button quaternary :disabled="!previousChapter" @click="openAdjacentChapter(-1)">
+                  <template #icon><ChevronLeft :size="15" /></template>
+                  {{ previousChapter?.title || '已经是第一章' }}
+                </n-button>
+                <n-button type="primary" quaternary :disabled="!nextChapter" @click="openAdjacentChapter(1)">
+                  {{ nextChapter?.title || '已经是最后一章' }}
+                  <template #icon><ChevronRight :size="15" /></template>
+                </n-button>
               </div>
             </template>
 
@@ -1329,13 +1336,11 @@ onBeforeUnmount(() => {
                     <div v-if="linkedOutlineItem" class="side-card outline-origin-card">
                       <div class="side-card-head">
                         <span class="side-card-label">来源大纲节点</span>
-                        <button class="text-link" @click="jumpBackToOutline()">回到大纲</button>
+                        <n-button text type="primary" size="small" @click="jumpBackToOutline()">回到大纲</n-button>
                       </div>
                       <div class="outline-origin-meta">
                         <span class="outline-origin-title">{{ linkedOutlineItem.title }}</span>
-                        <span class="outline-origin-status" :class="linkedOutlineStatusMeta.tone">
-                        {{ linkedOutlineStatusMeta.label }}
-                      </span>
+                        <n-tag size="small" :bordered="false">{{ linkedOutlineStatusMeta.label }}</n-tag>
                       </div>
                       <div class="outline-origin-summary-wrap">
                         <p class="outline-origin-summary">
@@ -1346,19 +1351,19 @@ onBeforeUnmount(() => {
                         </p>
                       </div>
                       <div class="outline-origin-actions">
-                        <button v-if="canSyncOutlineBack" class="action-btn primary" @click="syncChapterBackToOutline()">
+                        <n-button v-if="canSyncOutlineBack" size="small" type="primary" block @click="syncChapterBackToOutline()">
                           同步状态与摘要
-                        </button>
-                        <button
-                            class="action-btn"
+                        </n-button>
+                        <n-button
+                            size="small"
+                            secondary
+                            block
+                            :loading="isGeneratingOutlineChain"
                             :disabled="isGeneratingOutlineChain"
                             @click="generateNextOutlineChain()"
                         >
-                          {{ isGeneratingOutlineChain ? '生成中...' : '生成后续剧情链' }}
-                        </button>
-<!--                        <button class="action-btn ghost" @click="openChapterMetaEditor(appStore.selectedChapter)">
-                          调整节点绑定
-                        </button>-->
+                          生成后续剧情链
+                        </n-button>
                       </div>
                     </div>
 
@@ -1426,10 +1431,10 @@ onBeforeUnmount(() => {
                 <span class="status-metric">{{ currentChapterVersions.length }} 个历史版本</span>
                 <span v-if="!isTinyStudio" class="status-metric">全书第 {{ selectedChapterIndex }} 章</span>
               </div>
-                <span class="status-pill">
-                <PenTool :size="12" />
+              <n-tag type="info" size="small" :bordered="false">
+                <template #icon><PenTool :size="11" /></template>
                 {{ saveStatusText }}
-              </span>
+              </n-tag>
               </div>
             </template>
           </div>
@@ -1477,9 +1482,9 @@ onBeforeUnmount(() => {
                 <div class="chapter-card-title">{{ chapter.title }}</div>
                 <div class="chapter-card-footer">
                   <span class="chapter-card-words">{{ getChapterCharacterCount(chapter.content) }} 字</span>
-                  <span class="chapter-card-status" :class="resolveChapterStatusTone(chapter.status)">
+                  <n-tag :type="resolveChapterStatusNaiveType(chapter.status)" size="small" :bordered="false" class="chapter-card-status-tag">
                     {{ formatChapterStatusLabel(chapter.status) }}
-                  </span>
+                  </n-tag>
                 </div>
               </button>
             </div>
@@ -1505,9 +1510,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="outline-origin-meta">
             <span class="outline-origin-title">{{ linkedOutlineItem.title }}</span>
-            <span class="outline-origin-status" :class="linkedOutlineStatusMeta.tone">
-              {{ linkedOutlineStatusMeta.label }}
-            </span>
+            <n-tag size="small" :bordered="false">{{ linkedOutlineStatusMeta.label }}</n-tag>
           </div>
           <div class="outline-origin-summary-wrap">
             <p class="outline-origin-summary">
@@ -1518,19 +1521,19 @@ onBeforeUnmount(() => {
             </p>
           </div>
           <div class="outline-origin-actions">
-            <button v-if="canSyncOutlineBack" class="action-btn primary" @click="syncChapterBackToOutline()">
+            <n-button v-if="canSyncOutlineBack" size="small" type="primary" block @click="syncChapterBackToOutline()">
               同步状态与摘要
-            </button>
-            <button
-                class="action-btn"
+            </n-button>
+            <n-button
+                size="small"
+                secondary
+                block
+                :loading="isGeneratingOutlineChain"
                 :disabled="isGeneratingOutlineChain"
                 @click="generateNextOutlineChain()"
             >
-              {{ isGeneratingOutlineChain ? '生成中...' : '生成后续剧情链' }}
-            </button>
-<!--            <button class="action-btn ghost" @click="openChapterMetaEditor(appStore.selectedChapter)">
-              调整节点绑定
-            </button>-->
+              生成后续剧情链
+            </n-button>
           </div>
         </div>
 
@@ -1768,16 +1771,16 @@ onBeforeUnmount(() => {
 
 .chapters-shell {
   display: grid;
-  grid-template-columns: 304px minmax(0, 1fr); /* 默认两列布局 */
+  grid-template-columns: 220px minmax(0, 1fr);
   gap: 0;
   min-height: 0;
   height: 100%;
   flex: 1;
   align-items: stretch;
   border: 1px solid var(--chapter-border-strong);
-  border-radius: 10px;
+  border-radius: var(--arc-radius-lg);
   background: var(--arc-bg-surface);
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.07);
+  box-shadow: var(--arc-shadow-md);
   overflow: hidden;
   width: min(100%, var(--chapter-shell-max-width));
   margin: 0 auto;
@@ -1964,16 +1967,16 @@ onBeforeUnmount(() => {
   color: var(--arc-text-secondary);
 }
 .chapter-card-status.warning {
-  background: rgba(255, 247, 218, 0.96);
-  color: #a16207;
+  background: color-mix(in srgb, #f59e0b 12%, var(--arc-bg-surface));
+  color: #d97706;
 }
 .chapter-card-status.accent {
   background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
   color: var(--arc-primary);
 }
 .chapter-card-status.success {
-  background: rgba(234, 250, 239, 0.96);
-  color: #15803d;
+  background: color-mix(in srgb, #22c55e 10%, var(--arc-bg-surface));
+  color: #16a34a;
 }
 
 /* =========== 顶部工具栏与外壳结构 =========== */
@@ -2004,35 +2007,35 @@ onBeforeUnmount(() => {
 .save-status-inline { display: inline-flex; min-width: 56px; align-items: center; justify-content: center; }
 
 .editor-floating-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.editor-action-group { display: inline-flex; align-items: center; gap: 8px; padding: 4px; border: 1px solid var(--arc-border); border-radius: 8px; background: var(--arc-glass-06); }
-.editor-action-group.emphasis { background: var(--arc-glass-08); }
-.editor-action-group.danger { background: var(--arc-glass-04); }
+.editor-action-group { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--arc-border); border-radius: var(--arc-radius-md); background: var(--arc-bg-body); }
+.editor-action-group.emphasis { background: var(--arc-bg-body); }
+.editor-action-group.danger { background: var(--arc-bg-body); }
 
 /* =========== 工具按钮与胶囊 =========== */
 .tool-badge {
-  display: inline-flex; min-width: 30px; min-height: 34px; align-items: center; justify-content: center;
-  border: 1px solid var(--chapter-border); border-radius: 12px; background: var(--arc-glass-08);
-  color: var(--arc-text-secondary); box-shadow: 0 8px 18px rgba(15, 23, 42, 0.03); cursor: pointer; padding: 0 8px; transition: all 0.18s ease;
+  display: inline-flex; min-width: 30px; min-height: 32px; align-items: center; justify-content: center;
+  border: 1px solid var(--chapter-border); border-radius: var(--arc-radius-md); background: transparent;
+  color: var(--arc-text-secondary); cursor: pointer; padding: 0 8px; transition: all 0.12s ease;
 }
-.tool-badge:hover { border-color: var(--chapter-border-strong); background: var(--arc-glass-10); transform: translateY(-1px); box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06); }
+.tool-badge:hover { border-color: var(--chapter-border-strong); background: var(--arc-bg-surface); color: var(--arc-text-primary); }
 .tool-badge.active { border-color: color-mix(in srgb, var(--arc-primary) 16%, var(--chapter-border)); background: var(--chapter-accent-soft); color: var(--arc-primary); }
-.tool-badge.neutral { background: var(--chapter-surface); color: var(--arc-text-secondary); }
+.tool-badge.neutral { background: transparent; color: var(--arc-text-secondary); }
 .tool-badge.neutral.active { background: var(--chapter-accent-soft); color: var(--arc-primary); }
-.tool-badge:disabled { opacity: 0.45; cursor: not-allowed; }
+.tool-badge:disabled { opacity: 0.4; cursor: not-allowed; }
 .tool-badge.danger:hover { background: color-mix(in srgb, #dc2626 8%, var(--arc-bg-surface)); color: #dc2626; }
 
-.meta-chip { display: inline-flex; align-items: center; border: 1px solid var(--chapter-border); border-radius: 999px; font-size: 12px; font-weight: 700; padding: 6px 10px; }
-.meta-chip.neutral { background: var(--arc-glass-08); color: var(--arc-text-secondary); }
-.meta-chip.ghost { background: var(--arc-glass-06); color: var(--arc-text-secondary); }
-.meta-chip.warning { background: #fff7da; color: #a16207; }
+.meta-chip { display: inline-flex; align-items: center; border: 1px solid var(--chapter-border); border-radius: var(--arc-radius-sm); font-size: 11px; font-weight: 600; padding: 2px 7px; }
+.meta-chip.neutral { background: var(--arc-bg-body); color: var(--arc-text-secondary); }
+.meta-chip.ghost { background: transparent; color: var(--arc-text-hint); border-color: transparent; }
+.meta-chip.warning { background: color-mix(in srgb, #f59e0b 12%, var(--arc-bg-surface)); color: #d97706; border-color: transparent; }
 .meta-chip.accent { background: var(--chapter-accent-soft); border-color: color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border)); color: var(--arc-primary); }
-.meta-chip.success { background: #ebf8ef; color: #15803d; }
+.meta-chip.success { background: color-mix(in srgb, #22c55e 10%, var(--arc-bg-surface)); color: #16a34a; border-color: transparent; }
 
 .assistant-toggle { min-width: 152px; gap: 10px; padding: 8px 12px; }
 .assistant-toggle-icons { display: inline-flex; align-items: center; gap: 6px; }
 .assistant-toggle-copy { display: flex; align-items: center; gap: 8px; }
 .assistant-toggle-label { font-size: 12px; font-weight: 700; }
-.assistant-toggle-state { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--arc-border); border-radius: 999px; background: var(--arc-glass-08); color: var(--arc-text-hint); font-size: 10px; font-weight: 600; padding: 3px 7px; }
+.assistant-toggle-state { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--arc-border); border-radius: var(--arc-radius-sm); background: var(--arc-bg-body); color: var(--arc-text-hint); font-size: 10px; font-weight: 600; padding: 3px 7px; }
 .assistant-toggle-indicator { width: 6px; height: 6px; border-radius: 999px; background: var(--arc-text-hint); }
 .assistant-toggle-indicator.active { background: var(--arc-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 18%, transparent); }
 
@@ -2044,7 +2047,7 @@ onBeforeUnmount(() => {
   border: 1px solid color-mix(in srgb, var(--arc-primary) 16%, var(--arc-border));
   border-radius: 8px;
   background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--arc-shadow-sm);
   padding: 16px 18px;
 }
 
@@ -2070,20 +2073,20 @@ onBeforeUnmount(() => {
 }
 
 .chapter-draft-progress-label {
-  color: #1d4ed8;
+  color: var(--arc-primary);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.06em;
 }
 
 .chapter-draft-progress-copy-block strong {
-  color: #18212f;
+  color: var(--arc-text-primary);
   font-size: 15px;
   font-weight: 700;
 }
 
 .chapter-draft-progress-percent {
-  color: #1d4ed8;
+  color: var(--arc-primary);
   font-size: 13px;
   font-weight: 800;
   white-space: nowrap;
@@ -2091,16 +2094,16 @@ onBeforeUnmount(() => {
 
 .chapter-draft-progress-track {
   width: 100%;
-  height: 10px;
+  height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(191, 219, 254, 0.45);
+  background: color-mix(in srgb, var(--arc-primary) 14%, var(--arc-bg-surface));
 }
 
 .chapter-draft-progress-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #60a5fa, #2563eb);
+  background: var(--arc-primary);
   transition: width 0.2s ease;
 }
 
@@ -2115,10 +2118,10 @@ onBeforeUnmount(() => {
 .chapter-draft-stream-preview {
   max-height: 220px;
   overflow-y: auto;
-  border: 1px solid color-mix(in srgb, var(--arc-primary) 14%, var(--arc-border));
-  border-radius: 16px;
-  background: var(--arc-glass-08);
-  padding: 14px 15px;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  background: var(--arc-bg-body);
+  padding: 12px 14px;
 }
 
 :deep(.arc-draft-modal) {
@@ -2135,7 +2138,7 @@ onBeforeUnmount(() => {
 
 .chapter-draft-stream-preview pre {
   margin: 0;
-  color: #233044;
+  color: var(--arc-text-primary);
   font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
   font-size: 13px;
   line-height: 1.8;
@@ -2144,8 +2147,8 @@ onBeforeUnmount(() => {
 }
 
 .compact-utility-switcher { display: inline-flex; align-items: center; border: 1px solid var(--arc-border); border-radius: 8px; background: var(--arc-bg-surface); padding: 4px; }
-.compact-utility-tab { min-width: 92px; min-height: 36px; border: none; border-radius: 14px; background: transparent; color: var(--arc-text-secondary); font-size: 13px; font-weight: 700; padding: 0 14px; cursor: pointer; }
-.compact-utility-tab.active { background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface)); color: var(--arc-primary); box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08); }
+.compact-utility-tab { min-width: 92px; min-height: 36px; border: none; border-radius: var(--arc-radius-md); background: transparent; color: var(--arc-text-secondary); font-size: 13px; font-weight: 700; padding: 0 14px; cursor: pointer; }
+.compact-utility-tab.active { background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface)); color: var(--arc-primary); box-shadow: var(--arc-shadow-sm); }
 
 /* =========== 编辑器主体与高度约束链 =========== */
 .editor-stage {
@@ -2201,13 +2204,14 @@ onBeforeUnmount(() => {
   flex-shrink: 0; /* ★ 保护标题区不被压缩 */
 }
 
-.manuscript-overline { color: #667085; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+.manuscript-overline { color: var(--arc-text-hint); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 
 .chapter-title {
-  width: 100%; border: none; background: transparent; color: #111827;
-  font-size: clamp(28px, 3vw, 36px); font-weight: 700; letter-spacing: -0.03em; margin-bottom: 0; outline: none;
+  width: 100%; border: none; background: transparent; color: var(--arc-text-primary);
+  font-size: clamp(24px, 3vw, 32px); font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0; outline: none;
 }
-.chapter-title:hover { color: #202124; }
+.chapter-title:hover { color: var(--arc-text-primary); }
+.chapter-title::placeholder { color: var(--arc-text-hint); }
 
 .manuscript-divider {
   height: 1px;
@@ -2248,31 +2252,33 @@ onBeforeUnmount(() => {
 
 .side-card {
   border: 1px solid var(--chapter-border);
-  border-radius: 8px;
+  border-radius: var(--arc-radius-md);
   background: var(--arc-bg-surface);
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.03);
-  padding: 16px;
+  box-shadow: var(--arc-shadow-sm);
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  flex-shrink: 0; /* ★ 防止每张卡片在小屏下被压扁 */
+  gap: 10px;
+  flex-shrink: 0;
 }
 .side-card-head { display: flex; justify-content: space-between; align-items: flex-start;}
 .side-card-label { color: var(--arc-text-hint); font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
 .outline-origin-title { font-size: 15px; font-weight: 700; color: var(--arc-text-primary); }
-.outline-origin-status { font-size: 11px; font-weight: 800; padding: 5px 9px; border-radius: 999px; }
-.outline-origin-summary-wrap { background: var(--arc-glass-06); border-radius: 12px; padding: 10px; border: 1px solid var(--arc-border); }
+.outline-origin-status { font-size: 11px; font-weight: 800; padding: 5px 9px; border-radius: var(--arc-radius-sm); }
+.outline-origin-summary-wrap { background: var(--arc-bg-body); border-radius: var(--arc-radius-md); padding: 10px; border: 1px solid var(--arc-border); }
 .outline-origin-summary { margin: 0; color: var(--arc-text-secondary); font-size: 12px; line-height: 1.6; }
-.action-btn { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; border-radius: 10px; cursor: pointer; font-size: 12px; font-weight: 700; margin-bottom: 6px;}
+.action-btn { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; border-radius: var(--arc-radius-md); cursor: pointer; font-size: 12px; font-weight: 700; margin-bottom: 6px;}
 .action-btn.primary { background: var(--arc-primary); color: white; border: none; }
 .action-btn.ghost { background: transparent; border: 1px solid var(--chapter-border); color: var(--arc-text-secondary); }
 
+.text-link { background: transparent; border: none; padding: 0; cursor: pointer; color: var(--arc-primary); font-size: 12px; font-weight: 600; }
+
 .inspiration-card.side-card { border-color: color-mix(in srgb, var(--arc-primary) 10%, var(--chapter-border)); background: color-mix(in srgb, var(--arc-primary) 4%, var(--arc-bg-surface)); }
-.inspiration-workbench-link { display: inline-flex; min-height: 30px; align-items: center; gap: 6px; border: 1px solid var(--arc-border); border-radius: 999px; background: var(--arc-glass-10); color: var(--arc-text-secondary); font-size: 11px; font-weight: 700; padding: 6px 11px; }
-.inspiration-focus-chip { display: inline-flex; min-height: 32px; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--arc-primary) 18%, var(--arc-border)); border-radius: 999px; background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface)); color: var(--arc-primary); font-size: 11px; font-weight: 700; padding: 6px 11px; }
-.inspiration-item { border: 1px solid var(--arc-border); border-radius: 14px; background: var(--arc-bg-surface); padding: 12px; margin-bottom: 10px; }
-.inspiration-type { background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface)); color: var(--arc-primary); padding: 5px 9px; font-size: 11px; font-weight: 700; border-radius: 999px; }
-.inspiration-source { background: var(--arc-glass-08); color: var(--arc-text-secondary); padding: 5px 8px; font-size: 11px; font-weight: 700; border-radius: 999px; }
+.inspiration-workbench-link { display: inline-flex; min-height: 30px; align-items: center; gap: 6px; border: 1px solid var(--arc-border); border-radius: var(--arc-radius-md); background: var(--arc-bg-body); color: var(--arc-text-secondary); font-size: 11px; font-weight: 700; padding: 6px 11px; }
+.inspiration-focus-chip { display: inline-flex; min-height: 32px; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--arc-primary) 18%, var(--arc-border)); border-radius: var(--arc-radius-md); background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface)); color: var(--arc-primary); font-size: 11px; font-weight: 700; padding: 6px 11px; }
+.inspiration-item { border: 1px solid var(--arc-border); border-radius: var(--arc-radius-md); background: var(--arc-bg-surface); padding: 12px; margin-bottom: 10px; }
+.inspiration-type { background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface)); color: var(--arc-primary); padding: 5px 9px; font-size: 11px; font-weight: 700; border-radius: var(--arc-radius-sm); }
+.inspiration-source { background: var(--arc-bg-body); color: var(--arc-text-secondary); padding: 5px 8px; font-size: 11px; font-weight: 700; border-radius: var(--arc-radius-sm); }
 .inspiration-item strong { display: block; color: var(--arc-text-primary); font-size: 13px; font-weight: 700; line-height: 1.5; }
 .inspiration-item p { margin: 8px 0 0; color: var(--arc-text-secondary); font-size: 12px; line-height: 1.75; }
 
@@ -2299,14 +2305,14 @@ onBeforeUnmount(() => {
   border: 1px solid var(--arc-border);
   border-radius: 8px;
   background: var(--arc-bg-surface);
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--arc-shadow-sm);
   color: var(--arc-text-secondary);
   font-size: 12px;
   flex-shrink: 0; /* ★ 保护底部状态栏绝不被压缩 */
 }
 
 .editor-status-group { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.status-pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border)); border-radius: 999px; background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix)); color: var(--arc-primary); font-weight: 700; padding: 6px 10px; }
+.status-pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border)); border-radius: var(--arc-radius-sm); background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix)); color: var(--arc-primary); font-weight: 700; padding: 6px 10px; }
 
 /* =========== 紧凑/窄屏 响应式适配 =========== */
 @media (max-width: 1180px) {
