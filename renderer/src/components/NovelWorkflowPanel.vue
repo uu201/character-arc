@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ArrowRight, BookOpenText, Compass, FileText, GitBranch, LibraryBig, PenTool, Radar, Save, Sparkles, ScrollText, Users2, WandSparkles } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, Compass, FileText, GitBranch, LibraryBig, Save, Sparkles, ScrollText, Users2 } from 'lucide-vue-next'
 import { NButton, NInput, useMessage } from 'naive-ui'
 import { workflowStageDocumentMap } from '@/features/novelWorkflow/documents'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
@@ -679,7 +679,6 @@ function resolveStageStatusLabel(status: string): string {
       <div class="workflow-stage-rail-head">
         <span class="workflow-kicker">Novel Workflow</span>
         <h2>小说流程</h2>
-        <p>这里不是说明页，而是把写小说时真正会手动维护的状态、文件和动作，固定成一个项目工作台。流程文件优先由 AI 生成，你只负责补充和修订。</p>
         <div class="workflow-generate-actions">
           <n-button type="primary" round strong :disabled="isGeneratingWorkflowDocuments" @click="generateWorkflowDocuments">
             <template #icon>
@@ -713,57 +712,48 @@ function resolveStageStatusLabel(status: string): string {
           <div>
             <span class="workflow-stage-shell-kicker">当前阶段</span>
             <h3>{{ activeStage.title }}</h3>
-            <p>{{ activeStage.description }}</p>
           </div>
           <div class="workflow-stage-status-row">
-            <button
-              class="status-chip"
-              :class="{ active: activeStage.state === 'todo' }"
+            <n-button
+              size="small"
+              :type="activeStage.state === 'todo' ? 'primary' : 'default'"
+              :secondary="activeStage.state !== 'todo'"
               @click="updateStageStatus(activeStage.id, 'todo')"
-            >
-              未开始
-            </button>
-            <button
-              class="status-chip"
-              :class="{ active: activeStage.state === 'doing' }"
+            >未开始</n-button>
+            <n-button
+              size="small"
+              :type="activeStage.state === 'doing' ? 'primary' : 'default'"
+              :secondary="activeStage.state !== 'doing'"
               @click="updateStageStatus(activeStage.id, 'doing')"
-            >
-              进行中
-            </button>
-            <button
-              class="status-chip"
-              :class="{ active: activeStage.state === 'done' }"
+            >进行中</n-button>
+            <n-button
+              size="small"
+              :type="activeStage.state === 'done' ? 'primary' : 'default'"
+              :secondary="activeStage.state !== 'done'"
               @click="updateStageStatus(activeStage.id, 'done')"
-            >
-              已完成
-            </button>
+            >已完成</n-button>
           </div>
-        </div>
-
-        <div class="workflow-focus-card">
-          <strong>这一阶段真正要做的事</strong>
-          <p>{{ activeStage.focus }}</p>
-          <small>{{ activeStage.summary }}</small>
         </div>
 
         <div class="workflow-panel-actions">
-          <button
+          <n-button
             v-for="action in activeStage.actions"
             :key="`${activeStage.id}-${action.panel}`"
-            class="panel-action-button"
+            secondary
+            size="small"
+            icon-placement="right"
             @click="openPanel(action.panel)"
           >
-            <span>{{ action.label }}</span>
-            <ArrowRight :size="14" />
-          </button>
+            {{ action.label }}
+            <template #icon><ArrowRight :size="14" /></template>
+          </n-button>
         </div>
 
-        <div v-if="activeStage.id === 'reference'" class="workflow-focus-card reference-analysis-card">
+        <div v-if="activeStage.id === 'reference'" class="reference-analysis-card">
           <div class="reference-analysis-hero">
             <div class="reference-analysis-copy">
               <span class="reference-analysis-kicker">Reference Lab</span>
               <strong>选题与参考</strong>
-              <p>这里是参考作品的拆书工作台。先把优秀作品拆成风格规则，再把这些规则整理成参考阶段结论，供后续立项、大纲和正文反复复用。</p>
               <div class="reference-analysis-stats">
                 <div class="reference-analysis-stat">
                   <span>已分析参考</span>
@@ -782,7 +772,7 @@ function resolveStageStatusLabel(status: string): string {
             <div class="reference-analysis-command">
               <div class="reference-analysis-phase-wrap">
                 <span class="reference-analysis-phase">{{ resolveReferenceImportPhaseLabel(referenceImportProgress?.phase) }}</span>
-                <small>拆书和参考提炼共用这一套状态区，不再让你盯着按钮猜系统在干嘛。</small>
+                <small>拆书和参考提炼共用这一套状态区。</small>
               </div>
               <div class="reference-analysis-actions">
                 <n-button round strong secondary :disabled="isReferenceOperationActive" @click="importReferenceNovelAnalysis">
@@ -794,25 +784,7 @@ function resolveStageStatusLabel(status: string): string {
               </div>
             </div>
           </div>
-          <div class="reference-analysis-flow">
-            <article class="reference-flow-card">
-              <span>01</span>
-              <strong>拆书分析</strong>
-              <p>导入参考小说，系统按分块逐段提炼句式、对白、节奏和情绪表达。</p>
-            </article>
-            <article class="reference-flow-card">
-              <span>02</span>
-              <strong>参考提炼</strong>
-              <p>把所有拆书结果浓缩成当前阶段共识，沉淀为选题判断、题材爆点和平台偏好。</p>
-            </article>
-            <article class="reference-flow-card">
-              <span>03</span>
-              <strong>进入后续创作</strong>
-              <p>风格模板会自动进入项目文风系统，后面写大纲和正文都会直接调用。</p>
-            </article>
-          </div>
-          <div class="reference-analysis-grid">
-            <div class="reference-progress-card" :class="{ active: Boolean(referenceImportProgress) }">
+          <div class="reference-progress-card" :class="{ active: Boolean(referenceImportProgress) }">
               <div class="reference-progress-meta">
                 <div>
                   <span class="reference-progress-label">当前任务</span>
@@ -834,47 +806,6 @@ function resolveStageStatusLabel(status: string): string {
                 <span :class="{ active: ['saving', 'done'].includes(referenceImportProgress?.phase ?? '') }">回填项目</span>
               </div>
             </div>
-            <div class="reference-usage-panel">
-              <div class="reference-usage-panel-head">
-                <span>结果去向</span>
-                <strong>拆书不是孤立报告，它会进入下面这些模块</strong>
-              </div>
-              <div class="reference-usage-grid">
-                <article class="reference-usage-card emphasis">
-                  <div class="reference-usage-icon">
-                    <WandSparkles :size="16" />
-                  </div>
-                  <strong>写作风格约束</strong>
-                  <p>拆书生成的仿写模板会自动追加到项目风格规则里，后续故事立项、章节生成都会吃这套约束。</p>
-                  <button class="doc-tab active" @click="openPanel('settings')">去项目设置查看</button>
-                </article>
-                <article class="reference-usage-card">
-                  <div class="reference-usage-icon">
-                    <FileText :size="16" />
-                  </div>
-                  <strong>参考阶段 Findings</strong>
-                  <p>拆书摘要会写进当前卷的 <code>findings</code>，作为后续阶段和 AI 的阶段记忆。</p>
-                  <button class="doc-tab active" @click="openReferenceFindings">查看 findings</button>
-                </article>
-                <article class="reference-usage-card">
-                  <div class="reference-usage-icon">
-                    <PenTool :size="16" />
-                  </div>
-                  <strong>章节创作与续写</strong>
-                  <p>章节助理会读取项目风格 prompt，所以你后面在正文创作里能直接继承拆出来的文笔和节奏。</p>
-                  <button class="doc-tab active" @click="openPanel('chapters')">去章节创作</button>
-                </article>
-                <article class="reference-usage-card">
-                  <div class="reference-usage-icon">
-                    <Radar :size="16" />
-                  </div>
-                  <strong>选题判断与立项</strong>
-                  <p>参考提炼会把题材爆点、平台偏好和共性风格压缩成阶段结论，供后续立项直接读取。</p>
-                  <button class="doc-tab active" @click="generateReferenceInsights">立即整理阶段结论</button>
-                </article>
-              </div>
-            </div>
-          </div>
           <div v-if="latestAnalyzedReference?.analysis" class="reference-analysis-footnote">
             最近一次完成拆书：<strong>{{ latestAnalyzedReference.title }}</strong>
             <span>已提炼 {{ latestAnalyzedReference.analysis.styleRules.length }} 条风格规则，并回填到项目风格约束。</span>
@@ -908,7 +839,7 @@ function resolveStageStatusLabel(status: string): string {
           </div>
         </div>
 
-        <div v-if="activeStage.id === 'premise'" class="workflow-focus-card reference-settings-card">
+        <div v-if="activeStage.id === 'premise'" class="reference-settings-card">
           <strong>故事立项输入</strong>
           <div class="reference-form-grid single">
             <n-input
@@ -925,7 +856,7 @@ function resolveStageStatusLabel(status: string): string {
           </div>
         </div>
 
-        <div v-if="activeStage.id === 'setting'" class="workflow-focus-card reference-settings-card">
+        <div v-if="activeStage.id === 'setting'" class="reference-settings-card">
           <strong>设定搭建输入</strong>
           <div class="reference-form-grid single">
             <n-input
@@ -948,32 +879,33 @@ function resolveStageStatusLabel(status: string): string {
           <div>
             <span class="workflow-stage-shell-kicker">流程文件</span>
             <h3>当前阶段文件</h3>
-            <p>这里只放固定的项目流程文件。它们是 AI 的工作记忆，不是另做一套资源系统。</p>
           </div>
         </div>
 
         <div v-if="outlineVolumes.length > 1" class="workflow-volume-tabs">
-          <button
+          <n-button
             v-for="(volume, index) in outlineVolumes"
             :key="volume.id"
-            class="doc-tab"
-            :class="{ active: volume.id === activeWorkflowVolumeId || (!activeWorkflowVolumeId && index === 0) }"
+            size="small"
+            :type="volume.id === activeWorkflowVolumeId || (!activeWorkflowVolumeId && index === 0) ? 'primary' : 'default'"
+            :secondary="!(volume.id === activeWorkflowVolumeId || (!activeWorkflowVolumeId && index === 0))"
             @click="selectVolume(volume.id)"
           >
             {{ formatVolumeLabel(volume, index, 'compact') }}
-          </button>
+          </n-button>
         </div>
 
         <div class="workflow-doc-tabs">
-          <button
+          <n-button
             v-for="document in stageDocuments"
             :key="document?.key"
-            class="doc-tab"
-            :class="{ active: document?.key === activeDocument?.key }"
+            size="small"
+            :type="document?.key === activeDocument?.key ? 'primary' : 'default'"
+            :secondary="document?.key !== activeDocument?.key"
             @click="document && setDocument(document.key)"
           >
             {{ document?.title }}
-          </button>
+          </n-button>
         </div>
 
         <div v-if="activeDocument" class="workflow-doc-editor">
@@ -1003,7 +935,6 @@ function resolveStageStatusLabel(status: string): string {
           <div>
             <span class="workflow-stage-shell-kicker">项目 Skills</span>
             <h3>.project-skills/</h3>
-            <p>这里只识别当前项目目录里的 skills。它们是阶段动作的 AI 内部资源，不是全局安装，不是技能市场。</p>
           </div>
           <div class="workflow-generate-actions">
             <n-button round strong secondary :disabled="isScanningProjectSkills" @click="scanProjectSkills">
@@ -1019,23 +950,25 @@ function resolveStageStatusLabel(status: string): string {
                 <strong>{{ skill.name }}</strong>
                 <p>{{ skill.path }}</p>
               </div>
-              <button class="status-chip" :class="{ active: skill.enabled }" @click="toggleProjectSkill(skill.id)">
-                {{ skill.enabled ? '已启用' : '已停用' }}
-              </button>
+              <n-button
+                size="small"
+                :type="skill.enabled ? 'primary' : 'default'"
+                :secondary="!skill.enabled"
+                @click="toggleProjectSkill(skill.id)"
+              >{{ skill.enabled ? '已启用' : '已停用' }}</n-button>
             </div>
             <p class="project-skill-description">{{ skill.description || '当前 skill 未提供描述。' }}</p>
             <div class="project-skill-stage-row">
               <span class="project-skill-stage-label">适用阶段</span>
               <div class="project-skill-stage-chips">
-                <button
+                <n-button
                   v-for="stage in workflowStages"
                   :key="`${skill.id}-${stage.id}`"
-                  class="doc-tab"
-                  :class="{ active: skill.stageIds.includes(stage.id) }"
+                  size="tiny"
+                  :type="skill.stageIds.includes(stage.id) ? 'primary' : 'default'"
+                  :secondary="!skill.stageIds.includes(stage.id)"
                   @click="toggleProjectSkillStage(skill.id, stage.id)"
-                >
-                  {{ stage.title }}
-                </button>
+                >{{ stage.title }}</n-button>
               </div>
             </div>
           </article>
@@ -1189,50 +1122,20 @@ function resolveStageStatusLabel(status: string): string {
   border-bottom: 1px solid var(--arc-border);
 }
 
-.status-chip,
-.panel-action-button,
-.doc-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.status-chip,
-.doc-tab {
-  border: 1px solid var(--arc-border);
-  background: var(--arc-bg-surface);
-  color: var(--arc-text-secondary);
-  padding: 8px 10px;
-}
-
-.status-chip.active,
-.doc-tab.active {
-  border-color: color-mix(in srgb, var(--arc-primary) 26%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
-  color: var(--arc-primary);
-}
-
-.panel-action-button {
-  border: 1px solid var(--arc-border);
-  background: var(--arc-bg-body);
-  color: var(--arc-text-primary);
-  padding: 8px 12px;
-}
-
-.workflow-focus-card {
+.reference-settings-card {
   border: 1px solid var(--arc-border);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--arc-primary) 4%, var(--arc-bg-body));
+  background: var(--arc-bg-body);
   padding: 14px 16px;
+  margin-top: 12px;
   margin-bottom: 14px;
 }
 
-.reference-settings-card {
-  margin-top: 12px;
+.reference-settings-card strong {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--arc-text-primary);
+  font-size: 14px;
 }
 
 .reference-form-grid {
@@ -1264,8 +1167,6 @@ function resolveStageStatusLabel(status: string): string {
 }
 
 .reference-analysis-hero,
-.reference-analysis-flow,
-.reference-analysis-grid,
 .reference-analysis-footnote,
 .reference-assets-head,
 .reference-work-list {
@@ -1385,57 +1286,12 @@ function resolveStageStatusLabel(status: string): string {
   gap: 10px;
 }
 
-.reference-analysis-flow {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 14px;
-}
-
-.reference-flow-card {
-  border: 1px solid var(--arc-border);
-  border-radius: 8px;
-  background: var(--arc-bg-surface);
-  padding: 14px;
-}
-
-.reference-flow-card span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.9);
-  color: rgba(248, 250, 252, 0.98);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.reference-flow-card strong {
-  display: block;
-  margin: 12px 0 6px;
-}
-
-.reference-flow-card p {
-  margin: 0;
-  color: var(--arc-text-secondary);
-  font-size: 12px;
-  line-height: 1.72;
-}
-
-.reference-analysis-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-  gap: 14px;
-  margin-top: 14px;
-}
-
 .reference-progress-card {
   border: 1px solid var(--arc-border);
   border-radius: 10px;
   background: var(--arc-bg-body);
   padding: 16px;
+  margin-top: 14px;
 }
 
 .reference-progress-card.active {
@@ -1519,82 +1375,6 @@ function resolveStageStatusLabel(status: string): string {
   border-color: color-mix(in srgb, var(--arc-primary) 30%, var(--arc-border));
   background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
   color: var(--arc-primary);
-}
-
-.reference-usage-panel {
-  border: 1px solid var(--arc-border);
-  border-radius: 10px;
-  background: var(--arc-bg-surface);
-  padding: 16px;
-}
-
-.reference-usage-panel-head {
-  margin-bottom: 12px;
-}
-
-.reference-usage-panel-head span {
-  display: inline-flex;
-  margin-bottom: 6px;
-  color: var(--arc-text-hint);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.reference-usage-panel-head strong {
-  display: block;
-  margin: 0;
-  color: var(--arc-text-primary);
-  font-size: 16px;
-  letter-spacing: -0.03em;
-}
-
-.reference-usage-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.reference-usage-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border: 1px solid var(--arc-border);
-  border-radius: 8px;
-  background: var(--arc-bg-body);
-  padding: 14px;
-}
-
-.reference-usage-card.emphasis {
-  border-color: color-mix(in srgb, var(--arc-primary) 24%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
-}
-
-.reference-usage-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.92);
-  color: rgba(248, 250, 252, 0.98);
-}
-
-.reference-usage-card strong {
-  margin: 0;
-}
-
-.reference-usage-card p {
-  margin: 0;
-  color: var(--arc-text-secondary);
-  font-size: 12px;
-  line-height: 1.72;
-}
-
-.reference-usage-card .doc-tab {
-  align-self: flex-start;
 }
 
 .reference-analysis-footnote {
@@ -1719,26 +1499,6 @@ function resolveStageStatusLabel(status: string): string {
   margin-top: 4px;
 }
 
-.workflow-focus-card strong {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--arc-text-primary);
-  font-size: 14px;
-}
-
-.workflow-focus-card p {
-  margin: 0 0 6px;
-  color: var(--arc-text-secondary);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.workflow-focus-card small {
-  color: var(--arc-text-hint);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
 .workflow-doc-shell-head {
   margin-bottom: 14px;
 }
@@ -1851,22 +1611,12 @@ function resolveStageStatusLabel(status: string): string {
     grid-template-columns: 1fr;
   }
 
-  .reference-analysis-head,
-  .reference-progress-meta,
-  .reference-assets-head {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .reference-analysis-hero,
-  .reference-analysis-grid,
-  .reference-analysis-flow,
-  .reference-work-list,
-  .reference-usage-grid {
+  .reference-analysis-hero {
     grid-template-columns: 1fr;
   }
 
-  .reference-analysis-stats {
+  .reference-analysis-stats,
+  .reference-work-list {
     grid-template-columns: 1fr;
   }
 }

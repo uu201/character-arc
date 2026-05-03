@@ -54,14 +54,14 @@ const searchKeyword = ref(panelSearch[appStore.activePanel] ?? '')
 
 // 侧边栏导航项配置列表，定义各模块的 id、标签、描述和图标
 const sidebarItems = [
-  { id: 'workflow', label: '小说流程', description: '维护固定流程文件并驱动写作阶段', icon: BookOpenText },
-  { id: 'overview', label: '作品概览', description: '掌握项目进度与全局信息', icon: LayoutDashboard },
-  { id: 'world', label: '世界观设定', description: '沉淀世界规则、地点与设定条目', icon: Globe2 },
-  { id: 'characters', label: '角色图鉴', description: '维护人物卡、关系与成长线索', icon: Users },
-  { id: 'relations', label: '关系组织', description: '维护势力结构、人物关系与成员归属', icon: Network },
-  { id: 'inspiration', label: '灵感模块', description: '收集标题、桥段、转折与人物动机', icon: Lightbulb },
-  { id: 'outline', label: '剧情大纲', description: '组织卷宗结构与关键情节点', icon: GitMerge },
-  { id: 'chapters', label: '章节创作', description: '进入正文草稿与章节推进流程', icon: FileText }
+  { id: 'workflow', label: '小说流程', description: '维护固定流程文件并驱动写作阶段', icon: BookOpenText, color: '#3b82f6' },
+  { id: 'overview', label: '作品概览', description: '掌握项目进度与全局信息', icon: LayoutDashboard, color: '#8b5cf6' },
+  { id: 'world', label: '世界观设定', description: '沉淀世界规则、地点与设定条目', icon: Globe2, color: '#06b6d4' },
+  { id: 'characters', label: '角色图鉴', description: '维护人物卡、关系与成长线索', icon: Users, color: '#ec4899' },
+  { id: 'relations', label: '关系组织', description: '维护势力结构、人物关系与成员归属', icon: Network, color: '#6b7280' },
+  { id: 'inspiration', label: '灵感模块', description: '收集标题、桥段、转折与人物动机', icon: Lightbulb, color: '#f59e0b' },
+  { id: 'outline', label: '剧情大纲', description: '组织卷宗结构与关键情节点', icon: GitMerge, color: '#10b981' },
+  { id: 'chapters', label: '章节创作', description: '进入正文草稿与章节推进流程', icon: FileText, color: '#3b82f6' }
 ] as const
 
 // 去除首尾空格后的搜索关键词
@@ -228,7 +228,7 @@ watch(searchKeyword, (value) => {
             :title="item.label"
             @click="appStore.setPanel(item.id)"
           >
-            <span class="sidebar-icon-shell">
+            <span class="sidebar-icon-shell" :style="{ color: appStore.activePanel === item.id ? undefined : item.color }">
               <component :is="item.icon" :size="18" class="sidebar-icon" />
             </span>
             <span v-if="shouldRenderSidebarLabels" class="sidebar-copy">
@@ -524,16 +524,15 @@ watch(searchKeyword, (value) => {
   align-items: center;
   justify-content: center;
   border-radius: var(--arc-radius-md);
-  color: var(--arc-text-hint);
   transition: color 0.14s ease;
 }
 
 .sidebar-item:hover .sidebar-icon-shell {
-  color: var(--arc-text-secondary);
+  opacity: 0.85;
 }
 
 .sidebar-item.active .sidebar-icon-shell {
-  color: var(--arc-primary);
+  color: var(--arc-primary) !important;
 }
 
 .sidebar-icon {

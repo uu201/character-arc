@@ -1042,15 +1042,11 @@ onBeforeUnmount(() => {
         <div class="chapter-groups arc-scrollbar">
           <section v-for="group in filteredChapterGroups" :key="group.volume.id" class="chapter-group">
             <div class="chapter-group-head">
-              <div class="chapter-group-head-copy">
-                <strong>{{ formatVolumeLabel(group.volume, group.index, 'compact') }}</strong>
-                <p>{{ group.items.length }} 个章节</p>
-              </div>
-              <span class="chapter-group-target">{{ group.volume.wordTarget }}</span>
+              <span class="chapter-group-label">{{ formatVolumeLabel(group.volume, group.index, 'compact') }}</span>
               <n-tooltip trigger="hover">
                 <template #trigger>
                   <button class="mini-icon" @click="appStore.createChapter(group.volume.id)">
-                    <Plus :size="15" />
+                    <Plus :size="14" />
                   </button>
                 </template>
                 在本卷中新增章节
@@ -1061,7 +1057,7 @@ onBeforeUnmount(() => {
               <button
                   v-for="chapter in group.items"
                   :key="chapter.id"
-                  class="chapter-pill"
+                  class="chapter-card"
                   :class="{
                   active: appStore.selectedChapterId === chapter.id,
                   dragging: draggingChapterId === chapter.id,
@@ -1074,27 +1070,21 @@ onBeforeUnmount(() => {
                   @drop="handleDrop(chapter.id, $event)"
                   @dragend="resetDragState"
               >
-                <span class="chapter-pill-grip" @click.stop>
-                  <GripVertical :size="14" />
-                </span>
-                <span class="chapter-pill-main">
-                  <span class="chapter-pill-heading">
-                    <span class="chapter-pill-label">{{ chapter.title }}</span>
-                    <span v-if="appStore.selectedChapterId === chapter.id" class="chapter-pill-current">当前章节</span>
-                  </span>
-                  <span class="chapter-pill-meta">
-                    <span class="chapter-pill-word-target">{{ formatChapterWordTargetLabel(chapter.wordTarget) }}</span>
-                    <span class="chapter-pill-dot"></span>
-                    <span class="chapter-pill-status" :class="resolveChapterStatusTone(chapter.status)">
-                      {{ formatChapterStatusLabel(chapter.status) }}
+                <div class="chapter-card-top">
+                  <span class="chapter-card-num">第 {{ String(appStore.chapters.findIndex(c => c.id === chapter.id) + 1).padStart(3, '0') }} 章</span>
+                  <n-dropdown :options="chapterMenuOptions" placement="bottom-end" @select="(key) => handleChapterMenuSelect(key, chapter)">
+                    <span class="chapter-card-action" @click.stop>
+                      <MoreVertical :size="13" />
                     </span>
+                  </n-dropdown>
+                </div>
+                <div class="chapter-card-title">{{ chapter.title }}</div>
+                <div class="chapter-card-footer">
+                  <span class="chapter-card-words">{{ getChapterCharacterCount(chapter.content) }} 字</span>
+                  <span class="chapter-card-status" :class="resolveChapterStatusTone(chapter.status)">
+                    {{ formatChapterStatusLabel(chapter.status) }}
                   </span>
-                </span>
-                <n-dropdown :options="chapterMenuOptions" placement="bottom-end" @select="(key) => handleChapterMenuSelect(key, chapter)">
-                  <span class="chapter-pill-action" @click.stop>
-                    <MoreVertical :size="14" />
-                  </span>
-                </n-dropdown>
+                </div>
               </button>
             </div>
           </section>
@@ -1470,42 +1460,27 @@ onBeforeUnmount(() => {
         <div class="chapter-groups compact-panel-groups arc-scrollbar">
           <section v-for="group in filteredChapterGroups" :key="`compact-${group.volume.id}`" class="chapter-group">
             <div class="chapter-group-head">
-              <div class="chapter-group-head-copy">
-                <strong>{{ formatVolumeLabel(group.volume, group.index, 'compact') }}</strong>
-                <p>{{ group.items.length }} 个章节</p>
-              </div>
-              <span class="chapter-group-target">{{ group.volume.wordTarget }}</span>
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <button class="mini-icon" @click="appStore.createChapter(group.volume.id)">
-                    <Plus :size="15" />
-                  </button>
-                </template>
-                在本卷中新增章节
-              </n-tooltip>
+              <span class="chapter-group-label">{{ formatVolumeLabel(group.volume, group.index, 'compact') }}</span>
             </div>
 
             <div class="chapter-items">
               <button
                   v-for="chapter in group.items"
                   :key="`compact-item-${chapter.id}`"
-                  class="chapter-pill"
+                  class="chapter-card"
                   :class="{ active: appStore.selectedChapterId === chapter.id }"
                   @click="selectChapterFromCompact(chapter.id)"
               >
-                <span class="chapter-pill-main">
-                  <span class="chapter-pill-heading">
-                    <span class="chapter-pill-label">{{ chapter.title }}</span>
-                    <span v-if="appStore.selectedChapterId === chapter.id" class="chapter-pill-current">当前章节</span>
+                <div class="chapter-card-top">
+                  <span class="chapter-card-num">第 {{ String(appStore.chapters.findIndex(c => c.id === chapter.id) + 1).padStart(3, '0') }} 章</span>
+                </div>
+                <div class="chapter-card-title">{{ chapter.title }}</div>
+                <div class="chapter-card-footer">
+                  <span class="chapter-card-words">{{ getChapterCharacterCount(chapter.content) }} 字</span>
+                  <span class="chapter-card-status" :class="resolveChapterStatusTone(chapter.status)">
+                    {{ formatChapterStatusLabel(chapter.status) }}
                   </span>
-                  <span class="chapter-pill-meta">
-                    <span class="chapter-pill-word-target">{{ formatChapterWordTargetLabel(chapter.wordTarget) }}</span>
-                    <span class="chapter-pill-dot"></span>
-                    <span class="chapter-pill-status" :class="resolveChapterStatusTone(chapter.status)">
-                      {{ formatChapterStatusLabel(chapter.status) }}
-                    </span>
-                  </span>
-                </span>
+                </div>
               </button>
             </div>
           </section>
@@ -1821,217 +1796,184 @@ onBeforeUnmount(() => {
 /* =========== 侧边栏（左侧章节目录） =========== */
 .chapter-sidebar {
   display: flex;
+  width: 220px;
+  flex-shrink: 0;
   min-height: 0;
   flex-direction: column;
-  border-right: 1px solid var(--chapter-border-strong);
-  background: var(--arc-bg-body);
-  padding: 16px;
+  border-right: 1px solid var(--arc-border);
+  background: var(--arc-bg-sidebar);
+  padding: 14px 10px;
 }
 .chapter-side-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 0 2px;
-  margin-bottom: 12px;
+  gap: 8px;
+  padding: 0 4px;
+  margin-bottom: 10px;
   flex-shrink: 0;
 }
 .chapter-side-head-main { display: flex; min-width: 0; align-items: center; gap: 8px; }
-.chapter-side-head strong { color: var(--chapter-ink); font-size: 15px; font-weight: 700; line-height: 1.4; }
-.chapter-back-button { flex-shrink: 0; border-color: var(--arc-border); background: var(--arc-bg-surface); color: var(--arc-text-secondary); box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05); }
-.chapter-back-button:hover { color: var(--arc-primary); box-shadow: 0 14px 28px rgba(15, 23, 42, 0.1); }
-.chapter-side-badge { display: inline-flex; align-items: center; border: 1px solid var(--chapter-border); border-radius: 999px; background: var(--arc-glass-10); color: var(--arc-text-secondary); font-size: 11px; font-weight: 700; padding: 5px 10px; }
-.chapter-side-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; flex-shrink: 0; }
-.chapter-side-summary span { display: inline-flex; align-items: center; border: 1px solid var(--chapter-border); border-radius: 999px; background: var(--arc-glass-08); color: var(--arc-text-secondary); font-size: 11px; font-weight: 700; padding: 6px 9px; }
-.chapter-groups { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 12px; overflow-y: auto; padding-right: 6px; }
-.chapter-group {
-  border: 1px solid var(--arc-border);
-  border-radius: 10px;
-  background: var(--arc-bg-surface);
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.05);
-  padding: 12px;
-}
+.chapter-side-head strong { color: var(--arc-text-primary); font-size: 13px; font-weight: 700; }
+.chapter-back-button { flex-shrink: 0; border-color: var(--arc-border); background: var(--arc-bg-surface); color: var(--arc-text-secondary); }
+.chapter-back-button:hover { color: var(--arc-primary); }
+.chapter-side-badge { display: inline-flex; align-items: center; border-radius: 4px; background: var(--arc-bg-body); color: var(--arc-text-hint); font-size: 11px; font-weight: 600; padding: 2px 6px; }
+.chapter-side-summary { display: none; }
+.chapter-groups { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 16px; overflow-y: auto; padding-bottom: 8px; }
+.chapter-group {}
 .chapter-group-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 2px 2px 12px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px 6px;
 }
-.chapter-group-head-copy { min-width: 0; }
-.chapter-group-head strong {
-  display: block;
-  color: var(--chapter-ink);
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-}
-.chapter-group-head p {
-  margin: 5px 0 0;
-  color: #7b8698;
+.chapter-group-label {
+  color: var(--arc-text-hint);
   font-size: 11px;
   font-weight: 700;
-}
-.chapter-group-target {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
-  color: var(--arc-primary);
-  font-size: 11px;
-  font-weight: 800;
-  padding: 6px 10px;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .mini-icon {
   display: inline-flex;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--arc-border);
-  border-radius: 12px;
-  background: var(--arc-bg-surface);
-  color: var(--arc-text-secondary);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--arc-text-hint);
   cursor: pointer;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
-  transition: all 0.18s ease;
+  transition: all 0.14s ease;
 }
 .mini-icon:hover {
   border-color: color-mix(in srgb, var(--arc-primary) 18%, var(--arc-border));
   background: var(--arc-bg-surface);
   color: var(--arc-primary);
-  transform: translateY(-1px);
 }
-.chapter-items { display: flex; flex-direction: column; gap: 8px; }
-.chapter-pill {
+.chapter-items { display: flex; flex-direction: column; gap: 6px; }
+.chapter-card {
   position: relative;
   width: 100%;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
   border: 1px solid var(--arc-border);
   border-radius: 8px;
   background: var(--arc-bg-surface);
   color: var(--arc-text-primary);
   cursor: pointer;
-  padding: 11px 12px;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.03);
-  transition: all 0.18s ease;
+  padding: 10px 12px;
+  text-align: left;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    box-shadow 0.14s ease;
 }
-.chapter-pill::before {
+.chapter-card::before {
   content: '';
   position: absolute;
-  left: 10px;
-  top: 11px;
-  bottom: 11px;
-  width: 4px;
-  border-radius: 999px;
-  background: var(--arc-glass-10);
-  transition: all 0.18s ease;
+  left: -1px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: transparent;
+  transition: background 0.14s ease;
 }
-.chapter-pill:hover {
+.chapter-card:hover {
   border-color: color-mix(in srgb, var(--arc-primary) 14%, var(--arc-border));
   background: var(--arc-bg-surface);
-  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.07);
-  transform: translateY(-1px);
 }
-.chapter-pill.active {
+.chapter-card.active {
   border-color: color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
-  color: var(--arc-text-primary);
-  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.12);
+  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-surface));
+  box-shadow: var(--arc-shadow-sm);
 }
-.chapter-pill.active::before {
-  background: linear-gradient(180deg, #60a5fa, #2563eb);
-  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.14);
+.chapter-card.active::before {
+  background: var(--arc-primary);
 }
-.chapter-pill-grip {
+.chapter-card.dragging { opacity: 0.5; }
+.chapter-card.drop-target { border-color: var(--arc-primary); }
+.chapter-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.chapter-card-num {
+  color: var(--arc-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.8;
+}
+.chapter-card.active .chapter-card-num {
+  opacity: 1;
+}
+.chapter-card-action {
   display: inline-flex;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   align-items: center;
   justify-content: center;
+  border-radius: 4px;
   color: var(--arc-text-hint);
-  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.14s ease, background 0.14s ease;
 }
-.chapter-pill:hover .chapter-pill-grip { color: var(--arc-text-secondary); }
-.chapter-pill-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 6px; padding-left: 12px; }
-.chapter-pill-heading { display: flex; min-width: 0; align-items: flex-start; gap: 8px; }
-.chapter-pill-label {
-  display: -webkit-box;
+.chapter-card:hover .chapter-card-action { opacity: 1; }
+.chapter-card-action:hover { background: var(--arc-bg-body); color: var(--arc-text-primary); }
+.chapter-card-title {
   overflow: hidden;
-  -webkit-line-clamp: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   font-size: 13px;
-  font-weight: 800;
-  line-height: 1.35;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--arc-text-primary);
   letter-spacing: -0.01em;
 }
-.chapter-pill-meta {
+.chapter-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.chapter-card-words {
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  font-weight: 600;
+}
+.chapter-card-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  color: var(--arc-text-hint);
+  border-radius: 4px;
+  padding: 1px 6px;
   font-size: 11px;
   font-weight: 700;
 }
-.chapter-pill-word-target {
-  color: var(--arc-text-secondary);
-  font-weight: 800;
-}
-.chapter-pill-status {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 10px;
-  font-weight: 800;
-}
-.chapter-pill-status.neutral {
-  background: var(--arc-glass-08);
+.chapter-card-status.neutral {
+  background: var(--arc-bg-body);
   color: var(--arc-text-secondary);
 }
-.chapter-pill-status.warning {
+.chapter-card-status.warning {
   background: rgba(255, 247, 218, 0.96);
   color: #a16207;
 }
-.chapter-pill-status.accent {
+.chapter-card-status.accent {
   background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
   color: var(--arc-primary);
 }
-.chapter-pill-status.success {
+.chapter-card-status.success {
   background: rgba(234, 250, 239, 0.96);
   color: #15803d;
-}
-.chapter-pill-current {
-  border: 1px solid color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
-  color: var(--arc-primary);
-  font-size: 10px;
-  font-weight: 800;
-  border-radius: 999px;
-  padding: 2px 8px;
-  white-space: nowrap;
-}
-.chapter-pill-dot { width: 4px; height: 4px; border-radius: 999px; background: var(--arc-text-hint); }
-.chapter-pill-action {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  color: #9aa0a6;
-  flex-shrink: 0;
-}
-.chapter-pill:hover .chapter-pill-action:hover {
-  background: rgba(15, 23, 42, 0.05);
-  color: #4f5f79;
 }
 
 /* =========== 顶部工具栏与外壳结构 =========== */
