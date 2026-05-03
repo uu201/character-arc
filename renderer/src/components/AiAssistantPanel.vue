@@ -8,6 +8,7 @@ import {
   getResolvedChapterAssistantTemplates,
   type ChapterAssistantQuickAction
 } from '@/features/ai/chapterAssistantOptions'
+import { humanizeText } from '@/features/ai/humanizeProcessor'
 import { getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
@@ -323,7 +324,7 @@ function handleAiStreamEvent(payload: CharacterArcAiStreamEvent): void {
   }
 
   if (payload.type === 'done') {
-    const finalReply = (payload.content ?? streamingReply.value).trim()
+    const finalReply = humanizeText(payload.content ?? streamingReply.value)
     if (finalReply) appStore.pushAssistantMessage(finalReply)
     resetStreamingState()
     void scrollToBottom()
@@ -331,7 +332,7 @@ function handleAiStreamEvent(payload: CharacterArcAiStreamEvent): void {
   }
 
   if (payload.type === 'canceled') {
-    const partialReply = (payload.content ?? streamingReply.value).trim()
+    const partialReply = humanizeText(payload.content ?? streamingReply.value)
     if (partialReply) {
       appStore.pushAssistantMessage(partialReply)
       message.info('已停止生成，并保留当前已生成内容')

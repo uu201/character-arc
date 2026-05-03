@@ -279,6 +279,8 @@ export function resolveChapterAssistantQuickActionInstruction(quickAction: strin
       return '如果当前任务是关系冲突，请输出 3 条关系驱动冲突方案，每条都明确人物关系、阵营立场和可触发场景。'
     case '阵营视角':
       return '如果当前任务是阵营视角，请优先输出可直接替换或插入正文的最终文本，突出组织立场、身份认同和冲突措辞。'
+    case '降低AI感':
+      return '如果当前任务是降低AI感润色，请严格遵循 prompt 中的人化规则重写选中文本。专有名词（人名/地名/势力名）一字不改，情节因果完整保留，字数偏差不超过 ±5%，只输出最终正文，不解释、不分点、不加标签。'
     default:
       return '如果快捷动作已经明确输出形态，请优先遵循该动作要求。'
   }

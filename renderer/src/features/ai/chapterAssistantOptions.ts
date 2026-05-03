@@ -240,6 +240,17 @@ const builtInTemplates: BuiltInTemplateDefinition[] = [
     length: 'medium',
     task: 'chat',
     requiresSelection: false
+  },
+  {
+    id: 'humanize-ai',
+    label: '降低AI感',
+    prompt: '请对选中的正文片段进行深度人化润色，目标是让文字读起来更像人类写的、更自然、更口语化。规则：①高频使用"把"字句和"给"字结构（"他拉下电闸"→"他去把电闸给拉了下来"）；②适当堆叠虚词语气词（了、的、罢了、呢、嘛、倒、可），让句子从精炼变自然啰嗦；③关键情绪词做叠词强化（"她笑了笑""点点头""沉默了沉默"）；④口语化过程描写（"寻找"→"四处寻摸""确认"→"反复确认了好几遍"）；⑤删除所有AI套话（综上所述/值得注意的是/不难发现/总而言之/毫无疑问/显而易见/不言而喻）；⑥避免三段式结构（首先…其次…最后）；⑦内容锁定：情节走向、人物关系、因果逻辑、所有专有名词必须与原文完全一致；⑧字数控制在原文±5%，只做替换不做叠加；只输出修改后的完整正文，不附加任何解释。',
+    iconKey: 'sparkles',
+    group: 'rewrite',
+    mode: 'polish',
+    length: 'long',
+    task: 'chat',
+    requiresSelection: true
   }
 ] as const
 
