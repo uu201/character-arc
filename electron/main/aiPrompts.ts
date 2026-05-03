@@ -522,6 +522,20 @@ ${String(context.userPrompt ?? '')}
     })
   }
 
+  // ── 章节伏笔自动识别任务（从正文识别潜在伏笔，返回 JSON） ──
+  if (task.task === 'plot-thread-detect') {
+    const existingThreads = Array.isArray(context.existingThreads) ? context.existingThreads : []
+    const existingList = existingThreads.length
+      ? existingThreads.map((t: unknown) => `- ${String(t)}`).join('\n')
+      : '（暂无）'
+
+    return wrapPrompt({
+      system:
+        '你是专业小说编辑，擅长识别正文中的伏笔、未解悬念和潜在剧情线索。请只返回 JSON 对象，不要返回 Markdown 或多余文字。字段必须包含 entries 数组。',
+      user: `请分析以下章节正文，识别其中明确埋下或潜在的伏笔与悬念，生成候选剧情线索列表。\n\n章节标题：${String(context.chapterTitle ?? '')}\n\n正文内容：\n${String(context.chapterContent ?? '')}\n\n已有线索（请勿重复）：\n${existingList}\n\n要求：\n1. 只识别正文中真实存在的伏笔或悬念，不要凭空捏造\n2. 每条线索给出简洁标题（≤20字）、详细描述（≤80字）和 1-3 个关联标签（角色名/地点/主题）\n3. 最多返回 6 条，去掉与已有线索重复的内容\n4. 按重要程度从高到低排列\n\n返回格式：{"entries":[{"title":"","description":"","tags":[]}]}`
+    })
+  }
+
   // ── 默认：大纲节点生成任务 ──
   return wrapPrompt({
     system:

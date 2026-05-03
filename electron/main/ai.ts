@@ -19,6 +19,8 @@ import {
   type InspirationResult,
   type OutlineBatchResult,
   type OutlineResult,
+  type PlotThreadDetectEntry,
+  type PlotThreadDetectResult,
   type ProjectBootstrapResult,
   type ReferenceStyleChunkResult,
   type ReferenceStyleAnalysisResult,
@@ -264,8 +266,7 @@ function normalizeReferenceStyleChunkResult(result: AiTaskResult): ReferenceStyl
 }
 
 /** 标准化单条灵感卡片，限制标签最多 4 个，为缺失字段填入默认值 */
-function normalizeInspirationResult(result: AiTaskResult): InspirationResult {
-  const entry = result as Partial<InspirationResult>
+function normalizeInspirationResult(result: AiTaskResult): InspirationResult {  const entry = result as Partial<InspirationResult>
   const tags = Array.isArray(entry.tags)
     ? entry.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 4)
     : []
@@ -288,6 +289,26 @@ function normalizeInspirationPackResult(result: AiTaskResult): InspirationPackRe
   return {
     entries
   }
+}
+
+/** 标准化章节伏笔识别结果，限制最多 6 条，每条限制标签最多 3 个 */
+function normalizePlotThreadDetectResult(result: AiTaskResult): PlotThreadDetectResult {
+  const payload = result as Partial<PlotThreadDetectResult>
+  const entries = Array.isArray(payload.entries)
+    ? payload.entries.slice(0, 6).map((entry) => {
+        const e = entry as Partial<PlotThreadDetectEntry>
+        const tags = Array.isArray(e.tags)
+          ? e.tags.map((t) => String(t).trim()).filter(Boolean).slice(0, 3)
+          : []
+        return {
+          title: e.title?.trim() || '未命名伏笔',
+          description: e.description?.trim() || '暂无描述',
+          tags
+        }
+      })
+    : []
+
+  return { entries }
 }
 
 /**
@@ -348,6 +369,11 @@ function isTaskResultUsable(task: AiTaskPayload, result: AiTaskResult): boolean 
 
   if (task.task === 'inspiration-pack') {
     const payload = result as InspirationPackResult
+    return payload.entries.length > 0
+  }
+
+  if (task.task === 'plot-thread-detect') {
+    const payload = result as PlotThreadDetectResult
     return payload.entries.length > 0
   }
 
@@ -415,6 +441,8 @@ function normalizeTaskResult(task: AiTaskPayload, rawText: string): AiTaskResult
       return normalizeReferenceStyleAnalysisResult(parsed)
     case 'inspiration-pack':
       return normalizeInspirationPackResult(parsed)
+    case 'plot-thread-detect':
+      return normalizePlotThreadDetectResult(parsed)
     case 'outline-item':
     default:
       return normalizeOutlineResult(parsed)

@@ -383,6 +383,14 @@ const PROMPT_TASK_PROFILES = {
   "inspiration-pack": {
     label: "灵感卡片生成",
     defaultCapabilities: ["settings", "inspiration", "chapters", "worldview", "characters", "relations", "outline", "writing-style"]
+  },
+  "chapter-summarize": {
+    label: "章节摘要生成",
+    defaultCapabilities: ["settings", "chapters", "analysis"]
+  },
+  "plot-thread-detect": {
+    label: "章节伏笔识别",
+    defaultCapabilities: ["settings", "chapters", "analysis"]
   }
 };
 function buildCapabilityPromptContext(task) {
@@ -1284,6 +1292,30 @@ ${String(context.chapterContent ?? "")}
 8. 只输出摘要正文，不要解释`
     });
   }
+  if (task.task === "plot-thread-detect") {
+    const existingThreads = Array.isArray(context.existingThreads) ? context.existingThreads : [];
+    const existingList = existingThreads.length ? existingThreads.map((t) => `- ${String(t)}`).join("\n") : "（暂无）";
+    return wrapPrompt({
+      system: "你是专业小说编辑，擅长识别正文中的伏笔、未解悬念和潜在剧情线索。请只返回 JSON 对象，不要返回 Markdown 或多余文字。字段必须包含 entries 数组。",
+      user: `请分析以下章节正文，识别其中明确埋下或潜在的伏笔与悬念，生成候选剧情线索列表。
+
+章节标题：${String(context.chapterTitle ?? "")}
+
+正文内容：
+${String(context.chapterContent ?? "")}
+
+已有线索（请勿重复）：
+${existingList}
+
+要求：
+1. 只识别正文中真实存在的伏笔或悬念，不要凭空捏造
+2. 每条线索给出简洁标题（≤20字）、详细描述（≤80字）和 1-3 个关联标签（角色名/地点/主题）
+3. 最多返回 6 条，去掉与已有线索重复的内容
+4. 按重要程度从高到低排列
+
+返回格式：{"entries":[{"title":"","description":"","tags":[]}]}`
+    });
+  }
   return wrapPrompt({
     system: "你是小说剧情大纲助手。请只返回 JSON 对象，不要返回 Markdown。字段必须包含 title、wordTarget、conflict、summary。",
     user: `基于以下上下文，为当前小说项目补充一个新的章节大纲节点。
@@ -1474,6 +1506,7 @@ function resolveMaxTokens(task) {
     case "reference-style-chunk":
     case "reference-style-analysis":
     case "inspiration-pack":
+    case "plot-thread-detect":
     case "outline-batch":
     case "outline-chain":
     case "workflow-documents":
@@ -2040,6 +2073,19 @@ function normalizeInspirationPackResult(result) {
     entries
   };
 }
+function normalizePlotThreadDetectResult(result) {
+  const payload = result;
+  const entries = Array.isArray(payload.entries) ? payload.entries.slice(0, 6).map((entry) => {
+    const e = entry;
+    const tags = Array.isArray(e.tags) ? e.tags.map((t) => String(t).trim()).filter(Boolean).slice(0, 3) : [];
+    return {
+      title: e.title?.trim() || "未命名伏笔",
+      description: e.description?.trim() || "暂无描述",
+      tags
+    };
+  }) : [];
+  return { entries };
+}
 function isTaskResultUsable(task, result) {
   if (task.task === "chapter-assistant" || task.task === "chapter-first-draft") {
     return Boolean(result.content?.trim());
@@ -2067,6 +2113,10 @@ function isTaskResultUsable(task, result) {
     );
   }
   if (task.task === "inspiration-pack") {
+    const payload = result;
+    return payload.entries.length > 0;
+  }
+  if (task.task === "plot-thread-detect") {
     const payload = result;
     return payload.entries.length > 0;
   }
@@ -2116,6 +2166,8 @@ function normalizeTaskResult(task, rawText) {
       return normalizeReferenceStyleAnalysisResult(parsed);
     case "inspiration-pack":
       return normalizeInspirationPackResult(parsed);
+    case "plot-thread-detect":
+      return normalizePlotThreadDetectResult(parsed);
     case "outline-item":
     default:
       return normalizeOutlineResult(parsed);

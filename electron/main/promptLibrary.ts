@@ -146,6 +146,14 @@ const PROMPT_TASK_PROFILES: Record<AiTaskName, PromptTaskProfile> = {
   'inspiration-pack': {
     label: '灵感卡片生成',
     defaultCapabilities: ['settings', 'inspiration', 'chapters', 'worldview', 'characters', 'relations', 'outline', 'writing-style']
+  },
+  'chapter-summarize': {
+    label: '章节摘要生成',
+    defaultCapabilities: ['settings', 'chapters', 'analysis']
+  },
+  'plot-thread-detect': {
+    label: '章节伏笔识别',
+    defaultCapabilities: ['settings', 'chapters', 'analysis']
   }
 }
 

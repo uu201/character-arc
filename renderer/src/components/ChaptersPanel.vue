@@ -19,7 +19,7 @@ import {
   Sparkles,
   Trash2
 } from 'lucide-vue-next'
-import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTag, NTooltip, useDialog, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTag, NTooltip, useDialog, useMessage } from 'naive-ui'
 import RichChapterEditor from '@/components/RichChapterEditor.vue'
 import { ensureEditorHtmlContent, getChapterCharacterCount, getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { DEFAULT_CHAPTER_WORD_TARGET, formatChapterWordTargetLabel, normalizeChapterWordTarget, parseChapterWordTarget } from '@/features/chapters/wordTarget'
@@ -60,6 +60,10 @@ const isGeneratingOutlineChain = ref(false)
 const isGeneratingChapterDraft = ref(false)
 const isStoppingChapterDraft = ref(false)
 const isGeneratingSummary = ref(false) // AI 自动生成章节摘要时的加载状态
+const isDetectingThreads = ref(false) // AI 识别伏笔时的加载状态
+const detectedThreads = ref<Array<{ title: string; description: string; tags: string[]; selected: boolean }>>([])
+const threadDetectChapterId = ref<string | null>(null)
+const threadDetectVisible = ref(false)
 const chapterDraftStreamId = ref<string | null>(null)
 const chapterDraftStreamingContent = ref('')
 const chapterDraftExecutionLabel = ref('')
@@ -89,6 +93,7 @@ const chapterStatusOptions: SelectOption[] = [ // 章节状态选项列表
 ]
 const chapterMenuOptions: DropdownOption[] = [ // 章节侧边栏的右键菜单
   { key: 'edit', label: '编辑章节信息' },
+  { key: 'detect-threads', label: 'AI 识别伏笔' },
   { key: 'delete', label: '删除章节' }
 ]
 // 分卷选项列表，用于章节信息编辑弹窗中的分卷下拉选择器
@@ -857,6 +862,87 @@ function closeChapterDraftModal(): void {
   chapterDraftStreamingContent.value = ''
 }
 
+async function detectPlotThreads(chapter: ChapterDraft): Promise<void> {
+  if (isDetectingThreads.value) return
+
+  const plainText = getPlainTextFromEditorContent(chapter.content ?? '').trim()
+  if (!plainText) {
+    message.warning('章节暂无正文内容，无法识别伏笔')
+    return
+  }
+
+  isDetectingThreads.value = true
+  threadDetectChapterId.value = chapter.id
+
+  try {
+    const existingThreads = appStore.plotThreads
+      .filter((t) => t.status === 'open')
+      .map((t) => t.title)
+
+    const result = await window.characterArc.generateAi(toIpcPayload({
+      task: 'plot-thread-detect',
+      settings: appStore.appSettings,
+      context: {
+        chapterTitle: chapter.title || '未命名章节',
+        chapterContent: plainText.slice(0, 6000),
+        existingThreads
+      }
+    }))
+
+    if (!result.success) {
+      throw new Error(result.error ?? 'AI 识别伏笔失败')
+    }
+
+    const entries = Array.isArray(
+      (result.result as Record<string, unknown>)?.entries
+    )
+      ? ((result.result as Record<string, unknown>).entries as Array<Record<string, unknown>>)
+      : []
+
+    if (entries.length === 0) {
+      message.info('AI 未在本章识别到明确伏笔')
+      return
+    }
+
+    detectedThreads.value = entries.map((e) => ({
+      title: String(e.title ?? '未命名伏笔'),
+      description: String(e.description ?? '暂无描述'),
+      tags: Array.isArray(e.tags) ? (e.tags as string[]).map(String) : [],
+      selected: true
+    }))
+
+    threadDetectVisible.value = true
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 识别伏笔失败，请稍后重试')
+    console.error('[detect-threads]', error)
+  } finally {
+    isDetectingThreads.value = false
+  }
+}
+
+function confirmAddThreads(): void {
+  const chapterId = threadDetectChapterId.value ?? ''
+  const toAdd = detectedThreads.value.filter((t) => t.selected)
+
+  if (!toAdd.length) {
+    message.warning('请至少选择一条线索')
+    return
+  }
+
+  toAdd.forEach((t) => {
+    appStore.createPlotThread({
+      title: t.title,
+      description: t.description,
+      openedInChapterId: chapterId,
+      status: 'open',
+      tags: t.tags
+    })
+  })
+
+  message.success(`已添加 ${toAdd.length} 条剧情线索`)
+  threadDetectVisible.value = false
+}
+
 function handleChapterDraftStreamEvent(payload: CharacterArcAiStreamEvent): void {
   if (payload.streamId !== chapterDraftStreamId.value) {
     return
@@ -977,6 +1063,11 @@ function submitChapterMeta(): void {
 function handleChapterMenuSelect(action: string | number, chapter: ChapterDraft): void {
   if (action === 'edit') {
     openChapterMetaEditor(chapter)
+    return
+  }
+
+  if (action === 'detect-threads') {
+    void detectPlotThreads(chapter)
     return
   }
 
@@ -1821,6 +1912,42 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </n-modal>
+
+    <!-- 伏笔识别审核弹窗 -->
+    <n-modal
+      v-model:show="threadDetectVisible"
+      preset="card"
+      title="AI 识别到的潜在伏笔"
+      class="arc-editor-modal thread-detect-modal"
+      :mask-closable="false"
+    >
+      <div class="detect-list">
+        <div
+          v-for="(item, idx) in detectedThreads"
+          :key="idx"
+          class="detect-item"
+          :class="{ selected: item.selected }"
+          @click="item.selected = !item.selected"
+        >
+          <n-checkbox v-model:checked="item.selected" @click.stop />
+          <div class="detect-content">
+            <div class="detect-title">{{ item.title }}</div>
+            <div class="detect-desc">{{ item.description }}</div>
+            <div v-if="item.tags.length" class="detect-tags">
+              <n-tag v-for="tag in item.tags" :key="tag" size="tiny" :bordered="false">{{ tag }}</n-tag>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="arc-modal-actions">
+          <n-button @click="threadDetectVisible = false">取消</n-button>
+          <n-button type="primary" @click="confirmAddThreads">
+            添加选中（{{ detectedThreads.filter(t => t.selected).length }}）
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
   </section>
 </template>
 
@@ -2438,4 +2565,56 @@ onBeforeUnmount(() => {
 .version-list { display: flex; max-height: min(64vh, 620px); flex-direction: column; gap: 14px; overflow-y: auto; padding-right: 6px; }
 .version-card { border: 1px solid var(--chapter-border); border-radius: 6px; background: var(--chapter-surface); padding: 14px; }
 .version-card-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+
+/* ── 伏笔识别弹窗 ── */
+.thread-detect-modal {
+  width: min(92vw, 520px);
+}
+
+.detect-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detect-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.detect-item.selected {
+  border-color: color-mix(in srgb, var(--arc-primary) 40%, var(--arc-border));
+  background: var(--arc-primary-soft);
+}
+
+.detect-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.detect-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--arc-text-primary);
+}
+
+.detect-desc {
+  font-size: 12px;
+  color: var(--arc-text-secondary);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+.detect-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
 </style>

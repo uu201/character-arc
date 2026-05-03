@@ -26,6 +26,7 @@ export type AiTaskName =
   | 'chapter-assistant'   // 章节创作助理（支持流式）
   | 'chapter-first-draft' // 章节初稿生成（支持流式）
   | 'chapter-summarize'   // 章节摘要自动生成（4维结构化文本）
+  | 'plot-thread-detect'  // 从章节正文自动识别潜在伏笔
   | 'project-bootstrap'   // 项目初始化，批量生成世界观 + 大纲
   | 'chapter-analysis'    // 章节质量分析
   | 'inspiration-pack'    // 批量生成灵感卡片
@@ -187,6 +188,22 @@ export type InspirationPackResult = {
   entries: InspirationResult[]
 }
 
+/** AI 返回的单条伏笔识别结果 */
+export type PlotThreadDetectEntry = {
+  /** 伏笔标题（≤20 字） */
+  title: string
+  /** 伏笔描述（≤80 字） */
+  description: string
+  /** 1-3 个关联标签（角色名/地点/主题） */
+  tags: string[]
+}
+
+/** AI 返回的章节伏笔识别结果，包含多条候选线索 */
+export type PlotThreadDetectResult = {
+  /** 候选伏笔列表，最多 6 条 */
+  entries: PlotThreadDetectEntry[]
+}
+
 /** 所有 AI 任务结果的联合类型 */
 export type AiTaskResult =
   | WorldviewResult
@@ -201,6 +218,7 @@ export type AiTaskResult =
   | ReferenceStyleChunkResult
   | ReferenceStyleAnalysisResult
   | InspirationPackResult
+  | PlotThreadDetectResult
 
 /** 提示词对：系统提示词 + 用户提示词 */
 export type PromptPair = {
@@ -310,6 +328,7 @@ export function resolveMaxTokens(task?: AiTaskPayload): number | undefined {
     case 'reference-style-chunk':
     case 'reference-style-analysis':
     case 'inspiration-pack':
+    case 'plot-thread-detect':
     case 'outline-batch':
     case 'outline-chain':
     case 'workflow-documents':
