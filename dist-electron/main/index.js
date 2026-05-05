@@ -2479,7 +2479,7 @@ async function getJiebaRuntime() {
     jiebaRuntimePromise = (async () => {
       const [{ Jieba, TfIdf }, { dict, idf }] = await Promise.all([
         import("@node-rs/jieba"),
-        import("@node-rs/jieba/dict")
+        import("@node-rs/jieba/dict.js")
       ]);
       return {
         jieba: Jieba.withDict(dict),

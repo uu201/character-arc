@@ -226,7 +226,7 @@ async function importReferenceNovelAnalysis(): Promise<void> {
       )
     })
 
-    appStore.replaceKnowledgeDocuments(currentProject.value.id, result.result.knowledgeDocuments)
+    appStore.mergeKnowledgeDocuments(currentProject.value.id, result.result.knowledgeDocuments)
 
     if (activeWorkflowVolume.value?.id) {
       appStore.appendWorkflowDocumentEntry(

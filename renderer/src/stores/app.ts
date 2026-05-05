@@ -1040,23 +1040,44 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
-  function replaceKnowledgeDocuments(projectId: string, documents: KnowledgeDocument[]): void {
-    const normalizedDocuments = documents.map((document) => ({
-      ...document,
-      projectId,
-      title: document.title?.trim() || '未命名知识文档',
-      sourceLabel: document.sourceLabel?.trim() || '',
-      content: document.content?.trim() || '',
-      summary: document.summary?.trim() || '',
-      keywords: Array.isArray(document.keywords)
-        ? document.keywords.map((keyword) => String(keyword).trim()).filter(Boolean).slice(0, 20)
-        : []
-    }))
+  function mergeKnowledgeDocuments(projectId: string, documents: KnowledgeDocument[]): void {
+    const normalizedDocuments = normalizeProjectWorkspaceData({ knowledgeDocuments: documents }).knowledgeDocuments
+      .map((document) => ({
+        ...document,
+        projectId
+      }))
 
-    updateProjectWorkspace(projectId, (workspace) => ({
-      ...workspace,
-      knowledgeDocuments: normalizedDocuments
-    }))
+    const getDocumentSourceKey = (document: KnowledgeDocument): string | null => {
+      const sourceTitle = String(document.metadata?.sourceTitle ?? '').trim()
+      const fileName = String(document.metadata?.fileName ?? '').trim()
+      if (sourceTitle && fileName) {
+        return `${sourceTitle}::${fileName}`
+      }
+      if (sourceTitle) {
+        return sourceTitle
+      }
+      return null
+    }
+
+    updateProjectWorkspace(projectId, (workspace) => {
+      const incomingSourceKeys = new Set(
+        normalizedDocuments
+          .map((document) => getDocumentSourceKey(document))
+          .filter((key): key is string => Boolean(key))
+      )
+
+      const preservedDocuments = incomingSourceKeys.size
+        ? (workspace.knowledgeDocuments ?? []).filter((document) => {
+            const sourceKey = getDocumentSourceKey(document)
+            return !sourceKey || !incomingSourceKeys.has(sourceKey)
+          })
+        : (workspace.knowledgeDocuments ?? [])
+
+      return {
+        ...workspace,
+        knowledgeDocuments: [...preservedDocuments, ...normalizedDocuments]
+      }
+    })
     schedulePersist('fast')
   }
 
@@ -2308,7 +2329,7 @@ export const useAppStore = defineStore('app', () => {
     activeWorkflowVolumeId,
     activeWorkflowVolume,
     setActiveWorkflowVolumeId,
-    replaceKnowledgeDocuments,
+    mergeKnowledgeDocuments,
     knowledgeDocuments,
     updateWorkflowDocument,
     updateWorkflowDocuments,
