@@ -31,6 +31,56 @@ export const MORE_ACTION_OPTIONS = [
 
 export type AssistantMessageActionKey = typeof MORE_ACTION_OPTIONS[number]['key']
 
+function formatAiRunStartedAt(value?: string): string {
+  if (!value) {
+    return '时间未知'
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return '时间未知'
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+
+function getAiRunTaskLabel(task: string): string {
+  switch (task) {
+    case 'chapter-assistant':
+      return '章节助理'
+    case 'chapter-first-draft':
+      return '章节初稿'
+    case 'chapter-summarize':
+      return '章节总结'
+    case 'assistant-action-proposal':
+      return '动作提议'
+    case 'assistant-intent':
+      return '意图识别'
+    default:
+      return task
+  }
+}
+
+function getAiRunStatusText(status?: string): string {
+  switch (status) {
+    case 'running':
+      return '运行中'
+    case 'success':
+      return '已完成'
+    case 'error':
+      return '失败'
+    case 'canceled':
+      return '已停止'
+    default:
+      return ''
+  }
+}
+
 export function useAssistantSession(messagesViewport?: Ref<HTMLElement | null>) {
   const appStore = useAppStore()
   const message = useMessage()
@@ -100,27 +150,34 @@ export function useAssistantSession(messagesViewport?: Ref<HTMLElement | null>) 
     }
   })
   const quickActions = computed(() => getResolvedChapterAssistantTemplates(currentProject.value))
-  const latestAiRun = computed(() => {
+  const recentAiRuns = computed(() => {
     const projectId = currentProject.value?.id
     const chapterId = currentChapter.value?.id
-    const runs = [...appStore.aiRuns].reverse()
-    return runs.find((run) => run.projectId === projectId && (!chapterId || run.chapterId === chapterId || run.task === 'chapter-assistant'))
+    if (!projectId) {
+      return []
+    }
+
+    return [...appStore.aiRuns]
+      .reverse()
+      .filter((run) => (
+        run.projectId === projectId
+        && (!chapterId || run.chapterId === chapterId || run.task === 'chapter-assistant')
+      ))
+      .slice(0, 10)
   })
+  const latestAiRun = computed(() => recentAiRuns.value[0])
   const latestAiRunKnowledge = computed(() => latestAiRun.value?.usedKnowledge ?? [])
   const latestAiRunStatusText = computed(() => {
-    switch (latestAiRun.value?.status) {
-      case 'running':
-        return '运行中'
-      case 'success':
-        return '已完成'
-      case 'error':
-        return '失败'
-      case 'canceled':
-        return '已停止'
-      default:
-        return ''
-    }
+    return getAiRunStatusText(latestAiRun.value?.status)
   })
+  const recentAiRunsDisplay = computed(() =>
+    recentAiRuns.value.map((run) => ({
+      ...run,
+      startedAtLabel: formatAiRunStartedAt(run.startedAt),
+      taskLabel: getAiRunTaskLabel(run.task),
+      statusText: getAiRunStatusText(run.status)
+    }))
+  )
   const hasSelection = computed(() => Boolean(selectedExcerpt.value))
   const activeAgentProposal = computed(() => appStore.activeAgentProposal)
   const agentConfirmationState = computed(() => appStore.agentConfirmationState)
@@ -401,6 +458,101 @@ export function useAssistantSession(messagesViewport?: Ref<HTMLElement | null>) 
     }
   }
 
+  async function createSceneRevisionProposal(action: ChapterAssistantQuickAction): Promise<void> {
+    const content = action.prompt.trim()
+    const selectedText = selectedExcerpt.value.trim()
+    if (!content || !selectedText || isResponding.value) {
+      return
+    }
+
+    await appendConversationMessage('user', `【${action.label}】${content}`)
+    draft.value = ''
+    isResponding.value = true
+    isStopping.value = false
+    streamingReply.value = ''
+    await scrollToBottom()
+
+    try {
+      const projectSkills = await loadEnabledProjectSkillsContext(currentProject.value, 'draft')
+      const assistantContext = buildChapterAssistantContext({
+        project: currentProject.value,
+        chapter: currentChapter.value,
+        chapterVolume: appStore.selectedChapterVolume,
+        relatedChapters: relatedChapters.value,
+        volumeChapterSummaries: volumeChapterSummaries.value,
+        novelOpenerSummary: novelOpenerSummary.value,
+        recentMessages: recentAssistantMessages.value,
+        worldviewEntries: appStore.worldviewEntries,
+        characters: appStore.characters,
+        organizations: appStore.organizations,
+        characterRelationships: appStore.characterRelationships,
+        organizationMemberships: appStore.organizationMemberships,
+        inspirationEntries: appStore.inspirationEntries,
+        outlineItems: appStore.outlineItems,
+        plotThreads: appStore.plotThreads,
+        workflowDocuments: appStore.workflowDocuments,
+        knowledgeDocuments: appStore.knowledgeDocuments,
+        selectedText,
+        responseMode: action.mode,
+        responseLength: action.length,
+        quickAction: action.label,
+        userPrompt: content,
+        chapterContent: getPlainTextFromEditorContent(currentChapter.value?.content ?? ''),
+        projectSkills
+      })
+
+      const response = await window.characterArc.generateAi(toIpcPayload({
+        task: 'chapter-assistant',
+        settings: appStore.appSettings,
+        context: assistantContext
+      }))
+      const revisionResult = (response.result as { result?: { content?: string } } | undefined)?.result
+      const revisedContent = String(revisionResult?.content ?? '').trim()
+      if (!response.success || !revisedContent) {
+        throw new Error(response.error ?? 'AI 未返回有效修订稿')
+      }
+
+      const commandPayload: CharacterArcAssistantCommand = {
+        type: 'insert-into-chapter',
+        kind: 'proposal',
+        target: 'chapter-content',
+        reason: '这会替换当前选中的正文片段，建议确认后再写入。',
+        preview: {
+          title: '修订当前场景',
+          summary: `准备使用 AI 生成的${action.label}结果替换当前选区。`,
+          before: selectedText.slice(0, 220),
+          after: revisedContent.slice(0, 220)
+        },
+        destructive: true,
+        requiresConfirmation: true,
+        content: revisedContent,
+        mode: 'replace-selection'
+      }
+
+      if (isAssistantWindow) {
+        await window.characterArc.publishAssistantCommand(toIpcPayload(commandPayload))
+      } else {
+        appStore.handleAssistantCommand(commandPayload)
+      }
+
+      await appendConversationMessage(
+        'assistant',
+        [
+          `已生成${action.label}提议，请确认后执行。`,
+          revisedContent
+        ].filter(Boolean).join('\n\n')
+      )
+      await scrollToBottom()
+      message.success(`已生成${action.label}提议`)
+    } catch (error) {
+      resetStreamingState()
+      message.error(error instanceof Error ? error.message : 'AI 生成修订稿失败')
+    } finally {
+      isResponding.value = false
+      isStopping.value = false
+    }
+  }
+
   async function sendPrompt(promptText?: string, quickAction?: string): Promise<void> {
     const content = (promptText ?? draft.value).trim()
     if (!content || isResponding.value) return
@@ -598,6 +750,10 @@ export function useAssistantSession(messagesViewport?: Ref<HTMLElement | null>) 
     responseLength.value = action.length
     if (action.id === 'next-outline-draft') {
       void createNextOutlineProposal(action.prompt, action.label)
+      return
+    }
+    if (action.id === 'polish-selection' || action.id === 'rewrite-selection' || action.id === 'humanize-ai') {
+      void createSceneRevisionProposal(action)
       return
     }
     void sendPrompt(action.prompt, action.label)
@@ -919,6 +1075,8 @@ export function useAssistantSession(messagesViewport?: Ref<HTMLElement | null>) 
     recentAssistantMessages,
     lastUserPrompt,
     quickActions,
+    recentAiRuns,
+    recentAiRunsDisplay,
     latestAiRun,
     latestAiRunKnowledge,
     latestAiRunStatusText,

@@ -1497,10 +1497,10 @@ onBeforeUnmount(() => {
                         @click="appStore.toggleAi()"
                     >
                       <template #icon><Bot :size="15" /></template>
-                      AI 助手
+                     AI 助手窗口
                     </n-button>
                   </template>
-                  {{ appStore.aiVisible ? '关闭 AI 助手窗口' : '打开 AI 助手窗口' }}
+                  {{ appStore.aiVisible ? '关闭 AI 助手窗口' : '打开浮动 AI 助手窗口' }}
                 </n-tooltip>
               </div>
 
