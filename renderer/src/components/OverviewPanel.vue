@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BookCopy, Clock3, FileText, GitMerge, Lightbulb, Network, Sparkles, Users } from 'lucide-vue-next'
+import { BookCopy, BookOpen, Clock3, FileText, GitMerge, Lightbulb, Network, Sparkles, Users } from 'lucide-vue-next'
 import { getChapterCharacterCount, getChapterPreviewText } from '@/features/chapters/editorContent'
+import { buildKnowledgeCenterState } from '@/features/knowledge/knowledgeCenter'
 import { resolveNovelLengthLabel } from '@/features/wizard/projectGenres'
 import { useAppStore } from '@/stores/app'
 import type { PanelName } from '@/types/app'
@@ -26,6 +27,7 @@ const totalRelationships = computed(() => appStore.characterRelationships.length
 const totalOutlineItems = computed(() => appStore.outlineItems.length)
 const totalInspirationItems = computed(() => appStore.inspirationEntries.length)
 const totalChapters = computed(() => appStore.chapters.length)
+const knowledgeState = computed(() => buildKnowledgeCenterState(appStore.knowledgeDocuments))
 // 统计所有章节的累计字数（使用富文本字数计算）
 const totalWords = computed(() =>
   appStore.chapters.reduce((count, chapter) => count + getChapterCharacterCount(chapter.content), 0)
@@ -80,6 +82,16 @@ const overviewCards = computed(() => [
     hint: '创作进度',
     icon: BookCopy,
     target: 'chapters' as PanelName
+  },
+  {
+    key: 'knowledge',
+    label: '知识文档',
+    value: `${knowledgeState.value.stats.totalDocuments} 条`,
+    hint: knowledgeState.value.stats.duplicateDocuments > 0 || knowledgeState.value.stats.conflictGroups > 0
+      ? `${knowledgeState.value.stats.duplicateDocuments} 重复 / ${knowledgeState.value.stats.conflictGroups} 冲突待处理`
+      : `${knowledgeState.value.stats.projectDocuments} 项目 / ${knowledgeState.value.stats.referenceDocuments} 参考`,
+    icon: BookOpen,
+    target: 'knowledge' as PanelName
   }
 ])
 
@@ -133,6 +145,12 @@ const quickEntries = computed(() => {
       type: '章节',
       title: chapter.title,
       description: getChapterPreviewText(chapter.content, '章节尚未写入内容')
+    })),
+    ...appStore.knowledgeDocuments.map((document) => ({
+      id: `knowledge-${document.id}`,
+      type: '知识',
+      title: document.title,
+      description: document.summary || document.content.slice(0, 120)
     }))
   ]
 
@@ -172,6 +190,11 @@ function openEntry(type: string, title: string): void {
 
   if (type === '组织' || type === '关系') {
     appStore.setPanel('relations')
+    return
+  }
+
+  if (type === '知识') {
+    appStore.setPanel('knowledge')
     return
   }
 

@@ -254,6 +254,12 @@ declare global {
         skills?: Array<import('@/types/app').ProjectSkillItem>
         error?: string
       }>
+      importProjectSkillsPackage: () => Promise<{
+        success: boolean
+        canceled: boolean
+        importedSkillIds?: string[]
+        error?: string
+      }>
       getProjectSkillsContext: () => Promise<{
         success: boolean
         skills?: Array<{

@@ -1,8 +1,8 @@
 /** 主题名称，决定应用的视觉色调 */
 export type ThemeName = 'ocean' | 'jade' | 'amber' | 'rose'
 
-/** 工作台面板名称，对应 8 个功能面板 */
-export type PanelName = 'workflow' | 'overview' | 'world' | 'characters' | 'relations' | 'inspiration' | 'outline' | 'threads' | 'chapters' | 'settings'
+/** 工作台面板名称 */
+export type PanelName = 'workflow' | 'overview' | 'knowledge' | 'world' | 'characters' | 'relations' | 'inspiration' | 'outline' | 'threads' | 'chapters' | 'settings'
 
 /** 小说流程阶段标识 */
 export type NovelWorkflowStageId = 'reference' | 'premise' | 'setting' | 'outline' | 'draft'
@@ -153,10 +153,22 @@ export interface ProjectSkillItem {
   id: string
   /** 展示名称 */
   name: string
+  /** skill 版本号 */
+  version?: string
   /** 相对项目根目录路径 */
   path: string
   /** 描述 */
   description: string
+  /** 技能分类 */
+  category?: 'market' | 'analysis' | 'writing' | 'polish' | 'cover' | 'tool'
+  /** 当前项目内的兼容度 */
+  compatibility?: 'native' | 'partial' | 'external-only'
+  /** 兼容性说明 */
+  compatibilityNote?: string
+  /** 来源仓库或包名 */
+  source?: string
+  /** references/ 下的资料文件数量 */
+  referencesCount?: number
   /** 是否启用 */
   enabled: boolean
   /** 适用阶段 */

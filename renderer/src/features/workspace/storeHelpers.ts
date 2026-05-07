@@ -103,8 +103,27 @@ export function normalizeProjectSkills(skills?: ProjectSkillItem[] | null): Proj
     ? skills.map((skill) => ({
         ...skill,
         name: skill.name?.trim() || '未命名 Skill',
+        version: skill.version?.trim() || '',
         path: skill.path?.trim() || '',
         description: skill.description?.trim() || '',
+        category:
+          skill.category === 'market'
+          || skill.category === 'analysis'
+          || skill.category === 'writing'
+          || skill.category === 'polish'
+          || skill.category === 'cover'
+          || skill.category === 'tool'
+            ? skill.category
+            : 'writing',
+        compatibility:
+          skill.compatibility === 'native'
+          || skill.compatibility === 'partial'
+          || skill.compatibility === 'external-only'
+            ? skill.compatibility
+            : 'partial',
+        compatibilityNote: skill.compatibilityNote?.trim() || '',
+        source: skill.source?.trim() || '',
+        referencesCount: Number.isFinite(skill.referencesCount) ? Math.max(0, Number(skill.referencesCount)) : 0,
         enabled: Boolean(skill.enabled),
         stageIds: Array.isArray(skill.stageIds) ? skill.stageIds : []
       }))

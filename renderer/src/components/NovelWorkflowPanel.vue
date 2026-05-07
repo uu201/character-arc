@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ArrowRight, BookOpenText, Compass, FileText, GitBranch, LibraryBig, Save, Sparkles, ScrollText, Users2 } from 'lucide-vue-next'
-import { NButton, NInput, useMessage } from 'naive-ui'
+import { NButton, NInput, NTag, useMessage } from 'naive-ui'
 import { workflowStageDocumentMap } from '@/features/novelWorkflow/documents'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
 import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
@@ -17,7 +17,9 @@ const activeDocumentKey = ref<WorkflowDocumentKey>('task_plan')
 const draftContent = ref('')
 const isGeneratingWorkflowDocuments = ref(false)
 const isScanningProjectSkills = ref(false)
+const isImportingProjectSkills = ref(false)
 const isGeneratingReferenceInsights = ref(false)
+const activeReferenceSkillActionKey = ref<'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze' | ''>('')
 const isGeneratingPremiseInsights = ref(false)
 const isGeneratingSettingInsights = ref(false)
 const isImportingReferenceNovel = ref(false)
@@ -45,7 +47,9 @@ const referenceFindingsDocument = computed(() =>
 const hasReferenceFindingsContent = computed(() =>
   Boolean(referenceFindingsDocument.value?.content.trim() && !/待 AI 生成|待补充/.test(referenceFindingsDocument.value.content))
 )
-const isReferenceOperationActive = computed(() => isImportingReferenceNovel.value || isGeneratingReferenceInsights.value)
+const isReferenceOperationActive = computed(() =>
+  isImportingReferenceNovel.value || isGeneratingReferenceInsights.value || Boolean(activeReferenceSkillActionKey.value)
+)
 const workflowStages = computed(() =>
   novelWorkflowStageDefinitions.map((definition) => ({
     ...definition,
@@ -60,10 +64,21 @@ const resolvedProjectSkills = computed(() => {
   const stateMap = new Map((currentProject.value?.projectSkills ?? []).map((skill) => [skill.id, skill]))
   return projectSkillItems.value.map((skill) => ({
     ...skill,
-    enabled: stateMap.get(skill.id)?.enabled ?? skill.enabled,
+    enabled: skill.compatibility === 'external-only'
+      ? false
+      : (stateMap.get(skill.id)?.enabled ?? skill.enabled),
     stageIds: stateMap.get(skill.id)?.stageIds ?? skill.stageIds
   }))
 })
+const nativeProjectSkillCount = computed(() =>
+  resolvedProjectSkills.value.filter((skill) => skill.compatibility === 'native').length
+)
+const enabledProjectSkillCount = computed(() =>
+  resolvedProjectSkills.value.filter((skill) => skill.enabled).length
+)
+const externalProjectSkillCount = computed(() =>
+  resolvedProjectSkills.value.filter((skill) => skill.compatibility === 'external-only').length
+)
 const activeDocument = computed(
   () => workflowDocuments.value.find((document) => document.key === activeDocumentKey.value) ?? workflowDocuments.value[0]
 )
@@ -170,6 +185,108 @@ function resolveReferenceImportPhaseLabel(phase?: CharacterArcReferenceImportPro
 
 function setReferenceProgress(payload: CharacterArcReferenceImportProgressPayload | null): void {
   referenceImportProgress.value = payload
+}
+
+function resolveSkillCategoryLabel(category?: import('@/types/app').ProjectSkillItem['category']): string {
+  switch (category) {
+    case 'market':
+      return '扫榜'
+    case 'analysis':
+      return '拆文'
+    case 'polish':
+      return '润色'
+    case 'cover':
+      return '封面'
+    case 'tool':
+      return '工具'
+    case 'writing':
+    default:
+      return '写作'
+  }
+}
+
+function resolveSkillCompatibilityLabel(compatibility?: import('@/types/app').ProjectSkillItem['compatibility']): string {
+  switch (compatibility) {
+    case 'native':
+      return '已适配'
+    case 'external-only':
+      return '外部能力'
+    case 'partial':
+    default:
+      return '部分适配'
+  }
+}
+
+function resolveReferenceSkillActionLabel(actionKey: 'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze'): string {
+  switch (actionKey) {
+    case 'long-scan':
+      return '长篇扫榜'
+    case 'short-scan':
+      return '短篇扫榜'
+    case 'long-analyze':
+      return '长篇拆文整理'
+    case 'short-analyze':
+      return '短篇拆文整理'
+    default:
+      return '参考动作'
+  }
+}
+
+function resolveReferenceSkillPrompt(actionKey: 'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze'): string {
+  const platform = currentProject.value?.targetPlatform?.trim() || '未指定'
+  switch (actionKey) {
+    case 'long-scan':
+      return `请按照长篇网文扫榜的方式，结合当前题材、目标平台「${platform}」和已启用 skills，输出本项目此刻最值得追踪的题材风向、读者偏好、标题包装、开篇卖点和避坑结论。重点把结果写进 findings、task_plan 与 progress。`
+    case 'short-scan':
+      return `请按照短篇网文扫榜的方式，结合当前题材、目标平台「${platform}」和已启用 skills，输出本项目适合的情绪赛道、反转方向、平台偏好和开头钩子策略。重点把结果写进 findings、task_plan 与 progress。`
+    case 'long-analyze':
+      return '请按照长篇拆文的方式，综合当前已导入的参考作品与拆书资产，提炼黄金三章、节奏控制、人设骨架、爽点组织和可复用写法。重点把结果写进 findings、novel_setting 与 task_plan。'
+    case 'short-analyze':
+      return '请按照短篇拆文的方式，综合当前已导入的参考作品与拆书资产，提炼情绪曲线、反转布置、钩子设计和结尾余韵。重点把结果写进 findings、novel_setting 与 task_plan。'
+    default:
+      return '请整理当前参考阶段素材并输出适合继续创作的结论。'
+  }
+}
+
+function buildReferenceSkillKnowledgeDocument(
+  actionKey: 'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze',
+  payload: Record<string, string>
+): import('@/types/app').KnowledgeDocument | null {
+  if (!currentProject.value) {
+    return null
+  }
+
+  const now = new Date().toISOString()
+  const title = `参考阶段·${resolveReferenceSkillActionLabel(actionKey)}`
+  const content = [payload.findings, payload.task_plan, payload.progress, payload.novel_setting]
+    .filter((item) => String(item ?? '').trim())
+    .join('\n\n')
+
+  if (!content.trim()) {
+    return null
+  }
+
+  return {
+    id: `knowledge-reference-skill-${actionKey}-${Date.now()}`,
+    projectId: currentProject.value.id,
+    title,
+    sourceType: 'workflow-document',
+    sourceLabel: 'reference-skill',
+    content,
+    summary: String(payload.findings ?? payload.task_plan ?? '').trim().slice(0, 220) || title,
+    keywords: [
+      resolveReferenceSkillActionLabel(actionKey),
+      currentProject.value.genre,
+      currentProject.value.targetPlatform || ''
+    ].map((item) => String(item).trim()).filter(Boolean),
+    metadata: {
+      sourceTitle: title,
+      fileName: `reference-skill-${actionKey}.md`,
+      actionKey
+    },
+    createdAt: now,
+    updatedAt: now
+  }
 }
 
 function mergeWritingStylePrompt(existingPrompt: string, incomingPrompt: string, sourceTitle: string): string {
@@ -350,6 +467,108 @@ async function generateReferenceInsights(): Promise<void> {
     message.error(error instanceof Error ? error.message : '参考阶段提炼失败')
   } finally {
     isGeneratingReferenceInsights.value = false
+  }
+}
+
+async function runReferenceSkillAction(actionKey: 'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze'): Promise<void> {
+  if (!currentProject.value || activeReferenceSkillActionKey.value) {
+    return
+  }
+
+  if ((actionKey === 'long-analyze' || actionKey === 'short-analyze') && !referenceWorks.value.length) {
+    message.warning('请先导入参考小说并完成至少一次拆书，再执行拆文整理。')
+    return
+  }
+
+  activeReferenceSkillActionKey.value = actionKey
+  setReferenceProgress({
+    phase: 'extracting',
+    message: `正在整理${resolveReferenceSkillActionLabel(actionKey)}所需的项目上下文与已启用 skills...`,
+    current: 1,
+    total: 3,
+    percent: 16
+  })
+
+  try {
+    window.setTimeout(() => {
+      if (activeReferenceSkillActionKey.value !== actionKey) {
+        return
+      }
+      setReferenceProgress({
+        phase: 'aggregating',
+        message: `正在按${resolveReferenceSkillActionLabel(actionKey)}口径提炼关键信息...`,
+        current: 2,
+        total: 3,
+        percent: 58
+      })
+    }, 240)
+
+    const result = await window.characterArc.generateAi(toIpcPayload({
+      task: 'workflow-documents',
+      settings: appStore.appSettings,
+      context: {
+        projectTitle: currentProject.value.title,
+        projectGenre: currentProject.value.genre,
+        projectPlatform: currentProject.value.targetPlatform || '未指定',
+        projectPhase: '选题与参考',
+        stageId: 'reference',
+        stageLabel: '选题与参考',
+        requestedDocuments: workflowStageDocumentMap.reference,
+        referenceWorks: currentProject.value.referenceWorks,
+        workflowDocuments: appStore.workflowDocuments.map((document) => ({
+          key: document.key,
+          content: document.content
+        })),
+        projectSkills: await loadEnabledProjectSkillsContext(currentProject.value, 'reference'),
+        userPrompt: resolveReferenceSkillPrompt(actionKey)
+      }
+    }))
+
+    if (!result.success || !result.result) {
+      throw new Error(result.error ?? `${resolveReferenceSkillActionLabel(actionKey)}失败`)
+    }
+
+    const payload = result.result as Record<string, string>
+    setReferenceProgress({
+      phase: 'saving',
+      message: `正在把${resolveReferenceSkillActionLabel(actionKey)}结论写回流程文件与知识中心...`,
+      current: 3,
+      total: 3,
+      percent: 88
+    })
+    appStore.updateWorkflowDocuments(
+      activeWorkflowVolume.value?.id ?? '',
+      workflowStageDocumentMap.reference
+        .map((key) => ({
+          key,
+          content: payload[key] ?? ''
+        }))
+        .filter((item) => item.content.trim())
+    )
+    const knowledgeDocument = buildReferenceSkillKnowledgeDocument(actionKey, payload)
+    if (knowledgeDocument) {
+      appStore.mergeKnowledgeDocuments(currentProject.value.id, [knowledgeDocument])
+    }
+    syncDraftContentFromActiveDocument()
+    setReferenceProgress({
+      phase: 'done',
+      message: `${resolveReferenceSkillActionLabel(actionKey)}已完成，结论已同步到当前参考阶段。`,
+      current: 3,
+      total: 3,
+      percent: 100
+    })
+    message.success(`${resolveReferenceSkillActionLabel(actionKey)}已完成`)
+  } catch (error) {
+    setReferenceProgress({
+      phase: 'done',
+      message: error instanceof Error ? error.message : `${resolveReferenceSkillActionLabel(actionKey)}失败`,
+      current: 0,
+      total: 3,
+      percent: 0
+    })
+    message.error(error instanceof Error ? error.message : `${resolveReferenceSkillActionLabel(actionKey)}失败`)
+  } finally {
+    activeReferenceSkillActionKey.value = ''
   }
 }
 
@@ -570,11 +789,12 @@ async function scanProjectSkills(): Promise<void> {
       appStore.updateProject(currentProject.value.id, {
         projectSkills: (result.skills ?? []).map((skill) => ({
           ...skill,
-          enabled:
-            currentProject.value?.projectSkills.find((item) => item.id === skill.id)?.enabled ?? skill.enabled,
+          enabled: skill.compatibility === 'external-only'
+            ? false
+            : (currentProject.value?.projectSkills.find((item) => item.id === skill.id)?.enabled ?? skill.enabled),
           stageIds:
             currentProject.value?.projectSkills.find((item) => item.id === skill.id)?.stageIds ??
-            novelWorkflowStageDefinitions.map((stage) => stage.id)
+            skill.stageIds
         }))
       })
     }
@@ -582,6 +802,31 @@ async function scanProjectSkills(): Promise<void> {
     message.error(error instanceof Error ? error.message : '项目技能扫描失败')
   } finally {
     isScanningProjectSkills.value = false
+  }
+}
+
+async function importProjectSkillsPackage(): Promise<void> {
+  if (isImportingProjectSkills.value) {
+    return
+  }
+
+  isImportingProjectSkills.value = true
+  try {
+    const result = await window.characterArc.importProjectSkillsPackage()
+    if (result.canceled) {
+      return
+    }
+
+    if (!result.success) {
+      throw new Error(result.error ?? '项目技能导入失败')
+    }
+
+    await scanProjectSkills()
+    message.success(`已导入 ${result.importedSkillIds?.length ?? 0} 个 skills`)
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '项目技能导入失败')
+  } finally {
+    isImportingProjectSkills.value = false
   }
 }
 
@@ -594,7 +839,7 @@ function toggleProjectSkill(skillId: string): void {
     skill.id === skillId
       ? {
           ...skill,
-          enabled: !skill.enabled
+          enabled: skill.compatibility === 'external-only' ? false : !skill.enabled
         }
       : skill
   )
@@ -611,6 +856,10 @@ function toggleProjectSkillStage(skillId: string, stageId: NovelWorkflowStageId)
 
   const nextSkills = resolvedProjectSkills.value.map((skill) => {
     if (skill.id !== skillId) {
+      return skill
+    }
+
+    if (skill.compatibility === 'external-only') {
       return skill
     }
 
@@ -809,6 +1058,45 @@ function resolveStageStatusLabel(status: string): string {
                 <span :class="{ active: ['saving', 'done'].includes(referenceImportProgress?.phase ?? '') }">回填项目</span>
               </div>
             </div>
+          <div class="reference-skill-playbook">
+            <div class="reference-skill-playbook-head">
+              <div>
+                <span>Skill Playbook</span>
+                <strong>把 `oh-story-claudecode` 的扫榜 / 拆文能力接入当前流程</strong>
+              </div>
+              <small>这些动作会优先读取你在 `.project-skills/` 启用的 reference 阶段 skills，然后把结论写回 findings、task_plan 等流程文件。</small>
+            </div>
+            <div class="reference-skill-grid">
+              <article class="reference-skill-card">
+                <strong>长篇扫榜</strong>
+                <p>适合起点、番茄、晋江等长篇项目，提炼题材风口、读者偏好和开篇卖点。</p>
+                <n-button size="small" secondary :disabled="isReferenceOperationActive" @click="runReferenceSkillAction('long-scan')">
+                  {{ activeReferenceSkillActionKey === 'long-scan' ? '执行中...' : '运行长篇扫榜' }}
+                </n-button>
+              </article>
+              <article class="reference-skill-card">
+                <strong>短篇扫榜</strong>
+                <p>适合盐言、番茄短篇等赛道，聚焦情绪方向、反转模式和短开头钩子。</p>
+                <n-button size="small" secondary :disabled="isReferenceOperationActive" @click="runReferenceSkillAction('short-scan')">
+                  {{ activeReferenceSkillActionKey === 'short-scan' ? '执行中...' : '运行短篇扫榜' }}
+                </n-button>
+              </article>
+              <article class="reference-skill-card">
+                <strong>长篇拆文整理</strong>
+                <p>基于已拆过的参考作品，整理黄金三章、节奏、人设骨架和爽点组织方式。</p>
+                <n-button size="small" secondary :disabled="isReferenceOperationActive" @click="runReferenceSkillAction('long-analyze')">
+                  {{ activeReferenceSkillActionKey === 'long-analyze' ? '执行中...' : '整理长篇拆文' }}
+                </n-button>
+              </article>
+              <article class="reference-skill-card">
+                <strong>短篇拆文整理</strong>
+                <p>基于已拆过的参考作品，提炼情绪曲线、反转布置、钩子设计和收束方式。</p>
+                <n-button size="small" secondary :disabled="isReferenceOperationActive" @click="runReferenceSkillAction('short-analyze')">
+                  {{ activeReferenceSkillActionKey === 'short-analyze' ? '执行中...' : '整理短篇拆文' }}
+                </n-button>
+              </article>
+            </div>
+          </div>
           <div v-if="latestAnalyzedReference?.analysis" class="reference-analysis-footnote">
             最近一次完成拆书：<strong>{{ latestAnalyzedReference.title }}</strong>
             <span>已提炼 {{ latestAnalyzedReference.analysis.styleRules.length }} 条风格规则，并回填到项目风格约束。</span>
@@ -938,11 +1226,34 @@ function resolveStageStatusLabel(status: string): string {
           <div>
             <span class="workflow-stage-shell-kicker">项目 Skills</span>
             <h3>.project-skills/</h3>
+            <p>兼容接入 `oh-story-claudecode` 一类的 skill 包，按阶段启用后会自动参与当前项目的 AI 上下文。</p>
           </div>
           <div class="workflow-generate-actions">
+            <n-button round strong :disabled="isImportingProjectSkills" @click="importProjectSkillsPackage">
+              {{ isImportingProjectSkills ? '导入中...' : '导入 Skill 包' }}
+            </n-button>
             <n-button round strong secondary :disabled="isScanningProjectSkills" @click="scanProjectSkills">
               {{ isScanningProjectSkills ? '扫描中...' : '重新扫描' }}
             </n-button>
+          </div>
+        </div>
+
+        <div v-if="resolvedProjectSkills.length > 0" class="project-skill-overview">
+          <div class="project-skill-overview-card">
+            <span>已识别 skills</span>
+            <strong>{{ resolvedProjectSkills.length }}</strong>
+          </div>
+          <div class="project-skill-overview-card">
+            <span>已启用</span>
+            <strong>{{ enabledProjectSkillCount }}</strong>
+          </div>
+          <div class="project-skill-overview-card">
+            <span>原生适配</span>
+            <strong>{{ nativeProjectSkillCount }}</strong>
+          </div>
+          <div class="project-skill-overview-card">
+            <span>外部能力</span>
+            <strong>{{ externalProjectSkillCount }}</strong>
           </div>
         </div>
 
@@ -950,17 +1261,34 @@ function resolveStageStatusLabel(status: string): string {
           <article v-for="skill in resolvedProjectSkills" :key="skill.id" class="project-skill-card">
             <div class="project-skill-head">
               <div>
-                <strong>{{ skill.name }}</strong>
-                <p>{{ skill.path }}</p>
+                <div class="project-skill-title-row">
+                  <strong>{{ skill.name }}</strong>
+                  <n-tag size="small" round :bordered="false">{{ resolveSkillCategoryLabel(skill.category) }}</n-tag>
+                  <n-tag
+                    size="small"
+                    round
+                    :bordered="false"
+                    :type="skill.compatibility === 'native' ? 'success' : (skill.compatibility === 'external-only' ? 'warning' : 'default')"
+                  >
+                    {{ resolveSkillCompatibilityLabel(skill.compatibility) }}
+                  </n-tag>
+                </div>
+                <p>{{ skill.path }}<span v-if="skill.version"> · v{{ skill.version }}</span></p>
               </div>
               <n-button
                 size="small"
                 :type="skill.enabled ? 'primary' : 'default'"
                 :secondary="!skill.enabled"
+                :disabled="skill.compatibility === 'external-only'"
                 @click="toggleProjectSkill(skill.id)"
-              >{{ skill.enabled ? '已启用' : '已停用' }}</n-button>
+              >{{ skill.compatibility === 'external-only' ? '暂不接入' : (skill.enabled ? '已启用' : '已停用') }}</n-button>
             </div>
             <p class="project-skill-description">{{ skill.description || '当前 skill 未提供描述。' }}</p>
+            <div class="project-skill-meta-row">
+              <span v-if="skill.source">来源：{{ skill.source }}</span>
+              <span v-if="skill.referencesCount">资料：{{ skill.referencesCount }} 份</span>
+            </div>
+            <p v-if="skill.compatibilityNote" class="project-skill-note">{{ skill.compatibilityNote }}</p>
             <div class="project-skill-stage-row">
               <span class="project-skill-stage-label">适用阶段</span>
               <div class="project-skill-stage-chips">
@@ -970,6 +1298,7 @@ function resolveStageStatusLabel(status: string): string {
                   size="tiny"
                   :type="skill.stageIds.includes(stage.id) ? 'primary' : 'default'"
                   :secondary="!skill.stageIds.includes(stage.id)"
+                  :disabled="skill.compatibility === 'external-only'"
                   @click="toggleProjectSkillStage(skill.id, stage.id)"
                 >{{ stage.title }}</n-button>
               </div>
@@ -979,7 +1308,7 @@ function resolveStageStatusLabel(status: string): string {
         <div v-else class="workflow-empty-state">
           <BookOpenText :size="18" />
           <strong>还没有识别到项目级 skills</strong>
-          <p>把下载好的 skill 放进项目根目录的 <code>.project-skills/</code> 后，再点重新扫描。</p>
+          <p>你可以直接导入 `oh-story-claudecode` 仓库根目录、其中的 `skills/` 目录，或任意单个 skill 目录。</p>
         </div>
       </section>
     </div>
@@ -1390,6 +1719,71 @@ function resolveStageStatusLabel(status: string): string {
   padding: 0 2px;
 }
 
+.reference-skill-playbook {
+  margin-top: 14px;
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-body);
+  padding: 16px;
+}
+
+.reference-skill-playbook-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.reference-skill-playbook-head span {
+  display: inline-flex;
+  margin-bottom: 6px;
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.reference-skill-playbook-head strong {
+  display: block;
+  color: var(--arc-text-primary);
+  font-size: 15px;
+}
+
+.reference-skill-playbook-head small {
+  max-width: 26rem;
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.reference-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.reference-skill-card {
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
+  padding: 14px;
+}
+
+.reference-skill-card strong {
+  display: block;
+  color: var(--arc-text-primary);
+  font-size: 14px;
+}
+
+.reference-skill-card p {
+  margin: 8px 0 12px;
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  line-height: 1.72;
+}
+
 .reference-assets-head {
   display: flex;
   align-items: flex-end;
@@ -1540,6 +1934,33 @@ function resolveStageStatusLabel(status: string): string {
   gap: 12px;
 }
 
+.project-skill-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.project-skill-overview-card {
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-body);
+  padding: 12px 14px;
+}
+
+.project-skill-overview-card span {
+  display: block;
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.project-skill-overview-card strong {
+  color: var(--arc-text-primary);
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
 .project-skill-card {
   border: 1px solid var(--arc-border);
   border-radius: 8px;
@@ -1559,6 +1980,13 @@ function resolveStageStatusLabel(status: string): string {
   font-size: 14px;
 }
 
+.project-skill-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .project-skill-head p {
   margin: 4px 0 0;
   color: var(--arc-text-hint);
@@ -1570,6 +1998,41 @@ function resolveStageStatusLabel(status: string): string {
   color: var(--arc-text-secondary);
   font-size: 12px;
   line-height: 1.75;
+}
+
+.project-skill-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--arc-text-hint);
+  font-size: 11px;
+}
+
+.project-skill-note {
+  margin: 10px 0 0;
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.project-skill-stage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.project-skill-stage-label {
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.project-skill-stage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .workflow-empty-state {
@@ -1619,8 +2082,14 @@ function resolveStageStatusLabel(status: string): string {
   }
 
   .reference-analysis-stats,
-  .reference-work-list {
+  .reference-work-list,
+  .reference-skill-grid,
+  .project-skill-overview {
     grid-template-columns: 1fr;
+  }
+
+  .reference-skill-playbook-head {
+    flex-direction: column;
   }
 }
 </style>

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   BookMarked,
+  BookCopy,
   BookOpenText,
   ChevronLeft,
   FileText,
@@ -25,6 +26,7 @@ import WorldviewPanel from '@/components/WorldviewPanel.vue'
 import CharactersPanel from '@/components/CharactersPanel.vue'
 import RelationsPanel from '@/components/RelationsPanel.vue'
 import InspirationPanel from '@/components/InspirationPanel.vue'
+import KnowledgeCenterPanel from '@/components/KnowledgeCenterPanel.vue'
 import OutlinePanel from '@/components/OutlinePanel.vue'
 import PlotThreadsPanel from '@/components/PlotThreadsPanel.vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
@@ -42,6 +44,7 @@ const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWid
 const panelSearch = reactive<Record<string, string>>({
   workflow: '',
   overview: '',
+  knowledge: '',
   world: '',
   characters: '',
   relations: '',
@@ -59,6 +62,7 @@ const searchKeyword = ref(panelSearch[appStore.activePanel] ?? '')
 const sidebarItems = [
   { id: 'workflow', label: '小说流程', description: '维护固定流程文件并驱动写作阶段', icon: BookOpenText, color: '#3b82f6' },
   { id: 'overview', label: '作品概览', description: '掌握项目进度与全局信息', icon: LayoutDashboard, color: '#8b5cf6' },
+  { id: 'knowledge', label: '知识中心', description: '整理项目事实、拆书摘录与冲突项', icon: BookCopy, color: '#0f766e' },
   { id: 'world', label: '世界观设定', description: '沉淀世界规则、地点与设定条目', icon: Globe2, color: '#06b6d4' },
   { id: 'characters', label: '角色图鉴', description: '维护人物卡、关系与成长线索', icon: Users, color: '#ec4899' },
   { id: 'relations', label: '关系组织', description: '维护势力结构、人物关系与成员归属', icon: Network, color: '#6b7280' },
@@ -278,7 +282,7 @@ watch(searchKeyword, (value) => {
             <n-input
               v-model:value="searchKeyword"
               class="search-input arc-no-drag"
-              placeholder="搜索设定、角色、关系、灵感或章节..."
+              placeholder="搜索设定、角色、知识或章节..."
               clearable
               size="small"
             >
@@ -301,6 +305,7 @@ watch(searchKeyword, (value) => {
           <!-- 非搜索模式下根据当前激活的面板渲染对应组件 -->
           <NovelWorkflowPanel v-else-if="appStore.activePanel === 'workflow'" key="workflow" />
           <OverviewPanel v-else-if="appStore.activePanel === 'overview'" key="overview" :search-query="normalizedSearch" />
+          <KnowledgeCenterPanel v-else-if="appStore.activePanel === 'knowledge'" key="knowledge" />
           <WorldviewPanel v-else-if="appStore.activePanel === 'world'" key="world" :search-query="normalizedSearch" />
           <CharactersPanel v-else-if="appStore.activePanel === 'characters'" key="characters" :search-query="normalizedSearch" />
           <RelationsPanel v-else-if="appStore.activePanel === 'relations'" key="relations" :search-query="normalizedSearch" />

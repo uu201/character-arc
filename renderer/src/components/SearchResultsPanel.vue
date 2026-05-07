@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { BookOpenText, FileText, GitMerge, Globe2, Lightbulb, Network, Search, Sparkles, Users } from 'lucide-vue-next'
 import { getChapterCharacterCount, getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
+import { resolveKnowledgeSourceTypeLabel } from '@/features/knowledge/knowledgeCenter'
 import { useAppStore } from '@/stores/app'
 import type { PanelName } from '@/types/app'
 
@@ -49,6 +50,19 @@ const resultGroups = computed<ResultGroup[]>(() => {
       title: entry.title,
       summary: entry.content,
       meta: entry.type
+    }))
+
+  const knowledgeItems = appStore.knowledgeDocuments
+    .filter((document) =>
+      `${document.title} ${document.summary} ${document.content} ${document.sourceLabel} ${document.sourceType} ${document.keywords.join(' ')}`
+        .toLowerCase()
+        .includes(query)
+    )
+    .map((document) => ({
+      id: document.id,
+      title: document.title,
+      summary: document.summary || document.content.slice(0, 160),
+      meta: [resolveKnowledgeSourceTypeLabel(document.sourceType), document.sourceLabel].filter(Boolean).join(' · ')
     }))
 
   const characterItems = appStore.characters
@@ -159,6 +173,14 @@ const resultGroups = computed<ResultGroup[]>(() => {
       icon: Globe2,
       accent: 'rgba(59, 130, 246, 0.12)',
       items: worldviewItems
+    },
+    {
+      id: 'knowledge',
+      label: '知识中心',
+      panel: 'knowledge' as PanelName,
+      icon: BookOpenText,
+      accent: 'rgba(20, 184, 166, 0.14)',
+      items: knowledgeItems
     },
     {
       id: 'characters',

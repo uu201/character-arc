@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('characterArc', {
   importReferenceNovelAnalysis: (payload: unknown) => ipcRenderer.invoke('characterarc:import-reference-novel-analysis', toIpcPayload(payload)),
   /** 扫描当前项目目录下的 .project-skills/ */
   scanProjectSkills: () => ipcRenderer.invoke('characterarc:project-skills-scan'),
+  /** 从本地目录导入一组项目 skills 到 .project-skills/ */
+  importProjectSkillsPackage: () => ipcRenderer.invoke('characterarc:project-skills-import'),
   /** 读取当前项目已安装 skills 的正文内容（供 AI 内部使用） */
   getProjectSkillsContext: () => ipcRenderer.invoke('characterarc:project-skills-context'),
 

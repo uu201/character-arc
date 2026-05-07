@@ -3209,6 +3209,172 @@ function getWorkspaceDbPath() {
 function getProjectSkillsDirPath() {
   return node_path.join(process.cwd(), ".project-skills");
 }
+function stripYamlScalar(value) {
+  const trimmed = value.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"') || trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+function parseSkillFrontmatter(content) {
+  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const frontmatter = frontmatterMatch?.[1] ?? "";
+  const lines = frontmatter.split(/\r?\n/);
+  let name = "";
+  let version = "";
+  let description = "";
+  let source = "";
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const fieldMatch = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (!fieldMatch) {
+      continue;
+    }
+    const [, field, rawValue] = fieldMatch;
+    const value = stripYamlScalar(rawValue);
+    if (field === "description" && (value === "|" || value === ">")) {
+      const block = [];
+      index += 1;
+      while (index < lines.length) {
+        const blockLine = lines[index];
+        if (blockLine && !/^\s+/.test(blockLine)) {
+          index -= 1;
+          break;
+        }
+        const trimmed = blockLine.trim();
+        if (trimmed) {
+          block.push(trimmed);
+        }
+        index += 1;
+      }
+      description = block.join(" ").trim();
+      continue;
+    }
+    if (field === "name") {
+      name = value;
+      continue;
+    }
+    if (field === "version") {
+      version = value;
+      continue;
+    }
+    if (field === "description") {
+      description = value;
+    }
+  }
+  const sourceMatch = frontmatter.match(/^\s*source:\s*(.+)$/m);
+  if (sourceMatch?.[1]) {
+    source = stripYamlScalar(sourceMatch[1]);
+  }
+  return {
+    name,
+    version,
+    description,
+    source
+  };
+}
+function inferProjectSkillMeta(skillId) {
+  switch (skillId) {
+    case "story-long-scan":
+    case "story-short-scan":
+      return {
+        category: "market",
+        compatibility: "native",
+        compatibilityNote: "适合当前项目的选题与参考阶段，可作为平台趋势与题材风向输入。",
+        enabled: true,
+        stageIds: ["reference"]
+      };
+    case "story-long-analyze":
+    case "story-short-analyze":
+      return {
+        category: "analysis",
+        compatibility: "native",
+        compatibilityNote: "适合拆书、对标分析和参考作品提炼，可直接参与参考阶段流程文件生成。",
+        enabled: true,
+        stageIds: ["reference"]
+      };
+    case "story-long-write":
+    case "story-short-write":
+      return {
+        category: "writing",
+        compatibility: "native",
+        compatibilityNote: "适合立项、设定、大纲和正文阶段，作为当前项目的核心写作规则来源。",
+        enabled: true,
+        stageIds: ["premise", "setting", "outline", "draft"]
+      };
+    case "story-deslop":
+      return {
+        category: "polish",
+        compatibility: "native",
+        compatibilityNote: "适合正文润色与去 AI 味，仅建议在写作阶段启用。",
+        enabled: true,
+        stageIds: ["draft"]
+      };
+    case "story-cover":
+      return {
+        category: "cover",
+        compatibility: "external-only",
+        compatibilityNote: "当前项目还没有封面生成工作台，此 skill 会作为资料保留，但不会接入正文链路。",
+        enabled: false,
+        stageIds: []
+      };
+    case "browser-cdp":
+      return {
+        category: "tool",
+        compatibility: "external-only",
+        compatibilityNote: "当前项目没有浏览器 CDP 执行能力，此 skill 会作为外部工具说明保留。",
+        enabled: false,
+        stageIds: []
+      };
+    default:
+      return {
+        category: "writing",
+        compatibility: "partial",
+        compatibilityNote: "已识别为通用 skill，可手动决定是否启用并绑定到对应阶段。",
+        enabled: false,
+        stageIds: []
+      };
+  }
+}
+async function countFilesInDir(root) {
+  const entries = await promises.readdir(root, { withFileTypes: true });
+  let total = 0;
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      total += await countFilesInDir(node_path.join(root, entry.name));
+      continue;
+    }
+    total += 1;
+  }
+  return total;
+}
+async function buildProjectSkillScanEntry(root, entryName) {
+  const skillDir = node_path.join(root, entryName);
+  const skillPath = node_path.join(skillDir, "SKILL.md");
+  try {
+    const content = await promises.readFile(skillPath, "utf-8");
+    const frontmatter = parseSkillFrontmatter(content);
+    const compatibilityMeta = inferProjectSkillMeta(entryName);
+    const referencesDir = node_path.join(skillDir, "references");
+    const referencesCount = node_fs.existsSync(referencesDir) ? await countFilesInDir(referencesDir) : 0;
+    return {
+      id: entryName,
+      name: frontmatter.name || entryName,
+      version: frontmatter.version || "",
+      path: `.project-skills/${entryName}`,
+      description: frontmatter.description || "",
+      category: compatibilityMeta.category,
+      compatibility: compatibilityMeta.compatibility,
+      compatibilityNote: compatibilityMeta.compatibilityNote,
+      source: frontmatter.source || "",
+      referencesCount,
+      enabled: compatibilityMeta.enabled,
+      stageIds: compatibilityMeta.stageIds
+    };
+  } catch {
+    return null;
+  }
+}
 async function readProjectSkillsFromDisk() {
   const root = getProjectSkillsDirPath();
   const entries = await promises.readdir(root, { withFileTypes: true });
@@ -3217,22 +3383,12 @@ async function readProjectSkillsFromDisk() {
     if (!entry.isDirectory()) {
       continue;
     }
-    const skillPath = node_path.join(root, entry.name, "SKILL.md");
-    try {
-      const content = await promises.readFile(skillPath, "utf-8");
-      const nameMatch = content.match(/^name:\s*(.+)$/m);
-      const descriptionMatch = content.match(/^description:\s*(.+)$/m);
-      skills.push({
-        id: entry.name,
-        name: nameMatch?.[1]?.trim() || entry.name,
-        path: `.project-skills/${entry.name}`,
-        description: descriptionMatch?.[1]?.trim() || "",
-        enabled: true
-      });
-    } catch {
+    const skill = await buildProjectSkillScanEntry(root, entry.name);
+    if (skill) {
+      skills.push(skill);
     }
   }
-  return skills;
+  return skills.sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 }
 async function readProjectSkillContextsFromDisk() {
   const root = getProjectSkillsDirPath();
@@ -3245,18 +3401,50 @@ async function readProjectSkillContextsFromDisk() {
     const skillPath = node_path.join(root, entry.name, "SKILL.md");
     try {
       const content = await promises.readFile(skillPath, "utf-8");
-      const nameMatch = content.match(/^name:\s*(.+)$/m);
-      const descriptionMatch = content.match(/^description:\s*(.+)$/m);
+      const frontmatter = parseSkillFrontmatter(content);
       skills.push({
         id: entry.name,
-        name: nameMatch?.[1]?.trim() || entry.name,
-        description: descriptionMatch?.[1]?.trim() || "",
+        name: frontmatter.name || entry.name,
+        description: frontmatter.description || "",
         content
       });
     } catch {
     }
   }
-  return skills;
+  return skills.sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+}
+async function listSkillDirectories(root) {
+  if (node_fs.existsSync(node_path.join(root, "SKILL.md"))) {
+    return [root];
+  }
+  if (!node_fs.existsSync(root)) {
+    return [];
+  }
+  const entries = await promises.readdir(root, { withFileTypes: true });
+  return entries.filter((entry) => entry.isDirectory() && node_fs.existsSync(node_path.join(root, entry.name, "SKILL.md"))).map((entry) => node_path.join(root, entry.name));
+}
+async function resolveSkillPackageImportDirs(selectedPath) {
+  const nestedSkillsRoot = node_path.join(selectedPath, "skills");
+  const nestedSkillDirs = await listSkillDirectories(nestedSkillsRoot);
+  if (nestedSkillDirs.length > 0) {
+    return nestedSkillDirs;
+  }
+  return listSkillDirectories(selectedPath);
+}
+async function importProjectSkillsFromDirectory(selectedPath) {
+  const sourceDirs = await resolveSkillPackageImportDirs(selectedPath);
+  if (!sourceDirs.length) {
+    return [];
+  }
+  const targetRoot = getProjectSkillsDirPath();
+  await promises.mkdir(targetRoot, { recursive: true });
+  const importedNames = [];
+  for (const sourceDir of sourceDirs) {
+    const targetDir = node_path.join(targetRoot, node_path.basename(sourceDir));
+    await promises.cp(sourceDir, targetDir, { recursive: true, force: true });
+    importedNames.push(node_path.basename(sourceDir));
+  }
+  return importedNames.sort((left, right) => left.localeCompare(right, "zh-CN"));
 }
 let workspaceDb = null;
 async function ensureWorkspaceDir() {
@@ -5207,6 +5395,42 @@ electron.ipcMain.handle("characterarc:project-skills-scan", async () => {
     return {
       success: true,
       skills: []
+    };
+  }
+});
+electron.ipcMain.handle("characterarc:project-skills-import", async () => {
+  try {
+    const dialogOptions = {
+      title: "选择要导入的 Skill 包目录",
+      properties: ["openDirectory"]
+    };
+    const ownerWindow = mainWindow ?? electron.BrowserWindow.getFocusedWindow();
+    const result = ownerWindow ? await electron.dialog.showOpenDialog(ownerWindow, dialogOptions) : await electron.dialog.showOpenDialog(dialogOptions);
+    if (result.canceled || !result.filePaths[0]) {
+      return {
+        success: true,
+        canceled: true,
+        importedSkillIds: []
+      };
+    }
+    const importedSkillIds = await importProjectSkillsFromDirectory(result.filePaths[0]);
+    if (!importedSkillIds.length) {
+      return {
+        success: false,
+        canceled: false,
+        error: "所选目录中没有识别到可导入的 SKILL.md。请选择 skill 包根目录、skills 目录，或单个 skill 目录。"
+      };
+    }
+    return {
+      success: true,
+      canceled: false,
+      importedSkillIds
+    };
+  } catch (error) {
+    return {
+      success: false,
+      canceled: false,
+      error: error instanceof Error ? error.message : "项目技能导入失败"
     };
   }
 });

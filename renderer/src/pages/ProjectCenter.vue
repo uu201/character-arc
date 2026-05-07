@@ -5,6 +5,7 @@ import HomepageHero from '@/components/home/HomepageHero.vue'
 import HomepageProjectCollection from '@/components/home/HomepageProjectCollection.vue'
 import HomepageSettingsModal from '@/components/home/HomepageSettingsModal.vue'
 import ProjectEditorModal from '@/components/home/ProjectEditorModal.vue'
+import { buildCoverPromptKnowledgeDocument, type CoverPromptWorkbenchInput } from '@/features/cover/promptWorkbench'
 import { useAppStore } from '@/stores/app'
 import type { ProjectSummary } from '@/types/app'
 
@@ -89,15 +90,23 @@ function submitProject(payload: {
   genre: string
   novelLength: ProjectSummary['novelLength']
   cover: string
+  targetPlatform: string
 }): void {
   appStore.updateProject(payload.id, {
     title: payload.title,
     genre: payload.genre,
     novelLength: payload.novelLength,
-    cover: payload.cover
+    cover: payload.cover,
+    targetPlatform: payload.targetPlatform
   })
   editorVisible.value = false
   message.success('项目信息已更新')
+}
+
+function handleSaveCoverPrompt(payload: CoverPromptWorkbenchInput): void {
+  const document = buildCoverPromptKnowledgeDocument(payload.project.id, payload)
+  appStore.mergeKnowledgeDocuments(payload.project.id, [document])
+  message.success('封面提示词已保存到知识库')
 }
 
 function requestDeleteProject(projectId: string): void {
@@ -140,6 +149,7 @@ function requestDeleteProject(projectId: string): void {
       v-model:show="editorVisible"
       :project="editingProject"
       @pick-cover="handlePickCover"
+      @save-cover-prompt="handleSaveCoverPrompt"
       @submit="submitProject"
     />
 

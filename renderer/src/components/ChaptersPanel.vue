@@ -25,8 +25,9 @@ import { ensureEditorHtmlContent, getChapterCharacterCount, getChapterPreviewTex
 import { DEFAULT_CHAPTER_WORD_TARGET, formatChapterWordTargetLabel, normalizeChapterWordTarget, parseChapterWordTarget } from '@/features/chapters/wordTarget'
 import { pickRelevantInspirationEntries } from '@/features/inspiration/relevance'
 import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
+import { getResolvedChapterAssistantTemplates } from '@/features/ai/chapterAssistantOptions'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
-import { buildChapterFirstDraftContext } from '@/features/ai/chapterAssistantContext'
+import { buildChapterAssistantContext, buildChapterFirstDraftContext } from '@/features/ai/chapterAssistantContext'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
@@ -373,6 +374,13 @@ const readingLeadText = computed(() => {
 
   return getChapterPreviewText(appStore.selectedChapter?.content ?? '', '这一章还没有写下摘要，可以先从成稿阅读中检查节奏。').slice(0, 120)
 })
+const chapterQuickActions = computed(() => getResolvedChapterAssistantTemplates(appStore.currentProject))
+const hasChapterSelection = computed(() =>
+  Boolean(
+    appStore.currentChapterSelection?.chapterId === appStore.selectedChapter?.id
+    && appStore.currentChapterSelection.text.trim()
+  )
+)
 
 // 切换阅读模式，同时关闭所有抽屉
 function toggleReadingMode(): void {
@@ -434,6 +442,106 @@ function openVersionHistory(): void {
 function openInspirationWorkbench(): void {
   compactInsightsVisible.value = false
   appStore.setPanel('inspiration')
+}
+
+async function queueChapterAssistantQuickAction(actionId: string): Promise<void> {
+  const action = chapterQuickActions.value.find((item) => item.id === actionId)
+  if (!action) {
+    message.warning('当前快捷动作不可用')
+    return
+  }
+
+  if (action.requiresSelection && !hasChapterSelection.value) {
+    message.warning('请先在正文中选中要处理的段落')
+    return
+  }
+
+  if (action.id === 'humanize-ai') {
+    const selectedText = appStore.currentChapterSelection?.text.trim() || ''
+    if (!selectedText || !appStore.selectedChapter) {
+      message.warning('请先在正文中选中要处理的段落')
+      return
+    }
+
+    try {
+      const projectSkills = await loadEnabledProjectSkillsContext(appStore.currentProject, 'draft')
+      const assistantContext = buildChapterAssistantContext({
+        project: appStore.currentProject,
+        chapter: appStore.selectedChapter,
+        chapterVolume: appStore.selectedChapterVolume,
+        relatedChapters: appStore.chapters
+          .filter((item) => item.volumeId === appStore.selectedChapter?.volumeId)
+          .filter((item) => item.id !== appStore.selectedChapter?.id)
+          .slice(0, 2)
+          .map((item) => ({
+            title: item.title,
+            summary: item.summary,
+            preview: getChapterPreviewText(item.content, '该章节暂无正文')
+          })),
+        volumeChapterSummaries: appStore.chapters
+          .filter((item) => item.volumeId === appStore.selectedChapter?.volumeId && item.id !== appStore.selectedChapter?.id)
+          .map((item) => ({
+            title: item.title,
+            summary: item.summary
+          })),
+        novelOpenerSummary: appStore.chapters[0] && appStore.chapters[0].id !== appStore.selectedChapter.id
+          ? { title: appStore.chapters[0].title, summary: appStore.chapters[0].summary }
+          : undefined,
+        recentMessages: appStore.messages.slice(-4).map((item) => ({ role: item.role, content: item.content })),
+        worldviewEntries: appStore.worldviewEntries,
+        characters: appStore.characters,
+        organizations: appStore.organizations,
+        characterRelationships: appStore.characterRelationships,
+        organizationMemberships: appStore.organizationMemberships,
+        inspirationEntries: appStore.inspirationEntries,
+        outlineItems: appStore.outlineItems,
+        plotThreads: appStore.plotThreads,
+        workflowDocuments: appStore.workflowDocuments,
+        knowledgeDocuments: appStore.knowledgeDocuments,
+        selectedText,
+        responseMode: action.mode,
+        responseLength: action.length,
+        quickAction: action.label,
+        userPrompt: action.prompt,
+        chapterContent: getPlainTextFromEditorContent(appStore.selectedChapter.content ?? ''),
+        projectSkills
+      })
+      const response = await window.characterArc.generateAi(toIpcPayload({
+        task: 'chapter-assistant',
+        settings: appStore.appSettings,
+        context: assistantContext
+      }))
+      const result = (response.result as { result?: { content?: string } } | undefined)?.result
+      const revisedContent = String(result?.content ?? '').trim()
+      if (!response.success || !revisedContent) {
+        throw new Error(response.error ?? 'AI 未返回可用的去 AI 味结果')
+      }
+
+      appStore.handleAssistantCommand({
+        type: 'insert-into-chapter',
+        kind: 'proposal',
+        target: 'chapter-content',
+        reason: '这会使用去 AI 味结果替换当前选中的正文片段，请确认后再写入。',
+        preview: {
+          title: '降低AI感润色',
+          summary: '准备使用去 AI 味后的文本替换当前选区。',
+          before: selectedText.slice(0, 220),
+          after: revisedContent.slice(0, 220)
+        },
+        destructive: true,
+        requiresConfirmation: true,
+        content: revisedContent,
+        mode: 'replace-selection'
+      })
+      message.success('已生成降低AI感提议，请确认后执行')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '降低AI感失败')
+    }
+    return
+  }
+
+  appStore.queueAssistantPrompt(action.prompt, action.label)
+  message.success(`已把「${action.label}」发送到 AI 助手`)
 }
 
 // 将灵感卡片发送给 AI 助手进行扩写或续写，根据 mode 生成不同的 prompt
@@ -1471,6 +1579,31 @@ onBeforeUnmount(() => {
                     </n-button>
                   </template>
                   直接流式生成本章初稿，完成后覆盖当前章节全部内容
+                </n-tooltip>
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-button
+                        size="small"
+                        secondary
+                        :disabled="!hasChapterSelection"
+                        @click="queueChapterAssistantQuickAction('humanize-ai')"
+                    >
+                      降低AI感
+                    </n-button>
+                  </template>
+                  对当前选中的正文片段执行去 AI 味润色，优先吸收已启用的 `story-deslop` 规则
+                </n-tooltip>
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-button
+                        size="small"
+                        secondary
+                        @click="queueChapterAssistantQuickAction('chapter-analysis')"
+                    >
+                      章节分析
+                    </n-button>
+                  </template>
+                  让 AI 助手基于当前章节、关系和设定直接给出可执行的改稿诊断
                 </n-tooltip>
                 <n-tooltip v-if="isGeneratingChapterDraft" trigger="hover">
                   <template #trigger>

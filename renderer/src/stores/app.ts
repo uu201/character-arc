@@ -1441,6 +1441,20 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  function removeKnowledgeDocuments(projectId: string, documentIds: string[]): void {
+    const normalizedProjectId = projectId.trim()
+    const idSet = new Set(documentIds.map((id) => String(id).trim()).filter(Boolean))
+    if (!normalizedProjectId || !idSet.size) {
+      return
+    }
+
+    updateProjectWorkspace(normalizedProjectId, (workspace) => ({
+      ...workspace,
+      knowledgeDocuments: (workspace.knowledgeDocuments ?? []).filter((document) => !idSet.has(document.id))
+    }))
+    schedulePersist('fast')
+  }
+
   function appendAiRun(projectId: string, record: Omit<AiRunRecord, 'projectId'>): void {
     if (!projectId.trim()) {
       return
@@ -2733,6 +2747,7 @@ export const useAppStore = defineStore('app', () => {
     activeWorkflowVolume,
     setActiveWorkflowVolumeId,
     mergeKnowledgeDocuments,
+    removeKnowledgeDocuments,
     knowledgeDocuments,
     updateWorkflowDocument,
     updateWorkflowDocuments,
