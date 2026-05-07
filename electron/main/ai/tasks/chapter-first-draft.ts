@@ -8,6 +8,17 @@ import {
   formatVolumeChapterSummaries, formatNovelOpenerSummary, formatOpenPlotThreads
 } from '../prompts/format-helpers'
 
+// max_tokens 给得宽松，确保情节能写完整、不在中间断句。
+// 中文模型 1 token ≈ 1.0-1.5 字，按 0.8 字/token 给上限留出 25-50% 头部空间。
+const TOKEN_PER_CHAR_GENEROUS = 0.8
+const MAX_TOKENS_FLOOR = 4000
+const MAX_TOKENS_CEIL = 8000
+
+function resolveTargetWords(context: Record<string, unknown>): number {
+  const raw = Number(context.sceneWordTarget ?? context.targetWordCount ?? context.chapterWordTarget ?? 0)
+  return Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 0
+}
+
 const handler: TaskHandler = {
   name: 'chapter-first-draft',
   outputType: 'text',
@@ -38,13 +49,15 @@ const handler: TaskHandler = {
 先判断本章更接近哪类章节，再选对应写法：布局章、事件章、过渡章、回收章。
 
 【初稿写作目标】
-- 章节必须有明确开场、推进和收束。
+- 章节必须有完整的开场、推进和收束 — 优先级最高，宁可写长也不要在情节中间停止。
 - 开场直接入场景、动作、压力或利益交换。
 - 每个主要段落都要推进至少一项。
 - 角色行为必须基于利益、恐惧、误判、立场和当前已知信息。
 
-【字数与完成度】
-- 目标字数尽量贴近 ${targetWordCount || '当前章节预估字数'}，允许上下浮动约 10%。
+【字数指引】
+- 目标字数：${targetWordCount || '当前章节预估字数'}（这是参考，不是硬约束）。
+- 字数允许在目标的 ±50% 范围内浮动；优先保证场景与情节的完整流畅，不要为了凑数或省字而硬切。
+- 不要在情节中间停下来"为字数收尾"，也不要用空话灌水。
 
 【文风与质量约束】
 - 项目默认风格：${writingStyleLabel}
@@ -61,7 +74,7 @@ const handler: TaskHandler = {
 
 【输出要求】
 - 只输出最终正文。不要标题前缀，不要注释，不要小结。`,
-      user: `${capabilityPreamble.user}\n\n请为当前小说项目生成本章初稿。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n目标字数：${targetWordCount}\n当前章节是否已有正文：${chapterHasExistingContent ? '有，但本次要整章重写' : '没有，本次从零起稿'}\n当前章节现有正文：\n${chapterContent || '【空】'}\n\n相邻章节参考：\n${formatRelatedChapters(context.relatedChapters) || '暂无'}\n\n本卷章节概览：\n${formatVolumeChapterSummaries(context.volumeChapterSummaries) || '暂无'}\n\n全书开篇：\n${formatNovelOpenerSummary(context.novelOpenerSummary) || '暂无'}\n\n未收伏笔 / 活跃剧情线：\n${formatOpenPlotThreads(context.plotThreads) || '暂无'}\n\n相关世界观：\n${formatWorldviewEntries(context.worldviewEntries) || '暂无'}\n\n相关角色：\n${formatCharacters(context.characters) || '暂无'}\n\n相关组织：\n${formatOrganizations(context.organizations) || '暂无'}\n\n角色关系：\n${formatCharacterRelationships(context.characterRelationships, context.characters) || '暂无'}\n\n成员归属：\n${formatOrganizationMemberships(context.organizationMemberships, context.organizations, context.characters) || '暂无'}\n\n可用灵感：\n${formatInspirationEntries(context.inspirationEntries) || '暂无'}\n\n相关大纲：\n${formatOutlineItems(context.outlineItems) || '暂无'}${retrievalBlock}\n\n当前项目启用 skills：\n${skillsBlock || '暂无'}\n\n补充要求：\n${String(context.userPrompt ?? '')}\n\n硬要求：\n1. 生成的是"完整初稿"，不是续写。\n2. 成稿直接覆盖当前章节全部内容。\n3. 如果当前正文为空，按从零起稿处理。\n4. 强贴当前章节标题、摘要和大纲。\n5. 字数尽量贴近目标字数。\n6. 优先写出可继续改稿的第一版正文。${sceneSegment}`
+      user: `${capabilityPreamble.user}\n\n请为当前小说项目生成本章初稿。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n目标字数（参考）：${targetWordCount}\n当前章节是否已有正文：${chapterHasExistingContent ? '有，但本次要整章重写' : '没有，本次从零起稿'}\n当前章节现有正文：\n${chapterContent || '【空】'}\n\n相邻章节参考：\n${formatRelatedChapters(context.relatedChapters) || '暂无'}\n\n本卷章节概览：\n${formatVolumeChapterSummaries(context.volumeChapterSummaries) || '暂无'}\n\n全书开篇：\n${formatNovelOpenerSummary(context.novelOpenerSummary) || '暂无'}\n\n未收伏笔 / 活跃剧情线：\n${formatOpenPlotThreads(context.plotThreads) || '暂无'}\n\n相关世界观：\n${formatWorldviewEntries(context.worldviewEntries) || '暂无'}\n\n相关角色：\n${formatCharacters(context.characters) || '暂无'}\n\n相关组织：\n${formatOrganizations(context.organizations) || '暂无'}\n\n角色关系：\n${formatCharacterRelationships(context.characterRelationships, context.characters) || '暂无'}\n\n成员归属：\n${formatOrganizationMemberships(context.organizationMemberships, context.organizations, context.characters) || '暂无'}\n\n可用灵感：\n${formatInspirationEntries(context.inspirationEntries) || '暂无'}\n\n相关大纲：\n${formatOutlineItems(context.outlineItems) || '暂无'}${retrievalBlock}\n\n当前项目启用 skills：\n${skillsBlock || '暂无'}\n\n补充要求：\n${String(context.userPrompt ?? '')}\n\n硬要求：\n1. 生成的是"完整初稿"，不是续写。\n2. 成稿直接覆盖当前章节全部内容。\n3. 如果当前正文为空，按从零起稿处理。\n4. 强贴当前章节标题、摘要和大纲。\n5. 优先写出"完整且自然收尾"的第一版正文 — 字数比目标多一些没问题，但不能在情节中途断掉。${sceneSegment}`
     }
   },
   normalize(raw: string): AiTaskResult {
@@ -70,8 +83,12 @@ const handler: TaskHandler = {
   validate(result: AiTaskResult): boolean {
     return Boolean((result as ChapterAssistantResult).content?.trim())
   },
-  resolveMaxTokens(): number {
-    return 4000
+  resolveMaxTokens(input: PromptBuildInput): number {
+    const target = resolveTargetWords(input.context)
+    if (target <= 0) return MAX_TOKENS_FLOOR
+    // 给目标字数 1.5-2x 的预算，确保情节能完整收束。
+    const cap = Math.ceil(target * 1.5 / TOKEN_PER_CHAR_GENEROUS)
+    return Math.min(Math.max(cap, MAX_TOKENS_FLOOR), MAX_TOKENS_CEIL)
   }
 }
 export default handler

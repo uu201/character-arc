@@ -246,4 +246,4 @@ export type AiStreamHandlers = {
   onTextDelta: (delta: string) => void
 }
 
-export const AI_REQUEST_TIMEOUT_MS = 60_000
+export const AI_REQUEST_TIMEOUT_MS = 180_000

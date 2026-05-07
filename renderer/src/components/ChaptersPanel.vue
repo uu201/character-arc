@@ -892,53 +892,17 @@ async function generateChapterFirstDraft(): Promise<void> {
       plotThreads: appStore.plotThreads,
       chapterContent: currentChapterContent,
       targetWordCount,
-      userPrompt: `请生成这一章的完整初稿，目标字数控制在 ${targetWordCount} 字左右，可上下浮动 10%。如果当前正文为空，就从零起稿；如果当前正文不为空，也按整章重写处理，而不是续写。`,
+      userPrompt: `请生成这一章的完整初稿，目标字数约 ${targetWordCount} 字（参考值，优先保证情节自然完整）。如果当前正文为空，就从零起稿；如果当前正文不为空，也按整章重写处理，而不是续写。`,
       projectSkills: await loadEnabledProjectSkillsContext(project, 'draft')
     })
 
-    // Step 1: plan scene beats
-    chapterDraftExecutionLabel.value = '正在规划场景结构…'
-    const planResult = await window.characterArc.generateAi(toIpcPayload({
-      task: 'chapter-scene-plan',
-      settings: appStore.appSettings,
-      context: {
-        chapterTitle: chapter.title,
-        chapterSummary: chapter.summary,
-        chapterVolumeSummary: chapterVolume.summary,
-        targetWordCount
-      }
-    }))
-    const planPayload = planResult.success ? (planResult.result as { scenes?: Array<{ focus: string }> }) : null
-    const scenes =
-      Array.isArray(planPayload?.scenes) && planPayload!.scenes.length >= 2
-        ? planPayload!.scenes
-        : [{ focus: '前半段：建立场景与推进冲突' }, { focus: '后半段：深化冲突并收束本章' }]
+    // 一次性流式：不再做 scene plan + per-scene 循环，让模型按完整章节统一规划场景与节奏
+    chapterDraftExecutionLabel.value = `正在生成本章初稿（目标约 ${targetWordCount} 字）…`
+    const fullText = await streamOneScene(baseContext, '')
 
-    // Step 2: stream each scene in sequence
-    let accumulated = ''
-    for (let i = 0; i < scenes.length; i++) {
-      chapterDraftExecutionLabel.value = `正在生成第 ${i + 1} 段（共 ${scenes.length} 段）…`
-      const sceneWordTarget = Math.round(targetWordCount / scenes.length)
-      const sceneContext: Record<string, unknown> = {
-        ...baseContext,
-        targetWordCount: sceneWordTarget,
-        userPrompt: `这是分段生成的第 ${i + 1} 段（共 ${scenes.length} 段），本段目标字数约 ${sceneWordTarget} 字。`,
-        sceneIndex: i + 1,
-        totalScenes: scenes.length,
-        sceneFocus: scenes[i].focus,
-        sceneWordTarget,
-        previousDraftText: accumulated ? accumulated.slice(-800) : undefined
-      }
-      const sceneText = await streamOneScene(sceneContext, accumulated)
-      if (sceneText) {
-        accumulated += (accumulated ? '\n\n' : '') + sceneText
-      }
-    }
-
-    // Step 3: write final content to store
-    if (accumulated) {
+    if (fullText) {
       chapterDraftExecutionLabel.value = '正在覆盖当前章节'
-      appStore.updateChapterContent(ensureEditorHtmlContent(accumulated))
+      appStore.updateChapterContent(ensureEditorHtmlContent(fullText))
       message.success(`AI 已覆盖当前章节，目标约 ${formatChapterWordTargetLabel(currentTargetWordCount.value)}`)
     } else {
       message.warning('AI 没有返回可用的初稿内容')

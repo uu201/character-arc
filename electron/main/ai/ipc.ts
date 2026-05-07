@@ -18,11 +18,13 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
   ipcMain.handle('characterarc:ai-generate', async (_event, payload: AiTaskPayload) => {
     const knowledgeContext = retrieveKnowledgeContext(payload, deps!.getLatestWorkspaceSnapshot() as Parameters<typeof retrieveKnowledgeContext>[1])
     try {
-      const result = await runAiTask(payload, knowledgeContext)
-      if (result.meta.projectId) {
-        deps!.emitAiRunEvent({ projectId: result.meta.projectId, meta: { id: randomUUID(), ...result.meta } })
+      const response = await runAiTask(payload, knowledgeContext)
+      if (response.meta.projectId) {
+        deps!.emitAiRunEvent({ projectId: response.meta.projectId, meta: { id: randomUUID(), ...response.meta } })
       }
-      return { success: true, result }
+      // 只把内层 AiTaskResult 返给 renderer；meta 通过 ai-run-event 单独广播。
+      // renderer 全部约定为 `(result.result as <Type>).field`，不能再多包一层 wrapper。
+      return { success: true, result: response.result }
     } catch (error) {
       const aiRunMeta = error && typeof error === 'object' && 'aiRunMeta' in error
         ? (error as { aiRunMeta?: Record<string, unknown> }).aiRunMeta : undefined
