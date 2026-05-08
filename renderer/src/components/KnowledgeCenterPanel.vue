@@ -90,12 +90,6 @@ const librarySummaryCards = computed(() => [
     label: '风格规则',
     value: referenceAssets.value.reduce((count, asset) => count + asset.styleRules.length, 0).toLocaleString(),
     hint: '累计沉淀的可复用写法'
-  },
-  {
-    key: 'conflict',
-    label: '项目记忆',
-    value: allState.value.stats.projectDocuments.toLocaleString(),
-    hint: '流程文档、设定事实与章节摘要'
   }
 ])
 
@@ -212,12 +206,14 @@ async function importReferenceNovelAnalysis(): Promise<void> {
     percent: 2
   })
   try {
+    const projectSkills = await loadEnabledProjectSkillsContext(project, 'reference')
     const result = await window.characterArc.importReferenceNovelAnalysis(JSON.parse(JSON.stringify({
       settings: appStore.appSettings,
       projectId: project.id,
       projectTitle: project.title,
       projectGenre: project.genre,
-      projectPlatform: project.targetPlatform || ''
+      projectPlatform: project.targetPlatform || '',
+      projectSkills
     })))
 
     if (result.canceled) {
@@ -720,27 +716,6 @@ const progressCurrentStep = computed(() => {
       </n-card>
     </div>
 
-    <!-- Skill Playbook -->
-    <div class="knowledge-section-head">
-      <strong>拆书方法论工具台</strong>
-      <n-tag size="small" :bordered="false">4 个动作</n-tag>
-    </div>
-    <div class="skill-grid">
-      <n-card v-for="action in [
-        { key: 'long-scan' as const, title: '长篇扫榜', desc: '提炼题材风口、读者偏好和开篇卖点。' },
-        { key: 'short-scan' as const, title: '短篇扫榜', desc: '聚焦情绪方向、反转模式和短开头钩子。' },
-        { key: 'long-analyze' as const, title: '长篇拆文整理', desc: '整理黄金三章、节奏、人设骨架和爽点组织。' },
-        { key: 'short-analyze' as const, title: '短篇拆文整理', desc: '提炼情绪曲线、反转布置、钩子设计和收束。' }
-      ]" :key="action.key" size="small">
-        <template #header><span>{{ action.title }}</span></template>
-        <template #header-extra>
-          <n-button size="tiny" secondary :disabled="isReferenceOperationActive" @click="runReferenceSkillAction(action.key)">
-            {{ activeReferenceSkillActionKey === action.key ? '执行中...' : '运行' }}
-          </n-button>
-        </template>
-        <p class="skill-desc">{{ action.desc }}</p>
-      </n-card>
-    </div>
 
     <!-- Progress Modal -->
     <n-modal v-model:show="progressModalVisible">

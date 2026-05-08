@@ -342,12 +342,14 @@ async function importReferenceNovelAnalysis(): Promise<void> {
     percent: 2
   })
   try {
+    const projectSkills = await loadEnabledProjectSkillsContext(currentProject.value, 'reference')
     const result = await window.characterArc.importReferenceNovelAnalysis(toIpcPayload({
       settings: appStore.appSettings,
       projectId: currentProject.value.id,
       projectTitle: currentProject.value.title,
       projectGenre: currentProject.value.genre,
-      projectPlatform: currentProject.value.targetPlatform || ''
+      projectPlatform: currentProject.value.targetPlatform || '',
+      projectSkills
     }))
 
     if (result.canceled) {

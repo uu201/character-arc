@@ -19,6 +19,12 @@ type ReferenceNovelImportRequest = {
   projectPlatform?: string
   preferredTitle?: string
   preferredSource?: string
+  projectSkills?: Array<{
+    id: string
+    name: string
+    description: string
+    content: string
+  }>
 }
 
 type ReferenceImportProgressPayload = {
@@ -289,6 +295,7 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
               projectTitle: request.projectTitle ?? '',
               projectGenre: request.projectGenre ?? '',
               projectPlatform: request.projectPlatform ?? '',
+              projectSkills: request.projectSkills ?? [],
               sourceTitle: resolvedTitle,
               chunkLabel: chunk.label,
               chunkIndex: index + 1,
@@ -317,6 +324,7 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
           projectTitle: request.projectTitle ?? '',
           projectGenre: request.projectGenre ?? '',
           projectPlatform: request.projectPlatform ?? '',
+          projectSkills: request.projectSkills ?? [],
           sourceTitle: resolvedTitle,
           sourceFileType: localContext.fileType,
           sourceCharacterCount: localContext.characterCount,

@@ -140,6 +140,12 @@ declare global {
     projectPlatform?: string
     preferredTitle?: string
     preferredSource?: string
+    projectSkills?: Array<{
+      id: string
+      name: string
+      description: string
+      content: string
+    }>
   }
 
   type CharacterArcReferenceImportResult = {
