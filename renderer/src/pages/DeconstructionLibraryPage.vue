@@ -6,9 +6,6 @@ import KnowledgeCenterPanel from '@/components/KnowledgeCenterPanel.vue'
 import { useAppStore } from '@/stores/app'
 
 const appStore = useAppStore()
-
-const currentProjectTitle = computed(() => appStore.currentProject?.title?.trim() || '未命名项目')
-
 function backToProjectCenter(): void {
   appStore.backToProjects()
 }
@@ -23,16 +20,6 @@ function backToProjectCenter(): void {
           返回项目中心
         </n-button>
       </div>
-      <div class="deconstruction-header-copy">
-        <div class="deconstruction-header-kicker">
-          <LibraryBig :size="14" />
-          <span>Deconstruction Library</span>
-        </div>
-        <strong>拆书知识库</strong>
-        <p>{{ currentProjectTitle }}</p>
-      </div>
-
-
     </header>
 
     <main class="deconstruction-main">
