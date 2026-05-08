@@ -20,6 +20,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
   consumeInsertion: [requestId: string]
   selectionChange: [selection: ChapterSelectionState | null]
+  shortcut: [payload: { action: 'save-draft' | 'save-version' | 'search' }]
 }>()
 
 const isFocused = ref(false)
@@ -114,6 +115,13 @@ const editor = useEditor({
       if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
         event.preventDefault()
         openSearch()
+        emit('shortcut', { action: 'search' })
+        return true
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault()
+        emit('shortcut', { action: event.shiftKey ? 'save-version' : 'save-draft' })
         return true
       }
       return false
@@ -270,6 +278,7 @@ onBeforeUnmount(() => {
         <button
           class="toolbar-button icon-only"
           type="button"
+          :title="'撤销'"
           :disabled="!editor?.can().chain().focus().undo().run()"
           @click="editor?.chain().focus().undo().run()"
         >
@@ -278,11 +287,13 @@ onBeforeUnmount(() => {
         <button
           class="toolbar-button icon-only"
           type="button"
+          :title="'重做'"
           :disabled="!editor?.can().chain().focus().redo().run()"
           @click="editor?.chain().focus().redo().run()"
         >
           <Redo2 :size="15" />
         </button>
+        <span class="toolbar-shortcuts">Ctrl+S 保存，Ctrl+Shift+S 存版本</span>
       </div>
     </div>
 
@@ -416,6 +427,13 @@ onBeforeUnmount(() => {
   height: 30px;
   justify-content: center;
   padding: 0;
+}
+
+.toolbar-shortcuts {
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .toolbar-button:disabled {

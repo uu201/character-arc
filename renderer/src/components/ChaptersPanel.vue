@@ -389,6 +389,35 @@ function toggleReadingMode(): void {
   readingMode.value = !readingMode.value
 }
 
+async function handleEditorShortcut(payload: { action: 'save-draft' | 'save-version' | 'search' }): Promise<void> {
+  if (payload.action === 'search') {
+    message.info('已打开搜索，可继续输入关键词')
+    return
+  }
+
+  if (payload.action === 'save-version') {
+    await saveCurrentVersion()
+    return
+  }
+
+  if (!appStore.selectedChapter) {
+    message.warning('当前没有可保存的章节')
+    return
+  }
+
+  try {
+    await appStore.persistWorkspace()
+    if (appStore.persistenceError) {
+      message.error(appStore.persistenceError)
+      return
+    }
+    saveState.value = 'idle'
+    message.success(`已保存《${appStore.selectedChapter.title || '未命名章节'}》`)
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '保存失败，请稍后重试')
+  }
+}
+
 // 同步视口宽度到响应式状态，用于判断是否进入紧凑模式
 function syncViewportWidth(): void {
   viewportWidth.value = window.innerWidth
@@ -1682,6 +1711,7 @@ onBeforeUnmount(() => {
                         @update:model-value="appStore.updateChapterContent"
                         @consume-insertion="appStore.consumeChapterInsertion"
                         @selection-change="appStore.updateChapterSelection"
+                        @shortcut="handleEditorShortcut"
                     />
                   </div>
                 </div>
