@@ -7,23 +7,19 @@ import {
   NCard,
   NEmpty,
   NInput,
+  NList,
+  NListItem,
   NModal,
   NScrollbar,
-  NSelect,
   NTag,
   useDialog,
   useMessage
 } from 'naive-ui'
-import type { SelectOption } from 'naive-ui'
 import {
   buildKnowledgeCenterState,
   buildReferenceAssetLibraries,
-  filterKnowledgeDocumentViews,
   resolveKnowledgeSourceTypeLabel,
-  type KnowledgeConflictGroup,
   type KnowledgeDocumentView,
-  type KnowledgeDuplicateGroup,
-  type KnowledgeSourceFilter,
   type ReferenceAssetLibrary
 } from '@/features/knowledge/knowledgeCenter'
 import { workflowStageDocumentMap } from '@/features/novelWorkflow/documents'
@@ -36,25 +32,17 @@ const dialog = useDialog()
 const message = useMessage()
 
 const keyword = ref('')
-const sourceFilter = ref<KnowledgeSourceFilter>('all')
 const selectedDocument = ref<KnowledgeDocumentView | null>(null)
 const isImportingReferenceNovel = ref(false)
 const isGeneratingReferenceInsights = ref(false)
 const activeReferenceSkillActionKey = ref<'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze' | ''>('')
 const referenceImportProgress = ref<CharacterArcReferenceImportProgressPayload | null>(null)
+const progressModalVisible = ref(false)
 
 const allState = computed(() => buildKnowledgeCenterState(appStore.knowledgeDocuments))
-const filteredDocuments = computed(() =>
-  filterKnowledgeDocumentViews(allState.value.documents, keyword.value, sourceFilter.value)
-)
-const visibleState = computed(() =>
-  buildKnowledgeCenterState(filteredDocuments.value.map((item) => item.document))
-)
 const referenceAssets = computed(() =>
   buildReferenceAssetLibraries(appStore.currentProject?.referenceWorks ?? [], allState.value.documents)
 )
-
-const currentProjectTitle = computed(() => appStore.currentProject?.title?.trim() || '当前项目')
 const currentProject = computed(() => appStore.currentProject)
 const detailVisible = computed({
   get: () => Boolean(selectedDocument.value),
@@ -65,46 +53,13 @@ const detailVisible = computed({
   }
 })
 
-const sourceTypeOrder: KnowledgeDocumentSourceType[] = [
-  'workflow-document',
-  'canon-fact',
-  'chapter-summary',
-  'reference-summary',
-  'reference-chunk'
-]
+const healthTone = computed(() => (referenceAssets.value.length > 0 ? 'stable' : 'attention'))
 
-const sourceFilterOptions = computed<SelectOption[]>(() => {
-  const typeCountMap = allState.value.documents.reduce<Record<string, number>>((accumulator, item) => {
-    accumulator[item.document.sourceType] = (accumulator[item.document.sourceType] ?? 0) + 1
-    return accumulator
-  }, {})
-
-  return [
-    { label: `全部来源 · ${allState.value.stats.totalDocuments}`, value: 'all' },
-    { label: `项目记忆 · ${allState.value.stats.projectDocuments}`, value: 'project' },
-    { label: `参考资料 · ${allState.value.stats.referenceDocuments}`, value: 'reference' },
-    ...sourceTypeOrder
-      .filter((sourceType) => typeCountMap[sourceType] > 0)
-      .map((sourceType) => ({
-        label: `${resolveKnowledgeSourceTypeLabel(sourceType)} · ${typeCountMap[sourceType]}`,
-        value: sourceType
-      }))
-  ]
-})
-
-const healthTone = computed(() =>
-  allState.value.stats.duplicateDocuments === 0 && allState.value.stats.conflictGroups === 0
-    ? 'stable'
-    : 'attention'
+const heroSummary = computed(() =>
+  referenceAssets.value.length > 0
+    ? '所有拆书内容都按参考作品归档展示。你可以直接进入单篇资产查看总纲、分块原文和深度拆书结果。'
+    : '先导入一部参考小说。系统会自动按作品建立资产分组，把总纲、分块和方法论结果归到一起。'
 )
-
-const heroSummary = computed(() => {
-  if (healthTone.value === 'stable') {
-    return '当前知识库没有发现完全重复项或同名冲突，项目记忆结构比较干净。'
-  }
-
-  return `当前发现 ${allState.value.stats.duplicateDocuments} 条重复记录、${allState.value.stats.conflictGroups} 组冲突项，建议先整理知识底座再继续扩写。`
-})
 
 const isReferenceOperationActive = computed(() =>
   isImportingReferenceNovel.value || isGeneratingReferenceInsights.value || Boolean(activeReferenceSkillActionKey.value)
@@ -133,15 +88,15 @@ const librarySummaryCards = computed(() => [
   },
   {
     key: 'duplicate',
-    label: '待去重',
-    value: allState.value.stats.duplicateDocuments.toLocaleString(),
-    hint: `${allState.value.stats.duplicateGroups} 组完全重复`
+    label: '风格规则',
+    value: referenceAssets.value.reduce((count, asset) => count + asset.styleRules.length, 0).toLocaleString(),
+    hint: '累计沉淀的可复用写法'
   },
   {
     key: 'conflict',
-    label: '待核对',
-    value: allState.value.stats.conflictGroups.toLocaleString(),
-    hint: `${allState.value.stats.conflictDocuments} 条项目知识待统一`
+    label: '项目记忆',
+    value: allState.value.stats.projectDocuments.toLocaleString(),
+    hint: '流程文档、设定事实与章节摘要'
   }
 ])
 
@@ -155,6 +110,7 @@ onBeforeUnmount(() => {
 
 function setReferenceProgress(payload: CharacterArcReferenceImportProgressPayload | null): void {
   referenceImportProgress.value = payload
+  progressModalVisible.value = Boolean(payload)
 }
 
 function resolveReferenceImportPhaseLabel(phase?: CharacterArcReferenceImportProgressPayload['phase']): string {
@@ -525,63 +481,11 @@ function openDocument(documentView: KnowledgeDocumentView): void {
   selectedDocument.value = documentView
 }
 
-function requestCleanDuplicateGroup(group: KnowledgeDuplicateGroup): void {
-  if (!group.removeDocumentIds.length) {
-    return
-  }
-
-  dialog.warning({
-    title: '确认清理重复知识',
-    content: `将为“${group.title}”保留最新 1 条记录，并移除其余 ${group.removeDocumentIds.length} 条完全重复项。`,
-    positiveText: '确认清理',
-    negativeText: '取消',
-    autoFocus: false,
-    closable: false,
-    onPositiveClick: () => {
-      appStore.removeKnowledgeDocuments(String(appStore.selectedProjectId ?? ''), group.removeDocumentIds)
-      message.success(`已清理“${group.title}”的重复知识`)
-    }
-  })
-}
-
-function requestCleanAllDuplicates(): void {
-  const duplicateIds = Array.from(
-    new Set(allState.value.duplicateGroups.flatMap((group) => group.removeDocumentIds))
-  )
-  if (!duplicateIds.length) {
-    return
-  }
-
-  dialog.warning({
-    title: '确认一键清理重复项',
-    content: `将为“${currentProjectTitle.value}”保留每组重复知识中的最新版本，并移除其余 ${duplicateIds.length} 条重复记录。`,
-    positiveText: '确认清理',
-    negativeText: '取消',
-    autoFocus: false,
-    closable: false,
-    onPositiveClick: () => {
-      appStore.removeKnowledgeDocuments(String(appStore.selectedProjectId ?? ''), duplicateIds)
-      message.success('知识库重复项已清理')
-    }
-  })
-}
-
-function summarizeConflictTypes(group: KnowledgeConflictGroup): string {
-  return Array.from(new Set(group.documents.map((item) => item.sourceTypeLabel))).join(' / ')
-}
-
 function openReferenceAsset(asset: ReferenceAssetLibrary): void {
   if (asset.primaryDocument) {
     openDocument(asset.primaryDocument)
     return
   }
-
-  focusReferenceAsset(asset)
-}
-
-function focusReferenceAsset(asset: ReferenceAssetLibrary): void {
-  keyword.value = asset.fileName || asset.title
-  sourceFilter.value = 'reference'
 }
 
 const deepAnalyzingAssetId = ref<string | null>(null)
@@ -661,6 +565,49 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
     deepAnalyzingAssetId.value = null
   }
 }
+
+const groupedAssets = computed(() => {
+  const query = keyword.value.trim().toLowerCase()
+  if (!query) {
+    return referenceAssets.value
+  }
+
+  return referenceAssets.value.filter((asset) => {
+    const relatedDocuments = allState.value.documents.filter((item) => asset.relatedDocumentIds.includes(item.document.id))
+    const haystack = [
+      asset.title,
+      asset.source,
+      asset.fileName,
+      asset.summary,
+      asset.topKeywords.join(' '),
+      asset.styleRules.join(' '),
+      ...relatedDocuments.flatMap((item) => [
+        item.document.title,
+        item.document.summary,
+        item.document.content,
+        item.document.keywords.join(' ')
+      ])
+    ]
+      .join(' ')
+      .toLowerCase()
+
+    return haystack.includes(query)
+  })
+})
+
+function resolveAssetDocuments(asset: ReferenceAssetLibrary): KnowledgeDocumentView[] {
+  return allState.value.documents
+    .filter((item) => asset.relatedDocumentIds.includes(item.document.id))
+    .sort((left, right) => {
+      if (left.document.sourceType === 'reference-summary' && right.document.sourceType !== 'reference-summary') {
+        return -1
+      }
+      if (right.document.sourceType === 'reference-summary' && left.document.sourceType !== 'reference-summary') {
+        return 1
+      }
+      return right.document.updatedAt.localeCompare(left.document.updatedAt)
+    })
+}
 </script>
 
 <template>
@@ -672,17 +619,8 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
       </div>
       <div class="knowledge-screen-actions">
         <n-tag :type="healthTone === 'stable' ? 'success' : 'warning'" round :bordered="false">
-          {{ healthTone === 'stable' ? '状态稳定' : '需要整理' }}
+          {{ healthTone === 'stable' ? '已归档' : '等待第一部参考作品' }}
         </n-tag>
-        <n-button
-          v-if="allState.stats.duplicateDocuments > 0"
-          type="primary"
-          secondary
-          size="small"
-          @click="requestCleanAllDuplicates"
-        >
-          清理重复项
-        </n-button>
       </div>
     </div>
 
@@ -711,29 +649,6 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
               {{ isGeneratingReferenceInsights ? '提炼中...' : 'AI提炼参考结论' }}
             </n-button>
           </div>
-        </div>
-      </section>
-
-      <section class="deconstruction-progress-card" :class="{ active: Boolean(referenceImportProgress) }">
-        <div class="reference-progress-meta">
-          <div>
-            <span class="reference-progress-label">当前任务</span>
-            <strong>{{ referenceImportProgress?.sourceTitle ? `正在处理《${referenceImportProgress.sourceTitle}》` : '等待开始归档参考作品' }}</strong>
-          </div>
-          <span>{{ referenceImportProgress?.percent ?? 0 }}%</span>
-        </div>
-        <div class="reference-progress-track">
-          <div class="reference-progress-fill" :style="{ width: `${referenceImportProgress?.percent ?? 0}%` }" />
-        </div>
-        <p>{{ referenceImportProgress?.message || '导入后会依次完成：读取正文、切分分块、逐块分析、汇总结论、归档到拆书知识库。' }}</p>
-        <small v-if="referenceImportProgress && referenceImportProgress.total > 1">
-          当前进度：{{ referenceImportProgress.current }} / {{ referenceImportProgress.total }}
-        </small>
-        <div class="reference-progress-steps">
-          <span :class="{ active: ['extracting', 'chunking', 'chunk-analysis', 'aggregating', 'saving', 'done'].includes(referenceImportProgress?.phase ?? '') }">读取/切分</span>
-          <span :class="{ active: ['chunk-analysis', 'aggregating', 'saving', 'done'].includes(referenceImportProgress?.phase ?? '') }">逐块分析</span>
-          <span :class="{ active: ['aggregating', 'saving', 'done'].includes(referenceImportProgress?.phase ?? '') }">汇总结论</span>
-          <span :class="{ active: ['saving', 'done'].includes(referenceImportProgress?.phase ?? '') }">归档资产</span>
         </div>
       </section>
 
@@ -769,21 +684,15 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
           v-model:value="keyword"
           clearable
           class="knowledge-toolbar-search"
-          placeholder="搜索标题、摘要、来源标签或关键词"
+          placeholder="搜索参考作品、总纲、分块或风格规则"
         >
           <template #prefix>
             <Search :size="14" />
           </template>
         </n-input>
 
-        <n-select
-          v-model:value="sourceFilter"
-          class="knowledge-toolbar-filter"
-          :options="sourceFilterOptions"
-        />
-
         <n-tag round :bordered="false" type="info">
-          当前显示 {{ visibleState.documents.length }} / {{ allState.documents.length }} 条
+          当前显示 {{ groupedAssets.length }} / {{ referenceAssets.length }} 部参考作品
         </n-tag>
       </section>
 
@@ -799,17 +708,17 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
         </div>
 
         <n-empty
-          v-if="!referenceAssets.length"
+          v-if="!groupedAssets.length"
           description="当前还没有沉淀参考资产，先在这里导入参考小说并拆书。"
         />
 
-        <div v-else class="knowledge-asset-grid">
+        <div v-else class="knowledge-asset-stack">
           <n-card
-            v-for="asset in referenceAssets"
+            v-for="asset in groupedAssets"
             :key="asset.id"
             size="small"
             :bordered="false"
-            class="knowledge-asset-card"
+            class="knowledge-asset-card knowledge-asset-card--grouped"
           >
             <template #header>
               <div class="knowledge-group-headline">
@@ -847,9 +756,6 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
               <n-button tertiary type="primary" size="small" @click="openReferenceAsset(asset)">
                 查看主文档
               </n-button>
-              <n-button tertiary size="small" @click="focusReferenceAsset(asset)">
-                筛到此资产
-              </n-button>
               <n-button
                 type="primary"
                 size="small"
@@ -862,6 +768,30 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
                 </template>
                 AI 深度拆书
               </n-button>
+            </div>
+
+            <div class="knowledge-article-docs">
+              <div class="knowledge-article-docs-head">
+                <strong>文章分组文档</strong>
+                <span>{{ resolveAssetDocuments(asset).length }} 篇</span>
+              </div>
+              <n-list hoverable clickable>
+                <n-list-item
+                  v-for="item in resolveAssetDocuments(asset)"
+                  :key="item.document.id"
+                  class="knowledge-article-doc-item"
+                  @click="openDocument(item)"
+                >
+                  <div class="knowledge-article-doc-copy">
+                    <div class="knowledge-article-doc-top">
+                      <strong>{{ item.document.title }}</strong>
+                      <n-tag size="small" :bordered="false" type="info">{{ item.sourceTypeLabel }}</n-tag>
+                    </div>
+                    <p>{{ item.preview || '暂无摘要，点击查看正文。' }}</p>
+                    <span>{{ item.updatedAtLabel }}</span>
+                  </div>
+                </n-list-item>
+              </n-list>
             </div>
           </n-card>
         </div>
@@ -910,198 +840,40 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
         </div>
       </section>
 
-      <section class="knowledge-section">
-        <div class="knowledge-section-head">
-          <div>
-            <h3>重复项</h3>
-            <p>只标记完全重复的知识记录，适合直接做安全去重。</p>
-          </div>
-          <n-tag v-if="visibleState.duplicateGroups.length" type="warning" :bordered="false">
-            {{ visibleState.duplicateGroups.length }} 组
-          </n-tag>
-        </div>
-
-        <n-alert
-          v-if="visibleState.duplicateGroups.length"
-          type="warning"
-          :show-icon="false"
-          class="knowledge-inline-alert"
-        >
-          当前筛选范围内发现 {{ visibleState.duplicateGroups.length }} 组完全重复项，可以保留最新版本并清理其余记录。
-        </n-alert>
-
-        <n-empty
-          v-if="!visibleState.duplicateGroups.length"
-          description="当前筛选范围内没有发现完全重复的知识文档。"
-        />
-
-        <div v-else class="knowledge-group-grid">
-          <n-card
-            v-for="group in visibleState.duplicateGroups"
-            :key="group.id"
-            size="small"
-            :bordered="false"
-            class="knowledge-group-card"
-          >
-            <template #header>
-              <div class="knowledge-group-headline">
-                <strong>{{ group.title }}</strong>
-                <span>{{ group.sourceScopeLabel }} · {{ group.sourceTypeLabel }}</span>
-              </div>
-            </template>
-
-            <template #header-extra>
-              <n-button
-                tertiary
-                type="primary"
-                size="small"
-                @click="requestCleanDuplicateGroup(group)"
-              >
-                保留最新并清理
-              </n-button>
-            </template>
-
-            <div class="knowledge-group-body">
-              <button
-                v-for="item in group.documents"
-                :key="item.document.id"
-                type="button"
-                class="knowledge-group-item"
-                @click="openDocument(item)"
-              >
-                <div class="knowledge-group-item-top">
-                  <strong>{{ item.document.id === group.keepDocumentId ? '保留版本' : '重复版本' }}</strong>
-                  <span>{{ item.updatedAtLabel }}</span>
-                </div>
-                <p>{{ item.preview || '暂无摘要，点击查看正文。' }}</p>
-                <div class="knowledge-group-item-meta">
-                  <span>{{ item.sourceLabelText }}</span>
-                  <span>{{ item.document.keywords.slice(0, 4).join(' · ') || '无关键词' }}</span>
-                </div>
-              </button>
-            </div>
-          </n-card>
-        </div>
-      </section>
-
-      <section class="knowledge-section">
-        <div class="knowledge-section-head">
-          <div>
-            <h3>冲突项</h3>
-            <p>聚焦项目记忆中的同名多版本知识，帮助你尽快核对口径差异。</p>
-          </div>
-          <n-tag v-if="visibleState.conflictGroups.length" type="error" :bordered="false">
-            {{ visibleState.conflictGroups.length }} 组
-          </n-tag>
-        </div>
-
-        <n-alert
-          v-if="visibleState.conflictGroups.length"
-          type="error"
-          :show-icon="false"
-          class="knowledge-inline-alert"
-        >
-          冲突项不会自动删除。建议先查看详情，再决定是否保留最新版本或回写统一结论。
-        </n-alert>
-
-        <n-empty
-          v-if="!visibleState.conflictGroups.length"
-          description="当前筛选范围内没有发现同名冲突的项目知识。"
-        />
-
-        <div v-else class="knowledge-group-grid">
-          <n-card
-            v-for="group in visibleState.conflictGroups"
-            :key="group.id"
-            size="small"
-            :bordered="false"
-            class="knowledge-group-card knowledge-group-card--conflict"
-          >
-            <template #header>
-              <div class="knowledge-group-headline">
-                <strong>{{ group.title }}</strong>
-                <span>{{ summarizeConflictTypes(group) }}</span>
-              </div>
-            </template>
-
-            <p class="knowledge-conflict-reason">{{ group.reason }}</p>
-
-            <div class="knowledge-group-body">
-              <button
-                v-for="item in group.documents"
-                :key="item.document.id"
-                type="button"
-                class="knowledge-group-item knowledge-group-item--conflict"
-                @click="openDocument(item)"
-              >
-                <div class="knowledge-group-item-top">
-                  <strong>{{ item.sourceTypeLabel }}</strong>
-                  <span>{{ item.updatedAtLabel }}</span>
-                </div>
-                <p>{{ item.preview || '暂无摘要，点击查看正文。' }}</p>
-                <div class="knowledge-group-item-meta">
-                  <span>{{ item.sourceLabelText }}</span>
-                  <span>{{ item.document.keywords.slice(0, 4).join(' · ') || '无关键词' }}</span>
-                </div>
-              </button>
-            </div>
-          </n-card>
-        </div>
-      </section>
-
-      <section class="knowledge-section">
-        <div class="knowledge-section-head">
-          <div>
-            <h3>全部知识文档</h3>
-            <p>点击卡片查看全文、摘要、关键词和来源信息。</p>
-          </div>
-          <n-tag type="default" :bordered="false">
-            {{ visibleState.documents.length }} 条
-          </n-tag>
-        </div>
-
-        <n-empty
-          v-if="!visibleState.documents.length"
-          description="当前筛选条件下没有命中文档。"
-        />
-
-        <div v-else class="knowledge-document-grid">
-          <n-card
-            v-for="item in visibleState.documents"
-            :key="item.document.id"
-            size="small"
-            :bordered="false"
-            class="knowledge-document-card"
-            @click="openDocument(item)"
-          >
-            <div class="knowledge-document-top">
-              <div class="knowledge-document-headline">
-                <div class="knowledge-document-tags">
-                  <n-tag size="small" :bordered="false">{{ item.sourceScopeLabel }}</n-tag>
-                  <n-tag size="small" type="info" :bordered="false">{{ item.sourceTypeLabel }}</n-tag>
-                  <n-tag v-if="item.duplicateGroupId" size="small" type="warning" :bordered="false">重复</n-tag>
-                  <n-tag v-if="item.conflictGroupId" size="small" type="error" :bordered="false">冲突</n-tag>
-                </div>
-                <h4>{{ item.document.title }}</h4>
-                <span>{{ item.sourceLabelText }}</span>
-              </div>
-              <span class="knowledge-document-time">{{ item.updatedAtLabel }}</span>
-            </div>
-
-            <p class="knowledge-document-preview">
-              {{ item.preview || '暂无摘要，点击查看正文。' }}
-            </p>
-
-            <div class="knowledge-document-bottom">
-              <div class="knowledge-document-keywords">
-                <span v-for="keyword in item.document.keywords.slice(0, 6)" :key="keyword">{{ keyword }}</span>
-              </div>
-              <n-button text type="primary" @click.stop="openDocument(item)">查看全文</n-button>
-            </div>
-          </n-card>
-        </div>
-      </section>
     </div>
+
+    <n-modal v-model:show="progressModalVisible">
+      <n-card
+        class="knowledge-progress-modal"
+        :bordered="false"
+        title="拆书处理中"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div class="deconstruction-progress-card" :class="{ active: Boolean(referenceImportProgress) }">
+          <div class="reference-progress-meta">
+            <div>
+              <span class="reference-progress-label">当前任务</span>
+              <strong>{{ referenceImportProgress?.sourceTitle ? `正在处理《${referenceImportProgress.sourceTitle}》` : '等待开始归档参考作品' }}</strong>
+            </div>
+            <span>{{ referenceImportProgress?.percent ?? 0 }}%</span>
+          </div>
+          <div class="reference-progress-track">
+            <div class="reference-progress-fill" :style="{ width: `${referenceImportProgress?.percent ?? 0}%` }" />
+          </div>
+          <p>{{ referenceImportProgress?.message || '导入后会依次完成：读取正文、切分分块、逐块分析、汇总结论、归档到拆书知识库。' }}</p>
+          <small v-if="referenceImportProgress && referenceImportProgress.total > 1">
+            当前进度：{{ referenceImportProgress.current }} / {{ referenceImportProgress.total }}
+          </small>
+          <div class="reference-progress-steps">
+            <span :class="{ active: ['extracting', 'chunking', 'chunk-analysis', 'aggregating', 'saving', 'done'].includes(referenceImportProgress?.phase ?? '') }">读取/切分</span>
+            <span :class="{ active: ['chunk-analysis', 'aggregating', 'saving', 'done'].includes(referenceImportProgress?.phase ?? '') }">逐块分析</span>
+            <span :class="{ active: ['aggregating', 'saving', 'done'].includes(referenceImportProgress?.phase ?? '') }">汇总结论</span>
+            <span :class="{ active: ['saving', 'done'].includes(referenceImportProgress?.phase ?? '') }">归档资产</span>
+          </div>
+        </div>
+      </n-card>
+    </n-modal>
 
     <n-modal v-model:show="detailVisible">
       <n-card
@@ -1426,10 +1198,6 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
   flex: 1;
 }
 
-.knowledge-toolbar-filter {
-  width: 220px;
-}
-
 .knowledge-section {
   display: flex;
   flex-direction: column;
@@ -1455,20 +1223,6 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
   line-height: 1.6;
 }
 
-.knowledge-inline-alert {
-  border-radius: 16px;
-}
-
-.knowledge-group-grid,
-.knowledge-document-grid,
-.knowledge-asset-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.knowledge-group-card,
-.knowledge-document-card,
 .knowledge-asset-card {
   border-radius: 20px;
   background: color-mix(in srgb, var(--arc-bg-surface) 92%, white);
@@ -1477,17 +1231,6 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
     box-shadow 0.18s ease,
     border-color 0.18s ease;
 }
-
-.knowledge-group-card--conflict {
-  border: 1px solid color-mix(in srgb, #ef4444 20%, var(--arc-border));
-}
-
-.knowledge-document-card {
-  cursor: pointer;
-}
-
-.knowledge-group-card:hover,
-.knowledge-document-card:hover,
 .knowledge-asset-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
@@ -1503,88 +1246,16 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
   color: var(--arc-text-primary);
 }
 
-.knowledge-group-headline span,
-.knowledge-conflict-reason {
+.knowledge-group-headline span {
   color: var(--arc-text-secondary);
   font-size: 13px;
   line-height: 1.6;
 }
 
-.knowledge-conflict-reason {
-  margin: 0 0 14px;
-}
-
-.knowledge-group-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.knowledge-group-item {
-  display: flex;
-  width: 100%;
-  flex-direction: column;
-  gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--arc-border) 86%, transparent);
-  border-radius: 16px;
-  background: var(--arc-bg-surface);
-  padding: 14px;
-  text-align: left;
-  transition: border-color 0.18s ease, background 0.18s ease;
-}
-
-.knowledge-group-item:hover {
-  border-color: color-mix(in srgb, var(--arc-primary) 26%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 4%, var(--arc-bg-surface));
-}
-
-.knowledge-group-item--conflict:hover {
-  border-color: color-mix(in srgb, #ef4444 22%, var(--arc-border));
-  background: color-mix(in srgb, #ef4444 4%, var(--arc-bg-surface));
-}
-
-.knowledge-group-item-top,
-.knowledge-group-item-meta,
-.knowledge-document-top,
-.knowledge-document-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.knowledge-group-item-top strong,
-.knowledge-document-headline h4 {
-  color: var(--arc-text-primary);
-}
-
-.knowledge-group-item-top span,
-.knowledge-group-item-meta,
-.knowledge-document-headline span,
-.knowledge-document-time {
-  color: var(--arc-text-secondary);
-  font-size: 12px;
-}
-
-.knowledge-group-item p,
-.knowledge-document-preview,
 .knowledge-asset-summary {
   margin: 0;
   color: var(--arc-text-secondary);
   line-height: 1.7;
-}
-
-.knowledge-document-headline {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.knowledge-document-headline h4 {
-  margin: 0;
-  font-size: 16px;
 }
 
 .knowledge-document-tags,
@@ -1628,6 +1299,75 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
   margin-top: 16px;
 }
 
+.knowledge-asset-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.knowledge-asset-card--grouped {
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 12%, var(--arc-border));
+}
+
+.knowledge-article-docs {
+  margin-top: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--arc-border) 82%, transparent);
+  padding-top: 16px;
+}
+
+.knowledge-article-docs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.knowledge-article-docs-head strong {
+  color: var(--arc-text-primary);
+  font-size: 14px;
+}
+
+.knowledge-article-docs-head span {
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+}
+
+.knowledge-article-doc-item :deep(.n-list-item__main) {
+  width: 100%;
+}
+
+.knowledge-article-doc-copy {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.knowledge-article-doc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.knowledge-article-doc-top strong {
+  color: var(--arc-text-primary);
+  font-size: 14px;
+}
+
+.knowledge-article-doc-copy p {
+  margin: 0;
+  color: var(--arc-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.knowledge-article-doc-copy span {
+  color: var(--arc-text-hint);
+  font-size: 12px;
+}
+
 .reference-skill-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1652,6 +1392,23 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
   color: var(--arc-text-secondary);
   font-size: 12px;
   line-height: 1.72;
+}
+
+.knowledge-progress-modal {
+  width: min(560px, 92vw);
+  border-radius: 24px;
+}
+
+.deconstruction-progress-card {
+  border: 1px solid var(--arc-border);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--arc-bg-surface) 92%, white);
+  padding: 18px 20px;
+}
+
+.deconstruction-progress-card.active {
+  border-color: color-mix(in srgb, var(--arc-primary) 24%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-surface));
 }
 
 .knowledge-detail-modal {
@@ -1714,10 +1471,7 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
 
 @media (max-width: 960px) {
   .deconstruction-command-deck,
-  .knowledge-hero,
-  .knowledge-group-grid,
-  .knowledge-document-grid,
-  .knowledge-asset-grid {
+  .knowledge-hero {
     grid-template-columns: 1fr;
   }
 
@@ -1727,10 +1481,6 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
 
   .reference-skill-grid {
     grid-template-columns: 1fr;
-  }
-
-  .knowledge-toolbar-filter {
-    width: 100%;
   }
 }
 
@@ -1744,10 +1494,7 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
     grid-template-columns: 1fr;
   }
 
-  .knowledge-document-top,
-  .knowledge-document-bottom,
-  .knowledge-group-item-top,
-  .knowledge-group-item-meta,
+  .knowledge-article-doc-top,
   .knowledge-section-head {
     flex-direction: column;
     align-items: flex-start;
