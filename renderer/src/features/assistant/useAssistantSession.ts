@@ -418,7 +418,7 @@ export function useAssistantSession(messagesViewport?: Ref<HTMLElement | null>) 
         context: assistantContext
       }))
 
-      const proposalResult = (proposalResponse.result as { result?: AssistantActionProposalResult } | undefined)?.result
+      const proposalResult = proposalResponse.result as AssistantActionProposalResult | undefined
       if (!proposalResponse.success || !proposalResult) {
         throw new Error(proposalResponse.error ?? 'AI 未返回有效大纲提议')
       }
@@ -519,7 +519,7 @@ export function useAssistantSession(messagesViewport?: Ref<HTMLElement | null>) 
         settings: appStore.appSettings,
         context: assistantContext
       }))
-      const revisionResult = (response.result as { result?: { content?: string } } | undefined)?.result
+      const revisionResult = response.result as { content?: string } | undefined
       const revisedContent = String(revisionResult?.content ?? '').trim()
       if (!response.success || !revisedContent) {
         throw new Error(response.error ?? 'AI 未返回有效修订稿')
@@ -612,7 +612,7 @@ export function useAssistantSession(messagesViewport?: Ref<HTMLElement | null>) 
         settings: appStore.appSettings,
         context: assistantContext
       }))
-      const intentResult = (intentResponse.result as { result?: AssistantIntentResult } | undefined)?.result
+      const intentResult = intentResponse.result as AssistantIntentResult | undefined
       if (!intentResponse.success || !intentResult) {
         throw new Error(intentResponse.error ?? 'AI 意图识别失败')
       }
@@ -623,7 +623,7 @@ export function useAssistantSession(messagesViewport?: Ref<HTMLElement | null>) 
           settings: appStore.appSettings,
           context: assistantContext
         }))
-        const proposalResult = (proposalResponse.result as { result?: AssistantActionProposalResult } | undefined)?.result
+        const proposalResult = proposalResponse.result as AssistantActionProposalResult | undefined
         if (!proposalResponse.success || !proposalResult) {
           throw new Error(proposalResponse.error ?? 'AI 动作提议生成失败')
         }
