@@ -301,35 +301,35 @@ function toggleProjectSkillStage(skillId: string, stageId: NovelWorkflowStageId)
 
 <style scoped>
 .skills-shell {
-  max-width: 1240px;
+  width: 100%;
 }
 
 .skills-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   border: 1px solid var(--arc-border);
   border-radius: 12px;
   background: var(--arc-bg-surface);
-  padding: 18px;
+  padding: clamp(16px, 2vw, 22px);
 }
 
 .skills-panel-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 18px;
 }
 
 .skills-panel-head h2 {
-  margin: 4px 0 6px;
+  margin: 4px 0 8px;
   color: var(--arc-text-primary);
-  font-size: 22px;
-  letter-spacing: -0.03em;
+  font-size: clamp(22px, 2.2vw, 26px);
+  letter-spacing: -0.04em;
 }
 
 .skills-panel-head p {
-  max-width: 48rem;
+  max-width: 56rem;
   margin: 0;
   color: var(--arc-text-secondary);
   font-size: 13px;
@@ -354,20 +354,20 @@ function toggleProjectSkillStage(skillId: string, stageId: NovelWorkflowStageId)
 .project-skill-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .project-skill-overview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
 }
 
 .project-skill-overview-card {
   border: 1px solid var(--arc-border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--arc-bg-body);
-  padding: 12px 14px;
+  padding: 14px 16px;
 }
 
 .project-skill-overview-card span {
@@ -385,21 +385,21 @@ function toggleProjectSkillStage(skillId: string, stageId: NovelWorkflowStageId)
 
 .project-skill-card {
   border: 1px solid var(--arc-border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--arc-bg-surface);
-  padding: 14px 16px;
+  padding: 16px 18px;
 }
 
 .project-skill-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
 }
 
 .project-skill-head strong {
   color: var(--arc-text-primary);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .project-skill-title-row {
@@ -413,12 +413,14 @@ function toggleProjectSkillStage(skillId: string, stageId: NovelWorkflowStageId)
   margin: 4px 0 0;
   color: var(--arc-text-hint);
   font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
 }
 
 .project-skill-description {
-  margin: 10px 0 0;
+  margin: 12px 0 0;
   color: var(--arc-text-secondary);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.75;
 }
 
@@ -426,13 +428,13 @@ function toggleProjectSkillStage(skillId: string, stageId: NovelWorkflowStageId)
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: 12px;
   color: var(--arc-text-hint);
   font-size: 11px;
 }
 
 .project-skill-note {
-  margin: 10px 0 0;
+  margin: 12px 0 0;
   color: var(--arc-text-secondary);
   font-size: 12px;
   line-height: 1.7;
@@ -442,7 +444,7 @@ function toggleProjectSkillStage(skillId: string, stageId: NovelWorkflowStageId)
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 .project-skill-stage-label {
@@ -482,6 +484,14 @@ function toggleProjectSkillStage(skillId: string, stageId: NovelWorkflowStageId)
   margin: 0;
   font-size: 12px;
   line-height: 1.7;
+}
+
+@media (min-width: 1280px) {
+  .project-skill-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
 }
 
 @media (max-width: 980px) {

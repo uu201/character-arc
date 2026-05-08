@@ -1,23 +1,10 @@
 <script setup lang="ts">
-import { ChevronLeft, Wrench } from 'lucide-vue-next'
-import { computed } from 'vue'
+import { ChevronLeft } from 'lucide-vue-next'
 import { NButton } from 'naive-ui'
 import ProjectSkillsPanel from '@/components/ProjectSkillsPanel.vue'
-import { resolveNovelLengthLabel } from '@/features/wizard/projectGenres'
 import { useAppStore } from '@/stores/app'
 
 const appStore = useAppStore()
-
-const projectMeta = computed(() =>
-  [
-    appStore.currentProject?.title?.trim(),
-    appStore.currentProject?.genre?.trim(),
-    resolveNovelLengthLabel(appStore.currentProject?.novelLength),
-    appStore.currentProject?.targetPlatform?.trim()
-  ]
-    .filter(Boolean)
-    .join(' · ')
-)
 
 function backToProjectCenter(): void {
   appStore.backToProjects()
@@ -27,16 +14,6 @@ function backToProjectCenter(): void {
 <template>
   <section class="skills-page">
     <header class="skills-header arc-drag-region">
-<!--      <div class="skills-header-copy">
-        <span class="skills-header-kicker">
-          <Wrench :size="14" />
-          Skills
-        </span>
-        <strong>内置能力与项目扩展</strong>
-        <p>集中查看软件内置 skills，并为当前项目导入、启用和分配适用阶段。</p>
-        <span v-if="projectMeta" class="skills-header-meta">{{ projectMeta }}</span>
-      </div>-->
-
       <div class="skills-header-actions arc-no-drag">
         <n-button quaternary @click="backToProjectCenter">
           <template #icon><ChevronLeft :size="16" /></template>
@@ -58,12 +35,10 @@ function backToProjectCenter(): void {
   display: flex;
   flex: 1;
   min-width: 0;
-  min-height: 0;
+  height: 100%;
   overflow: hidden;
   flex-direction: column;
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, #f97316 12%, transparent) 0%, transparent 32%),
-    linear-gradient(180deg, color-mix(in srgb, var(--arc-bg-body) 92%, #f97316 8%) 0%, var(--arc-bg-body) 100%);
+  background: var(--arc-bg-body);
 }
 
 .skills-header {
@@ -71,7 +46,7 @@ function backToProjectCenter(): void {
   min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 18px;
+  gap: 16px;
   padding:
     calc(var(--arc-titlebar-height) + 18px)
     max(20px, calc(var(--arc-window-controls-width) + 18px))
@@ -83,42 +58,20 @@ function backToProjectCenter(): void {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 6px;
-}
-
-.skills-header-kicker {
-  display: inline-flex;
-  width: fit-content;
-  align-items: center;
-  gap: 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, #f97316 12%, transparent);
-  color: #f97316;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  padding: 6px 10px;
-  text-transform: uppercase;
+  gap: 4px;
 }
 
 .skills-header-copy strong {
   color: var(--arc-text-primary);
-  font-size: clamp(28px, 3vw, 34px);
+  font-size: 28px;
   font-weight: 760;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.04em;
 }
 
 .skills-header-copy p {
-  max-width: 46rem;
   margin: 0;
   color: var(--arc-text-secondary);
   font-size: 13px;
-  line-height: 1.75;
-}
-
-.skills-header-meta {
-  color: var(--arc-text-hint);
-  font-size: 12px;
 }
 
 .skills-header-actions {
