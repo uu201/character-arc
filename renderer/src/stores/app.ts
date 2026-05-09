@@ -188,6 +188,7 @@ export const useAppStore = defineStore('app', () => {
   const projectWorkspaces = ref<Record<string, ProjectWorkspaceData>>(stored.workspaces)
   /** 应用全局设置（AI 供应商、模型、自动保存等） */
   const appSettings = ref<AppSettings>(stored.appSettings)
+  const coverWorkbenchHistory = ref<import('@/types/app').CoverWorkbenchHistoryItem[]>(stored.coverWorkbenchHistory ?? [])
   /** 待处理的助手提示词请求（来自主窗口） */
   const pendingAssistantRequest = ref<AssistantPromptRequest | null>(null)
   /** 待执行的章节正文插入请求 */
@@ -867,6 +868,7 @@ export const useAppStore = defineStore('app', () => {
     }
 
     appSettings.value = normalizeAppSettings(payload.appSettings)
+    coverWorkbenchHistory.value = Array.isArray(payload.coverWorkbenchHistory) ? payload.coverWorkbenchHistory : []
     syncSelectedChapter()
   }
 
@@ -877,7 +879,8 @@ export const useAppStore = defineStore('app', () => {
       selectedProjectId: selectedProjectId.value,
       projects: toSerializable(projects.value),
       workspaces: toSerializable(projectWorkspaces.value),
-      appSettings: toSerializable(appSettings.value)
+      appSettings: toSerializable(appSettings.value),
+      coverWorkbenchHistory: toSerializable(coverWorkbenchHistory.value)
     }
   }
 
@@ -2582,6 +2585,11 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  function updateCoverWorkbenchHistory(items: import('@/types/app').CoverWorkbenchHistoryItem[]): void {
+    coverWorkbenchHistory.value = items
+    schedulePersist('fast')
+  }
+
   const MAX_CHAT_MESSAGES = 100
 
   // ── AI 聊天消息 ──
@@ -2752,6 +2760,7 @@ export const useAppStore = defineStore('app', () => {
     aiRuns,
     aiVisible,
     appSettings,
+    coverWorkbenchHistory,
     backToProjects,
     backToWorkbench,
     chapterVersions,
@@ -2835,6 +2844,7 @@ export const useAppStore = defineStore('app', () => {
     toggleAi,
     consumeChapterInsertion,
     updateAppSetting,
+    updateCoverWorkbenchHistory,
     updateProject,
     activeWorkflowVolumeId,
     activeWorkflowVolume,

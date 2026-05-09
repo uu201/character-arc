@@ -37,8 +37,9 @@ export interface StoredState {
   theme: ThemeName
   selectedProjectId: string
   projects: ProjectSummary[]
-  workspaces: Record<string, ProjectWorkspaceData> // 按项目 ID 映射的工作区数据
+  workspaces: Record<string, ProjectWorkspaceData>
   appSettings: AppSettings
+  coverWorkbenchHistory: import('@/types/app').CoverWorkbenchHistoryItem[]
 }
 
 // 旧版存储结构：所有字段可选，用于从旧格式迁移数据
@@ -319,7 +320,8 @@ export function loadStoredState(): StoredState {
     selectedProjectId: '',
     projects: defaultProjects,
     workspaces: {},
-    appSettings: defaultAppSettings
+    appSettings: defaultAppSettings,
+    coverWorkbenchHistory: []
   }
 }
 

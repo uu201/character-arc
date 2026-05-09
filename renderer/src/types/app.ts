@@ -781,3 +781,18 @@ export interface AppSettings {
   /** 是否启用深色模式 */
   darkMode: boolean
 }
+
+/** 封面工作台独立生图历史条目 */
+export interface CoverWorkbenchHistoryItem {
+  id: string
+  createdAt: string
+  cover: string
+  promptTitle: string
+  prompt: string
+  summary: string
+  keywords: string[]
+  genre: string
+  targetPlatform: string
+  authorName: string
+  extraNotes: string
+}

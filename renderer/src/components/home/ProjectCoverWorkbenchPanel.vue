@@ -27,20 +27,7 @@ import { isImageCover } from '@/features/cover/display'
 import { PROJECT_GENRE_OPTIONS } from '@/features/wizard/projectGenres'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
-
-type LocalHistoryItem = {
-  id: string
-  createdAt: string
-  cover: string
-  promptTitle: string
-  prompt: string
-  summary: string
-  keywords: string[]
-  genre: string
-  targetPlatform: string
-  authorName: string
-  extraNotes: string
-}
+import type { CoverWorkbenchHistoryItem } from '@/types/app'
 
 const appStore = useAppStore()
 const message = useMessage()
@@ -63,7 +50,6 @@ const generatedPromptFingerprint = ref('')
 const isGeneratingImage = ref(false)
 const revisedPrompt = ref('')
 const previewCoverUrl = ref('')
-const localHistory = ref<LocalHistoryItem[]>([])
 
 const resolvedImageConfig = computed(() => ({
   model: appStore.appSettings.imageModel.trim(),
@@ -127,7 +113,7 @@ function buildWorkbenchFingerprint(input: CoverPromptWorkbenchInput): string {
   })
 }
 
-function buildLocalHistoryItem(result: CoverPromptWorkbenchResult, cover: string): LocalHistoryItem {
+function buildCoverWorkbenchHistoryItem(result: CoverPromptWorkbenchResult, cover: string): CoverWorkbenchHistoryItem {
   return {
     id: `cover-${Date.now()}`,
     createdAt: new Date().toISOString(),
@@ -173,7 +159,7 @@ function generateCoverPrompt(): CoverPromptWorkbenchResult | null {
   return generatedPrompt.value
 }
 
-function reuseHistoryItem(item: LocalHistoryItem): void {
+function reuseHistoryItem(item: CoverWorkbenchHistoryItem): void {
   workbench.bookTitle = item.promptTitle.replace(/｜封面提示词$/, '')
   workbench.genre = item.genre
   workbench.targetPlatform = item.targetPlatform
@@ -190,7 +176,7 @@ function reuseHistoryItem(item: LocalHistoryItem): void {
   message.success('已复用这条历史记录的参数。')
 }
 
-function useHistoryCover(item: LocalHistoryItem): void {
+function useHistoryCover(item: CoverWorkbenchHistoryItem): void {
   previewCoverUrl.value = item.cover
 }
 
@@ -231,10 +217,10 @@ async function generateCoverImage(): Promise<void> {
     revisedPrompt.value = result.result.revisedPrompt?.trim() || ''
     previewCoverUrl.value = result.result.dataUrl
 
-    localHistory.value = [
-      buildLocalHistoryItem(promptResult, result.result.dataUrl),
-      ...localHistory.value
-    ].slice(0, 24)
+    appStore.updateCoverWorkbenchHistory([
+      buildCoverWorkbenchHistoryItem(promptResult, result.result.dataUrl),
+      ...appStore.coverWorkbenchHistory
+    ].slice(0, 24))
 
     message.success('AI 封面已生成。')
   } catch (error) {
@@ -373,14 +359,6 @@ function formatDate(iso: string): string {
           >
             {{ imageConfigSummary }}
           </n-alert>
-          <n-alert
-            v-if="revisedPrompt"
-            type="info"
-            :show-icon="true"
-            style="margin-top: 8px"
-          >
-            模型重写提示词：{{ revisedPrompt }}
-          </n-alert>
         </div>
       </n-card>
 
@@ -425,17 +403,22 @@ function formatDate(iso: string): string {
         <n-divider style="margin: 14px 0 10px" />
 
         <n-space vertical :size="8">
-          <n-button
-            type="primary"
-            block
-            strong
-            :loading="isGeneratingImage"
-            :disabled="isGeneratingImage || !imageConfigReady"
-            @click="generateCoverImage"
-          >
-            <template #icon><Sparkles :size="15" /></template>
-            {{ isGeneratingImage ? 'AI 生成中...' : 'AI 生成封面' }}
-          </n-button>
+          <n-tooltip trigger="hover" :disabled="!!generatedPrompt && !isPromptStale">
+            <template #trigger>
+              <n-button
+                type="primary"
+                block
+                strong
+                :loading="isGeneratingImage"
+                :disabled="isGeneratingImage || !imageConfigReady || !generatedPrompt || isPromptStale"
+                @click="generateCoverImage"
+              >
+                <template #icon><Sparkles :size="15" /></template>
+                {{ isGeneratingImage ? 'AI 生成中...' : 'AI 生成封面' }}
+              </n-button>
+            </template>
+            {{ !generatedPrompt ? '请先在左侧生成提示词' : '输入已变化，请重新生成提示词' }}
+          </n-tooltip>
           <n-tooltip trigger="hover" :disabled="!!previewCoverUrl">
             <template #trigger>
               <n-button
@@ -532,69 +515,73 @@ function formatDate(iso: string): string {
             <strong>本次生成记录</strong>
           </div>
           <n-tag size="small" round :bordered="false">
-            {{ localHistory.length }} 条
+            {{ appStore.coverWorkbenchHistory.length }} 条
           </n-tag>
         </div>
       </template>
 
-      <div v-if="localHistory.length" class="history-masonry">
+      <div v-if="appStore.coverWorkbenchHistory.length" class="history-list">
         <n-card
-          v-for="item in localHistory"
+          v-for="item in appStore.coverWorkbenchHistory"
           :key="item.id"
-          class="history-item-card"
+          class="history-row-card"
           :bordered="true"
           size="small"
           hoverable
         >
-          <div class="history-cover-img" @click="useHistoryCover(item)">
-            <n-tooltip trigger="hover">
-              <template #trigger>
-                <n-image
-                  v-if="isImageCover(item.cover)"
-                  :src="item.cover"
-                  :previewed-img-props="{ style: { maxHeight: '90vh' } }"
-                  object-fit="cover"
-                  width="100%"
-                  :preview-disabled="true"
-                  style="border-radius: 10px; aspect-ratio: 2 / 3; display: block; cursor: pointer"
-                />
-              </template>
-              点击预览此封面
-            </n-tooltip>
+          <div class="history-row">
+            <div class="history-thumb" @click="useHistoryCover(item)">
+              <n-image
+                v-if="isImageCover(item.cover)"
+                :src="item.cover"
+                :previewed-img-props="{ style: { maxHeight: '90vh' } }"
+                object-fit="cover"
+                width="100%"
+                :preview-disabled="true"
+                style="border-radius: 8px; aspect-ratio: 2 / 3; display: block; cursor: pointer"
+              />
+            </div>
+
+            <div class="history-body">
+              <div class="history-body-head">
+                <strong>{{ item.promptTitle }}</strong>
+                <span class="history-time">{{ formatDate(item.createdAt) }}</span>
+              </div>
+              <p class="history-summary">{{ item.summary }}</p>
+              <n-space :size="6" wrap style="margin-top: 6px">
+                <n-tag size="tiny" round :bordered="false">{{ item.genre || '封面' }}</n-tag>
+                <n-tag size="tiny" round :bordered="false">{{ item.targetPlatform || '通用' }}</n-tag>
+                <n-tag size="tiny" round :bordered="false">{{ item.authorName || '未署名' }}</n-tag>
+              </n-space>
+            </div>
+
+            <div class="history-actions">
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button size="small" secondary circle @click="copyPrompt(item.prompt)">
+                    <template #icon><Copy :size="14" /></template>
+                  </n-button>
+                </template>
+                复制提示词
+              </n-tooltip>
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button size="small" secondary circle @click="reuseHistoryItem(item)">
+                    <template #icon><History :size="14" /></template>
+                  </n-button>
+                </template>
+                复用参数
+              </n-tooltip>
+              <n-tooltip v-if="isImageCover(item.cover)" trigger="hover">
+                <template #trigger>
+                  <n-button size="small" secondary circle @click="saveCoverToLocal(item.cover)">
+                    <template #icon><Download :size="14" /></template>
+                  </n-button>
+                </template>
+                保存到本地
+              </n-tooltip>
+            </div>
           </div>
-
-          <div class="history-info">
-            <strong>{{ item.promptTitle }}</strong>
-            <p>{{ item.summary }}</p>
-          </div>
-
-          <n-space :size="6" wrap>
-            <n-tag size="tiny" round :bordered="false">{{ item.genre || '封面' }}</n-tag>
-            <n-tag size="tiny" round :bordered="false">{{ item.authorName || '未署名' }}</n-tag>
-            <n-tag v-if="item.createdAt" size="tiny" round :bordered="false" type="default">
-              {{ formatDate(item.createdAt) }}
-            </n-tag>
-          </n-space>
-
-          <n-space :size="8" style="margin-top: 10px">
-            <n-button size="tiny" secondary @click="copyPrompt(item.prompt)">
-              <template #icon><Copy :size="12" /></template>
-              复制
-            </n-button>
-            <n-button size="tiny" secondary @click="reuseHistoryItem(item)">
-              <template #icon><History :size="12" /></template>
-              复用
-            </n-button>
-            <n-button
-              v-if="isImageCover(item.cover)"
-              size="tiny"
-              secondary
-              @click="saveCoverToLocal(item.cover)"
-            >
-              <template #icon><Download :size="12" /></template>
-              保存
-            </n-button>
-          </n-space>
         </n-card>
       </div>
 
@@ -746,49 +733,73 @@ function formatDate(iso: string): string {
   padding: 10px 18px 18px;
 }
 
-.history-masonry {
-  column-count: 3;
-  column-gap: 14px;
-}
-
-.history-item-card {
-  display: inline-flex;
-  width: 100%;
+.history-list {
+  display: flex;
   flex-direction: column;
-  break-inside: avoid;
-  margin-bottom: 14px;
-  border-radius: 14px;
+  gap: 10px;
 }
 
-.history-item-card :deep(.n-card__content) {
-  padding: 12px 14px 14px;
+.history-row-card {
+  border-radius: 12px;
 }
 
-.history-cover-img {
-  margin-bottom: 8px;
+.history-row-card :deep(.n-card__content) {
+  padding: 12px 14px;
 }
 
-.history-info {
-  margin-bottom: 8px;
+.history-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
 }
 
-.history-info strong {
-  display: block;
+.history-thumb {
+  flex-shrink: 0;
+  width: 72px;
+}
+
+.history-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-body-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.history-body-head strong {
   color: var(--arc-text-primary);
   font-size: 14px;
   font-weight: 680;
-  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.history-info p {
+.history-time {
+  flex-shrink: 0;
+  color: var(--arc-text-hint);
+  font-size: 12px;
+}
+
+.history-summary {
   margin: 4px 0 0;
   color: var(--arc-text-secondary);
   font-size: 12px;
   line-height: 1.6;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.history-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  align-items: center;
 }
 
 /* ── 响应式 ── */
@@ -800,19 +811,11 @@ function formatDate(iso: string): string {
   .workbench-body > .panel-card:last-child {
     grid-column: 1 / -1;
   }
-
-  .history-masonry {
-    column-count: 2;
-  }
 }
 
 @media (max-width: 720px) {
   .workbench-body {
     grid-template-columns: 1fr;
-  }
-
-  .history-masonry {
-    column-count: 1;
   }
 
   .panel-card,
@@ -822,6 +825,19 @@ function formatDate(iso: string): string {
 
   .preview-card {
     position: static;
+  }
+
+  .history-row {
+    flex-wrap: wrap;
+  }
+
+  .history-thumb {
+    width: 56px;
+  }
+
+  .history-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 </style>
