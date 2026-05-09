@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { Copy, Download, History, ImagePlus, Sparkles, Wand2 } from 'lucide-vue-next'
 import {
   NAlert,
@@ -11,6 +11,7 @@ import {
   NFormItem,
   NImage,
   NInput,
+  NSelect,
   NSpace,
   NSpin,
   NTag,
@@ -23,23 +24,36 @@ import {
   type CoverPromptWorkbenchResult
 } from '@/features/cover/promptWorkbench'
 import { isImageCover } from '@/features/cover/display'
+import { PROJECT_GENRE_OPTIONS } from '@/features/wizard/projectGenres'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
-import type { CoverGenerationHistoryItem, ProjectSummary } from '@/types/app'
 
-const props = defineProps<{
-  project: ProjectSummary | null
-}>()
-
-const emit = defineEmits<{
-  (e: 'update-cover', payload: { projectId: string; cover: string }): void
-  (e: 'save-cover-prompt', payload: CoverPromptWorkbenchInput): void
-}>()
+type LocalHistoryItem = {
+  id: string
+  createdAt: string
+  cover: string
+  promptTitle: string
+  prompt: string
+  summary: string
+  keywords: string[]
+  genre: string
+  targetPlatform: string
+  authorName: string
+  extraNotes: string
+}
 
 const appStore = useAppStore()
 const message = useMessage()
 
+const PLATFORM_SUGGESTIONS = ['番茄小说', '起点中文网', '晋江文学城', '知乎盐言', '七猫小说', '刺猬猫']
+const genreSelectOptions = PROJECT_GENRE_OPTIONS
+  .filter((o) => !o.isCustom)
+  .map((o) => ({ label: o.label, value: o.label }))
+
 const workbench = reactive({
+  bookTitle: '',
+  genre: '',
+  targetPlatform: '',
   authorName: '',
   extraNotes: ''
 })
@@ -49,6 +63,7 @@ const generatedPromptFingerprint = ref('')
 const isGeneratingImage = ref(false)
 const revisedPrompt = ref('')
 const previewCoverUrl = ref('')
+const localHistory = ref<LocalHistoryItem[]>([])
 
 const resolvedImageConfig = computed(() => ({
   model: appStore.appSettings.imageModel.trim(),
@@ -69,8 +84,6 @@ const imageConfigSummary = computed(() => {
   return `${config.model} · ${config.baseUrl}`
 })
 
-const coverHistory = computed(() => props.project?.coverHistory ?? [])
-
 const isPromptStale = computed(() => {
   const input = createWorkbenchInput()
   if (!input || !generatedPrompt.value) {
@@ -79,30 +92,26 @@ const isPromptStale = computed(() => {
   return buildWorkbenchFingerprint(input) !== generatedPromptFingerprint.value
 })
 
-function resetWorkbench(): void {
-  workbench.authorName = ''
-  workbench.extraNotes = ''
-  generatedPrompt.value = null
-  generatedPromptFingerprint.value = ''
-  revisedPrompt.value = ''
-  previewCoverUrl.value = ''
-  isGeneratingImage.value = false
-}
-
-watch(
-  () => props.project?.id,
-  () => {
-    resetWorkbench()
-  },
-  { immediate: true }
-)
-
 function createWorkbenchInput(): CoverPromptWorkbenchInput | null {
-  if (!props.project) {
-    return null
-  }
   return {
-    project: props.project,
+    project: {
+      id: '',
+      title: workbench.bookTitle.trim(),
+      genre: workbench.genre.trim(),
+      targetPlatform: workbench.targetPlatform.trim(),
+      novelLength: 'long',
+      wordCount: '',
+      lastEdited: '',
+      cover: '',
+      writingStylePresetId: '',
+      writingStylePrompt: '',
+      chapterAssistantTemplates: [],
+      novelWorkflowStages: [],
+      projectSkills: [],
+      referenceWorks: [],
+      selectedReferenceWorkIds: [],
+      coverHistory: []
+    },
     authorName: workbench.authorName,
     extraNotes: workbench.extraNotes
   }
@@ -113,43 +122,49 @@ function buildWorkbenchFingerprint(input: CoverPromptWorkbenchInput): string {
     projectTitle: input.project.title,
     genre: input.project.genre,
     targetPlatform: input.project.targetPlatform,
-    novelLength: input.project.novelLength,
-    referenceTitles: [],
     authorName: input.authorName.trim(),
     extraNotes: input.extraNotes.trim()
   })
 }
 
-function buildHistoryItem(input: CoverPromptWorkbenchInput, result: CoverPromptWorkbenchResult, cover: string): CoverGenerationHistoryItem {
+function buildLocalHistoryItem(result: CoverPromptWorkbenchResult, cover: string): LocalHistoryItem {
   return {
-    id: `cover-history-${Date.now()}`,
+    id: `cover-${Date.now()}`,
     createdAt: new Date().toISOString(),
     cover,
     promptTitle: result.title,
     prompt: result.prompt,
     summary: result.summary,
     keywords: result.keywords,
-    genre: input.project.genre,
-    targetPlatform: input.project.targetPlatform,
-    authorName: input.authorName.trim(),
-    extraNotes: input.extraNotes.trim()
+    genre: workbench.genre.trim(),
+    targetPlatform: workbench.targetPlatform.trim(),
+    authorName: workbench.authorName.trim(),
+    extraNotes: workbench.extraNotes.trim()
   }
 }
 
-function ensureProjectReady(): CoverPromptWorkbenchInput | null {
+function ensureInputsReady(): CoverPromptWorkbenchInput | null {
   const input = createWorkbenchInput()
   if (!input) {
     return null
   }
   if (!input.project.title.trim()) {
-    message.warning('请先在编辑项目信息里填写作品标题，再生成封面。')
+    message.warning('请先填写书名，再生成封面。')
+    return null
+  }
+  if (!input.project.genre.trim()) {
+    message.warning('请先选择或填写题材，再生成封面。')
+    return null
+  }
+  if (!input.project.targetPlatform.trim()) {
+    message.warning('请先选择目标平台，再生成封面。')
     return null
   }
   return input
 }
 
 function generateCoverPrompt(): CoverPromptWorkbenchResult | null {
-  const input = ensureProjectReady()
+  const input = ensureInputsReady()
   if (!input) {
     return null
   }
@@ -158,20 +173,10 @@ function generateCoverPrompt(): CoverPromptWorkbenchResult | null {
   return generatedPrompt.value
 }
 
-function saveCoverPrompt(): void {
-  const input = createWorkbenchInput()
-  if (!input || !generatedPrompt.value) {
-    message.warning('请先生成封面提示词，再保存到知识库。')
-    return
-  }
-  if (isPromptStale.value) {
-    message.warning('封面提示词依赖的输入已变化，请重新生成后再保存。')
-    return
-  }
-  emit('save-cover-prompt', input)
-}
-
-function reuseHistoryItem(item: CoverGenerationHistoryItem): void {
+function reuseHistoryItem(item: LocalHistoryItem): void {
+  workbench.bookTitle = item.promptTitle.replace(/｜封面提示词$/, '')
+  workbench.genre = item.genre
+  workbench.targetPlatform = item.targetPlatform
   workbench.authorName = item.authorName
   workbench.extraNotes = item.extraNotes
   generatedPrompt.value = {
@@ -180,29 +185,13 @@ function reuseHistoryItem(item: CoverGenerationHistoryItem): void {
     prompt: item.prompt,
     keywords: item.keywords
   }
-  generatedPromptFingerprint.value = JSON.stringify({
-    projectTitle: props.project?.title ?? '',
-    genre: props.project?.genre ?? '',
-    targetPlatform: props.project?.targetPlatform ?? '',
-    novelLength: props.project?.novelLength ?? 'long',
-    referenceTitles: [],
-    authorName: item.authorName.trim(),
-    extraNotes: item.extraNotes.trim()
-  })
+  generatedPromptFingerprint.value = buildWorkbenchFingerprint(createWorkbenchInput()!)
   revisedPrompt.value = ''
-  message.success('已复用这条封面历史的提示词与参数。')
+  message.success('已复用这条历史记录的参数。')
 }
 
-function applyHistoryCover(item: CoverGenerationHistoryItem): void {
-  if (!props.project?.id) {
-    return
-  }
+function useHistoryCover(item: LocalHistoryItem): void {
   previewCoverUrl.value = item.cover
-  emit('update-cover', {
-    projectId: props.project.id,
-    cover: item.cover
-  })
-  message.success('已将历史封面设为当前封面。')
 }
 
 async function copyPrompt(prompt: string): Promise<void> {
@@ -215,10 +204,10 @@ async function copyPrompt(prompt: string): Promise<void> {
 }
 
 async function generateCoverImage(): Promise<void> {
-  if (!props.project?.id || isGeneratingImage.value) {
+  if (isGeneratingImage.value) {
     return
   }
-  const input = ensureProjectReady()
+  const input = ensureInputsReady()
   if (!input) {
     return
   }
@@ -241,17 +230,12 @@ async function generateCoverImage(): Promise<void> {
 
     revisedPrompt.value = result.result.revisedPrompt?.trim() || ''
     previewCoverUrl.value = result.result.dataUrl
-    emit('update-cover', {
-      projectId: props.project.id,
-      cover: result.result.dataUrl
-    })
 
-    appStore.updateProject(props.project.id, {
-      coverHistory: [
-        buildHistoryItem(input, promptResult, result.result.dataUrl),
-        ...coverHistory.value
-      ].slice(0, 24)
-    })
+    localHistory.value = [
+      buildLocalHistoryItem(promptResult, result.result.dataUrl),
+      ...localHistory.value
+    ].slice(0, 24)
+
     message.success('AI 封面已生成。')
   } catch (error) {
     message.error(error instanceof Error ? error.message : '图片生成失败')
@@ -267,10 +251,10 @@ async function saveCoverToLocal(dataUrl?: string): Promise<void> {
     return
   }
   try {
-    const projectTitle = props.project?.title?.trim() || 'cover'
+    const title = workbench.bookTitle.trim() || 'cover'
     const result = await window.characterArc.saveCoverImage({
       dataUrl: coverData,
-      defaultFileName: `${projectTitle}-封面-${Date.now()}.png`
+      defaultFileName: `${title}-封面-${Date.now()}.png`
     })
     if (result.canceled) {
       return
@@ -317,17 +301,52 @@ function formatDate(iso: string): string {
         </template>
 
         <n-form label-placement="top" :show-feedback="false">
-          <n-form-item label="作者署名">
+          <n-form-item label="书名" required>
+            <n-input
+              v-model:value="workbench.bookTitle"
+              placeholder="作品标题，将直接渲染在封面上"
+            />
+          </n-form-item>
+          <n-form-item label="题材" required style="margin-top: 12px">
+            <n-select
+              v-model:value="workbench.genre"
+              :options="genreSelectOptions"
+              filterable
+              tag
+              placeholder="选择或输入题材"
+            />
+          </n-form-item>
+          <n-form-item label="目标平台" required style="margin-top: 12px">
+            <n-input
+              v-model:value="workbench.targetPlatform"
+              placeholder="例如：番茄小说 / 起点中文网"
+            />
+          </n-form-item>
+          <n-space :size="6" style="margin-top: 6px" wrap>
+            <n-tag
+              v-for="platform in PLATFORM_SUGGESTIONS"
+              :key="platform"
+              size="small"
+              round
+              :bordered="false"
+              :type="workbench.targetPlatform === platform ? 'info' : 'default'"
+              style="cursor: pointer"
+              @click="workbench.targetPlatform = platform"
+            >
+              {{ platform }}
+            </n-tag>
+          </n-space>
+          <n-form-item label="作者署名" style="margin-top: 12px">
             <n-input
               v-model:value="workbench.authorName"
-              placeholder="例如：青岚 / 不填则使用「作者名待定」"
+              placeholder="不填则使用「作者名待定」"
             />
           </n-form-item>
           <n-form-item label="补充画风 / 禁忌元素" style="margin-top: 12px">
             <n-input
               v-model:value="workbench.extraNotes"
               type="textarea"
-              :autosize="{ minRows: 6, maxRows: 10 }"
+              :autosize="{ minRows: 4, maxRows: 8 }"
               placeholder="例如：偏电影海报感、避免 Q 版、不要过曝、强调主角神情"
             />
           </n-form-item>
@@ -339,15 +358,6 @@ function formatDate(iso: string): string {
           <n-button type="primary" block strong @click="generateCoverPrompt">
             <template #icon><Wand2 :size="15" /></template>
             生成提示词
-          </n-button>
-          <n-button
-            block
-            strong
-            secondary
-            :disabled="!generatedPrompt || isPromptStale"
-            @click="saveCoverPrompt"
-          >
-            保存到知识库
           </n-button>
         </n-space>
 
@@ -506,7 +516,7 @@ function formatDate(iso: string): string {
           </template>
           <template #extra>
             <span style="color: var(--arc-text-secondary); font-size: 13px">
-              建议先补充画风方向，再点击左侧的「生成提示词」
+              填写书名、题材和平台后点击「生成提示词」
             </span>
           </template>
         </n-empty>
@@ -519,27 +529,24 @@ function formatDate(iso: string): string {
         <div class="card-title-row">
           <div class="card-title">
             <span class="cover-kicker">History</span>
-            <strong>历史生成记录</strong>
+            <strong>本次生成记录</strong>
           </div>
           <n-tag size="small" round :bordered="false">
-            {{ coverHistory.length }} 条
+            {{ localHistory.length }} 条
           </n-tag>
         </div>
       </template>
 
-      <div v-if="coverHistory.length" class="history-masonry">
+      <div v-if="localHistory.length" class="history-masonry">
         <n-card
-          v-for="item in coverHistory"
+          v-for="item in localHistory"
           :key="item.id"
           class="history-item-card"
           :bordered="true"
           size="small"
           hoverable
         >
-          <div
-            class="history-cover-img"
-            @click="applyHistoryCover(item)"
-          >
+          <div class="history-cover-img" @click="useHistoryCover(item)">
             <n-tooltip trigger="hover">
               <template #trigger>
                 <n-image
@@ -552,7 +559,7 @@ function formatDate(iso: string): string {
                   style="border-radius: 10px; aspect-ratio: 2 / 3; display: block; cursor: pointer"
                 />
               </template>
-              点击设为当前封面
+              点击预览此封面
             </n-tooltip>
           </div>
 
@@ -566,19 +573,6 @@ function formatDate(iso: string): string {
             <n-tag size="tiny" round :bordered="false">{{ item.authorName || '未署名' }}</n-tag>
             <n-tag v-if="item.createdAt" size="tiny" round :bordered="false" type="default">
               {{ formatDate(item.createdAt) }}
-            </n-tag>
-          </n-space>
-
-          <n-space :size="4" wrap style="margin-top: 6px">
-            <n-tag
-              v-for="keyword in item.keywords.slice(0, 4)"
-              :key="keyword"
-              size="tiny"
-              round
-              :bordered="false"
-              type="primary"
-            >
-              {{ keyword }}
             </n-tag>
           </n-space>
 
@@ -606,7 +600,7 @@ function formatDate(iso: string): string {
 
       <n-empty
         v-else
-        description="还没有历史记录"
+        description="还没有生成记录"
         style="padding: 40px 0"
       >
         <template #icon>
@@ -614,7 +608,7 @@ function formatDate(iso: string): string {
         </template>
         <template #extra>
           <span style="color: var(--arc-text-secondary); font-size: 13px">
-            第一次 AI 生成封面后，这里会自动保留历史结果
+            生成封面后会在这里保留本次会话的历史记录
           </span>
         </template>
       </n-empty>

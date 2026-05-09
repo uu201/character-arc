@@ -2,24 +2,12 @@
 import { ChevronLeft } from 'lucide-vue-next'
 import { NButton } from 'naive-ui'
 import ProjectCoverWorkbenchPanel from '@/components/home/ProjectCoverWorkbenchPanel.vue'
-import { buildCoverPromptKnowledgeDocument, type CoverPromptWorkbenchInput } from '@/features/cover/promptWorkbench'
 import { useAppStore } from '@/stores/app'
 
 const appStore = useAppStore()
 
 function backToProjectCenter(): void {
   appStore.backToProjects()
-}
-
-function handleUpdateCover(payload: { projectId: string; cover: string }): void {
-  appStore.updateProject(payload.projectId, {
-    cover: payload.cover
-  })
-}
-
-function handleSaveCoverPrompt(payload: CoverPromptWorkbenchInput): void {
-  const document = buildCoverPromptKnowledgeDocument(payload.project.id, payload)
-  appStore.mergeKnowledgeDocuments(payload.project.id, [document])
 }
 </script>
 
@@ -35,11 +23,7 @@ function handleSaveCoverPrompt(payload: CoverPromptWorkbenchInput): void {
     </header>
 
     <main class="cover-workbench-main">
-      <ProjectCoverWorkbenchPanel
-        :project="appStore.currentProject"
-        @update-cover="handleUpdateCover"
-        @save-cover-prompt="handleSaveCoverPrompt"
-      />
+      <ProjectCoverWorkbenchPanel />
     </main>
   </section>
 </template>
