@@ -9,9 +9,9 @@ export type GeneratedImageResult = {
 function normalizeImageSettings(settings: AppSettings): AppSettings {
   return {
     ...settings,
-    model: settings.imageModel?.trim() || settings.model,
-    apiKey: settings.imageApiKey?.trim() || settings.apiKey,
-    baseUrl: settings.imageBaseUrl?.trim() || settings.baseUrl
+    model: settings.imageModel?.trim() || '',
+    apiKey: settings.imageApiKey?.trim() || '',
+    baseUrl: settings.imageBaseUrl?.trim() || ''
   }
 }
 
@@ -30,13 +30,13 @@ function inferMimeType(base64: string): string {
 export async function generateImage(settings: AppSettings, prompt: string): Promise<GeneratedImageResult> {
   const normalized = normalizeImageSettings(settings)
   if (!normalized.model.trim()) {
-    throw new Error('请先在设置中填写图片生成模型。')
+    throw new Error('请先在设置中填写专用的图片生成模型（不会自动回退到文本模型）。')
   }
   if (!normalized.baseUrl.trim()) {
-    throw new Error('请先在设置中填写图片生成 Base URL。')
+    throw new Error('请先在设置中填写专用的图片生成 Base URL。')
   }
   if (!normalized.apiKey.trim()) {
-    throw new Error('请先在设置中填写图片生成 API Key。')
+    throw new Error('请先在设置中填写专用的图片生成 API Key。')
   }
 
   const response = await performAiRequest(

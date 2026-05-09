@@ -178,7 +178,8 @@ export function buildCoverPromptWorkbenchResult(input: CoverPromptWorkbenchInput
     `Background direction: ${genreStyle.backgroundDirection}.`,
     referenceSignal,
     extraNotes ? `Additional art direction: ${extraNotes}.` : '',
-    'Professional book cover, high detail digital painting, portrait 2:3 ratio, strong readability, no watermark.'
+    'Professional book cover, high detail digital painting, portrait 2:3 ratio, strong readability, no watermark.',
+    'Based on story-cover skill v1.0.0 prompt formula.'
   ].filter(Boolean).join(' ')
 
   const summary = [

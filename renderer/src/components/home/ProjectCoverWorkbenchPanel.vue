@@ -1,13 +1,28 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { Copy, History, ImagePlus, LoaderCircle, Sparkles, Upload, Wand2, X } from 'lucide-vue-next'
-import { NAlert, NButton, NForm, NFormItem, NInput, NTag, useMessage } from 'naive-ui'
+import { Copy, Download, History, ImagePlus, Sparkles, Wand2 } from 'lucide-vue-next'
+import {
+  NAlert,
+  NButton,
+  NCard,
+  NDivider,
+  NEmpty,
+  NForm,
+  NFormItem,
+  NImage,
+  NInput,
+  NSpace,
+  NSpin,
+  NTag,
+  NTooltip,
+  useMessage
+} from 'naive-ui'
 import {
   buildCoverPromptWorkbenchResult,
   type CoverPromptWorkbenchInput,
   type CoverPromptWorkbenchResult
 } from '@/features/cover/promptWorkbench'
-import { resolveCoverStyle } from '@/features/cover/display'
+import { isImageCover } from '@/features/cover/display'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { CoverGenerationHistoryItem, ProjectSummary } from '@/types/app'
@@ -33,19 +48,25 @@ const generatedPrompt = ref<CoverPromptWorkbenchResult | null>(null)
 const generatedPromptFingerprint = ref('')
 const isGeneratingImage = ref(false)
 const revisedPrompt = ref('')
+const previewCoverUrl = ref('')
 
 const resolvedImageConfig = computed(() => ({
-  model: appStore.appSettings.imageModel.trim() || appStore.appSettings.model.trim(),
-  baseUrl: appStore.appSettings.imageBaseUrl.trim() || appStore.appSettings.baseUrl.trim(),
-  apiKey: appStore.appSettings.imageApiKey.trim() || appStore.appSettings.apiKey.trim()
+  model: appStore.appSettings.imageModel.trim(),
+  baseUrl: appStore.appSettings.imageBaseUrl.trim(),
+  apiKey: appStore.appSettings.imageApiKey.trim()
 }))
+
+const imageConfigReady = computed(() => {
+  const config = resolvedImageConfig.value
+  return !!(config.model && config.baseUrl && config.apiKey)
+})
+
 const imageConfigSummary = computed(() => {
   const config = resolvedImageConfig.value
-  if (!config.model || !config.baseUrl) {
-    return '尚未配置图片生成接口，请先到主页设置中补充。'
+  if (!config.model || !config.baseUrl || !config.apiKey) {
+    return '尚未配置专用图片生成接口，请先到主页设置中填写图片模型、Base URL 和 API Key。'
   }
-
-  return `当前将使用 ${config.model} · ${config.baseUrl}`
+  return `${config.model} · ${config.baseUrl}`
 })
 
 const coverHistory = computed(() => props.project?.coverHistory ?? [])
@@ -55,7 +76,6 @@ const isPromptStale = computed(() => {
   if (!input || !generatedPrompt.value) {
     return false
   }
-
   return buildWorkbenchFingerprint(input) !== generatedPromptFingerprint.value
 })
 
@@ -65,6 +85,7 @@ function resetWorkbench(): void {
   generatedPrompt.value = null
   generatedPromptFingerprint.value = ''
   revisedPrompt.value = ''
+  previewCoverUrl.value = ''
   isGeneratingImage.value = false
 }
 
@@ -80,7 +101,6 @@ function createWorkbenchInput(): CoverPromptWorkbenchInput | null {
   if (!props.project) {
     return null
   }
-
   return {
     project: props.project,
     authorName: workbench.authorName,
@@ -121,12 +141,10 @@ function ensureProjectReady(): CoverPromptWorkbenchInput | null {
   if (!input) {
     return null
   }
-
   if (!input.project.title.trim()) {
     message.warning('请先在编辑项目信息里填写作品标题，再生成封面。')
     return null
   }
-
   return input
 }
 
@@ -135,7 +153,6 @@ function generateCoverPrompt(): CoverPromptWorkbenchResult | null {
   if (!input) {
     return null
   }
-
   generatedPrompt.value = buildCoverPromptWorkbenchResult(input)
   generatedPromptFingerprint.value = buildWorkbenchFingerprint(input)
   return generatedPrompt.value
@@ -147,12 +164,10 @@ function saveCoverPrompt(): void {
     message.warning('请先生成封面提示词，再保存到知识库。')
     return
   }
-
   if (isPromptStale.value) {
     message.warning('封面提示词依赖的输入已变化，请重新生成后再保存。')
     return
   }
-
   emit('save-cover-prompt', input)
 }
 
@@ -178,6 +193,18 @@ function reuseHistoryItem(item: CoverGenerationHistoryItem): void {
   message.success('已复用这条封面历史的提示词与参数。')
 }
 
+function applyHistoryCover(item: CoverGenerationHistoryItem): void {
+  if (!props.project?.id) {
+    return
+  }
+  previewCoverUrl.value = item.cover
+  emit('update-cover', {
+    projectId: props.project.id,
+    cover: item.cover
+  })
+  message.success('已将历史封面设为当前封面。')
+}
+
 async function copyPrompt(prompt: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(prompt)
@@ -187,46 +214,14 @@ async function copyPrompt(prompt: string): Promise<void> {
   }
 }
 
-async function pickLocalCover(): Promise<void> {
-  if (!props.project?.id) {
-    return
-  }
-
-  const result = await window.characterArc.pickCoverImage()
-  if (!result.success || result.canceled || !result.dataUrl) {
-    return
-  }
-
-  revisedPrompt.value = ''
-  emit('update-cover', {
-    projectId: props.project.id,
-    cover: result.dataUrl
-  })
-  message.success('封面已替换为本地图片。')
-}
-
-function clearCover(): void {
-  if (!props.project?.id) {
-    return
-  }
-
-  revisedPrompt.value = ''
-  emit('update-cover', {
-    projectId: props.project.id,
-    cover: ''
-  })
-}
-
 async function generateCoverImage(): Promise<void> {
   if (!props.project?.id || isGeneratingImage.value) {
     return
   }
-
   const input = ensureProjectReady()
   if (!input) {
     return
   }
-
   const promptResult = (!generatedPrompt.value || isPromptStale.value)
     ? generateCoverPrompt()
     : generatedPrompt.value
@@ -245,6 +240,7 @@ async function generateCoverImage(): Promise<void> {
     }
 
     revisedPrompt.value = result.result.revisedPrompt?.trim() || ''
+    previewCoverUrl.value = result.result.dataUrl
     emit('update-cover', {
       projectId: props.project.id,
       cover: result.result.dataUrl
@@ -263,161 +259,366 @@ async function generateCoverImage(): Promise<void> {
     isGeneratingImage.value = false
   }
 }
+
+async function saveCoverToLocal(dataUrl?: string): Promise<void> {
+  const coverData = dataUrl || previewCoverUrl.value
+  if (!coverData) {
+    message.warning('当前没有可保存的封面图片。')
+    return
+  }
+  try {
+    const projectTitle = props.project?.title?.trim() || 'cover'
+    const result = await window.characterArc.saveCoverImage({
+      dataUrl: coverData,
+      defaultFileName: `${projectTitle}-封面-${Date.now()}.png`
+    })
+    if (result.canceled) {
+      return
+    }
+    if (!result.success) {
+      throw new Error(result.error ?? '保存失败')
+    }
+    message.success(`封面已保存到：${result.filePath}`)
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '封面保存失败')
+  }
+}
+
+function formatDate(iso: string): string {
+  try {
+    const d = new Date(iso)
+    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+  } catch {
+    return ''
+  }
+}
 </script>
 
 <template>
   <div class="cover-workbench-panel">
-    <section class="workbench-card">
-      <div class="workbench-head">
-        <span class="cover-kicker">Image Studio</span>
-        <strong>封面生图工作台</strong>
-        <p>围绕封面出图本身调整方向、限制条件和生成策略，得到可直接送进生图模型的提示词。</p>
+    <!-- 顶部标题 -->
+    <div class="workbench-header">
+      <div class="header-text">
+        <span class="cover-kicker">Image Studio · story-cover skill</span>
+        <h2>封面生图工作台</h2>
+        <p>基于 story-cover skill 自动分析题材与平台风格，生成专业级网文封面提示词并调用生图模型一键出图。</p>
       </div>
+    </div>
 
-      <div class="workbench-grid">
-        <div class="editor-card">
-          <div class="card-head">
+    <!-- 三栏主体 -->
+    <div class="workbench-body">
+      <!-- 左栏：输入区 -->
+      <n-card class="panel-card" :bordered="true" size="small">
+        <template #header>
+          <div class="card-title">
             <span class="cover-kicker">Inputs</span>
             <strong>输入与操作</strong>
-            <p>补充署名、审美方向和禁忌元素，然后生成提示词或直接出图。</p>
           </div>
+        </template>
 
-          <n-form label-placement="top">
-            <div class="form-grid">
-              <n-form-item label="作者署名">
-                <n-input v-model:value="workbench.authorName" placeholder="例如：青岚 / 不填则使用“作者名待定”" />
-              </n-form-item>
-              <n-form-item label="补充画风 / 禁忌元素">
-                <n-input
-                  v-model:value="workbench.extraNotes"
-                  type="textarea"
-                  :autosize="{ minRows: 10, maxRows: 12 }"
-                  placeholder="例如：偏电影海报感、避免 Q 版、不要过曝、强调主角神情"
-                />
-              </n-form-item>
-            </div>
-          </n-form>
+        <n-form label-placement="top" :show-feedback="false">
+          <n-form-item label="作者署名">
+            <n-input
+              v-model:value="workbench.authorName"
+              placeholder="例如：青岚 / 不填则使用「作者名待定」"
+            />
+          </n-form-item>
+          <n-form-item label="补充画风 / 禁忌元素" style="margin-top: 12px">
+            <n-input
+              v-model:value="workbench.extraNotes"
+              type="textarea"
+              :autosize="{ minRows: 6, maxRows: 10 }"
+              placeholder="例如：偏电影海报感、避免 Q 版、不要过曝、强调主角神情"
+            />
+          </n-form-item>
+        </n-form>
 
-          <div class="action-row">
-            <n-button type="primary" round strong @click="generateCoverPrompt">
-              <template #icon>
-                <Wand2 :size="16" />
-              </template>
-              生成提示词
-            </n-button>
-            <n-button round strong secondary :disabled="!generatedPrompt || isPromptStale" @click="saveCoverPrompt">
-              保存到知识库
-            </n-button>
+        <n-divider style="margin: 16px 0 12px" />
+
+        <n-space vertical :size="10">
+          <n-button type="primary" block strong @click="generateCoverPrompt">
+            <template #icon><Wand2 :size="15" /></template>
+            生成提示词
+          </n-button>
+          <n-button
+            block
+            strong
+            secondary
+            :disabled="!generatedPrompt || isPromptStale"
+            @click="saveCoverPrompt"
+          >
+            保存到知识库
+          </n-button>
+        </n-space>
+
+        <n-divider style="margin: 16px 0 12px" />
+
+        <div class="config-section">
+          <span class="cover-kicker">Config</span>
+          <strong class="config-title">图片接口状态</strong>
+          <n-alert
+            :type="imageConfigReady ? 'success' : 'warning'"
+            :show-icon="true"
+            style="margin-top: 8px"
+          >
+            {{ imageConfigSummary }}
+          </n-alert>
+          <n-alert
+            v-if="revisedPrompt"
+            type="info"
+            :show-icon="true"
+            style="margin-top: 8px"
+          >
+            模型重写提示词：{{ revisedPrompt }}
+          </n-alert>
+        </div>
+      </n-card>
+
+      <!-- 中栏：封面预览区 -->
+      <n-card class="panel-card preview-card" :bordered="true" size="small">
+        <template #header>
+          <div class="card-title">
+            <span class="cover-kicker">Preview</span>
+            <strong>封面预览</strong>
           </div>
+        </template>
 
-          <div class="status-card">
-            <div class="card-head">
-              <span class="cover-kicker">Config</span>
-              <strong>图片接口状态</strong>
+        <div class="preview-area">
+          <n-spin :show="isGeneratingImage" description="AI 正在生成封面...">
+            <div class="cover-frame">
+              <n-image
+                v-if="previewCoverUrl"
+                :src="previewCoverUrl"
+                :previewed-img-props="{ style: { maxHeight: '90vh' } }"
+                object-fit="cover"
+                width="100%"
+                style="border-radius: 12px; aspect-ratio: 2 / 3; display: block"
+              />
+              <n-empty
+                v-else
+                description="暂无封面"
+                style="padding: 80px 0"
+              >
+                <template #icon>
+                  <ImagePlus :size="48" :stroke-width="1" style="color: var(--arc-text-hint)" />
+                </template>
+                <template #extra>
+                  <span style="color: var(--arc-text-secondary); font-size: 13px">
+                    点击下方按钮生成 AI 封面
+                  </span>
+                </template>
+              </n-empty>
             </div>
-            <n-alert :type="resolvedImageConfig.model ? 'info' : 'warning'" :show-icon="false">
-              {{ imageConfigSummary }}
-            </n-alert>
-            <div class="hint-block">
-              图片生成默认读取主页设置中的图片 API 配置；如果留空，会自动回退到文本模型配置。
-            </div>
-            <n-alert v-if="revisedPrompt" type="success" :show-icon="false">
-              模型重写提示词：{{ revisedPrompt }}
-            </n-alert>
-          </div>
+          </n-spin>
         </div>
 
-        <div class="result-card">
-          <div class="result-head">
-            <div>
+        <n-divider style="margin: 14px 0 10px" />
+
+        <n-space vertical :size="8">
+          <n-button
+            type="primary"
+            block
+            strong
+            :loading="isGeneratingImage"
+            :disabled="isGeneratingImage || !imageConfigReady"
+            @click="generateCoverImage"
+          >
+            <template #icon><Sparkles :size="15" /></template>
+            {{ isGeneratingImage ? 'AI 生成中...' : 'AI 生成封面' }}
+          </n-button>
+          <n-tooltip trigger="hover" :disabled="!!previewCoverUrl">
+            <template #trigger>
+              <n-button
+                block
+                strong
+                secondary
+                :disabled="!previewCoverUrl"
+                @click="saveCoverToLocal()"
+              >
+                <template #icon><Download :size="15" /></template>
+                保存到本地
+              </n-button>
+            </template>
+            当前没有可保存的封面图片
+          </n-tooltip>
+        </n-space>
+      </n-card>
+
+      <!-- 右栏：提示词预览区 -->
+      <n-card class="panel-card" :bordered="true" size="small">
+        <template #header>
+          <div class="card-title-row">
+            <div class="card-title">
               <span class="cover-kicker">Output</span>
               <strong>{{ generatedPrompt?.title || '提示词预览区' }}</strong>
-              <p>{{ generatedPrompt?.summary || '生成后会在这里展示完整提示词、状态和关键词。' }}</p>
             </div>
-            <n-tag v-if="generatedPrompt" round :bordered="false" :type="isPromptStale ? 'warning' : 'success'">
+            <n-tag
+              v-if="generatedPrompt"
+              size="small"
+              round
+              :bordered="false"
+              :type="isPromptStale ? 'warning' : 'success'"
+            >
               {{ isPromptStale ? '输入已变化' : '可直接生成' }}
             </n-tag>
           </div>
+        </template>
 
-          <template v-if="generatedPrompt">
-            <n-input
-              :value="generatedPrompt.prompt"
-              type="textarea"
-              readonly
-              :autosize="{ minRows: 26, maxRows: 30 }"
-            />
+        <template v-if="generatedPrompt">
+          <p class="prompt-summary">{{ generatedPrompt.summary }}</p>
 
-            <div class="keyword-list">
-              <span v-for="keyword in generatedPrompt.keywords" :key="keyword">{{ keyword }}</span>
-            </div>
+          <n-input
+            :value="generatedPrompt.prompt"
+            type="textarea"
+            readonly
+            :autosize="{ minRows: 14, maxRows: 22 }"
+            style="margin-top: 8px"
+          />
+
+          <n-space :size="6" style="margin-top: 12px" wrap>
+            <n-tag
+              v-for="keyword in generatedPrompt.keywords"
+              :key="keyword"
+              size="small"
+              round
+              :bordered="false"
+              type="primary"
+            >
+              {{ keyword }}
+            </n-tag>
+          </n-space>
+
+          <n-divider style="margin: 14px 0 10px" />
+
+          <n-button block secondary @click="copyPrompt(generatedPrompt!.prompt)">
+            <template #icon><Copy :size="14" /></template>
+            复制提示词
+          </n-button>
+        </template>
+
+        <n-empty
+          v-else
+          description="先生成一版封面提示词"
+          style="padding: 60px 0"
+        >
+          <template #icon>
+            <Sparkles :size="40" :stroke-width="1" style="color: var(--arc-text-hint)" />
           </template>
+          <template #extra>
+            <span style="color: var(--arc-text-secondary); font-size: 13px">
+              建议先补充画风方向，再点击左侧的「生成提示词」
+            </span>
+          </template>
+        </n-empty>
+      </n-card>
+    </div>
 
-          <div v-else class="empty-state">
-            <div class="empty-badge">
-              <Sparkles :size="20" />
-            </div>
-            <strong>先生成一版封面提示词</strong>
-            <p>建议先补充画风方向，再点击左侧的“生成提示词”，这样后续 AI 出图会更稳。</p>
+    <!-- 历史记录区域 -->
+    <n-card class="history-section" :bordered="true" size="small">
+      <template #header>
+        <div class="card-title-row">
+          <div class="card-title">
+            <span class="cover-kicker">History</span>
+            <strong>历史生成记录</strong>
           </div>
+          <n-tag size="small" round :bordered="false">
+            {{ coverHistory.length }} 条
+          </n-tag>
         </div>
-      </div>
-    </section>
-
-    <section class="history-card">
-      <div class="history-head">
-        <div>
-          <span class="cover-kicker">History</span>
-          <strong>历史生成记录</strong>
-          <p>瀑布流展示最近生成过的封面记录，可一键复用当时的提示词和输入参数。</p>
-        </div>
-        <n-tag round :bordered="false" type="default">
-          {{ coverHistory.length }} 条
-        </n-tag>
-      </div>
+      </template>
 
       <div v-if="coverHistory.length" class="history-masonry">
-        <article v-for="item in coverHistory" :key="item.id" class="history-card-item">
-          <div class="history-cover" :style="resolveCoverStyle(item.cover)"></div>
+        <n-card
+          v-for="item in coverHistory"
+          :key="item.id"
+          class="history-item-card"
+          :bordered="true"
+          size="small"
+          hoverable
+        >
+          <div
+            class="history-cover-img"
+            @click="applyHistoryCover(item)"
+          >
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-image
+                  v-if="isImageCover(item.cover)"
+                  :src="item.cover"
+                  :previewed-img-props="{ style: { maxHeight: '90vh' } }"
+                  object-fit="cover"
+                  width="100%"
+                  :preview-disabled="true"
+                  style="border-radius: 10px; aspect-ratio: 2 / 3; display: block; cursor: pointer"
+                />
+              </template>
+              点击设为当前封面
+            </n-tooltip>
+          </div>
 
-          <div class="history-copy">
+          <div class="history-info">
             <strong>{{ item.promptTitle }}</strong>
             <p>{{ item.summary }}</p>
           </div>
 
-          <div class="history-meta">
-            <span>{{ item.genre || '封面版本' }}</span>
-            <span>{{ item.authorName || '未署名' }}</span>
-          </div>
+          <n-space :size="6" wrap>
+            <n-tag size="tiny" round :bordered="false">{{ item.genre || '封面' }}</n-tag>
+            <n-tag size="tiny" round :bordered="false">{{ item.authorName || '未署名' }}</n-tag>
+            <n-tag v-if="item.createdAt" size="tiny" round :bordered="false" type="default">
+              {{ formatDate(item.createdAt) }}
+            </n-tag>
+          </n-space>
 
-          <div class="history-keywords">
-            <span v-for="keyword in item.keywords.slice(0, 4)" :key="keyword">{{ keyword }}</span>
-          </div>
+          <n-space :size="4" wrap style="margin-top: 6px">
+            <n-tag
+              v-for="keyword in item.keywords.slice(0, 4)"
+              :key="keyword"
+              size="tiny"
+              round
+              :bordered="false"
+              type="primary"
+            >
+              {{ keyword }}
+            </n-tag>
+          </n-space>
 
-          <div class="history-actions">
-            <n-button size="small" round secondary @click="copyPrompt(item.prompt)">
-              <template #icon>
-                <Copy :size="14" />
-              </template>
-              复制提示词
+          <n-space :size="8" style="margin-top: 10px">
+            <n-button size="tiny" secondary @click="copyPrompt(item.prompt)">
+              <template #icon><Copy :size="12" /></template>
+              复制
             </n-button>
-            <n-button size="small" round type="primary" @click="reuseHistoryItem(item)">
-              <template #icon>
-                <History :size="14" />
-              </template>
-              复用这条
+            <n-button size="tiny" secondary @click="reuseHistoryItem(item)">
+              <template #icon><History :size="12" /></template>
+              复用
             </n-button>
-          </div>
-        </article>
+            <n-button
+              v-if="isImageCover(item.cover)"
+              size="tiny"
+              secondary
+              @click="saveCoverToLocal(item.cover)"
+            >
+              <template #icon><Download :size="12" /></template>
+              保存
+            </n-button>
+          </n-space>
+        </n-card>
       </div>
 
-      <div v-else class="history-empty">
-        <div class="empty-badge">
-          <History :size="20" />
-        </div>
-        <strong>还没有历史记录</strong>
-        <p>当你第一次 AI 生成封面后，这里会自动保留历史结果，方便回看和复用。</p>
-      </div>
-    </section>
+      <n-empty
+        v-else
+        description="还没有历史记录"
+        style="padding: 40px 0"
+      >
+        <template #icon>
+          <History :size="40" :stroke-width="1" style="color: var(--arc-text-hint)" />
+        </template>
+        <template #extra>
+          <span style="color: var(--arc-text-secondary); font-size: 13px">
+            第一次 AI 生成封面后，这里会自动保留历史结果
+          </span>
+        </template>
+      </n-empty>
+    </n-card>
   </div>
 </template>
 
@@ -425,41 +626,29 @@ async function generateCoverImage(): Promise<void> {
 .cover-workbench-panel {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
   width: 100%;
   min-width: 0;
 }
 
-.cover-workbench-panel :deep(.n-alert) {
-  border-radius: 14px;
+/* ── 顶部标题 ── */
+.workbench-header {
+  padding: 4px 0;
 }
 
-.cover-workbench-panel :deep(.n-input) {
-  border-radius: 14px;
+.header-text h2 {
+  margin: 6px 0 0;
+  color: var(--arc-text-primary);
+  font-size: 24px;
+  font-weight: 760;
+  letter-spacing: -0.03em;
 }
 
-.workbench-card,
-.history-card,
-.editor-card,
-.result-card,
-.status-card {
-  border: 1px solid color-mix(in srgb, var(--arc-primary) 10%, var(--arc-border));
-  border-radius: 20px;
-  background: var(--arc-bg-surface);
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
-}
-
-.workbench-card,
-.history-card {
-  padding: 20px;
-}
-
-.workbench-head,
-.history-head,
-.card-head,
-.result-head {
-  display: flex;
-  flex-direction: column;
+.header-text p {
+  margin: 8px 0 0;
+  color: var(--arc-text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
 }
 
 .cover-kicker {
@@ -473,185 +662,149 @@ async function generateCoverImage(): Promise<void> {
   text-transform: uppercase;
 }
 
-.workbench-head strong,
-.history-head strong,
-.card-head strong,
-.result-head strong,
-.history-copy strong,
-.empty-state strong,
-.history-empty strong {
-  display: block;
-  margin-top: 8px;
-  color: var(--arc-text-primary);
-  font-size: 20px;
-  font-weight: 760;
-  letter-spacing: -0.03em;
-}
-
-.workbench-head strong,
-.history-head strong {
-  font-size: 24px;
-}
-
-.workbench-head p,
-.history-head p,
-.card-head p,
-.result-head p,
-.hint-block,
-.empty-state p,
-.history-copy p,
-.history-empty p {
-  margin: 8px 0 0;
-  color: var(--arc-text-secondary);
-  line-height: 1.7;
-}
-
-.workbench-grid {
+/* ── 三栏主体 ── */
+.workbench-body {
   display: grid;
-  grid-template-columns: minmax(340px, 0.92fr) minmax(0, 1.08fr);
-  gap: 18px;
-  align-items: start;
-  margin-top: 18px;
-}
-
-.editor-card,
-.result-card {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
+  grid-template-columns: minmax(280px, 1fr) minmax(260px, 0.9fr) minmax(280px, 1.1fr);
   gap: 16px;
-  padding: 18px;
-  background: color-mix(in srgb, var(--arc-bg-surface) 82%, var(--arc-bg-weak));
+  align-items: start;
 }
 
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
+.panel-card {
+  border-radius: 16px;
 }
 
-.action-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+.panel-card :deep(.n-card-header) {
+  padding: 16px 18px 10px;
 }
 
-.action-row--secondary {
-  padding-top: 4px;
+.panel-card :deep(.n-card__content) {
+  padding: 10px 18px 18px;
 }
 
-.status-card {
+.card-title {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px;
+  gap: 4px;
 }
 
-.hint-block {
-  border-radius: 14px;
-  background: var(--arc-bg-weak);
-  padding: 14px 16px;
-  font-size: 13px;
+.card-title strong {
+  color: var(--arc-text-primary);
+  font-size: 16px;
+  font-weight: 720;
 }
 
-.keyword-list,
-.history-meta,
-.history-keywords,
-.history-actions {
+.card-title-row {
   display: flex;
-  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.keyword-list span,
-.history-keywords span {
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, transparent);
-  color: var(--arc-primary);
-  padding: 5px 11px;
-  font-size: 12px;
+/* ── 封面预览区 ── */
+.preview-card {
+  position: sticky;
+  top: 0;
 }
 
-.history-head {
-  gap: 0;
+.preview-area {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--arc-bg-weak) 60%, var(--arc-bg-surface));
+  overflow: hidden;
+}
+
+.cover-frame {
+  min-height: 200px;
+}
+
+/* ── 配置区 ── */
+.config-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-title {
+  display: block;
+  margin-top: 4px;
+  color: var(--arc-text-primary);
+  font-size: 14px;
+  font-weight: 680;
+}
+
+/* ── 提示词摘要 ── */
+.prompt-summary {
+  margin: 0;
+  color: var(--arc-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* ── 历史记录 ── */
+.history-section {
+  border-radius: 16px;
+}
+
+.history-section :deep(.n-card-header) {
+  padding: 16px 18px 10px;
+}
+
+.history-section :deep(.n-card__content) {
+  padding: 10px 18px 18px;
 }
 
 .history-masonry {
-  margin-top: 18px;
   column-count: 3;
-  column-gap: 16px;
+  column-gap: 14px;
 }
 
-.history-card-item {
+.history-item-card {
   display: inline-flex;
   width: 100%;
   flex-direction: column;
-  gap: 12px;
   break-inside: avoid;
-  margin-bottom: 16px;
-  border: 1px solid var(--arc-border);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--arc-bg-surface) 82%, var(--arc-bg-weak));
-  padding: 14px;
-}
-
-.history-cover {
-  width: 100%;
-  aspect-ratio: 2 / 3;
+  margin-bottom: 14px;
   border-radius: 14px;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: cover;
 }
 
-.history-meta span {
-  border-radius: 999px;
-  background: var(--arc-bg-surface);
-  color: var(--arc-text-hint);
-  font-size: 11px;
-  padding: 4px 9px;
+.history-item-card :deep(.n-card__content) {
+  padding: 12px 14px 14px;
 }
 
-.empty-state,
-.history-empty {
-  display: flex;
-  min-height: 280px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
+.history-cover-img {
+  margin-bottom: 8px;
 }
 
-.history-empty {
-  margin-top: 18px;
-  border: 1px dashed var(--arc-border);
-  border-radius: 18px;
-  padding: 20px;
+.history-info {
+  margin-bottom: 8px;
 }
 
-.empty-badge {
-  display: inline-flex;
-  width: 52px;
-  height: 52px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
-  color: var(--arc-primary);
+.history-info strong {
+  display: block;
+  color: var(--arc-text-primary);
+  font-size: 14px;
+  font-weight: 680;
+  line-height: 1.4;
 }
 
-.spin-icon {
-  animation: arc-spin 1s linear infinite;
+.history-info p {
+  margin: 4px 0 0;
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-@keyframes arc-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
+/* ── 响应式 ── */
 @media (max-width: 1100px) {
-  .workbench-grid {
-    grid-template-columns: 1fr;
+  .workbench-body {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .workbench-body > .panel-card:last-child {
+    grid-column: 1 / -1;
   }
 
   .history-masonry {
@@ -660,21 +813,21 @@ async function generateCoverImage(): Promise<void> {
 }
 
 @media (max-width: 720px) {
-  .workbench-card,
-  .history-card,
-  .editor-card,
-  .result-card,
-  .status-card {
-    padding: 14px;
-    border-radius: 16px;
-  }
-
-  .action-row {
-    flex-direction: column;
+  .workbench-body {
+    grid-template-columns: 1fr;
   }
 
   .history-masonry {
     column-count: 1;
+  }
+
+  .panel-card,
+  .history-section {
+    border-radius: 12px;
+  }
+
+  .preview-card {
+    position: static;
   }
 }
 </style>

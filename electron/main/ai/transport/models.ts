@@ -104,3 +104,11 @@ export async function fetchModels(settings: AppSettings): Promise<FetchedModel[]
   }
   return fetchModelsOpenAiCompatible(normalized.baseUrl, normalized.apiKey)
 }
+
+export async function fetchImageModels(settings: AppSettings): Promise<FetchedModel[]> {
+  const baseUrl = settings.imageBaseUrl?.trim()
+  const apiKey = settings.imageApiKey?.trim()
+  if (!baseUrl) throw new Error('请先填写图片生成 Base URL。')
+  if (!apiKey) throw new Error('请先填写图片生成 API Key。')
+  return fetchModelsOpenAiCompatible(baseUrl, apiKey)
+}

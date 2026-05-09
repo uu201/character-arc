@@ -220,12 +220,23 @@ declare global {
         result?: Array<{ id: string; ownedBy: string | null }>
         error?: string
       }>
+      fetchImageModels: (settings: unknown) => Promise<{
+        success: boolean
+        result?: Array<{ id: string; ownedBy: string | null }>
+        error?: string
+      }>
       generateImage: (payload: { settings: import('@/types/app').AppSettings; prompt: string }) => Promise<{
         success: boolean
         result?: {
           dataUrl: string
           revisedPrompt?: string
         }
+        error?: string
+      }>
+      saveCoverImage: (payload: { dataUrl: string; defaultFileName?: string }) => Promise<{
+        success: boolean
+        canceled?: boolean
+        filePath?: string
         error?: string
       }>
       exportJson: (payload: CharacterArcExportRequest | unknown) => Promise<{

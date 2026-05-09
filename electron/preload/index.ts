@@ -64,8 +64,12 @@ contextBridge.exposeInMainWorld('characterArc', {
   testAiConnection: (settings: unknown) => ipcRenderer.invoke('characterarc:ai-test-connection', toIpcPayload(settings)),
   /** 获取 AI 供应商的可用模型列表 */
   fetchModels: (settings: unknown) => ipcRenderer.invoke('characterarc:ai-fetch-models', toIpcPayload(settings)),
+  /** 获取图片生成接口的可用模型列表 */
+  fetchImageModels: (settings: unknown) => ipcRenderer.invoke('characterarc:ai-fetch-image-models', toIpcPayload(settings)),
   /** 生成封面图片 */
   generateImage: (payload: unknown) => ipcRenderer.invoke('characterarc:ai-generate-image', toIpcPayload(payload)),
+  /** 保存封面图片到本地文件 */
+  saveCoverImage: (payload: unknown) => ipcRenderer.invoke('characterarc:save-cover-image', toIpcPayload(payload)),
 
   // ── 缩放控制 ──
   /** 设置渲染进程页面缩放比例 */

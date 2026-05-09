@@ -233,6 +233,45 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     }
   })
 
+  ipcMain.handle('characterarc:save-cover-image', async (_event, payload: unknown) => {
+    const window = deps.windowManager.getActiveWindow()
+    if (!window) {
+      return { success: false, canceled: true }
+    }
+
+    const request = payload as { dataUrl?: string; defaultFileName?: string }
+    const dataUrl = String(request?.dataUrl ?? '').trim()
+    if (!dataUrl) {
+      return { success: false, error: '没有可保存的封面图片。' }
+    }
+
+    const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/)
+    if (!match) {
+      return { success: false, error: '封面数据格式无效，无法保存。' }
+    }
+
+    const ext = match[1] === 'jpeg' ? 'jpg' : match[1]
+    const base64Data = match[2]
+    const defaultName = request?.defaultFileName?.trim() || `cover-${Date.now()}.${ext}`
+
+    const result = await dialog.showSaveDialog(window, {
+      title: '保存封面图片',
+      defaultPath: defaultName,
+      filters: [{ name: '图片文件', extensions: [ext, 'png', 'jpg', 'webp'] }]
+    })
+
+    if (result.canceled || !result.filePath) {
+      return { success: false, canceled: true }
+    }
+
+    await writeFile(result.filePath, Buffer.from(base64Data, 'base64'))
+    return {
+      success: true,
+      canceled: false,
+      filePath: result.filePath
+    }
+  })
+
   ipcMain.handle('characterarc:import-reference-novel-analysis', async (_event, payload: ReferenceNovelImportRequest) => {
     const window = deps.windowManager.getActiveWindow()
     if (!window) {

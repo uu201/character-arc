@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
 import type { AiTaskPayload, AppSettings } from './shared-types'
-import { runAiTask, streamAiTask, testAiConnection, fetchModels, generateImage } from './runtime'
+import { runAiTask, streamAiTask, testAiConnection, fetchModels, fetchImageModels, generateImage } from './runtime'
 import { retrieveKnowledgeContext } from '../knowledge-retrieval'
 
 type AiIpcDeps = {
@@ -110,6 +110,15 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       return { success: true, result }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : '获取模型列表失败' }
+    }
+  })
+
+  ipcMain.handle('characterarc:ai-fetch-image-models', async (_event, settings: unknown) => {
+    try {
+      const result = await fetchImageModels(settings as AppSettings)
+      return { success: true, result }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '获取图片模型列表失败' }
     }
   })
 

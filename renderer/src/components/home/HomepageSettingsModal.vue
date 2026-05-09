@@ -4,6 +4,7 @@ import { Cpu, Download, MonitorCog, Moon, Palette, PlugZap, RefreshCw, Save } fr
 import { NButton, NFormItem, NInput, NModal, NSelect, NSwitch, useMessage } from 'naive-ui'
 import { autoSaveOptions, formatAutoSaveIntervalLabel, isLiveAutoSaveInterval } from '@/features/settings/autoSave'
 import { getProviderPreset, providerOptions, resolveProviderDefaults } from '@/features/settings/providerPresets'
+import { getImageProviderPreset, imageProviderOptions, resolveImageProviderDefaults } from '@/features/settings/imageProviderPresets'
 import { useAppStore } from '@/stores/app'
 import { themePresets } from '@/theme/presets'
 import { toIpcPayload } from '@/utils/ipcPayload'
@@ -22,6 +23,8 @@ const message = useMessage()
 const isTestingAiConnection = ref(false)
 const isFetchingModels = ref(false)
 const fetchedModels = ref<Array<{ id: string; ownedBy: string | null }>>([])
+const isFetchingImageModels = ref(false)
+const fetchedImageModels = ref<Array<{ id: string; ownedBy: string | null }>>([])
 
 const autoSaveSelectOptions = [...autoSaveOptions]
 const themeOptions = themePresets.map((preset) => ({ label: preset.label, value: preset.name }))
@@ -47,13 +50,18 @@ const draftSettings = reactive<AppSettings>({
   darkMode: false
 })
 const draftTheme = ref<ThemeName>('ocean')
+const draftImageProvider = ref('')
 
 const activeProviderPreset = computed(() => getProviderPreset(draftSettings.provider))
+const activeImageProviderPreset = computed(() => getImageProviderPreset(draftImageProvider.value))
 const activeThemePreset = computed(() => themePresets.find((preset) => preset.name === draftTheme.value) ?? themePresets[0])
 const draftAutoSaveLabel = computed(() => formatAutoSaveIntervalLabel(draftSettings.autoSaveInterval))
 const isDraftLiveAutoSave = computed(() => isLiveAutoSaveInterval(draftSettings.autoSaveInterval))
 const modelSelectOptions = computed(() =>
   fetchedModels.value.map((m) => ({ label: m.id, value: m.id }))
+)
+const imageModelSelectOptions = computed(() =>
+  fetchedImageModels.value.map((m) => ({ label: m.id, value: m.id }))
 )
 const hasPendingChanges = computed(() =>
   draftTheme.value !== appStore.theme
@@ -104,6 +112,34 @@ function handleProviderChange(provider: string): void {
   draftSettings.model = defaults.model
   draftSettings.baseUrl = defaults.baseUrl
   fetchedModels.value = []
+}
+
+function handleImageProviderChange(value: string): void {
+  draftImageProvider.value = value
+  const defaults = resolveImageProviderDefaults(value)
+  draftSettings.imageModel = defaults.model
+  draftSettings.imageBaseUrl = defaults.baseUrl
+  fetchedImageModels.value = []
+}
+
+async function handleFetchImageModels(): Promise<void> {
+  if (isFetchingImageModels.value) return
+  isFetchingImageModels.value = true
+  try {
+    const result = await window.characterArc.fetchImageModels(toIpcPayload({ ...draftSettings }))
+    if (!result.success) throw new Error(result.error ?? '获取图片模型列表失败')
+    fetchedImageModels.value = result.result ?? []
+    if (fetchedImageModels.value.length === 0) {
+      message.warning('该接口未返回任何可用图片模型，请手动输入模型名称。')
+    } else {
+      message.success(`获取到 ${fetchedImageModels.value.length} 个可用模型`)
+    }
+  } catch (error) {
+    fetchedImageModels.value = []
+    message.error(error instanceof Error ? error.message : '获取图片模型列表失败')
+  } finally {
+    isFetchingImageModels.value = false
+  }
 }
 
 async function handleFetchModels(): Promise<void> {
@@ -285,17 +321,51 @@ function saveSettings(): void {
             <Download :size="18" />
             <div>
               <strong>图片生成配置</strong>
-              <p>封面工作台会优先读取这里的配置；留空时自动回退到上方的文本模型接口。</p>
+              <p>封面工作台使用专用的图片生成接口，需单独配置，不会回退到文本模型。</p>
             </div>
           </div>
           <div class="settings-grid">
-            <n-form-item label="图片模型名称">
-              <n-input
-                :value="draftSettings.imageModel"
-                placeholder="例如：gpt-image-1 / flux.1-dev / doubao-seedream-3.0"
-                @update:value="(value) => { draftSettings.imageModel = value }"
+            <n-form-item label="图片服务预设">
+              <n-select
+                :options="imageProviderOptions"
+                :value="draftImageProvider"
+                placeholder="选择预设快速填充模型和地址"
+                clearable
+                @update:value="(value) => handleImageProviderChange(value ?? '')"
               />
             </n-form-item>
+            <n-form-item label="图片模型名称">
+              <div class="model-input-row">
+                <n-select
+                  v-if="fetchedImageModels.length > 0"
+                  :options="imageModelSelectOptions"
+                  :value="draftSettings.imageModel"
+                  filterable
+                  tag
+                  placeholder="选择或输入图片模型名称"
+                  @update:value="(value: string) => { draftSettings.imageModel = value }"
+                />
+                <n-input
+                  v-else
+                  :value="draftSettings.imageModel"
+                  placeholder="例如：gpt-image-1 / flux.1-dev"
+                  @update:value="(value) => { draftSettings.imageModel = value }"
+                />
+                <n-button
+                  quaternary
+                  class="model-fetch-btn"
+                  :disabled="isFetchingImageModels || !draftSettings.imageBaseUrl.trim()"
+                  @click="handleFetchImageModels"
+                >
+                  <template #icon>
+                    <RefreshCw v-if="fetchedImageModels.length > 0" :size="16" :class="{ 'spin-icon': isFetchingImageModels }" />
+                    <Download v-else :size="16" :class="{ 'spin-icon': isFetchingImageModels }" />
+                  </template>
+                </n-button>
+              </div>
+            </n-form-item>
+          </div>
+          <div class="settings-grid">
             <n-form-item label="图片 Base URL">
               <n-input
                 :value="draftSettings.imageBaseUrl"
@@ -303,20 +373,20 @@ function saveSettings(): void {
                 @update:value="(value) => { draftSettings.imageBaseUrl = value }"
               />
             </n-form-item>
+            <n-form-item label="图片 API Key">
+              <n-input
+                type="password"
+                show-password-on="click"
+                :value="draftSettings.imageApiKey"
+                placeholder="图片接口专用 API Key"
+                @update:value="(value) => { draftSettings.imageApiKey = value }"
+              />
+            </n-form-item>
           </div>
-          <n-form-item label="图片 API Key">
-            <n-input
-              type="password"
-              show-password-on="click"
-              :value="draftSettings.imageApiKey"
-              placeholder="为空时自动回退到文本 API Key"
-              @update:value="(value) => { draftSettings.imageApiKey = value }"
-            />
-          </n-form-item>
           <div class="provider-hint-block">
-            <strong>使用建议</strong>
-            <p>如果你的网关同时支持文本和图片，只填图片模型名称就够了；如果图片走独立服务，再补充专用 Base URL 和 API Key。</p>
-            <code>{{ draftSettings.imageBaseUrl || draftSettings.baseUrl || '未填写地址' }}</code>
+            <strong>{{ activeImageProviderPreset.label }}</strong>
+            <p>{{ activeImageProviderPreset.hint }}</p>
+            <code>{{ draftSettings.imageBaseUrl || '未填写地址' }}</code>
           </div>
         </section>
 
