@@ -37,7 +37,7 @@ export async function runAiTask(
 
   const handler = getTaskHandler(task.task)
   await refreshRegistry(projectId || undefined).catch(() => {})
-  const skills = pickSkillsFor(task, resolveEnabledSkillOverrides(task, projectId))
+  const skills = await pickSkillsFor(task, resolveEnabledSkillOverrides(task, projectId))
   const usedSkillIds = skills.map((s) => s.id)
   logSelection(task.task, skills, knowledgeContext?.usedKnowledge ?? [])
 
@@ -137,7 +137,7 @@ export async function streamAiTask(
 
   const taskHandler = getTaskHandler(task.task)
   await refreshRegistry(projectId || undefined).catch(() => {})
-  const skills = pickSkillsFor(task, resolveEnabledSkillOverrides(task, projectId))
+  const skills = await pickSkillsFor(task, resolveEnabledSkillOverrides(task, projectId))
   const usedSkillIds = skills.map((s) => s.id)
   logSelection(task.task, skills, knowledgeContext?.usedKnowledge ?? [])
 

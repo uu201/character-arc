@@ -64,18 +64,30 @@ export function formatMountedSkills(skills: SkillSelection[]): string {
   return skills
     .slice(0, 4)
     .map((skill, index) => {
-      const content = skill.content.trim().slice(0, 1200)
+      // 剥掉 YAML frontmatter（--- ... ---），只保留正文部分给模型看。
+      // 这样 2000 字的配额全部用在实际规则和范例上，不被 metadata 占用。
+      const bodyContent = stripFrontmatter(skill.content).trim().slice(0, 2000)
       const refs = skill.referenceContents
-        .map((ref) => `  [参考: ${ref.file}]\n  ${ref.content.slice(0, 800)}`)
+        .map((ref) => `  [参考: ${ref.file}]\n  ${ref.content.slice(0, 2000)}`)
         .join('\n\n')
 
       return [
         `Skill ${index + 1}：${skill.name}`,
-        `内容摘录：\n${content}`,
+        `内容摘录：\n${bodyContent}`,
         refs ? `\n相关参考资料：\n${refs}` : ''
       ].filter(Boolean).join('\n')
     })
     .join('\n\n')
+}
+
+/**
+ * 去掉 SKILL.md 开头的 YAML frontmatter 块（--- ... ---）。
+ * 如果没有 frontmatter 就原样返回。
+ */
+function stripFrontmatter(content: string): string {
+  const match = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
+  if (!match) return content
+  return content.slice(match[0].length)
 }
 
 export function formatProjectSkillsContext(rawSkills: unknown, maxSkills = 8): string {

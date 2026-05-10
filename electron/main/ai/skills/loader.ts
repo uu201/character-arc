@@ -5,10 +5,10 @@ import { join } from 'node:path'
 import type { AiTaskPayload } from '../shared-types'
 import type { SkillDefinition } from './types'
 
-export function loadSkillReferences(
+export async function loadSkillReferences(
   skill: SkillDefinition,
   task: AiTaskPayload
-): Array<{ file: string; content: string }> {
+): Promise<Array<{ file: string; content: string }>> {
   const results: Array<{ file: string; content: string }> = []
   const rules = skill.manifest.references
 
@@ -21,9 +21,10 @@ export function loadSkillReferences(
     if (!existsSync(filePath)) continue
 
     try {
-      const { readFileSync } = require('node:fs')
-      const content = readFileSync(filePath, 'utf-8') as string
-      results.push({ file: rule.file, content: content.slice(0, 4000) })
+      const content = await readFile(filePath, 'utf-8')
+      // 上限从 800 提到 3000：写作技巧类参考文件通常 2000-4000 字，
+      // 截断太短模型只能看到目录级信息，无法吸收具体范例和规则。
+      results.push({ file: rule.file, content: content.slice(0, 3000) })
     } catch {
       // skip unreadable reference files
     }

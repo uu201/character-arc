@@ -44,7 +44,7 @@ export async function runAgentTask(
   // 候选 skill 仍由现有 matcher 决定（按 task / stage / triggers / priority 打分）。
   // 不同的是：这些 skill 不再被整段 stuff 进 prompt——只暴露 id+description 作为索引，
   // 主体由模型按需通过 skill_load 加载。
-  const candidateSkills = pickSkillsFor(task, resolveEnabledSkillOverrides(task, projectId))
+  const candidateSkills = await pickSkillsFor(task, resolveEnabledSkillOverrides(task, projectId))
   const usedSkillIds = candidateSkills.map((s) => s.id)
   logSelection(task.task, candidateSkills, knowledgeContext?.usedKnowledge ?? [])
 

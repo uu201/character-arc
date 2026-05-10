@@ -3,10 +3,10 @@ import type { SkillDefinition, SkillSelection } from './types'
 import { getEnabledSkills } from './registry'
 import { loadSkillReferences } from './loader'
 
-export function pickSkillsFor(
+export async function pickSkillsFor(
   task: AiTaskPayload,
   enabledOverrides?: Map<string, boolean>
-): SkillSelection[] {
+): Promise<SkillSelection[]> {
   const projectId = String(task.context.projectId ?? '').trim()
   const skills = getEnabledSkills(projectId)
   const context = task.context ?? {}
@@ -28,16 +28,18 @@ export function pickSkillsFor(
     })
     .slice(0, 4)
 
-  return scored.map(({ skill, score }) => {
-    const referenceContents = loadSkillReferences(skill, task)
-    return {
+  const results: SkillSelection[] = []
+  for (const { skill, score } of scored) {
+    const referenceContents = await loadSkillReferences(skill, task)
+    results.push({
       id: skill.id,
       name: skill.name,
       content: skill.content,
       referenceContents,
       score
-    }
-  })
+    })
+  }
+  return results
 }
 
 function computeScore(
