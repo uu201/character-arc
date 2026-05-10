@@ -34,6 +34,7 @@ import {
 } from '@/features/workspace/storeHelpers'
 import { characterArcWindowKind, isAssistantWindow } from '@/utils/windowKind'
 import { toIpcPayload } from '@/utils/ipcPayload'
+import { AI_TASK_RETENTION_MS, type AiTaskRun, type AiTaskRunInput } from '@/features/ai/taskRegistry'
 import type {
   AgentConfirmationState,
   AgentExecutionStep,
@@ -243,6 +244,15 @@ export const useAppStore = defineStore('app', () => {
   const knowledgeDocuments = computed(() => currentWorkspace.value.knowledgeDocuments)
   /** 当前项目的 AI 运行记录列表 */
   const aiRuns = computed(() => currentWorkspace.value.aiRuns)
+  /**
+   * 全局 AI 任务注册表（按 key 去重，响应式）。
+   *
+   * 用途：
+   *   1. 跨面板保持按钮 loading 状态——切面板不会把 "生成中..." 切没。
+   *   2. 给全局进度面板提供数据源，让用户知道 AI 正在跑什么、跑了多久。
+   *   3. 天然防重复点击：同 key 任务已在运行时再次点击会被拒绝。
+   */
+  const aiTaskRuns = ref<Map<string, AiTaskRun>>(new Map())
   /** 流程面板当前激活的分卷（回退到第一个分卷） */
   const activeWorkflowVolume = computed(
     () => outlineVolumes.value.find((v) => v.id === activeWorkflowVolumeId.value) ?? outlineVolumes.value[0]
@@ -2666,6 +2676,126 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // 全局 AI 任务注册表：跨面板维持按钮 loading，驱动进度面板
+  // ══════════════════════════════════════════════════════════════════
+
+  /**
+   * 把 Map 当作响应式容器时的常规操作：
+   * 替换引用才能触发 Vue 重新收集依赖，否则 computed 不会重算。
+   */
+  function replaceTaskRuns(updater: (next: Map<string, AiTaskRun>) => void): void {
+    const next = new Map(aiTaskRuns.value)
+    updater(next)
+    aiTaskRuns.value = next
+  }
+
+  /** 正在进行中的任务（按启动顺序排列，稳定展示在进度面板顶部） */
+  const runningAiTasks = computed<AiTaskRun[]>(() =>
+    Array.from(aiTaskRuns.value.values())
+      .filter((run) => run.stage === 'running')
+      .sort((a, b) => a.startedAt - b.startedAt)
+  )
+
+  /** 最近已结束、仍在保留窗口内的任务（方便用户看到成功/失败反馈） */
+  const recentAiTasks = computed<AiTaskRun[]>(() =>
+    Array.from(aiTaskRuns.value.values())
+      .filter((run) => run.stage !== 'running')
+      .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
+  )
+
+  /** 查询某个任务 key 是否在运行——组件绑定按钮 disabled 和 loading 文本 */
+  function isAiTaskRunning(key: string): boolean {
+    return aiTaskRuns.value.get(key)?.stage === 'running'
+  }
+
+  /** 读取单个任务记录（进度面板或特殊 UI 需要 onCancel 时使用） */
+  function getAiTaskRun(key: string): AiTaskRun | undefined {
+    return aiTaskRuns.value.get(key)
+  }
+
+  /**
+   * 执行一次被跟踪的 AI 任务。
+   *
+   * - 同 key 已在运行时直接拒绝，避免重复请求。
+   * - 无论 executor 抛异常还是成功返回，任务都会被标记为结束并在短暂保留后自动清理。
+   * - 返回值是 executor 的返回值，方便调用方继续处理结果。
+   *
+   * @throws 保留 executor 原始错误抛出，让上层可以 try/catch 常规处理。
+   */
+  async function runTrackedAiTask<T>(input: AiTaskRunInput, executor: () => Promise<T>): Promise<T> {
+    if (isAiTaskRunning(input.key)) {
+      throw new Error(`AI 任务「${input.label}」正在进行中，请稍候。`)
+    }
+
+    const run: AiTaskRun = {
+      ...input,
+      startedAt: Date.now(),
+      stage: 'running'
+    }
+
+    replaceTaskRuns((next) => {
+      next.set(input.key, run)
+    })
+
+    try {
+      const result = await executor()
+      finalizeAiTask(input.key, 'done')
+      return result
+    } catch (error) {
+      finalizeAiTask(input.key, 'error', error instanceof Error ? error.message : String(error))
+      throw error
+    }
+  }
+
+  function finalizeAiTask(key: string, stage: 'done' | 'error', error?: string): void {
+    const existing = aiTaskRuns.value.get(key)
+    if (!existing) {
+      return
+    }
+
+    const finishedAt = Date.now()
+    replaceTaskRuns((next) => {
+      next.set(key, { ...existing, stage, finishedAt, error })
+    })
+
+    window.setTimeout(() => {
+      const current = aiTaskRuns.value.get(key)
+      // 只清理那条没被重新启动的任务；新任务会带新的 startedAt
+      if (current && current.startedAt === existing.startedAt && current.stage !== 'running') {
+        replaceTaskRuns((next) => {
+          next.delete(key)
+        })
+      }
+    }, AI_TASK_RETENTION_MS)
+  }
+
+  /** 手动清理一条任务记录（进度面板的"关闭"按钮使用） */
+  function dismissAiTask(key: string): void {
+    const run = aiTaskRuns.value.get(key)
+    if (!run || run.stage === 'running') {
+      return
+    }
+
+    replaceTaskRuns((next) => {
+      next.delete(key)
+    })
+  }
+
+  /** 触发某条任务的取消回调（如果提供了） */
+  function cancelAiTask(key: string): void {
+    const run = aiTaskRuns.value.get(key)
+    if (!run || run.stage !== 'running' || !run.onCancel) {
+      return
+    }
+
+    try {
+      run.onCancel()
+    } catch (error) {
+      console.error('[aiTasks] cancel handler failed:', error)
+    }
+  }
+
   // ── 跨窗口事件监听注册 ──
   // 监听工作区同步事件（来自其他窗口的状态更新）
   window.characterArc.onWorkspaceSync(handleRemoteWorkspaceSync)
@@ -2874,6 +3004,14 @@ export const useAppStore = defineStore('app', () => {
     updatePlotThread,
     updateWorldviewEntry,
     worldviewEntries,
-    persistenceError
+    persistenceError,
+    // ── AI 任务注册表 ──
+    runningAiTasks,
+    recentAiTasks,
+    isAiTaskRunning,
+    getAiTaskRun,
+    runTrackedAiTask,
+    dismissAiTask,
+    cancelAiTask
   }
 })

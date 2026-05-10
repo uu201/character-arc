@@ -47,7 +47,8 @@ const workbench = reactive({
 
 const generatedPrompt = ref<CoverPromptWorkbenchResult | null>(null)
 const generatedPromptFingerprint = ref('')
-const isGeneratingImage = ref(false)
+const AI_COVER_TASK_KEY = 'cover-generate'
+const isGeneratingImage = computed(() => appStore.isAiTaskRunning(AI_COVER_TASK_KEY))
 const revisedPrompt = ref('')
 const previewCoverUrl = ref('')
 
@@ -204,12 +205,21 @@ async function generateCoverImage(): Promise<void> {
     return
   }
 
-  isGeneratingImage.value = true
   try {
-    const result = await window.characterArc.generateImage({
-      settings: toIpcPayload({ ...appStore.appSettings }),
-      prompt: promptResult.prompt
-    })
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: AI_COVER_TASK_KEY,
+        kind: 'cover',
+        label: 'AI 生成封面',
+        description: `正在为《${input.project.title}》渲染封面图`,
+        panel: 'cover-workbench'
+      },
+      () =>
+        window.characterArc.generateImage({
+          settings: toIpcPayload({ ...appStore.appSettings }),
+          prompt: promptResult.prompt
+        })
+    )
     if (!result.success || !result.result?.dataUrl) {
       throw new Error(result.error ?? '图片生成失败')
     }
@@ -225,8 +235,6 @@ async function generateCoverImage(): Promise<void> {
     message.success('AI 封面已生成。')
   } catch (error) {
     message.error(error instanceof Error ? error.message : '图片生成失败')
-  } finally {
-    isGeneratingImage.value = false
   }
 }
 

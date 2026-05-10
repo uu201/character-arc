@@ -11,6 +11,7 @@ import DeconstructionLibraryPage from '@/pages/DeconstructionLibraryPage.vue'
 import SkillsPage from '@/pages/SkillsPage.vue'
 import CoverWorkbenchPage from '@/pages/CoverWorkbenchPage.vue'
 import AssistantWindowPage from '@/pages/AssistantWindowPage.vue'
+import AiTaskProgressDock from '@/components/AiTaskProgressDock.vue'
 import { isAssistantWindow } from '@/utils/windowKind'
 
 // 全局应用状态
@@ -120,6 +121,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalKeydown)
               <WorkbenchPage v-else key="workbench" />
             </Transition>
           </div>
+          <AiTaskProgressDock v-if="!isAssistantWindow" />
         </div>
       </n-dialog-provider>
     </n-message-provider>

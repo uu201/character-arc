@@ -33,7 +33,8 @@ const props = defineProps<{
   searchQuery?: string // 全局搜索关键词，由父组件传入
 }>()
 const message = useMessage()
-const isGenerating = ref(false) // AI 生成角色时的加载状态
+const AI_TASK_KEY = 'character-card'
+const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY)) // AI 生成角色时的加载状态（走全局注册表）
 const editorVisible = ref(false) // 控制角色编辑弹窗的显示
 const editingCharacterId = ref<string | null>(null) // 当前正在编辑的角色 ID，null 表示新建模式
 // 角色编辑表单数据
@@ -79,30 +80,38 @@ async function handleGenerateCharacter(): Promise<void> {
     return
   }
 
-  isGenerating.value = true
-
   try {
-    const result = await window.characterArc.generateAi(toIpcPayload({
-      task: 'character-card',
-      settings: appStore.appSettings,
-      context: {
-        projectTitle: appStore.currentProject?.title,
-        projectGenre: appStore.currentProject?.genre,
-        writingStyleLabel: writingStyle.value.label,
-        writingStylePrompt: writingStyle.value.prompt,
-        characterNames: appStore.characters.map((character) => character.name),
-        worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
-        organizations: appStore.organizations,
-        characterRelationships: appStore.characterRelationships,
-        organizationMemberships: appStore.organizationMemberships,
-        characters: appStore.characters.map((character) => ({
-          id: character.id,
-          name: character.name,
-          role: character.role,
-          description: character.description
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: AI_TASK_KEY,
+        kind: 'character',
+        label: 'AI 生成角色',
+        description: '正在根据当前世界观与已有角色生成新的角色草稿',
+        panel: 'characters'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'character-card',
+          settings: appStore.appSettings,
+          context: {
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            characterNames: appStore.characters.map((character) => character.name),
+            worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
+            organizations: appStore.organizations,
+            characterRelationships: appStore.characterRelationships,
+            organizationMemberships: appStore.organizationMemberships,
+            characters: appStore.characters.map((character) => ({
+              id: character.id,
+              name: character.name,
+              role: character.role,
+              description: character.description
+            }))
+          }
         }))
-      }
-    }))
+    )
 
     if (!result.success || !result.result) {
       throw new Error(result.error ?? 'AI 生成角色失败，请检查模型配置')
@@ -124,8 +133,6 @@ async function handleGenerateCharacter(): Promise<void> {
     message.success('AI 已生成新的角色草稿')
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 生成角色失败，请检查模型配置')
-  } finally {
-    isGenerating.value = false
   }
 }
 

@@ -19,8 +19,20 @@ const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
-const isExpanding = ref(false) // AI 扩写大纲时的加载状态
-const expandingVolumeId = ref<string | null>(null)
+const AI_TASK_EXPAND_ITEM = 'outline-item'
+const AI_TASK_EXPAND_VOLUME_PREFIX = 'outline-volume:'
+// 通过响应式注册表读取 loading 态，切换面板不会丢
+const isExpanding = computed(() => appStore.isAiTaskRunning(AI_TASK_EXPAND_ITEM))
+function expandVolumeTaskKey(volumeId: string): string {
+  return `${AI_TASK_EXPAND_VOLUME_PREFIX}${volumeId}`
+}
+function isExpandingVolume(volumeId: string): boolean {
+  return appStore.isAiTaskRunning(expandVolumeTaskKey(volumeId))
+}
+// 是否有任一分卷正在补全（用于禁用其他分卷的补全按钮，避免并发冲突）
+const isAnyVolumeExpanding = computed(() =>
+  appStore.outlineVolumes.some((volume) => isExpandingVolume(volume.id))
+)
 const editorVisible = ref(false) // 控制大纲节点编辑弹窗
 const volumeEditorVisible = ref(false) // 控制分卷编辑弹窗
 const editingOutlineId = ref<string | null>(null) // 当前编辑的大纲节点 ID
@@ -96,21 +108,29 @@ async function handleExpandOutline(): Promise<void> {
     return
   }
 
-  isExpanding.value = true
-
   try {
-    const result = await window.characterArc.generateAi(toIpcPayload({
-      task: 'outline-item',
-      settings: appStore.appSettings,
-      context: {
-        projectTitle: appStore.currentProject?.title,
-        projectGenre: appStore.currentProject?.genre,
-        writingStyleLabel: writingStyle.value.label,
-        writingStylePrompt: writingStyle.value.prompt,
-        outlineTitles: appStore.outlineItems.map((item) => item.title),
-        worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
-      }
-    }))
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: AI_TASK_EXPAND_ITEM,
+        kind: 'outline',
+        label: 'AI 扩写大纲',
+        description: '正在补充一条剧情大纲节点',
+        panel: 'outline'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'outline-item',
+          settings: appStore.appSettings,
+          context: {
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            outlineTitles: appStore.outlineItems.map((item) => item.title),
+            worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
+          }
+        }))
+    )
 
     if (!result.success || !result.result) {
       throw new Error(result.error ?? 'AI 扩写大纲失败，请检查模型配置')
@@ -135,49 +155,60 @@ async function handleExpandOutline(): Promise<void> {
     message.success('AI 已补充新的大纲节点')
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 扩写大纲失败，请检查模型配置')
-  } finally {
-    isExpanding.value = false
   }
 }
 
 async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
-  if (expandingVolumeId.value) {
+  const taskKey = expandVolumeTaskKey(volume.id)
+  if (isAnyVolumeExpanding.value) {
     return
   }
 
-  expandingVolumeId.value = volume.id
-
   try {
-    const result = await window.characterArc.generateAi(toIpcPayload({
-      task: 'outline-batch',
-      settings: appStore.appSettings,
-      context: {
-        projectTitle: appStore.currentProject?.title,
-        projectGenre: appStore.currentProject?.genre,
-        writingStyleLabel: writingStyle.value.label,
-        writingStylePrompt: writingStyle.value.prompt,
-        chapterVolumeTitle: volume.title,
-        chapterVolumeSummary: volume.summary,
-        chapterVolumeWordTarget: volume.wordTarget,
-        outlineTitles: appStore.outlineItems.map((item) => item.title),
-        worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
-        characters: appStore.characters.map((character) => ({
-          name: character.name,
-          role: character.role,
-          description: character.description
-        })),
-        currentVolumeOutlineItems: appStore.outlineItems
-          .filter((item) => item.volumeId === volume.id)
-          .map((item) => ({
-            title: item.title,
-            conflict: item.conflict,
-            summary: item.summary,
-            status: item.status
-          })),
-        projectSkills: await loadEnabledProjectSkillsContext(appStore.currentProject, 'outline'),
-        userPrompt: '请优先补足当前分卷从现有节点往后最需要的 3 到 5 个剧情节点。'
-      }
-    }))
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: taskKey,
+        kind: 'outline',
+        label: `AI 补全分卷·${volume.title}`,
+        description: `正在为《${volume.title}》补充 3-5 个剧情节点`,
+        panel: 'outline'
+      },
+      () =>
+        (async () => {
+          // loadEnabledProjectSkillsContext 是 async 的，这里保留和原逻辑一致的入参构造顺序
+          const projectSkills = await loadEnabledProjectSkillsContext(appStore.currentProject, 'outline')
+          return window.characterArc.generateAi(toIpcPayload({
+            task: 'outline-batch',
+            settings: appStore.appSettings,
+            context: {
+              projectTitle: appStore.currentProject?.title,
+              projectGenre: appStore.currentProject?.genre,
+              writingStyleLabel: writingStyle.value.label,
+              writingStylePrompt: writingStyle.value.prompt,
+              chapterVolumeTitle: volume.title,
+              chapterVolumeSummary: volume.summary,
+              chapterVolumeWordTarget: volume.wordTarget,
+              outlineTitles: appStore.outlineItems.map((item) => item.title),
+              worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
+              characters: appStore.characters.map((character) => ({
+                name: character.name,
+                role: character.role,
+                description: character.description
+              })),
+              currentVolumeOutlineItems: appStore.outlineItems
+                .filter((item) => item.volumeId === volume.id)
+                .map((item) => ({
+                  title: item.title,
+                  conflict: item.conflict,
+                  summary: item.summary,
+                  status: item.status
+                })),
+              projectSkills,
+              userPrompt: '请优先补足当前分卷从现有节点往后最需要的 3 到 5 个剧情节点。'
+            }
+          }))
+        })()
+    )
 
     if (!result.success || !result.result) {
       throw new Error(result.error ?? '分卷批量大纲生成失败，请检查模型配置')
@@ -226,8 +257,6 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
     message.success(`已为 ${volume.title} 补充 ${entries.length} 个大纲节点`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : '分卷批量大纲生成失败，请稍后重试')
-  } finally {
-    expandingVolumeId.value = null
   }
 }
 
@@ -479,10 +508,10 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
               round
               strong
               secondary
-              :disabled="Boolean(expandingVolumeId)"
+              :disabled="isAnyVolumeExpanding"
               @click="handleExpandVolumeOutline(group.volume)"
             >
-              {{ expandingVolumeId === group.volume.id ? '补全中...' : 'AI补本卷' }}
+              {{ isExpandingVolume(group.volume.id) ? '补全中...' : 'AI补本卷' }}
             </n-button>
             <n-button round type="primary" strong @click="handleCreateOutline(group.volume.id)">新增节点</n-button>
           </div>

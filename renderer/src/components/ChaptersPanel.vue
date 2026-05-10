@@ -56,12 +56,22 @@ const saveState = ref<'typing' | 'idle'>('idle') // 输入状态指示：typing 
 const editorVisible = ref(false) // 控制章节信息编辑弹窗
 const versionHistoryVisible = ref(false) // 控制历史版本弹窗
 const chapterDraftModalVisible = ref(false)
-const isGeneratingInspiration = ref(false) // AI 生成章节灵感时的加载状态
-const isGeneratingOutlineChain = ref(false)
-const isGeneratingChapterDraft = ref(false)
+
+// ── AI 任务 key（统一走全局注册表，切换面板不会把 loading 状态丢掉）──
+const AI_TASK_CHAPTER_INSPIRATION = 'chapter-inspiration'
+const AI_TASK_CHAPTER_OUTLINE_CHAIN = 'chapter-outline-chain'
+const AI_TASK_CHAPTER_DRAFT = 'chapter-first-draft'
+const AI_TASK_CHAPTER_SUMMARY = 'chapter-summary'
+const AI_TASK_CHAPTER_THREAD_DETECT = 'plot-thread-detect'
+
+const isGeneratingInspiration = computed(() => appStore.isAiTaskRunning(AI_TASK_CHAPTER_INSPIRATION))
+const isGeneratingOutlineChain = computed(() => appStore.isAiTaskRunning(AI_TASK_CHAPTER_OUTLINE_CHAIN))
+const isGeneratingChapterDraft = computed(() => appStore.isAiTaskRunning(AI_TASK_CHAPTER_DRAFT))
+const isGeneratingSummary = computed(() => appStore.isAiTaskRunning(AI_TASK_CHAPTER_SUMMARY))
+const isDetectingThreads = computed(() => appStore.isAiTaskRunning(AI_TASK_CHAPTER_THREAD_DETECT))
+
+// 停止操作过程中的瞬时 UI 态，和"任务是否运行"是两回事，留在本地
 const isStoppingChapterDraft = ref(false)
-const isGeneratingSummary = ref(false) // AI 自动生成章节摘要时的加载状态
-const isDetectingThreads = ref(false) // AI 识别伏笔时的加载状态
 const detectedThreads = ref<Array<{ title: string; description: string; tags: string[]; selected: boolean }>>([])
 const threadDetectChapterId = ref<string | null>(null)
 const threadDetectVisible = ref(false)
@@ -492,54 +502,71 @@ async function queueChapterAssistantQuickAction(actionId: string): Promise<void>
       return
     }
 
+    const humanizeTaskKey = 'chapter-humanize'
+    if (appStore.isAiTaskRunning(humanizeTaskKey)) {
+      message.info('已有降低 AI 感任务在运行，请稍候')
+      return
+    }
+
     try {
-      const projectSkills = await loadEnabledProjectSkillsContext(appStore.currentProject, 'draft')
-      const assistantContext = buildChapterAssistantContext({
-        project: appStore.currentProject,
-        chapter: appStore.selectedChapter,
-        chapterVolume: appStore.selectedChapterVolume,
-        relatedChapters: appStore.chapters
-          .filter((item) => item.volumeId === appStore.selectedChapter?.volumeId)
-          .filter((item) => item.id !== appStore.selectedChapter?.id)
-          .slice(0, 2)
-          .map((item) => ({
-            title: item.title,
-            summary: item.summary,
-            preview: getChapterPreviewText(item.content, '该章节暂无正文')
-          })),
-        volumeChapterSummaries: appStore.chapters
-          .filter((item) => item.volumeId === appStore.selectedChapter?.volumeId && item.id !== appStore.selectedChapter?.id)
-          .map((item) => ({
-            title: item.title,
-            summary: item.summary
-          })),
-        novelOpenerSummary: appStore.chapters[0] && appStore.chapters[0].id !== appStore.selectedChapter.id
-          ? { title: appStore.chapters[0].title, summary: appStore.chapters[0].summary }
-          : undefined,
-        recentMessages: appStore.messages.slice(-4).map((item) => ({ role: item.role, content: item.content })),
-        worldviewEntries: appStore.worldviewEntries,
-        characters: appStore.characters,
-        organizations: appStore.organizations,
-        characterRelationships: appStore.characterRelationships,
-        organizationMemberships: appStore.organizationMemberships,
-        inspirationEntries: appStore.inspirationEntries,
-        outlineItems: appStore.outlineItems,
-        plotThreads: appStore.plotThreads,
-        workflowDocuments: appStore.workflowDocuments,
-        knowledgeDocuments: appStore.knowledgeDocuments,
-        selectedText,
-        responseMode: action.mode,
-        responseLength: action.length,
-        quickAction: action.label,
-        userPrompt: action.prompt,
-        chapterContent: getPlainTextFromEditorContent(appStore.selectedChapter.content ?? ''),
-        projectSkills
-      })
-      const response = await window.characterArc.generateAi(toIpcPayload({
-        task: 'chapter-assistant',
-        settings: appStore.appSettings,
-        context: assistantContext
-      }))
+      const response = await appStore.runTrackedAiTask(
+        {
+          key: humanizeTaskKey,
+          kind: 'chapter-assistant',
+          label: '降低 AI 感润色',
+          description: '正在对选中文本做人化改写',
+          panel: 'chapters'
+        },
+        async () => {
+          const projectSkills = await loadEnabledProjectSkillsContext(appStore.currentProject, 'draft')
+          const assistantContext = buildChapterAssistantContext({
+            project: appStore.currentProject,
+            chapter: appStore.selectedChapter,
+            chapterVolume: appStore.selectedChapterVolume,
+            relatedChapters: appStore.chapters
+              .filter((item) => item.volumeId === appStore.selectedChapter?.volumeId)
+              .filter((item) => item.id !== appStore.selectedChapter?.id)
+              .slice(0, 2)
+              .map((item) => ({
+                title: item.title,
+                summary: item.summary,
+                preview: getChapterPreviewText(item.content, '该章节暂无正文')
+              })),
+            volumeChapterSummaries: appStore.chapters
+              .filter((item) => item.volumeId === appStore.selectedChapter?.volumeId && item.id !== appStore.selectedChapter?.id)
+              .map((item) => ({
+                title: item.title,
+                summary: item.summary
+              })),
+            novelOpenerSummary: appStore.chapters[0] && appStore.chapters[0].id !== appStore.selectedChapter!.id
+              ? { title: appStore.chapters[0].title, summary: appStore.chapters[0].summary }
+              : undefined,
+            recentMessages: appStore.messages.slice(-4).map((item) => ({ role: item.role, content: item.content })),
+            worldviewEntries: appStore.worldviewEntries,
+            characters: appStore.characters,
+            organizations: appStore.organizations,
+            characterRelationships: appStore.characterRelationships,
+            organizationMemberships: appStore.organizationMemberships,
+            inspirationEntries: appStore.inspirationEntries,
+            outlineItems: appStore.outlineItems,
+            plotThreads: appStore.plotThreads,
+            workflowDocuments: appStore.workflowDocuments,
+            knowledgeDocuments: appStore.knowledgeDocuments,
+            selectedText,
+            responseMode: action.mode,
+            responseLength: action.length,
+            quickAction: action.label,
+            userPrompt: action.prompt,
+            chapterContent: getPlainTextFromEditorContent(appStore.selectedChapter!.content ?? ''),
+            projectSkills
+          })
+          return window.characterArc.generateAi(toIpcPayload({
+            task: 'chapter-assistant',
+            settings: appStore.appSettings,
+            context: assistantContext
+          }))
+        }
+      )
       const result = (response.result as { result?: { content?: string } } | undefined)?.result
       const revisedContent = String(result?.content ?? '').trim()
       if (!response.success || !revisedContent) {
@@ -596,30 +623,38 @@ async function requestChapterInspiration(focusType: (typeof chapterInspirationFo
     return
   }
 
-  isGeneratingInspiration.value = true
-
   try {
-    const result = await window.characterArc.generateAi(toIpcPayload({
-      task: 'inspiration-pack',
-      settings: appStore.appSettings,
-      context: {
-        projectTitle: appStore.currentProject?.title,
-        projectGenre: appStore.currentProject?.genre,
-        writingStyleLabel: writingStyle.value.label,
-        writingStylePrompt: writingStyle.value.prompt,
-        chapterTitle: chapter.title,
-        chapterSummary: chapter.summary,
-        chapterContent: currentPlainContent.value,
-        focusType,
-        existingInspirationTitles: appStore.inspirationEntries.map((entry) => entry.title),
-        worldviewEntries: appStore.worldviewEntries,
-        characters: appStore.characters,
-        organizations: appStore.organizations,
-        characterRelationships: appStore.characterRelationships,
-        organizationMemberships: appStore.organizationMemberships,
-        outlineItems: appStore.outlineItems
-      }
-    }))
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: AI_TASK_CHAPTER_INSPIRATION,
+        kind: 'inspiration',
+        label: 'AI 生成本章灵感',
+        description: `正在为《${chapter.title}》生成「${focusType}」灵感卡片`,
+        panel: 'chapters'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'inspiration-pack',
+          settings: appStore.appSettings,
+          context: {
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            chapterTitle: chapter.title,
+            chapterSummary: chapter.summary,
+            chapterContent: currentPlainContent.value,
+            focusType,
+            existingInspirationTitles: appStore.inspirationEntries.map((entry) => entry.title),
+            worldviewEntries: appStore.worldviewEntries,
+            characters: appStore.characters,
+            organizations: appStore.organizations,
+            characterRelationships: appStore.characterRelationships,
+            organizationMemberships: appStore.organizationMemberships,
+            outlineItems: appStore.outlineItems
+          }
+        }))
+    )
 
     if (!result.success || !result.result) {
       throw new Error(result.error ?? '本章灵感生成失败，请检查模型配置')
@@ -644,8 +679,6 @@ async function requestChapterInspiration(focusType: (typeof chapterInspirationFo
     message.success(`已为当前章节生成 ${entries.length} 张${focusType}灵感卡`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : '本章灵感生成失败，请稍后重试')
-  } finally {
-    isGeneratingInspiration.value = false
   }
 }
 
@@ -748,47 +781,57 @@ async function generateNextOutlineChain(): Promise<void> {
     return
   }
 
-  isGeneratingOutlineChain.value = true
-
   try {
-    const result = await window.characterArc.generateAi(toIpcPayload({
-      task: 'outline-chain',
-      settings: appStore.appSettings,
-      context: {
-        projectTitle: appStore.currentProject?.title,
-        projectGenre: appStore.currentProject?.genre,
-        writingStyleLabel: writingStyle.value.label,
-        writingStylePrompt: writingStyle.value.prompt,
-        chapterVolumeTitle: volume.title,
-        chapterVolumeSummary: volume.summary,
-        chapterTitle: chapter.title,
-        chapterSummary: chapter.summary,
-        chapterStatus: chapter.status,
-        chapterContent: currentPlainContent.value,
-        currentOutlineItem: {
-          title: outline.title,
-          conflict: outline.conflict,
-          summary: outline.summary,
-          status: outline.status
-        },
-        currentVolumeOutlineItems: appStore.outlineItems
-            .filter((item) => item.volumeId === volume.id)
-            .map((item) => ({
-              title: item.title,
-              conflict: item.conflict,
-              summary: item.summary,
-              status: item.status
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: AI_TASK_CHAPTER_OUTLINE_CHAIN,
+        kind: 'outline',
+        label: 'AI 生成后续剧情链',
+        description: `基于《${chapter.title}》规划后续剧情节点`,
+        panel: 'chapters'
+      },
+      async () => {
+        const projectSkills = await loadEnabledProjectSkillsContext(appStore.currentProject, 'draft')
+        return window.characterArc.generateAi(toIpcPayload({
+          task: 'outline-chain',
+          settings: appStore.appSettings,
+          context: {
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            chapterVolumeTitle: volume.title,
+            chapterVolumeSummary: volume.summary,
+            chapterTitle: chapter.title,
+            chapterSummary: chapter.summary,
+            chapterStatus: chapter.status,
+            chapterContent: currentPlainContent.value,
+            currentOutlineItem: {
+              title: outline.title,
+              conflict: outline.conflict,
+              summary: outline.summary,
+              status: outline.status
+            },
+            currentVolumeOutlineItems: appStore.outlineItems
+                .filter((item) => item.volumeId === volume.id)
+                .map((item) => ({
+                  title: item.title,
+                  conflict: item.conflict,
+                  summary: item.summary,
+                  status: item.status
+                })),
+            worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
+            characters: appStore.characters.map((character) => ({
+              name: character.name,
+              role: character.role,
+              description: character.description
             })),
-        worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
-        characters: appStore.characters.map((character) => ({
-          name: character.name,
-          role: character.role,
-          description: character.description
-        })),
-        projectSkills: await loadEnabledProjectSkillsContext(appStore.currentProject, 'draft'),
-        userPrompt: '请紧接当前章节之后，连续规划下一段剧情链。'
+            projectSkills,
+            userPrompt: '请紧接当前章节之后，连续规划下一段剧情链。'
+          }
+        }))
       }
-    }))
+    )
 
     if (!result.success || !result.result) {
       throw new Error(result.error ?? '后续剧情链生成失败，请检查模型配置')
@@ -836,8 +879,6 @@ async function generateNextOutlineChain(): Promise<void> {
     message.success(`已在当前节点后补充 ${entries.length} 个后续剧情节点`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : '后续剧情链生成失败，请稍后重试')
-  } finally {
-    isGeneratingOutlineChain.value = false
   }
 }
 
@@ -876,66 +917,80 @@ async function generateChapterFirstDraft(): Promise<void> {
     return
   }
 
-  isGeneratingChapterDraft.value = true
   isStoppingChapterDraft.value = false
   chapterDraftStreamingContent.value = ''
   chapterDraftExecutionLabel.value = '正在整理本章上下文'
   chapterDraftModalVisible.value = true
   try {
-    const targetWordCount = parseChapterWordTarget(chapter.wordTarget)
-    const relatedChapters = appStore.chapters
-      .filter((item) => item.id !== chapter.id)
-      .slice(-4)
-      .map((item) => ({
-        title: item.title,
-        summary: item.summary,
-        preview: getChapterPreviewText(item.content, '该章节暂无正文')
-      }))
+    await appStore.runTrackedAiTask(
+      {
+        key: AI_TASK_CHAPTER_DRAFT,
+        kind: 'chapter-draft',
+        label: 'AI 生成章节初稿',
+        description: `正在生成《${chapter.title}》初稿`,
+        panel: 'chapters',
+        // 进度面板上会自动显示"停止"按钮，等效于弹窗里的那个
+        onCancel: () => {
+          void stopChapterFirstDraft()
+        }
+      },
+      async () => {
+        const targetWordCount = parseChapterWordTarget(chapter.wordTarget)
+        const relatedChapters = appStore.chapters
+          .filter((item) => item.id !== chapter.id)
+          .slice(-4)
+          .map((item) => ({
+            title: item.title,
+            summary: item.summary,
+            preview: getChapterPreviewText(item.content, '该章节暂无正文')
+          }))
 
-    const relatedTitles = new Set(relatedChapters.map((r) => r.title))
-    const volumeChapterSummaries = appStore.chapters
-      .filter((c) => c.volumeId === chapter.volumeId && c.id !== chapter.id && !relatedTitles.has(c.title))
-      .map((c) => ({ title: c.title, summary: c.summary }))
+        const relatedTitles = new Set(relatedChapters.map((r) => r.title))
+        const volumeChapterSummaries = appStore.chapters
+          .filter((c) => c.volumeId === chapter.volumeId && c.id !== chapter.id && !relatedTitles.has(c.title))
+          .map((c) => ({ title: c.title, summary: c.summary }))
 
-    const firstChapter = appStore.chapters[0]
-    const novelOpenerSummary =
-      firstChapter && firstChapter.id !== chapter.id && !relatedTitles.has(firstChapter.title)
-        ? { title: firstChapter.title, summary: firstChapter.summary }
-        : undefined
+        const firstChapter = appStore.chapters[0]
+        const novelOpenerSummary =
+          firstChapter && firstChapter.id !== chapter.id && !relatedTitles.has(firstChapter.title)
+            ? { title: firstChapter.title, summary: firstChapter.summary }
+            : undefined
 
-    const currentChapterContent = currentPlainContent.value
-    const baseContext = buildChapterFirstDraftContext({
-      project,
-      chapter,
-      chapterVolume,
-      relatedChapters,
-      volumeChapterSummaries,
-      novelOpenerSummary,
-      worldviewEntries: appStore.worldviewEntries,
-      characters: appStore.characters,
-      organizations: appStore.organizations,
-      characterRelationships: appStore.characterRelationships,
-      organizationMemberships: appStore.organizationMemberships,
-      inspirationEntries: appStore.inspirationEntries,
-      outlineItems: appStore.outlineItems.filter((item) => item.volumeId === chapter.volumeId),
-      plotThreads: appStore.plotThreads,
-      chapterContent: currentChapterContent,
-      targetWordCount,
-      userPrompt: `请生成这一章的完整初稿，目标字数约 ${targetWordCount} 字（参考值，优先保证情节自然完整）。如果当前正文为空，就从零起稿；如果当前正文不为空，也按整章重写处理，而不是续写。`,
-      projectSkills: await loadEnabledProjectSkillsContext(project, 'draft')
-    })
+        const currentChapterContent = currentPlainContent.value
+        const baseContext = buildChapterFirstDraftContext({
+          project,
+          chapter,
+          chapterVolume,
+          relatedChapters,
+          volumeChapterSummaries,
+          novelOpenerSummary,
+          worldviewEntries: appStore.worldviewEntries,
+          characters: appStore.characters,
+          organizations: appStore.organizations,
+          characterRelationships: appStore.characterRelationships,
+          organizationMemberships: appStore.organizationMemberships,
+          inspirationEntries: appStore.inspirationEntries,
+          outlineItems: appStore.outlineItems.filter((item) => item.volumeId === chapter.volumeId),
+          plotThreads: appStore.plotThreads,
+          chapterContent: currentChapterContent,
+          targetWordCount,
+          userPrompt: `请生成这一章的完整初稿，目标字数约 ${targetWordCount} 字（参考值，优先保证情节自然完整）。如果当前正文为空，就从零起稿；如果当前正文不为空，也按整章重写处理，而不是续写。`,
+          projectSkills: await loadEnabledProjectSkillsContext(project, 'draft')
+        })
 
-    // 一次性流式：不再做 scene plan + per-scene 循环，让模型按完整章节统一规划场景与节奏
-    chapterDraftExecutionLabel.value = `正在生成本章初稿（目标约 ${targetWordCount} 字）…`
-    const fullText = await streamOneScene(baseContext, '')
+        // 一次性流式：不再做 scene plan + per-scene 循环，让模型按完整章节统一规划场景与节奏
+        chapterDraftExecutionLabel.value = `正在生成本章初稿（目标约 ${targetWordCount} 字）…`
+        const fullText = await streamOneScene(baseContext, '')
 
-    if (fullText) {
-      chapterDraftExecutionLabel.value = '正在覆盖当前章节'
-      appStore.updateChapterContent(ensureEditorHtmlContent(fullText))
-      message.success(`AI 已覆盖当前章节，目标约 ${formatChapterWordTargetLabel(currentTargetWordCount.value)}`)
-    } else {
-      message.warning('AI 没有返回可用的初稿内容')
-    }
+        if (fullText) {
+          chapterDraftExecutionLabel.value = '正在覆盖当前章节'
+          appStore.updateChapterContent(ensureEditorHtmlContent(fullText))
+          message.success(`AI 已覆盖当前章节，目标约 ${formatChapterWordTargetLabel(currentTargetWordCount.value)}`)
+        } else {
+          message.warning('AI 没有返回可用的初稿内容')
+        }
+      }
+    )
     resetChapterDraftStreamingState()
   } catch (error) {
     const isCanceled = error instanceof Error && error.message === 'canceled'
@@ -965,7 +1020,7 @@ async function stopChapterFirstDraft(): Promise<void> {
 function resetChapterDraftStreamingState(): void {
   chapterDraftStreamId.value = null
   chapterDraftExecutionLabel.value = ''
-  isGeneratingChapterDraft.value = false
+  // isGeneratingChapterDraft 由 runTrackedAiTask 自动收敛，这里只清本地的瞬时态
   isStoppingChapterDraft.value = false
 }
 
@@ -978,16 +1033,25 @@ async function generateChapterSummary(): Promise<void> {
     return
   }
 
-  isGeneratingSummary.value = true
   try {
-    const result = await window.characterArc.generateAi(toIpcPayload({
-      task: 'chapter-summarize',
-      settings: appStore.appSettings,
-      context: {
-        chapterTitle: chapter.title,
-        chapterContent: plainContent
-      }
-    }))
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: AI_TASK_CHAPTER_SUMMARY,
+        kind: 'chapter-summary',
+        label: 'AI 生成章节摘要',
+        description: `为《${chapter.title}》提炼摘要`,
+        panel: 'chapters'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'chapter-summarize',
+          settings: appStore.appSettings,
+          context: {
+            chapterTitle: chapter.title,
+            chapterContent: plainContent
+          }
+        }))
+    )
 
     if (!result.success) {
       throw new Error(result.error ?? 'AI 摘要生成失败')
@@ -1008,8 +1072,6 @@ async function generateChapterSummary(): Promise<void> {
     }
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 摘要生成失败')
-  } finally {
-    isGeneratingSummary.value = false
   }
 }
 
@@ -1031,7 +1093,6 @@ async function detectPlotThreads(chapter: ChapterDraft): Promise<void> {
     return
   }
 
-  isDetectingThreads.value = true
   threadDetectChapterId.value = chapter.id
   const loadingMsg = message.loading('正在分析正文，识别潜在伏笔…', { duration: 0 })
 
@@ -1040,15 +1101,25 @@ async function detectPlotThreads(chapter: ChapterDraft): Promise<void> {
       .filter((t) => t.status === 'open')
       .map((t) => t.title)
 
-    const result = await window.characterArc.generateAi(toIpcPayload({
-      task: 'plot-thread-detect',
-      settings: appStore.appSettings,
-      context: {
-        chapterTitle: chapter.title || '未命名章节',
-        chapterContent: plainText.slice(0, 6000),
-        existingThreads
-      }
-    }))
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: AI_TASK_CHAPTER_THREAD_DETECT,
+        kind: 'plot-thread',
+        label: 'AI 识别伏笔',
+        description: `扫描《${chapter.title || '未命名章节'}》的潜在伏笔`,
+        panel: 'chapters'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'plot-thread-detect',
+          settings: appStore.appSettings,
+          context: {
+            chapterTitle: chapter.title || '未命名章节',
+            chapterContent: plainText.slice(0, 6000),
+            existingThreads
+          }
+        }))
+    )
 
     loadingMsg.destroy()
 
@@ -1079,8 +1150,6 @@ async function detectPlotThreads(chapter: ChapterDraft): Promise<void> {
     loadingMsg.destroy()
     message.error(error instanceof Error ? error.message : 'AI 识别伏笔失败，请稍后重试')
     console.error('[detect-threads]', error)
-  } finally {
-    isDetectingThreads.value = false
   }
 }
 

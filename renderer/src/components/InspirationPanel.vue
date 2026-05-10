@@ -27,7 +27,8 @@ const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
-const isGenerating = ref(false) // AI 生成灵感时的加载状态
+const AI_TASK_KEY = 'inspiration-pack'
+const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY)) // 走全局注册表，跨面板保持状态
 const editorVisible = ref(false) // 控制灵感编辑弹窗
 const editingEntryId = ref<string | null>(null) // 当前编辑的灵感 ID，null 为新建
 const selectedFocus = ref('场景火花') // 当前选中的灵感焦点类型
@@ -113,30 +114,38 @@ async function handleGeneratePack(): Promise<void> {
     return
   }
 
-  isGenerating.value = true
-
   try {
-    const result = await window.characterArc.generateAi(toIpcPayload({
-      task: 'inspiration-pack',
-      settings: appStore.appSettings,
-      context: {
-        projectTitle: appStore.currentProject?.title,
-        projectGenre: appStore.currentProject?.genre,
-        writingStyleLabel: writingStyle.value.label,
-        writingStylePrompt: writingStyle.value.prompt,
-        chapterTitle: appStore.selectedChapter?.title,
-        chapterSummary: appStore.selectedChapter?.summary,
-        chapterContent: selectedChapterText.value,
-        focusType: selectedFocus.value,
-        existingInspirationTitles: appStore.inspirationEntries.map((entry) => entry.title),
-        worldviewEntries: appStore.worldviewEntries,
-        characters: appStore.characters,
-        organizations: appStore.organizations,
-        characterRelationships: appStore.characterRelationships,
-        organizationMemberships: appStore.organizationMemberships,
-        outlineItems: appStore.outlineItems
-      }
-    }))
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: AI_TASK_KEY,
+        kind: 'inspiration',
+        label: 'AI 生成灵感',
+        description: `正在生成「${selectedFocus.value}」主题的灵感卡片`,
+        panel: 'inspiration'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'inspiration-pack',
+          settings: appStore.appSettings,
+          context: {
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            chapterTitle: appStore.selectedChapter?.title,
+            chapterSummary: appStore.selectedChapter?.summary,
+            chapterContent: selectedChapterText.value,
+            focusType: selectedFocus.value,
+            existingInspirationTitles: appStore.inspirationEntries.map((entry) => entry.title),
+            worldviewEntries: appStore.worldviewEntries,
+            characters: appStore.characters,
+            organizations: appStore.organizations,
+            characterRelationships: appStore.characterRelationships,
+            organizationMemberships: appStore.organizationMemberships,
+            outlineItems: appStore.outlineItems
+          }
+        }))
+    )
 
     if (!result.success || !result.result) {
       throw new Error(result.error ?? 'AI 生成灵感失败，请检查模型配置')
@@ -161,8 +170,6 @@ async function handleGeneratePack(): Promise<void> {
     message.success(`已生成 ${entries.length} 张${selectedFocus.value}灵感卡片`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 生成灵感失败，请稍后重试')
-  } finally {
-    isGenerating.value = false
   }
 }
 

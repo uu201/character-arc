@@ -17,7 +17,9 @@ const dialog = useDialog()
 const message = useMessage()
 // 根据当前项目配置生成写作风格上下文，供 AI 生成时参考
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
-const isGenerating = ref(false) // AI 生成中的加载状态
+// 本面板唯一 AI 任务 key；交给全局注册表后切换面板仍能保持 loading 态
+const AI_TASK_KEY = 'worldview-entry'
+const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY))
 const editorVisible = ref(false) // 控制词条编辑弹窗的显示
 const editingEntryId = ref<string | null>(null) // 当前正在编辑的词条 ID，null 表示新建模式
 // 词条编辑表单数据
@@ -76,20 +78,28 @@ async function handleGenerateEntry(): Promise<void> {
     return
   }
 
-  isGenerating.value = true
-
   try {
-    const result = await window.characterArc.generateAi(toIpcPayload({
-      task: 'worldview-entry',
-      settings: appStore.appSettings,
-      context: {
-        projectTitle: appStore.currentProject?.title,
-        projectGenre: appStore.currentProject?.genre,
-        writingStyleLabel: writingStyle.value.label,
-        writingStylePrompt: writingStyle.value.prompt,
-        worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
-      }
-    }))
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: AI_TASK_KEY,
+        kind: 'worldview',
+        label: 'AI 扩写世界观',
+        description: '正在为当前项目补写一条世界观词条',
+        panel: 'world'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'worldview-entry',
+          settings: appStore.appSettings,
+          context: {
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
+          }
+        }))
+    )
 
     if (!result.success || !result.result) {
       throw new Error(result.error ?? 'AI 扩写失败，请检查模型配置')
@@ -109,8 +119,6 @@ async function handleGenerateEntry(): Promise<void> {
     message.success('AI 已生成新的世界观词条草稿')
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 扩写失败，请检查模型配置')
-  } finally {
-    isGenerating.value = false
   }
 }
 

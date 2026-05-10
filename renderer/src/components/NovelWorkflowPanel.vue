@@ -31,7 +31,9 @@ const appStore = useAppStore()
 const message = useMessage()
 
 const userPrompt = ref('')
-const isGenerating = ref(false)
+const AI_TASK_KEY = 'workflow-documents'
+// 生成流程文件是面板级任务，跨面板切换时通过全局注册表保留进度
+const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY))
 const editingDocumentKey = ref<WorkflowDocumentKey | null>(null)
 const editingContent = ref('')
 const isEditMode = ref(false)
@@ -221,18 +223,29 @@ async function generateAllDocuments(): Promise<void> {
     return
   }
 
-  isGenerating.value = true
   try {
-    const result = await window.characterArc.generateAi(toIpcPayload({
-      task: 'workflow-documents',
-      settings: appStore.appSettings,
-      context: {
-        ...buildGenerationContext(),
-        projectSkills: await loadEnabledProjectSkillsContext(currentProject.value),
-        userPrompt: userPrompt.value.trim()
-          || '请生成全部流程文件，整合项目现有资料与参考书。'
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: AI_TASK_KEY,
+        kind: 'workflow',
+        label: 'AI 生成流程文件',
+        description: `正在基于当前项目资料整合 ${allDocumentKeys.length} 份流程文件`,
+        panel: 'workflow'
+      },
+      async () => {
+        const projectSkills = await loadEnabledProjectSkillsContext(currentProject.value!)
+        return window.characterArc.generateAi(toIpcPayload({
+          task: 'workflow-documents',
+          settings: appStore.appSettings,
+          context: {
+            ...buildGenerationContext(),
+            projectSkills,
+            userPrompt: userPrompt.value.trim()
+              || '请生成全部流程文件，整合项目现有资料与参考书。'
+          }
+        }))
       }
-    }))
+    )
 
     if (!result.success || !result.result) {
       throw new Error(result.error ?? '流程文件生成失败')
@@ -248,8 +261,6 @@ async function generateAllDocuments(): Promise<void> {
     message.success('已生成全部流程文件')
   } catch (error) {
     message.error(error instanceof Error ? error.message : '流程文件生成失败')
-  } finally {
-    isGenerating.value = false
   }
 }
 
