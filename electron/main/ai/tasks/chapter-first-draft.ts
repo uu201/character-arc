@@ -22,6 +22,7 @@ function resolveTargetWords(context: Record<string, unknown>): number {
 const handler: TaskHandler = {
   name: 'chapter-first-draft',
   outputType: 'text',
+  maxSkills: 6,
   defaultCapabilities: ['settings', 'chapters', 'worldview', 'characters', 'relations', 'outline', 'inspiration', 'writing-style', 'project-skills', 'versioning'],
   buildPrompt(input: PromptBuildInput) {
     const { context, capabilityPreamble, skillsBlock, knowledgeBlock } = input

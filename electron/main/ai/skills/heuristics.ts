@@ -50,7 +50,8 @@ export function buildFullManifest(
     stages: partial?.stages?.length ? partial.stages : heuristic.stages,
     triggers: partial?.triggers?.length ? partial.triggers : heuristic.triggers,
     priority: partial?.priority ?? heuristic.priority,
-    references: partial?.references ?? []
+    references: partial?.references ?? [],
+    required: partial?.required ?? false
   }
 }
 

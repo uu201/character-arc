@@ -84,7 +84,8 @@ function parseManifestBlock(frontmatter: string): Partial<SkillManifest> | null 
     tasks: Array.isArray(result.tasks) ? result.tasks as SkillManifest['tasks'] : undefined,
     stages: Array.isArray(result.stages) ? result.stages as SkillManifest['stages'] : undefined,
     triggers: Array.isArray(result.triggers) ? result.triggers : undefined,
-    priority: typeof result.priority === 'number' ? result.priority : undefined
+    priority: typeof result.priority === 'number' ? result.priority : undefined,
+    required: result.required === true || result.required === 'true' ? true : undefined
   } as Partial<SkillManifest>
 }
 

@@ -19,6 +19,11 @@ export interface TaskHandler {
   normalize(raw: string): AiTaskResult
   validate(result: AiTaskResult): boolean
   resolveMaxTokens?(input: PromptBuildInput): number
+  /**
+   * 本任务最多可使用的 skill 数量。默认 4。
+   * 复杂任务（如 chapter-first-draft）可设为 6，让更多维度的 skill 参与。
+   */
+  maxSkills?: number
 }
 
 function sanitizeJsonText(text: string): string {

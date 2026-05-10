@@ -19,6 +19,15 @@ import { createToolRegistry } from './tools/registry'
 import { buildAgentBehaviorRules, buildSkillIndex } from './system-prompt'
 
 /**
+ * 去掉 SKILL.md 开头的 YAML frontmatter 块（--- ... ---）。
+ */
+function stripSkillFrontmatter(content: string): string {
+  const match = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
+  if (!match) return content
+  return content.slice(match[0].length)
+}
+
+/**
  * 跑一次 agent 模式的 AI 任务。签名与 `runAiTask` 对齐——上层 orchestrator 按白名单
  * 分流到这里时，调用方对返回结构没有任何感知（IPC 仍返回 AiTaskResult）。
  *
@@ -44,6 +53,7 @@ export async function runAgentTask(
   // 候选 skill 仍由现有 matcher 决定（按 task / stage / triggers / priority 打分）。
   // 不同的是：这些 skill 不再被整段 stuff 进 prompt——只暴露 id+description 作为索引，
   // 主体由模型按需通过 skill_load 加载。
+  // 例外：manifest.required === true 的 skill 会被直接注入 system prompt，不依赖模型决策。
   const candidateSkills = await pickSkillsFor(task, resolveEnabledSkillOverrides(task, projectId))
   const usedSkillIds = candidateSkills.map((s) => s.id)
   logSelection(task.task, candidateSkills, knowledgeContext?.usedKnowledge ?? [])
@@ -56,7 +66,19 @@ export async function runAgentTask(
   const candidateSkillDefs = candidateSkills
     .map((sel) => getSkillById(sel.id, projectId || undefined))
     .filter((s): s is NonNullable<typeof s> => Boolean(s))
-  const systemPrompt = `${prompt.system}\n${buildSkillIndex(candidateSkillDefs)}\n${buildAgentBehaviorRules()}`
+
+  // 分离 required skills：直接注入 system prompt，不走 tool_use 加载
+  const requiredSkillDefs = candidateSkillDefs.filter((s) => s.manifest.required)
+  const optionalSkillDefs = candidateSkillDefs.filter((s) => !s.manifest.required)
+
+  const requiredSkillBlock = requiredSkillDefs.length
+    ? `\n\n## 强制生效的 SKILLS（已直接注入，无需调用 skill_load）\n\n${requiredSkillDefs.map((s) => {
+        const body = stripSkillFrontmatter(s.content).trim().slice(0, 2000)
+        return `### ${s.name}\n${body}`
+      }).join('\n\n')}`
+    : ''
+
+  const systemPrompt = `${prompt.system}${requiredSkillBlock}\n${buildSkillIndex(optionalSkillDefs)}\n${buildAgentBehaviorRules()}`
 
   // 工具注册：模型可以按 id 加载任何已发现的 skill；matcher 只决定 index 里展示哪些。
   const skillTools = createSkillTools({
