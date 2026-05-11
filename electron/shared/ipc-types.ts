@@ -22,6 +22,7 @@ export interface AppSettingsPayload {
   autoSaveInterval: string
   uiScale: number
   darkMode: boolean
+  darkModeStyle: string
 }
 
 export interface SaveAppSettingsRequest {

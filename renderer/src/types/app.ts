@@ -1,6 +1,9 @@
 /** 主题名称，决定应用的视觉色调 */
 export type ThemeName = 'ocean' | 'jade' | 'amber' | 'rose'
 
+/** 深色模式风格预设 */
+export type DarkModeStyle = 'standard' | 'nord'
+
 /** 工作台面板名称 */
 export type PanelName = 'workflow' | 'overview' | 'deconstruction' | 'world' | 'characters' | 'relations' | 'inspiration' | 'outline' | 'threads' | 'chapters' | 'settings'
 
@@ -784,6 +787,8 @@ export interface AppSettings {
   uiScale: number
   /** 是否启用深色模式 */
   darkMode: boolean
+  /** 深色模式风格预设 */
+  darkModeStyle: DarkModeStyle
 }
 
 /** 封面工作台独立生图历史条目 */

@@ -6,9 +6,9 @@ import { autoSaveOptions, formatAutoSaveIntervalLabel, isLiveAutoSaveInterval } 
 import { getProviderPreset, providerOptions, resolveProviderDefaults } from '@/features/settings/providerPresets'
 import { getImageProviderPreset, imageProviderOptions, resolveImageProviderDefaults } from '@/features/settings/imageProviderPresets'
 import { useAppStore } from '@/stores/app'
-import { themePresets } from '@/theme/presets'
+import { darkModePresets, themePresets } from '@/theme/presets'
 import { toIpcPayload } from '@/utils/ipcPayload'
-import type { AppSettings, ThemeName } from '@/types/app'
+import type { AppSettings, DarkModeStyle, ThemeName } from '@/types/app'
 
 const props = defineProps<{
   show: boolean
@@ -48,7 +48,8 @@ const draftSettings = reactive<AppSettings>({
   imageBaseUrl: '',
   autoSaveInterval: '5m',
   uiScale: 1,
-  darkMode: false
+  darkMode: false,
+  darkModeStyle: 'standard'
 })
 const draftTheme = ref<ThemeName>('ocean')
 
@@ -76,6 +77,7 @@ const hasPendingChanges = computed(() =>
   || draftSettings.autoSaveInterval !== appStore.appSettings.autoSaveInterval
   || draftSettings.uiScale !== appStore.appSettings.uiScale
   || draftSettings.darkMode !== appStore.appSettings.darkMode
+  || draftSettings.darkModeStyle !== appStore.appSettings.darkModeStyle
 )
 
 function syncDraftFromStore(): void {
@@ -90,6 +92,7 @@ function syncDraftFromStore(): void {
   draftSettings.autoSaveInterval = appStore.appSettings.autoSaveInterval
   draftSettings.uiScale = appStore.appSettings.uiScale
   draftSettings.darkMode = appStore.appSettings.darkMode
+  draftSettings.darkModeStyle = appStore.appSettings.darkModeStyle
   draftTheme.value = appStore.theme
 }
 
@@ -191,6 +194,7 @@ function saveSettings(): void {
   appStore.updateAppSetting('autoSaveInterval', draftSettings.autoSaveInterval)
   appStore.updateAppSetting('uiScale', draftSettings.uiScale)
   appStore.updateAppSetting('darkMode', draftSettings.darkMode)
+  appStore.updateAppSetting('darkModeStyle', draftSettings.darkModeStyle)
 
   if (draftTheme.value !== appStore.theme) {
     appStore.setTheme(draftTheme.value)
@@ -459,6 +463,38 @@ function saveSettings(): void {
               :value="draftSettings.darkMode"
               @update:value="(value) => { draftSettings.darkMode = value }"
             />
+          </div>
+          <div v-if="draftSettings.darkMode" class="dark-style-grid">
+            <button
+              v-for="preset in darkModePresets"
+              :key="preset.name"
+              type="button"
+              class="dark-style-card"
+              :class="{ active: draftSettings.darkModeStyle === preset.name }"
+              @click="draftSettings.darkModeStyle = preset.name as DarkModeStyle"
+            >
+              <div
+                class="dark-style-swatch"
+                :style="{
+                  background: preset.bgBody,
+                  borderColor: preset.border,
+                  color: preset.textPrimary
+                }"
+              >
+                <span
+                  class="dark-style-swatch-surface"
+                  :style="{ background: preset.bgSurface, borderColor: preset.border }"
+                ></span>
+                <span
+                  class="dark-style-swatch-text"
+                  :style="{ color: preset.textPrimary }"
+                >Aa</span>
+              </div>
+              <div class="dark-style-meta">
+                <strong>{{ preset.label }}</strong>
+                <p>{{ preset.description }}</p>
+              </div>
+            </button>
           </div>
           <div class="storage-note">
             <Save :size="16" />
@@ -780,6 +816,89 @@ function saveSettings(): void {
   color: var(--arc-text-secondary);
   font-size: 12px;
   font-weight: 400;
+}
+
+.dark-style-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.dark-style-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--arc-border);
+  border-radius: 12px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.dark-style-card:hover {
+  border-color: color-mix(in srgb, var(--arc-primary) 36%, var(--arc-border));
+  transform: translateY(-1px);
+}
+
+.dark-style-card.active {
+  border-color: var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
+}
+
+.dark-style-swatch {
+  position: relative;
+  height: 58px;
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dark-style-swatch-surface {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 40%;
+  height: 58%;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
+}
+
+.dark-style-swatch-text {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.dark-style-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dark-style-meta strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--arc-text-primary);
+}
+
+.dark-style-meta p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--arc-text-secondary);
+}
+
+@media (max-width: 720px) {
+  .dark-style-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-footer-actions {

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { NConfigProvider, NDialogProvider, NGlobalStyle, NMessageProvider, NSpin, darkTheme } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
-import { createNaiveThemeOverrides } from '@/theme/presets'
+import { createNaiveThemeOverrides, getDarkModePreset } from '@/theme/presets'
 import ProjectCenter from '@/pages/ProjectCenter.vue'
 import ProjectWizardPage from '@/pages/ProjectWizardPage.vue'
 import WorkbenchPage from '@/pages/WorkbenchPage.vue'
@@ -20,35 +20,42 @@ const appStore = useAppStore()
 const platform = window.characterArc?.platform ?? 'unknown'
 
 // 根据当前选中主题生成 Naive UI 主题覆盖变量
-const themeOverrides = computed(() => createNaiveThemeOverrides(appStore.theme))
+const themeOverrides = computed(() =>
+  createNaiveThemeOverrides(
+    appStore.theme,
+    appStore.appSettings.darkMode,
+    appStore.appSettings.darkModeStyle
+  )
+)
 // 深色模式时启用 Naive UI 官方 darkTheme
 const naiveTheme = computed(() => appStore.appSettings.darkMode ? darkTheme : null)
 
 // 应用级 CSS 自定义变量集合，供全局样式引用
 const appStyleVars = computed(() => {
   const dark = appStore.appSettings.darkMode
+  const darkPreset = getDarkModePreset(appStore.appSettings.darkModeStyle)
   return {
-    '--arc-bg-body': dark ? '#0c0c0e' : '#f4f4f5',
-    '--arc-bg-weak': dark ? '#111115' : '#fafafa',
-    '--arc-bg-surface': dark ? '#18181b' : '#ffffff',
-    '--arc-bg-surface-hover': dark ? '#27272a' : '#f9f9fb',
-    '--arc-bg-sidebar': dark ? '#111115' : '#fafafa',
-    '--arc-sidebar-border': dark ? '#27272a' : '#e5e7eb',
-    '--arc-text-primary': dark ? '#f4f4f5' : '#18181b',
-    '--arc-text-secondary': dark ? '#a1a1aa' : '#52525b',
-    '--arc-text-hint': dark ? '#71717a' : '#a1a1aa',
+    '--arc-bg-body': dark ? darkPreset.bgBody : '#f4f4f5',
+    '--arc-bg-weak': dark ? darkPreset.bgWeak : '#fafafa',
+    '--arc-bg-surface': dark ? darkPreset.bgSurface : '#ffffff',
+    '--arc-bg-surface-hover': dark ? darkPreset.bgSurfaceHover : '#f9f9fb',
+    '--arc-bg-sidebar': dark ? darkPreset.bgSidebar : '#fafafa',
+    '--arc-sidebar-border': dark ? darkPreset.sidebarBorder : '#e5e7eb',
+    '--arc-text-primary': dark ? darkPreset.textPrimary : '#18181b',
+    '--arc-text-secondary': dark ? darkPreset.textSecondary : '#52525b',
+    '--arc-text-hint': dark ? darkPreset.textHint : '#a1a1aa',
     '--arc-primary': appStore.currentTheme.primary,
     '--arc-primary-hover': appStore.currentTheme.primaryHover,
     '--arc-primary-pressed': appStore.currentTheme.primaryPressed,
     '--arc-primary-soft': dark
-      ? `color-mix(in srgb, ${appStore.currentTheme.primary} 18%, #18181b)`
+      ? `color-mix(in srgb, ${appStore.currentTheme.primary} 18%, ${darkPreset.primarySoftBase})`
       : appStore.currentTheme.softBackground,
-    '--arc-border': dark ? '#27272a' : '#e5e7eb',
-    '--arc-border-strong': dark ? '#3f3f46' : '#d1d5db',
-    '--arc-shadow-sm': dark ? '0 1px 3px rgba(0, 0, 0, 0.36)' : '0 1px 3px rgba(0, 0, 0, 0.06)',
-    '--arc-shadow-md': dark ? '0 4px 12px rgba(0, 0, 0, 0.5)' : '0 2px 8px rgba(0, 0, 0, 0.07)',
-    '--arc-shadow-lg': dark ? '0 8px 24px rgba(0, 0, 0, 0.6)' : '0 4px 16px rgba(0, 0, 0, 0.09)',
-    '--arc-bg-mix': dark ? '#18181b' : '#ffffff',
+    '--arc-border': dark ? darkPreset.border : '#e5e7eb',
+    '--arc-border-strong': dark ? darkPreset.borderStrong : '#d1d5db',
+    '--arc-shadow-sm': dark ? darkPreset.shadowSm : '0 1px 3px rgba(0, 0, 0, 0.06)',
+    '--arc-shadow-md': dark ? darkPreset.shadowMd : '0 2px 8px rgba(0, 0, 0, 0.07)',
+    '--arc-shadow-lg': dark ? darkPreset.shadowLg : '0 4px 16px rgba(0, 0, 0, 0.09)',
+    '--arc-bg-mix': dark ? darkPreset.bgMix : '#ffffff',
     '--arc-glass-04': dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
     '--arc-glass-06': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)',
     '--arc-glass-08': dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',

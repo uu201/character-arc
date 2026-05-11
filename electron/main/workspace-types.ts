@@ -278,6 +278,7 @@ export type WorkspacePayload = {
     autoSaveInterval: string
     uiScale: number
     darkMode: boolean
+    darkModeStyle: string
   }
   coverWorkbenchHistory: Array<{
     id: string
@@ -415,7 +416,11 @@ export function normalizeAppSettings(
     imageBaseUrl: settings?.imageBaseUrl || '',
     autoSaveInterval: settings?.autoSaveInterval || '5m',
     uiScale,
-    darkMode: Boolean(settings?.darkMode)
+    darkMode: Boolean(settings?.darkMode),
+    darkModeStyle:
+      settings?.darkModeStyle === 'nord' || settings?.darkModeStyle === 'standard'
+        ? settings.darkModeStyle
+        : 'standard'
   }
 }
 

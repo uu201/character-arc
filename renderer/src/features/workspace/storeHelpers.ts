@@ -236,7 +236,8 @@ export const defaultAppSettings: AppSettings = {
   imageBaseUrl: '',
   autoSaveInterval: '5m',
   uiScale: 1,
-  darkMode: false
+  darkMode: false,
+  darkModeStyle: 'standard'
 }
 
 // 合并用户设置与默认设置，uiScale 限制在 0.75-1.75 的合理范围内
@@ -323,7 +324,11 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
       typeof source.uiScale === 'number' && Number.isFinite(source.uiScale)
         ? Math.min(1.75, Math.max(0.75, source.uiScale))
         : defaultAppSettings.uiScale,
-    darkMode: typeof source.darkMode === 'boolean' ? source.darkMode : defaultAppSettings.darkMode
+    darkMode: typeof source.darkMode === 'boolean' ? source.darkMode : defaultAppSettings.darkMode,
+    darkModeStyle:
+      source.darkModeStyle === 'nord' || source.darkModeStyle === 'standard'
+        ? source.darkModeStyle
+        : defaultAppSettings.darkModeStyle
   }
 }
 

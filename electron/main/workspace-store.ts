@@ -274,7 +274,8 @@ export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       image_base_url TEXT NOT NULL DEFAULT '',
       auto_save_interval TEXT NOT NULL,
       ui_scale REAL NOT NULL DEFAULT 1,
-      dark_mode INTEGER NOT NULL DEFAULT 0
+      dark_mode INTEGER NOT NULL DEFAULT 0,
+      dark_mode_style TEXT NOT NULL DEFAULT 'standard'
     ) STRICT;
 
     CREATE TABLE IF NOT EXISTS cover_workbench_history (
@@ -336,6 +337,10 @@ function ensureAppSettingsColumns(db: DatabaseSync): void {
 
   if (!columnNames.has('dark_mode')) {
     db.exec(`ALTER TABLE app_settings ADD COLUMN dark_mode INTEGER NOT NULL DEFAULT 0;`)
+  }
+
+  if (!columnNames.has('dark_mode_style')) {
+    db.exec(`ALTER TABLE app_settings ADD COLUMN dark_mode_style TEXT NOT NULL DEFAULT 'standard';`)
   }
 
   if (!columnNames.has('image_provider')) {
@@ -748,7 +753,7 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
 
   const settings = db.prepare(`
     SELECT theme, selected_project_id AS selectedProjectId, provider, api_key AS apiKey, base_url AS baseUrl, auto_save_interval AS autoSaveInterval
-    , model, image_provider AS imageProvider, image_model AS imageModel, image_api_key AS imageApiKey, image_base_url AS imageBaseUrl, ui_scale AS uiScale, dark_mode AS darkMode
+    , model, image_provider AS imageProvider, image_model AS imageModel, image_api_key AS imageApiKey, image_base_url AS imageBaseUrl, ui_scale AS uiScale, dark_mode AS darkMode, dark_mode_style AS darkModeStyle
     FROM app_settings
     WHERE id = 1
   `).get() as
@@ -766,6 +771,7 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
         autoSaveInterval: string
         uiScale: number
         darkMode: number
+        darkModeStyle: string
       }
     | undefined
 
@@ -1256,8 +1262,8 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
     }
 
     db.prepare(`
-      INSERT INTO app_settings (id, theme, selected_project_id, provider, model, api_key, base_url, image_provider, image_model, image_api_key, image_base_url, auto_save_interval, ui_scale, dark_mode)
-      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO app_settings (id, theme, selected_project_id, provider, model, api_key, base_url, image_provider, image_model, image_api_key, image_base_url, auto_save_interval, ui_scale, dark_mode, dark_mode_style)
+      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       payload.theme,
       payload.selectedProjectId,
@@ -1271,7 +1277,8 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
       normalizedAppSettings.imageBaseUrl,
       normalizedAppSettings.autoSaveInterval,
       normalizedAppSettings.uiScale,
-      normalizedAppSettings.darkMode ? 1 : 0
+      normalizedAppSettings.darkMode ? 1 : 0,
+      normalizedAppSettings.darkModeStyle
     )
 
     db.exec('COMMIT')
@@ -1296,8 +1303,8 @@ export function writeAppSettingsRow(
 ): void {
   const normalized = normalizeAppSettings(settings)
   db.prepare(`
-    INSERT INTO app_settings (id, theme, selected_project_id, provider, model, api_key, base_url, image_provider, image_model, image_api_key, image_base_url, auto_save_interval, ui_scale, dark_mode)
-    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO app_settings (id, theme, selected_project_id, provider, model, api_key, base_url, image_provider, image_model, image_api_key, image_base_url, auto_save_interval, ui_scale, dark_mode, dark_mode_style)
+    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       theme = excluded.theme,
       selected_project_id = excluded.selected_project_id,
@@ -1311,7 +1318,8 @@ export function writeAppSettingsRow(
       image_base_url = excluded.image_base_url,
       auto_save_interval = excluded.auto_save_interval,
       ui_scale = excluded.ui_scale,
-      dark_mode = excluded.dark_mode
+      dark_mode = excluded.dark_mode,
+      dark_mode_style = excluded.dark_mode_style
   `).run(
     metadata.theme,
     metadata.selectedProjectId,
@@ -1325,6 +1333,7 @@ export function writeAppSettingsRow(
     normalized.imageBaseUrl,
     normalized.autoSaveInterval,
     normalized.uiScale,
-    normalized.darkMode ? 1 : 0
+    normalized.darkMode ? 1 : 0,
+    normalized.darkModeStyle
   )
 }
