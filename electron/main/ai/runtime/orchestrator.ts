@@ -17,6 +17,9 @@ import { buildRunMeta, buildResponsePreview } from './run-meta'
 import { logPrompt, logResponse, logSelection } from './logging'
 import { buildRepairPrompt } from '../prompts/repair'
 import { runAgentTask } from '../agent'
+import { ensureWorkspaceDb } from '../../workspace-store'
+import { buildStoryStateContext, formatStoryStateForPrompt, applyStateDelta } from '../../story-state-store'
+import { extractStateDeltaFromOutput } from '../state-delta-extractor'
 
 export async function runAiTask(
   task: AiTaskPayload,
@@ -40,6 +43,19 @@ export async function runAiTask(
   const skills = await pickSkillsFor(task, resolveEnabledSkillOverrides(task, projectId))
   const usedSkillIds = skills.map((s) => s.id)
   logSelection(task.task, skills, knowledgeContext?.usedKnowledge ?? [])
+
+  // Phase 1: 为 chapter-first-draft 注入结构化世界状态
+  if (task.task === 'chapter-first-draft' && projectId) {
+    try {
+      const db = await ensureWorkspaceDb()
+      const involvedCharIds = extractInvolvedCharacterIds(task.context)
+      const storyState = buildStoryStateContext(db, projectId, involvedCharIds)
+      const storyStateBlock = formatStoryStateForPrompt(storyState)
+      if (storyStateBlock) {
+        task.context.storyStateBlock = storyStateBlock
+      }
+    } catch { /* 状态库查询失败不阻塞生成 */ }
+  }
 
   const input = buildPromptInput(task, skills, knowledgeContext)
   const prompt = handler.buildPrompt(input)
@@ -92,6 +108,22 @@ export async function runAiTask(
           throw new Error('AI 返回的结构化结果经过 2 次修复仍不完整，请稍后重试或调整提示词。')
         }
       }
+    }
+
+    // Phase 1: chapter-first-draft 生成后提取 state_delta 并写入状态库
+    if (task.task === 'chapter-first-draft' && projectId && !normalizeFailed) {
+      try {
+        const content = (result as { content?: string }).content ?? rawText
+        const extraction = extractStateDeltaFromOutput(content)
+        if (extraction.delta) {
+          const chapterIndex = Number(task.context.chapterIndex ?? task.context.chapterSortOrder ?? 0)
+          const db = await ensureWorkspaceDb()
+          applyStateDelta(db, projectId, chapterIndex, extraction.delta)
+        }
+        if (extraction.chapterContent && extraction.chapterContent !== content) {
+          (result as { content?: string }).content = extraction.chapterContent
+        }
+      } catch { /* state delta 提取/写入失败不阻塞返回 */ }
     }
 
     const finishedAt = new Date().toISOString()
@@ -261,4 +293,17 @@ function resolveEnabledSkillOverrides(
   }
 
   return new Map(allSkills.map((skill) => [skill.id, enabledIds.has(skill.id)]))
+}
+
+function extractInvolvedCharacterIds(context: Record<string, unknown>): string[] {
+  const ids: string[] = []
+  const characters = context.characters
+  if (Array.isArray(characters)) {
+    for (const char of characters) {
+      if (char && typeof char === 'object' && 'id' in char) {
+        ids.push(String((char as { id: string }).id))
+      }
+    }
+  }
+  return ids
 }
