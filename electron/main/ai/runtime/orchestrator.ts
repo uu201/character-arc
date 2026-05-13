@@ -19,7 +19,7 @@ import { buildRepairPrompt } from '../prompts/repair'
 import { runAgentTask } from '../agent'
 import { ensureWorkspaceDb } from '../../workspace-store'
 import { buildStoryStateContext, formatStoryStateForPrompt, applyStateDelta } from '../../story-state-store'
-import { extractStateDeltaFromOutput } from '../state-delta-extractor'
+import type { StateDelta } from '../../story-state-store'
 import { indexChapterSegments } from '../knowledge-retrieval-v2'
 import { runLightCheck } from '../audit/light-check'
 
@@ -112,37 +112,14 @@ export async function runAiTask(
       }
     }
 
-    // Phase 1: chapter-first-draft 生成后提取 state_delta 并写入状态库
+    // 章节生成后：异步提取状态变更 + 建立向量索引（不阻塞返回）
     if (task.task === 'chapter-first-draft' && projectId && !normalizeFailed) {
-      try {
-        const content = (result as { content?: string }).content ?? rawText
-        const extraction = extractStateDeltaFromOutput(content)
-        if (extraction.delta) {
-          const chapterIndex = Number(task.context.chapterIndex ?? task.context.chapterSortOrder ?? 0)
-          const db = await ensureWorkspaceDb()
-
-          // Phase 3: 写后即时轻检（在 applyDelta 之前，用生成前的状态做对比）
-          const involvedCharIds = extractInvolvedCharacterIds(task.context)
-          const preState = buildStoryStateContext(db, projectId, involvedCharIds)
-          const checkResult = runLightCheck(content, preState, extraction.delta)
-          if (!checkResult.passed) {
-            const warnings = checkResult.violations.map((v) => `[${v.severity}] ${v.message}`)
-            ;(result as Record<string, unknown>)._stateWarnings = warnings
-          }
-
-          applyStateDelta(db, projectId, chapterIndex, extraction.delta)
-        }
-        if (extraction.chapterContent && extraction.chapterContent !== content) {
-          (result as { content?: string }).content = extraction.chapterContent
-        }
-      } catch { /* state delta 提取/写入失败不阻塞返回 */ }
-
-      // Phase 2: 章节生成后异步建立向量索引（不阻塞返回）
       const finalContent = (result as { content?: string }).content ?? ''
       const chapterId = String(task.context.chapterId ?? '').trim()
       const chIdx = Number(task.context.chapterIndex ?? task.context.chapterSortOrder ?? 0)
-      if (finalContent.length > 50 && chapterId) {
-        indexChapterSegments(settings, projectId, chIdx, finalContent, chapterId).catch(() => {})
+
+      if (finalContent.length > 50) {
+        runPostGenerationPipeline(settings, projectId, chIdx, chapterId, finalContent, task.context).catch(() => {})
       }
     }
 
@@ -210,6 +187,19 @@ export async function streamAiTask(
   const usedSkillIds = skills.map((s) => s.id)
   logSelection(task.task, skills, knowledgeContext?.usedKnowledge ?? [])
 
+  // 流式路径也注入结构化世界状态
+  if (task.task === 'chapter-first-draft' && projectId) {
+    try {
+      const db = await ensureWorkspaceDb()
+      const involvedCharIds = extractInvolvedCharacterIds(task.context)
+      const storyState = buildStoryStateContext(db, projectId, involvedCharIds)
+      const storyStateBlock = formatStoryStateForPrompt(storyState)
+      if (storyStateBlock) {
+        task.context.storyStateBlock = storyStateBlock
+      }
+    } catch { /* 状态库查询失败不阻塞生成 */ }
+  }
+
   const input = buildPromptInput(task, skills, knowledgeContext)
   const prompt = taskHandler.buildPrompt(input)
   const maxTokens = taskHandler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task)
@@ -223,6 +213,16 @@ export async function streamAiTask(
     const result = taskHandler.normalize(rawText)
     const finishedAt = new Date().toISOString()
     const status = signal.aborted ? 'canceled' : 'success'
+
+    // 流式生成完成后也触发异步后处理
+    if (task.task === 'chapter-first-draft' && projectId && !signal.aborted) {
+      const finalContent = (result as { content?: string }).content ?? ''
+      const chapterId = String(task.context.chapterId ?? '').trim()
+      const chIdx = Number(task.context.chapterIndex ?? task.context.chapterSortOrder ?? 0)
+      if (finalContent.length > 50) {
+        runPostGenerationPipeline(settings, projectId, chIdx, chapterId, finalContent, task.context).catch(() => {})
+      }
+    }
 
     return {
       result,
@@ -326,4 +326,71 @@ function extractInvolvedCharacterIds(context: Record<string, unknown>): string[]
     }
   }
   return ids
+}
+
+async function runPostGenerationPipeline(
+  settings: AppSettings,
+  projectId: string,
+  chapterIndex: number,
+  chapterId: string,
+  chapterContent: string,
+  context: Record<string, unknown>
+): Promise<void> {
+  const db = await ensureWorkspaceDb()
+  const involvedCharIds = extractInvolvedCharacterIds(context)
+  const preState = buildStoryStateContext(db, projectId, involvedCharIds)
+
+  const delta = await extractStateDeltaViaLLM(settings, chapterContent, preState)
+  if (delta) {
+    const checkResult = runLightCheck(chapterContent, preState, delta)
+    if (!checkResult.passed) {
+      logResponse('LIGHT_CHECK', settings, 'chapter-first-draft',
+        checkResult.violations.map((v) => `[${v.severity}] ${v.message}`).join('\n'), 0, {})
+    }
+    applyStateDelta(db, projectId, chapterIndex, delta)
+  }
+
+  if (chapterId) {
+    indexChapterSegments(settings, projectId, chapterIndex, chapterContent, chapterId).catch(() => {})
+  }
+}
+
+async function extractStateDeltaViaLLM(
+  settings: AppSettings,
+  chapterContent: string,
+  preState: ReturnType<typeof buildStoryStateContext>
+): Promise<StateDelta | null> {
+  const stateSnapshot = formatStoryStateForPrompt(preState)
+  const prompt = {
+    system: `你是状态变更提取器。根据小说章节正文和当前世界状态，提取本章发生的所有状态变更。
+只输出纯JSON，不要解释。JSON结构：
+{
+  "characters_updated": [{"character_id":"","changes":{"location":{"from":"","to":""},"physical_state":"","mental_state":"","arc_progression":"","power_level":"","inventory_delta":{"added":[],"removed":[]},"new_knowledge":[],"goals_update":{"completed":[],"added":[]}}}],
+  "relationships_delta": [{"relationship_id":"","participants":["",""],"status_change":{"from":"","to":"","pivot_event":""},"new_tension_points":[]}],
+  "foreshadowing_delta": {"planted":[{"id":"","type":"","description":"","method":""}],"advanced":[{"id":"","clue":"","method":""}],"resolved":[{"id":"","method":"","impact":""}]},
+  "timeline": {"story_time_elapsed":"","current_story_date":"","events":[],"world_state_changes":[]}
+}
+只包含实际发生变更的字段，无变更的字段省略。角色ID使用角色名称。`,
+    user: `当前世界状态：
+${stateSnapshot || '（空）'}
+
+本章正文（节选前3000字）：
+${chapterContent.slice(0, 3000)}
+
+请提取本章的状态变更JSON：`
+  }
+
+  try {
+    const raw = await requestAiText(settings, prompt, 1500)
+    const jsonMatch = raw.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return null
+    const parsed = JSON.parse(jsonMatch[0]) as StateDelta
+    if (!parsed.characters_updated) parsed.characters_updated = []
+    if (!parsed.relationships_delta) parsed.relationships_delta = []
+    if (!parsed.foreshadowing_delta) parsed.foreshadowing_delta = { planted: [], advanced: [], resolved: [] }
+    if (!parsed.timeline) parsed.timeline = { story_time_elapsed: '', current_story_date: '', events: [] }
+    return parsed
+  } catch {
+    return null
+  }
 }
