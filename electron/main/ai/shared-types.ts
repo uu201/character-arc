@@ -47,6 +47,7 @@ export type AiTaskName =
   | 'project-bootstrap'
   | 'chapter-analysis'
   | 'inspiration-pack'
+  | 'story-deep-audit'
 
 export type AiRunKnowledgeItem = {
   documentId: string

@@ -21,6 +21,7 @@ import referenceStyleChunk from './reference-style-chunk'
 import referenceStyleAnalysis from './reference-style-analysis'
 import referenceDeepAnalyze from './reference-deep-analyze'
 import styleFingerprintExtract from './style-fingerprint-extract'
+import storyDeepAudit from './story-deep-audit'
 
 const TASK_REGISTRY = new Map<AiTaskName, TaskHandler>()
 
@@ -48,6 +49,7 @@ register(referenceStyleChunk)
 register(referenceStyleAnalysis)
 register(referenceDeepAnalyze)
 register(styleFingerprintExtract)
+register(storyDeepAudit)
 
 export function getTaskHandler(name: AiTaskName): TaskHandler {
   const handler = TASK_REGISTRY.get(name)

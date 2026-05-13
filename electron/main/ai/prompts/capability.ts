@@ -44,7 +44,8 @@ const TASK_DEFAULT_CAPABILITIES: Record<AiTaskName, PromptCapabilityId[]> = {
   'inspiration-pack': ['settings', 'inspiration', 'chapters', 'worldview', 'characters', 'relations', 'outline', 'writing-style'],
   'chapter-summarize': ['settings', 'chapters', 'analysis'],
   'chapter-scene-plan': ['settings', 'chapters', 'outline'],
-  'plot-thread-detect': ['settings', 'chapters', 'analysis']
+  'plot-thread-detect': ['settings', 'chapters', 'analysis'],
+  'story-deep-audit': ['settings', 'chapters', 'analysis', 'worldview', 'characters', 'relations', 'outline', 'project-skills']
 }
 
 export function getDefaultCapabilities(task: AiTaskName): PromptCapabilityId[] {
