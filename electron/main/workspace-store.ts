@@ -786,60 +786,80 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
     return null
   }
 
+  // Single-pass grouping: O(n) instead of O(n*m) filter-per-project
+  function groupBy<T extends { projectId: string }>(items: T[]): Map<string, T[]> {
+    const map = new Map<string, T[]>()
+    for (const item of items) {
+      const list = map.get(item.projectId)
+      if (list) list.push(item)
+      else map.set(item.projectId, [item])
+    }
+    return map
+  }
+
+  const worldviewByProject = groupBy(worldviewEntries)
+  const charactersByProject = groupBy(characters)
+  const organizationsByProject = groupBy(organizations)
+  const relationshipsByProject = groupBy(characterRelationships)
+  const membershipsByProject = groupBy(organizationMemberships)
+  const inspirationByProject = groupBy(inspirationEntries)
+  const volumesByProject = groupBy(outlineVolumes)
+  const outlineItemsByProject = groupBy(outlineItems)
+  const chaptersByProject = groupBy(chapters)
+  const versionsByProject = groupBy(chapterVersions)
+  const messagesByProject = groupBy(messages)
+  const knowledgeByProject = groupBy(knowledgeDocuments)
+  const aiRunsByProject = groupBy(aiRuns)
+  const plotThreadsByProject = groupBy(plotThreads)
+
+  // workflow documents need compound key: projectId + volumeId
+  const workflowByProjectVolume = new Map<string, typeof workflowDocuments>()
+  for (const doc of workflowDocuments) {
+    const key = `${doc.projectId}:${doc.volumeId}`
+    const list = workflowByProjectVolume.get(key)
+    if (list) list.push(doc)
+    else workflowByProjectVolume.set(key, [doc])
+  }
+
   const workspaces = Object.fromEntries(
     projects.map((project) => [
       project.id,
       {
-        worldviewEntries: worldviewEntries
-          .filter((entry) => entry.projectId === project.id)
+        worldviewEntries: (worldviewByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...entry }) => entry),
-        characters: characters
-          .filter((character) => character.projectId === project.id)
+        characters: (charactersByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...character }) => character),
-        organizations: organizations
-          .filter((entry) => entry.projectId === project.id)
+        organizations: (organizationsByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...entry }) => entry),
-        characterRelationships: characterRelationships
-          .filter((entry) => entry.projectId === project.id)
+        characterRelationships: (relationshipsByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...entry }) => entry),
-        organizationMemberships: organizationMemberships
-          .filter((entry) => entry.projectId === project.id)
+        organizationMemberships: (membershipsByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...entry }) => entry),
-        inspirationEntries: inspirationEntries
-          .filter((entry) => entry.projectId === project.id)
+        inspirationEntries: (inspirationByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...entry }) => entry),
-        outlineVolumes: outlineVolumes
-          .filter((volume) => volume.projectId === project.id)
+        outlineVolumes: (volumesByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...volume }) => ({
             ...volume,
-            workflowDocuments: workflowDocuments
-              .filter((document) => document.projectId === project.id && document.volumeId === volume.id)
+            workflowDocuments: (workflowByProjectVolume.get(`${project.id}:${volume.id}`) ?? [])
               .map(({ projectId: _docProjectId, volumeId: _docVolumeId, docKey: _docKey, ...document }) => ({
                 ...document,
                 key: _docKey
               }))
           })),
-        outlineItems: outlineItems
-          .filter((item) => item.projectId === project.id)
+        outlineItems: (outlineItemsByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...item }) => item),
-        chapters: chapters
-          .filter((chapter) => chapter.projectId === project.id)
+        chapters: (chaptersByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...chapter }) => chapter),
-        chapterVersions: chapterVersions
-          .filter((version) => version.projectId === project.id)
+        chapterVersions: (versionsByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...version }) => version),
-        messages: messages
-          .filter((message) => message.projectId === project.id)
+        messages: (messagesByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...message }) => message),
-        knowledgeDocuments: knowledgeDocuments
-          .filter((document) => document.projectId === project.id)
+        knowledgeDocuments: (knowledgeByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...document }) => document),
-        aiRuns: aiRuns
-          .filter((run) => run.projectId === project.id)
+        aiRuns: (aiRunsByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...run }) => run),
         workflowDocuments: [],
-        plotThreads: plotThreads
-          .filter((thread) => thread.projectId === project.id)
+        plotThreads: (plotThreadsByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, tagsJson, ...thread }) => ({
             ...thread,
             tags: parseJson(tagsJson, [] as string[])
