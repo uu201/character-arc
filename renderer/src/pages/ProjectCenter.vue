@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, ref } from 'vue'
 import { useDialog, useMessage } from 'naive-ui'
+
 import HomepageHero from '@/components/home/HomepageHero.vue'
 import HomepageProjectCollection from '@/components/home/HomepageProjectCollection.vue'
 import HomepageSettingsModal from '@/components/home/HomepageSettingsModal.vue'
@@ -15,8 +16,6 @@ const message = useMessage()
 const settingsVisible = ref(false)
 const editorVisible = ref(false)
 const editingProject = ref<ProjectSummary | null>(null)
-
-const canDeleteProject = computed(() => appStore.projects.length > 1)
 
 const projectMenuOptions = computed(() => [
   {
@@ -33,8 +32,7 @@ const projectMenuOptions = computed(() => [
   },
   {
     key: 'delete',
-    label: () => h('span', { class: 'project-menu-danger-label' }, '删除项目'),
-    disabled: !canDeleteProject.value
+    label: () => h('span', { class: 'project-menu-danger-label' }, '删除项目')
   }
 ])
 
@@ -43,14 +41,7 @@ function openProject(projectId: string): void {
 }
 
 function openDeconstructionLibrary(): void {
-  const targetProject = appStore.projects.find((project) => project.id === appStore.selectedProjectId)
-    ?? appStore.projects[0]
-  if (!targetProject) {
-    message.warning('请先创建一个项目，再进入拆书知识库。')
-    return
-  }
-
-  appStore.openDeconstructionLibrary(targetProject.id)
+  appStore.openDeconstructionLibrary()
 }
 
 function openSkillsPage(): void {

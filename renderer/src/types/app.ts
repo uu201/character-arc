@@ -331,9 +331,7 @@ export interface ProjectSummary {
   projectSkills: ProjectSkillItem[]
   /** 项目目标平台 */
   targetPlatform: string
-  /** 项目参考作品 */
-  referenceWorks: ReferenceWorkItem[]
-  /** 本次用于生成流程文件的参考作品 ID 列表，可为空 */
+  /** 本次用于生成流程文件的参考作品 ID 列表（指向全局拆书库），可为空 */
   selectedReferenceWorkIds: string[]
   /** 封面生成历史记录 */
   coverHistory: CoverGenerationHistoryItem[]
@@ -517,12 +515,10 @@ export type KnowledgeDocumentSourceType =
   | 'canon-fact'
   | 'chapter-summary'
 
-/** 项目级知识文档 */
+/** 全局拆书库知识文档 */
 export interface KnowledgeDocument {
   /** 文档唯一标识 */
   id: string
-  /** 所属项目 ID */
-  projectId: string
   /** 展示标题 */
   title: string
   /** 来源类型 */
@@ -715,8 +711,6 @@ export interface ProjectWorkspaceData {
   chapterVersions: ChapterVersion[]
   /** AI 聊天消息列表 */
   messages: ChatMessage[]
-  /** 项目知识文档列表 */
-  knowledgeDocuments: KnowledgeDocument[]
   /** AI 运行记录列表 */
   aiRuns: AiRunRecord[]
   /** 项目固定流程文件 */

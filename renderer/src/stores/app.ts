@@ -66,6 +66,7 @@ import type {
   ProjectImportPayload,
   ProjectSummary,
   ProjectWorkspaceData,
+  ReferenceWorkItem,
   ThemeName,
   WorldviewEntry
 } from '@/types/app'
@@ -84,7 +85,6 @@ interface ProjectWorkspacePayload {
     novelWorkflowStages?: ProjectSummary['novelWorkflowStages']
     projectSkills?: ProjectSummary['projectSkills']
     targetPlatform?: string
-    referenceWorks?: ProjectSummary['referenceWorks']
     selectedReferenceWorkIds?: ProjectSummary['selectedReferenceWorkIds']
     coverHistory?: ProjectSummary['coverHistory']
   }
@@ -252,8 +252,10 @@ export const useAppStore = defineStore('app', () => {
   const messages = computed(() => currentWorkspace.value.messages)
   /** 当前项目的剧情线索列表 */
   const plotThreads = computed(() => currentWorkspace.value.plotThreads)
-  /** 当前项目的知识文档列表 */
-  const knowledgeDocuments = computed(() => currentWorkspace.value.knowledgeDocuments)
+  /** 全局拆书库知识文档（跨项目共享） */
+  const knowledgeDocuments = ref<KnowledgeDocument[]>(stored.knowledgeDocuments ?? [])
+  /** 全局拆书库参考作品（跨项目共享） */
+  const referenceWorks = ref<ReferenceWorkItem[]>(stored.referenceWorks ?? [])
   /** 当前项目的 AI 运行记录列表 */
   const aiRuns = computed(() => currentWorkspace.value.aiRuns)
   /**
@@ -333,7 +335,6 @@ export const useAppStore = defineStore('app', () => {
 
     return {
       id: String(document.id ?? '').trim() || uniqueId('knowledge'),
-      projectId,
       title,
       sourceType,
       sourceLabel: String(document.sourceLabel ?? '').trim(),
@@ -482,7 +483,6 @@ export const useAppStore = defineStore('app', () => {
         )
         .map<KnowledgeDocument>((draft) => ({
           id: String(draft.id ?? '').trim() || uniqueId('knowledge'),
-          projectId: payload.projectId,
           title: String(draft.title).trim(),
           sourceType: draft.sourceType,
           sourceLabel: String(draft.sourceLabel ?? '').trim(),
@@ -494,7 +494,7 @@ export const useAppStore = defineStore('app', () => {
           updatedAt: String(draft.updatedAt ?? '').trim() || now
         }))
       if (documents.length > 0) {
-        mergeKnowledgeDocuments(payload.projectId, documents)
+        mergeKnowledgeDocuments(documents)
       }
     }
   }
@@ -707,7 +707,7 @@ export const useAppStore = defineStore('app', () => {
         if (!document) {
           break
         }
-        mergeKnowledgeDocuments(document.projectId, [document])
+        mergeKnowledgeDocuments([document])
         didApply = true
         break
       }
@@ -863,9 +863,11 @@ export const useAppStore = defineStore('app', () => {
     }
 
     theme.value = payload.theme ?? 'ocean'
-    projects.value = payload.projects?.length ? payload.projects.map(normalizeProjectSummary) : defaultProjects
+    projects.value = Array.isArray(payload.projects)
+      ? payload.projects.map(normalizeProjectSummary)
+      : defaultProjects
 
-    const fallbackProjectId = projects.value[0]?.id ?? defaultProjects[0].id
+    const fallbackProjectId = projects.value[0]?.id ?? ''
     selectedProjectId.value = payload.selectedProjectId ?? fallbackProjectId
     projectWorkspaces.value =
       'workspaces' in payload && payload.workspaces
@@ -883,6 +885,12 @@ export const useAppStore = defineStore('app', () => {
 
     appSettings.value = normalizeAppSettings(payload.appSettings)
     coverWorkbenchHistory.value = Array.isArray(payload.coverWorkbenchHistory) ? payload.coverWorkbenchHistory : []
+    knowledgeDocuments.value = Array.isArray((payload as Partial<StoredState>).knowledgeDocuments)
+      ? (payload as Partial<StoredState>).knowledgeDocuments!
+      : []
+    referenceWorks.value = Array.isArray((payload as Partial<StoredState>).referenceWorks)
+      ? (payload as Partial<StoredState>).referenceWorks!
+      : []
     syncSelectedChapter()
   }
 
@@ -893,6 +901,8 @@ export const useAppStore = defineStore('app', () => {
       selectedProjectId: selectedProjectId.value,
       projects: toSerializable(projects.value),
       workspaces: toSerializable(projectWorkspaces.value),
+      knowledgeDocuments: toSerializable(knowledgeDocuments.value),
+      referenceWorks: toSerializable(referenceWorks.value),
       appSettings: toSerializable(appSettings.value),
       coverWorkbenchHistory: toSerializable(coverWorkbenchHistory.value)
     }
@@ -970,7 +980,6 @@ export const useAppStore = defineStore('app', () => {
       novelWorkflowStages: payload.project?.novelWorkflowStages ?? createDefaultNovelWorkflowStages(),
       projectSkills: payload.project?.projectSkills ?? [],
       targetPlatform: payload.project?.targetPlatform?.trim() || '',
-      referenceWorks: payload.project?.referenceWorks ?? [],
       selectedReferenceWorkIds: payload.project?.selectedReferenceWorkIds ?? [],
       coverHistory: payload.project?.coverHistory ?? []
     }
@@ -1259,19 +1268,10 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
-  /** 打开拆书知识库独立页面 */
-  function openDeconstructionLibrary(projectId?: string): void {
-    const resolvedProjectId = String(projectId ?? selectedProjectId.value ?? '').trim()
-    const targetProject = projects.value.find((item) => item.id === resolvedProjectId) ?? projects.value[0]
-    if (!targetProject) {
-      return
-    }
-
-    ensureProjectWorkspace(targetProject.id)
-    selectedProjectId.value = targetProject.id
+  /** 打开拆书知识库独立页面（全局库，不依赖项目） */
+  function openDeconstructionLibrary(): void {
     pendingChapterInsertion.value = null
     currentView.value = 'deconstruction-library'
-    syncSelectedChapter(targetProject.id)
     schedulePersist('fast')
   }
 
@@ -1343,7 +1343,6 @@ export const useAppStore = defineStore('app', () => {
       novelWorkflowStages: payload.project.novelWorkflowStages ?? createDefaultNovelWorkflowStages(),
       projectSkills: payload.project.projectSkills ?? [],
       targetPlatform: payload.project.targetPlatform?.trim() || '',
-      referenceWorks: payload.project.referenceWorks ?? [],
       selectedReferenceWorkIds: payload.project.selectedReferenceWorkIds ?? [],
       coverHistory: payload.project.coverHistory ?? []
     }))
@@ -1387,9 +1386,9 @@ export const useAppStore = defineStore('app', () => {
     })
   }
 
-  /** 删除项目（至少保留一个项目），自动切换到首个项目 */
+  /** 删除项目；若删除的是当前项目，自动切到剩余首个项目，删空时停留在项目中心空状态 */
   function deleteProject(projectId: string): void {
-    if (projects.value.length <= 1) {
+    if (!projects.value.some((project) => project.id === projectId)) {
       return
     }
 
@@ -1398,7 +1397,7 @@ export const useAppStore = defineStore('app', () => {
     projectWorkspaces.value = remainingWorkspaces
 
     if (selectedProjectId.value === projectId) {
-      selectedProjectId.value = projects.value[0].id
+      selectedProjectId.value = projects.value[0]?.id ?? ''
       pendingChapterInsertion.value = null
       currentView.value = 'projects'
       syncSelectedChapter()
@@ -1429,7 +1428,6 @@ export const useAppStore = defineStore('app', () => {
               payload.novelWorkflowStages !== undefined ? payload.novelWorkflowStages : project.novelWorkflowStages,
             projectSkills: payload.projectSkills !== undefined ? payload.projectSkills : project.projectSkills,
             targetPlatform: payload.targetPlatform !== undefined ? payload.targetPlatform.trim() : project.targetPlatform,
-            referenceWorks: payload.referenceWorks !== undefined ? payload.referenceWorks : project.referenceWorks,
             selectedReferenceWorkIds: payload.selectedReferenceWorkIds !== undefined
               ? payload.selectedReferenceWorkIds
               : project.selectedReferenceWorkIds,
@@ -1458,11 +1456,19 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
-  function mergeKnowledgeDocuments(projectId: string, documents: KnowledgeDocument[]): void {
-    const normalizedDocuments = normalizeProjectWorkspaceData({ knowledgeDocuments: documents }).knowledgeDocuments
+  function mergeKnowledgeDocuments(documents: KnowledgeDocument[]): void {
+    const normalizedDocuments = documents
+      .filter((document) => document && typeof document.id === 'string' && document.id.trim())
       .map((document) => ({
         ...document,
-        projectId
+        keywords: Array.isArray(document.keywords)
+          ? document.keywords.map((keyword) => String(keyword).trim()).filter(Boolean)
+          : [],
+        metadata: document.metadata && typeof document.metadata === 'object'
+          ? document.metadata
+          : {},
+        createdAt: document.createdAt || new Date().toISOString(),
+        updatedAt: document.updatedAt || document.createdAt || new Date().toISOString()
       }))
 
     const getDocumentSourceKey = (document: KnowledgeDocument): string | null => {
@@ -1477,39 +1483,57 @@ export const useAppStore = defineStore('app', () => {
       return null
     }
 
-    updateProjectWorkspace(projectId, (workspace) => {
-      const incomingSourceKeys = new Set(
-        normalizedDocuments
-          .map((document) => getDocumentSourceKey(document))
-          .filter((key): key is string => Boolean(key))
-      )
+    const incomingSourceKeys = new Set(
+      normalizedDocuments
+        .map((document) => getDocumentSourceKey(document))
+        .filter((key): key is string => Boolean(key))
+    )
 
-      const preservedDocuments = incomingSourceKeys.size
-        ? (workspace.knowledgeDocuments ?? []).filter((document) => {
-            const sourceKey = getDocumentSourceKey(document)
-            return !sourceKey || !incomingSourceKeys.has(sourceKey)
-          })
-        : (workspace.knowledgeDocuments ?? [])
+    const preservedDocuments = incomingSourceKeys.size
+      ? knowledgeDocuments.value.filter((document) => {
+          const sourceKey = getDocumentSourceKey(document)
+          return !sourceKey || !incomingSourceKeys.has(sourceKey)
+        })
+      : knowledgeDocuments.value
 
-      return {
-        ...workspace,
-        knowledgeDocuments: [...preservedDocuments, ...normalizedDocuments]
-      }
-    })
+    knowledgeDocuments.value = [...preservedDocuments, ...normalizedDocuments]
     schedulePersist('fast')
   }
 
-  function removeKnowledgeDocuments(projectId: string, documentIds: string[]): void {
-    const normalizedProjectId = projectId.trim()
+  function removeKnowledgeDocuments(documentIds: string[]): void {
     const idSet = new Set(documentIds.map((id) => String(id).trim()).filter(Boolean))
-    if (!normalizedProjectId || !idSet.size) {
+    if (!idSet.size) {
       return
     }
 
-    updateProjectWorkspace(normalizedProjectId, (workspace) => ({
-      ...workspace,
-      knowledgeDocuments: (workspace.knowledgeDocuments ?? []).filter((document) => !idSet.has(document.id))
-    }))
+    knowledgeDocuments.value = knowledgeDocuments.value.filter((document) => !idSet.has(document.id))
+    schedulePersist('fast')
+  }
+
+  function upsertReferenceWork(work: ReferenceWorkItem): void {
+    const existingIndex = referenceWorks.value.findIndex((item) => item.id === work.id)
+    if (existingIndex >= 0) {
+      const next = [...referenceWorks.value]
+      next[existingIndex] = work
+      referenceWorks.value = next
+    } else {
+      referenceWorks.value = [...referenceWorks.value, work]
+    }
+    schedulePersist('fast')
+  }
+
+  function removeReferenceWork(referenceWorkId: string): void {
+    const trimmedId = String(referenceWorkId ?? '').trim()
+    if (!trimmedId) return
+    referenceWorks.value = referenceWorks.value.filter((item) => item.id !== trimmedId)
+    for (const project of projects.value) {
+      const ids = project.selectedReferenceWorkIds ?? []
+      if (ids.includes(trimmedId)) {
+        updateProject(project.id, {
+          selectedReferenceWorkIds: ids.filter((id) => id !== trimmedId)
+        })
+      }
+    }
     schedulePersist('fast')
   }
 
@@ -2989,6 +3013,9 @@ export const useAppStore = defineStore('app', () => {
     setActiveWorkflowVolumeId,
     mergeKnowledgeDocuments,
     removeKnowledgeDocuments,
+    referenceWorks,
+    upsertReferenceWork,
+    removeReferenceWork,
     knowledgeDocuments,
     updateWorkflowDocument,
     updateWorkflowDocuments,

@@ -9,7 +9,6 @@ export type KnowledgeDocumentSourceType =
 
 export type WorkspaceKnowledgeDocument = {
   id: string
-  projectId: string
   title: string
   sourceType: KnowledgeDocumentSourceType
   sourceLabel: string
@@ -19,6 +18,34 @@ export type WorkspaceKnowledgeDocument = {
   metadata: Record<string, unknown>
   createdAt: string
   updatedAt: string
+}
+
+export type WorkspaceReferenceWork = {
+  id: string
+  title: string
+  source: string
+  notes: string
+  fileName: string
+  analysis?: {
+    createdAt: string
+    fileName: string
+    fileType: 'txt' | 'md' | 'docx'
+    characterCount: number
+    chapterCount: number
+    excerpt: string
+    topKeywords: string[]
+    metrics: ReferenceStyleMetric[]
+    overview: string
+    sentenceStyle: string
+    dialogueRatio: string
+    pacingControl: string
+    emotionExpression: string
+    narrativePerspective: string
+    styleRules: string[]
+    plotOutline: string
+    reusableStylePrompt: string
+    avoidRules: string[]
+  }
 }
 
 export type WorkspaceAiRunKnowledgeItem = {
@@ -62,6 +89,8 @@ export type WorkflowDocumentKey =
 export type WorkspacePayload = {
   theme: string
   selectedProjectId: string
+  knowledgeDocuments: WorkspaceKnowledgeDocument[]
+  referenceWorks: WorkspaceReferenceWork[]
   projects: Array<{
     id: string
     title: string
@@ -83,33 +112,6 @@ export type WorkspacePayload = {
       targetPlatform: string
       authorName: string
       extraNotes: string
-    }>
-    referenceWorks: Array<{
-      id: string
-      title: string
-      source: string
-      notes: string
-      fileName?: string
-      analysis?: {
-        createdAt: string
-        fileName: string
-        fileType: 'txt' | 'md' | 'docx'
-        characterCount: number
-        chapterCount: number
-        excerpt: string
-        topKeywords: string[]
-        metrics: ReferenceStyleMetric[]
-        overview: string
-        sentenceStyle: string
-        dialogueRatio: string
-        pacingControl: string
-        emotionExpression: string
-        narrativePerspective: string
-        styleRules: string[]
-        plotOutline: string
-        reusableStylePrompt: string
-        avoidRules: string[]
-      }
     }>
     writingStylePresetId: string
     writingStylePrompt: string
@@ -136,6 +138,7 @@ export type WorkspacePayload = {
       task: 'chat' | 'outline-draft'
       requiresSelection: boolean
     }>
+    selectedReferenceWorkIds: string[]
   }>
   workspaces: Record<
     string,
@@ -245,7 +248,6 @@ export type WorkspacePayload = {
         role: 'user' | 'assistant'
         content: string
       }>
-      knowledgeDocuments: Array<Omit<WorkspaceKnowledgeDocument, 'projectId'>>
       aiRuns: Array<Omit<WorkspaceAiRunRecord, 'projectId'>>
       workflowDocuments: Array<{
         key: WorkflowDocumentKey
@@ -446,12 +448,14 @@ export function normalizeProjectRecord(
     cover: project.cover || 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)',
     targetPlatform: project.targetPlatform || '',
     coverHistory: Array.isArray(project.coverHistory) ? project.coverHistory : [],
-    referenceWorks: Array.isArray(project.referenceWorks) ? project.referenceWorks : [],
     writingStylePresetId: project.writingStylePresetId || 'cinematic-cool',
     writingStylePrompt: project.writingStylePrompt || '',
     novelWorkflowStages: Array.isArray(project.novelWorkflowStages) ? project.novelWorkflowStages : [],
     projectSkills: Array.isArray(project.projectSkills) ? project.projectSkills : [],
-    chapterAssistantTemplates: Array.isArray(project.chapterAssistantTemplates) ? project.chapterAssistantTemplates : []
+    chapterAssistantTemplates: Array.isArray(project.chapterAssistantTemplates) ? project.chapterAssistantTemplates : [],
+    selectedReferenceWorkIds: Array.isArray(project.selectedReferenceWorkIds)
+      ? project.selectedReferenceWorkIds.map((id) => String(id).trim()).filter(Boolean)
+      : []
   }
 }
 
@@ -484,6 +488,12 @@ export function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWork
     return {
       ...payload,
       projects: payload.projects.map((project) => normalizeProjectRecord(project)),
+      knowledgeDocuments: Array.isArray((payload as WorkspacePayload).knowledgeDocuments)
+        ? (payload as WorkspacePayload).knowledgeDocuments
+        : [],
+      referenceWorks: Array.isArray((payload as WorkspacePayload).referenceWorks)
+        ? (payload as WorkspacePayload).referenceWorks
+        : [],
       appSettings: normalizeAppSettings(payload.appSettings),
       coverWorkbenchHistory: normalizeCoverWorkbenchHistory(
         (payload as WorkspacePayload).coverWorkbenchHistory
@@ -572,7 +582,6 @@ export function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWork
             : [],
         chapterVersions: project.id === selectedProjectId ? legacyPayload.chapterVersions ?? [] : [],
         messages: project.id === selectedProjectId ? legacyPayload.messages ?? [] : [],
-        knowledgeDocuments: [],
         aiRuns: [],
         workflowDocuments: [],
         plotThreads: []
@@ -583,6 +592,8 @@ export function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWork
   return {
     theme: legacyPayload.theme,
     selectedProjectId,
+    knowledgeDocuments: [],
+    referenceWorks: [],
     projects,
     workspaces,
     appSettings: normalizeAppSettings(legacyPayload.appSettings),

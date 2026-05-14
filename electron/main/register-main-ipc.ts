@@ -58,7 +58,6 @@ type RegisterMainIpcHandlersDeps = {
   resolveImageMime: (filePath: string) => string
   emitReferenceImportProgress: (window: BrowserWindow, payload: ReferenceImportProgressPayload) => void
   buildImportedReferenceKnowledgeDocuments: (
-    projectId: string,
     title: string,
     localContext: ReferenceNovelLocalContext,
     analysis: ReferenceStyleAnalysisResult,
@@ -79,12 +78,10 @@ type ExportRequest = {
 
 async function cleanupOrphanReferenceNovelFiles(payload: unknown): Promise<void> {
   const activeIds = new Set<string>()
-  const projects = (payload as { projects?: Array<{ referenceWorks?: Array<{ id?: unknown }> }> })?.projects ?? []
-  for (const project of projects) {
-    for (const work of project.referenceWorks ?? []) {
-      const id = String(work?.id ?? '').trim()
-      if (id) activeIds.add(id)
-    }
+  const works = (payload as { referenceWorks?: Array<{ id?: unknown }> })?.referenceWorks ?? []
+  for (const work of works) {
+    const id = String(work?.id ?? '').trim()
+    if (id) activeIds.add(id)
   }
 
   const novelStorageDir = join(getWorkspaceDirPath(), 'reference-novels')
@@ -493,9 +490,7 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
       })).result as ReferenceStyleAnalysisResult
 
       const importedAt = new Date().toISOString()
-      const knowledgeDocuments = request.projectId
-        ? deps.buildImportedReferenceKnowledgeDocuments(request.projectId, resolvedTitle, localContext, analysis, chunkResults, importedAt)
-        : []
+      const knowledgeDocuments = deps.buildImportedReferenceKnowledgeDocuments(resolvedTitle, localContext, analysis, chunkResults, importedAt)
       deps.emitReferenceImportProgress(window, {
         phase: 'saving',
         message: '正在整理结果并归档到拆书知识库...',

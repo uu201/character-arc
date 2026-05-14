@@ -30,10 +30,7 @@ import {
   type KnowledgeDocumentView,
   type ReferenceAssetLibrary
 } from '@/features/knowledge/knowledgeCenter'
-import { workflowStageDocumentMap } from '@/features/novelWorkflow/documents'
-import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
 import { useAppStore } from '@/stores/app'
-import type { KnowledgeDocumentSourceType } from '@/types/app'
 
 const appStore = useAppStore()
 const dialog = useDialog()
@@ -42,14 +39,12 @@ const message = useMessage()
 const keyword = ref('')
 const selectedDocument = ref<KnowledgeDocumentView | null>(null)
 const isImportingReferenceNovel = ref(false)
-const isGeneratingReferenceInsights = ref(false)
-const activeReferenceSkillActionKey = ref<'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze' | ''>('')
 const referenceImportProgress = ref<CharacterArcReferenceImportProgressPayload | null>(null)
 const progressModalVisible = ref(false)
 
 const allState = computed(() => buildKnowledgeCenterState(appStore.knowledgeDocuments))
 const referenceAssets = computed(() =>
-  buildReferenceAssetLibraries(appStore.currentProject?.referenceWorks ?? [], allState.value.documents)
+  buildReferenceAssetLibraries(appStore.referenceWorks, allState.value.documents)
 )
 const currentProject = computed(() => appStore.currentProject)
 const selectedReferenceWorkIds = computed(() => currentProject.value?.selectedReferenceWorkIds ?? [])
@@ -64,9 +59,7 @@ const detailVisible = computed({
 
 const healthTone = computed(() => (referenceAssets.value.length > 0 ? 'stable' : 'attention'))
 
-const isReferenceOperationActive = computed(() =>
-  isImportingReferenceNovel.value || isGeneratingReferenceInsights.value || Boolean(activeReferenceSkillActionKey.value)
-)
+const isReferenceOperationActive = computed(() => isImportingReferenceNovel.value)
 
 const librarySummaryCards = computed(() => [
   {
@@ -108,94 +101,8 @@ function setReferenceProgress(payload: CharacterArcReferenceImportProgressPayloa
   progressModalVisible.value = Boolean(payload)
 }
 
-function resolveReferenceSkillActionLabel(actionKey: 'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze'): string {
-  switch (actionKey) {
-    case 'long-scan':
-      return '长篇扫榜'
-    case 'short-scan':
-      return '短篇扫榜'
-    case 'long-analyze':
-      return '长篇拆文整理'
-    case 'short-analyze':
-      return '短篇拆文整理'
-    default:
-      return '拆书动作'
-  }
-}
-
-function resolveReferenceSkillPrompt(actionKey: 'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze'): string {
-  const platform = currentProject.value?.targetPlatform?.trim() || '未指定'
-  switch (actionKey) {
-    case 'long-scan':
-      return `请按照长篇网文扫榜的方式，结合当前题材、目标平台「${platform}」和已启用 skills，输出本项目此刻最值得追踪的题材风向、读者偏好、标题包装、开篇卖点和避坑结论。重点把结果写进 findings、task_plan 与 progress。`
-    case 'short-scan':
-      return `请按照短篇网文扫榜的方式，结合当前题材、目标平台「${platform}」和已启用 skills，输出本项目适合的情绪赛道、反转方向、平台偏好和开头钩子策略。重点把结果写进 findings、task_plan 与 progress。`
-    case 'long-analyze':
-      return '请按照长篇拆文的方式，综合当前已导入的参考作品与拆书资产，提炼黄金三章、节奏控制、人设骨架、爽点组织和可复用写法。重点把结果写进 findings、novel_setting 与 task_plan。'
-    case 'short-analyze':
-      return '请按照短篇拆文的方式，综合当前已导入的参考作品与拆书资产，提炼情绪曲线、反转布置、钩子设计和结尾余韵。重点把结果写进 findings、novel_setting 与 task_plan。'
-    default:
-      return '请整理当前参考阶段素材并输出适合继续创作的结论。'
-  }
-}
-
-function buildReferenceSkillKnowledgeDocument(
-  actionKey: 'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze',
-  payload: Record<string, string>
-): import('@/types/app').KnowledgeDocument | null {
-  if (!currentProject.value) {
-    return null
-  }
-
-  const now = new Date().toISOString()
-  const title = `拆书知识库·${resolveReferenceSkillActionLabel(actionKey)}`
-  const content = [payload.findings, payload.task_plan, payload.progress, payload.novel_setting]
-    .filter((item) => String(item ?? '').trim())
-    .join('\n\n')
-
-  if (!content.trim()) {
-    return null
-  }
-
-  return {
-    id: `knowledge-reference-skill-${actionKey}-${Date.now()}`,
-    projectId: currentProject.value.id,
-    title,
-    sourceType: 'workflow-document',
-    sourceLabel: 'reference-skill',
-    content,
-    summary: String(payload.findings ?? payload.task_plan ?? '').trim().slice(0, 220) || title,
-    keywords: [
-      resolveReferenceSkillActionLabel(actionKey),
-      currentProject.value.genre,
-      currentProject.value.targetPlatform || ''
-    ].map((item) => String(item).trim()).filter(Boolean),
-    metadata: {
-      sourceTitle: title,
-      fileName: `reference-skill-${actionKey}.md`,
-      actionKey
-    },
-    createdAt: now,
-    updatedAt: now
-  }
-}
-
-function mergeWritingStylePrompt(existingPrompt: string, incomingPrompt: string, sourceTitle: string): string {
-  const nextBlock = [`【参考拆书：${sourceTitle}】`, incomingPrompt.trim()].join('\n')
-  if (!existingPrompt.trim()) {
-    return nextBlock
-  }
-
-  if (existingPrompt.includes(`【参考拆书：${sourceTitle}】`)) {
-    return existingPrompt
-  }
-
-  return `${existingPrompt.trim()}\n\n${nextBlock}`
-}
-
 async function importReferenceNovelAnalysis(): Promise<void> {
-  const project = currentProject.value
-  if (!project || isImportingReferenceNovel.value) {
+  if (isImportingReferenceNovel.value) {
     return
   }
 
@@ -208,14 +115,9 @@ async function importReferenceNovelAnalysis(): Promise<void> {
     percent: 2
   })
   try {
-    const projectSkills = await loadEnabledProjectSkillsContext(project, 'reference')
     const result = await window.characterArc.importReferenceNovelAnalysis(JSON.parse(JSON.stringify({
       settings: appStore.appSettings,
-      projectId: project.id,
-      projectTitle: project.title,
-      projectGenre: project.genre,
-      projectPlatform: project.targetPlatform || '',
-      projectSkills
+      projectSkills: []
     })))
 
     if (result.canceled) {
@@ -227,16 +129,8 @@ async function importReferenceNovelAnalysis(): Promise<void> {
       throw new Error(result.error ?? '参考作品拆书失败')
     }
 
-    const nextReferenceWorks = [...(project.referenceWorks ?? []), result.result.referenceWork]
-    appStore.updateProject(project.id, {
-      referenceWorks: nextReferenceWorks,
-      writingStylePrompt: mergeWritingStylePrompt(
-        project.writingStylePrompt,
-        result.result.suggestedWritingStylePrompt,
-        result.result.referenceWork.title
-      )
-    })
-    appStore.mergeKnowledgeDocuments(project.id, result.result.knowledgeDocuments)
+    appStore.upsertReferenceWork(result.result.referenceWork)
+    appStore.mergeKnowledgeDocuments(result.result.knowledgeDocuments)
 
     setReferenceProgress({
       phase: 'done',
@@ -261,192 +155,6 @@ async function importReferenceNovelAnalysis(): Promise<void> {
   }
 }
 
-async function generateReferenceInsights(): Promise<void> {
-  const project = currentProject.value
-  if (!project || isGeneratingReferenceInsights.value) {
-    return
-  }
-
-  isGeneratingReferenceInsights.value = true
-  setReferenceProgress({
-    phase: 'extracting',
-    message: '正在整理拆书资产与当前流程文件...',
-    current: 1,
-    total: 3,
-    percent: 12
-  })
-  try {
-    window.setTimeout(() => {
-      if (!isGeneratingReferenceInsights.value) {
-        return
-      }
-      setReferenceProgress({
-        phase: 'aggregating',
-        message: '正在提炼参考阶段共性风格、题材爆点和平台偏好...',
-        current: 2,
-        total: 3,
-        percent: 56
-      })
-    }, 240)
-
-    const result = await window.characterArc.generateAi(JSON.parse(JSON.stringify({
-      task: 'workflow-documents',
-      settings: appStore.appSettings,
-      context: {
-        projectTitle: project.title,
-        projectGenre: project.genre,
-        projectPlatform: project.targetPlatform || '未指定',
-        projectPhase: '选题与参考',
-        stageId: 'reference',
-        stageLabel: '选题与参考',
-        requestedDocuments: workflowStageDocumentMap.reference,
-        referenceWorks: project.referenceWorks,
-        workflowDocuments: appStore.workflowDocuments.map((document) => ({
-          key: document.key,
-          content: document.content
-        })),
-        projectSkills: await loadEnabledProjectSkillsContext(project, 'reference'),
-        userPrompt: '请重点提炼当前参考作品的风格共性、题材爆点、平台偏好，并写成适合后续立项使用的 findings 与 task_plan。'
-      }
-    })))
-
-    if (!result.success || !result.result) {
-      throw new Error(result.error ?? '参考阶段提炼失败')
-    }
-
-    const payload = result.result as Record<string, string>
-    appStore.updateWorkflowDocuments(
-      appStore.activeWorkflowVolume?.id ?? '',
-      workflowStageDocumentMap.reference
-        .map((key) => ({
-          key,
-          content: payload[key] ?? ''
-        }))
-        .filter((item) => item.content.trim())
-    )
-    const knowledgeDocument = buildReferenceSkillKnowledgeDocument('long-analyze', payload)
-    if (knowledgeDocument) {
-      appStore.mergeKnowledgeDocuments(project.id, [knowledgeDocument])
-    }
-
-    setReferenceProgress({
-      phase: 'done',
-      message: '参考阶段提炼已完成，结果已同步到拆书知识库。',
-      current: 3,
-      total: 3,
-      percent: 100
-    })
-    message.success('已完成参考阶段提炼并同步到知识库')
-  } catch (error) {
-    setReferenceProgress({
-      phase: 'done',
-      message: error instanceof Error ? error.message : '参考阶段提炼失败',
-      current: 0,
-      total: 3,
-      percent: 0
-    })
-    message.error(error instanceof Error ? error.message : '参考阶段提炼失败')
-  } finally {
-    isGeneratingReferenceInsights.value = false
-  }
-}
-
-async function runReferenceSkillAction(actionKey: 'long-scan' | 'short-scan' | 'long-analyze' | 'short-analyze'): Promise<void> {
-  const project = currentProject.value
-  if (!project || activeReferenceSkillActionKey.value) {
-    return
-  }
-
-  if ((actionKey === 'long-analyze' || actionKey === 'short-analyze') && !referenceAssets.value.length) {
-    message.warning('请先导入参考小说并完成至少一次拆书，再执行拆文整理。')
-    return
-  }
-
-  activeReferenceSkillActionKey.value = actionKey
-  setReferenceProgress({
-    phase: 'extracting',
-    message: `正在整理${resolveReferenceSkillActionLabel(actionKey)}所需的项目上下文与已启用 skills...`,
-    current: 1,
-    total: 3,
-    percent: 16
-  })
-
-  try {
-    window.setTimeout(() => {
-      if (activeReferenceSkillActionKey.value !== actionKey) {
-        return
-      }
-      setReferenceProgress({
-        phase: 'aggregating',
-        message: `正在按${resolveReferenceSkillActionLabel(actionKey)}口径提炼关键信息...`,
-        current: 2,
-        total: 3,
-        percent: 58
-      })
-    }, 240)
-
-    const result = await window.characterArc.generateAi(JSON.parse(JSON.stringify({
-      task: 'workflow-documents',
-      settings: appStore.appSettings,
-      context: {
-        projectTitle: project.title,
-        projectGenre: project.genre,
-        projectPlatform: project.targetPlatform || '未指定',
-        projectPhase: '选题与参考',
-        stageId: 'reference',
-        stageLabel: '选题与参考',
-        requestedDocuments: workflowStageDocumentMap.reference,
-        referenceWorks: project.referenceWorks,
-        workflowDocuments: appStore.workflowDocuments.map((document) => ({
-          key: document.key,
-          content: document.content
-        })),
-        projectSkills: await loadEnabledProjectSkillsContext(project, 'reference'),
-        userPrompt: resolveReferenceSkillPrompt(actionKey)
-      }
-    })))
-
-    if (!result.success || !result.result) {
-      throw new Error(result.error ?? `${resolveReferenceSkillActionLabel(actionKey)}失败`)
-    }
-
-    const payload = result.result as Record<string, string>
-    appStore.updateWorkflowDocuments(
-      appStore.activeWorkflowVolume?.id ?? '',
-      workflowStageDocumentMap.reference
-        .map((key) => ({
-          key,
-          content: payload[key] ?? ''
-        }))
-        .filter((item) => item.content.trim())
-    )
-    const knowledgeDocument = buildReferenceSkillKnowledgeDocument(actionKey, payload)
-    if (knowledgeDocument) {
-      appStore.mergeKnowledgeDocuments(project.id, [knowledgeDocument])
-    }
-
-    setReferenceProgress({
-      phase: 'done',
-      message: `${resolveReferenceSkillActionLabel(actionKey)}已完成，结论已加入拆书知识库。`,
-      current: 3,
-      total: 3,
-      percent: 100
-    })
-    message.success(`${resolveReferenceSkillActionLabel(actionKey)}已完成`)
-  } catch (error) {
-    setReferenceProgress({
-      phase: 'done',
-      message: error instanceof Error ? error.message : `${resolveReferenceSkillActionLabel(actionKey)}失败`,
-      current: 0,
-      total: 3,
-      percent: 0
-    })
-    message.error(error instanceof Error ? error.message : `${resolveReferenceSkillActionLabel(actionKey)}失败`)
-  } finally {
-    activeReferenceSkillActionKey.value = ''
-  }
-}
-
 function openDocument(documentView: KnowledgeDocumentView): void {
   selectedDocument.value = documentView
 }
@@ -454,26 +162,18 @@ function openDocument(documentView: KnowledgeDocumentView): void {
 function openReferenceAsset(asset: ReferenceAssetLibrary): void {
   if (asset.primaryDocument) {
     openDocument(asset.primaryDocument)
-    return
   }
 }
 
 function removeReferenceAsset(asset: ReferenceAssetLibrary): void {
-  const project = currentProject.value
-  if (!project) {
-    return
-  }
-
   dialog.warning({
     title: '删除参考资产',
     content: `确认删除《${asset.title}》的拆书资产吗？这会一并删除关联的知识文档和参考作品档案，无法撤销。`,
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: () => {
-      appStore.removeKnowledgeDocuments(project.id, asset.relatedDocumentIds)
-      appStore.updateProject(project.id, {
-        referenceWorks: (project.referenceWorks ?? []).filter((work) => work.id !== asset.id && work.title !== asset.title)
-      })
+      appStore.removeKnowledgeDocuments(asset.relatedDocumentIds)
+      appStore.removeReferenceWork(asset.id)
       if (selectedDocument.value && asset.relatedDocumentIds.includes(selectedDocument.value.document.id)) {
         selectedDocument.value = null
       }
@@ -483,18 +183,13 @@ function removeReferenceAsset(asset: ReferenceAssetLibrary): void {
 }
 
 function removeKnowledgeDocument(documentView: KnowledgeDocumentView): void {
-  const project = currentProject.value
-  if (!project) {
-    return
-  }
-
   dialog.warning({
     title: '删除知识文档',
     content: `确认删除「${documentView.document.title}」吗？此操作无法撤销。`,
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: () => {
-      appStore.removeKnowledgeDocuments(project.id, [documentView.document.id])
+      appStore.removeKnowledgeDocuments([documentView.document.id])
       selectedDocument.value = null
       message.success(`已删除「${documentView.document.title}」`)
     }
@@ -533,11 +228,6 @@ function buildDeepAnalyzeSourceText(asset: ReferenceAssetLibrary): string {
 }
 
 async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> {
-  const project = appStore.currentProject
-  if (!project) {
-    message.warning('请先选择一个项目再使用 AI 深度拆书。')
-    return
-  }
   if (deepAnalyzingAssetId.value) {
     message.info('上一次深度拆书还在进行中，请稍候。')
     return
@@ -556,9 +246,6 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
       task: 'reference-deep-analyze',
       settings: appStore.appSettings,
       context: {
-        projectId: project.id,
-        projectTitle: project.title,
-        projectGenre: project.genre,
         referenceTitle: asset.title,
         referenceFileName: asset.fileName,
         referenceGenre: asset.topKeywords.slice(0, 3).join('、'),
@@ -569,8 +256,6 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
     if (!response.success) {
       throw new Error(response.error ?? 'AI 深度拆书失败')
     }
-    // 实际产出的 knowledge 文档由 ai-run-event → handleAiRunEvent 自动合并到 store。
-    // 这里只给个用户可见的成功消息。
     message.success(`已完成《${asset.title}》深度拆书，新增的知识文档稍后会出现在列表中。`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 深度拆书失败')
@@ -581,11 +266,6 @@ async function handleAiDeepAnalyze(asset: ReferenceAssetLibrary): Promise<void> 
 }
 
 async function handleStyleFingerprintExtract(asset: ReferenceAssetLibrary): Promise<void> {
-  const project = appStore.currentProject
-  if (!project) {
-    message.warning('请先选择一个项目再提取风格指纹。')
-    return
-  }
   if (fingerprintExtractingAssetId.value) {
     message.info('上一次风格指纹提取还在进行中，请稍候。')
     return
@@ -606,9 +286,6 @@ async function handleStyleFingerprintExtract(asset: ReferenceAssetLibrary): Prom
       task: 'style-fingerprint-extract',
       settings: appStore.appSettings,
       context: {
-        projectId: project.id,
-        projectTitle: project.title,
-        projectGenre: project.genre,
         referenceTitle: asset.title,
         referenceFileName: asset.fileName,
         referenceGenre: asset.topKeywords.slice(0, 3).join('、'),
@@ -664,6 +341,7 @@ function isReferenceSelected(asset: ReferenceAssetLibrary): boolean {
 function toggleReferenceSelection(asset: ReferenceAssetLibrary, checked: boolean): void {
   const project = currentProject.value
   if (!project?.id) {
+    message.warning('请先选择一个项目，再勾选参考书。')
     return
   }
 

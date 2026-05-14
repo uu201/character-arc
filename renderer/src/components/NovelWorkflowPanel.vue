@@ -63,7 +63,7 @@ const outlineVolumes = computed(() => appStore.outlineVolumes)
 const activeWorkflowVolumeId = computed(() => appStore.activeWorkflowVolumeId)
 const activeWorkflowVolume = computed(() => appStore.activeWorkflowVolume)
 const workflowDocuments = computed(() => appStore.workflowDocuments)
-const referenceWorks = computed(() => currentProject.value?.referenceWorks ?? [])
+const referenceWorks = computed(() => appStore.referenceWorks)
 const selectedReferenceWorkIds = computed(() => currentProject.value?.selectedReferenceWorkIds ?? [])
 
 const volumeOptions = computed(() =>

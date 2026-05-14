@@ -16,6 +16,7 @@ type CoverGenreStyle = {
 
 export type CoverPromptWorkbenchInput = {
   project: ProjectSummary
+  referenceWorks: ReferenceWorkItem[]
   authorName: string
   extraNotes: string
 }
@@ -164,7 +165,7 @@ export function buildCoverPromptWorkbenchResult(input: CoverPromptWorkbenchInput
   const targetPlatform = input.project.targetPlatform.trim()
   const platformStyle = resolvePlatformStyle(targetPlatform)
   const genreStyle = resolveGenreStyle(genre)
-  const referenceSignal = collectReferenceSignals(input.project.referenceWorks)
+  const referenceSignal = collectReferenceSignals(input.referenceWorks)
   const extraNotes = input.extraNotes.trim()
 
   const prompt = [
@@ -200,7 +201,6 @@ export function buildCoverPromptWorkbenchResult(input: CoverPromptWorkbenchInput
 }
 
 export function buildCoverPromptKnowledgeDocument(
-  projectId: string,
   input: CoverPromptWorkbenchInput
 ): KnowledgeDocument {
   const result = buildCoverPromptWorkbenchResult(input)
@@ -208,7 +208,6 @@ export function buildCoverPromptKnowledgeDocument(
 
   return {
     id: `knowledge-cover-prompt-${Date.now()}`,
-    projectId,
     title: result.title,
     sourceType: 'canon-fact',
     sourceLabel: 'cover-prompt-workbench',
@@ -219,7 +218,7 @@ export function buildCoverPromptKnowledgeDocument(
       sourceTitle: result.title,
       authorName: normalizeAuthorName(input.authorName),
       targetPlatform: input.project.targetPlatform,
-      referenceTitles: input.project.referenceWorks.map((work) => work.title).slice(0, 5),
+      referenceTitles: input.referenceWorks.map((work) => work.title).slice(0, 5),
       extraNotes: input.extraNotes.trim()
     },
     createdAt: now,

@@ -204,7 +204,6 @@ export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
 
     CREATE TABLE IF NOT EXISTS knowledge_documents (
       id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
       title TEXT NOT NULL,
       source_type TEXT NOT NULL,
       source_label TEXT NOT NULL,
@@ -213,8 +212,18 @@ export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       keywords_json TEXT NOT NULL DEFAULT '[]',
       metadata_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+      updated_at TEXT NOT NULL
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS reference_works (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      source TEXT NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      file_name TEXT NOT NULL DEFAULT '',
+      analysis_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     ) STRICT;
 
     CREATE TABLE IF NOT EXISTS ai_runs (
@@ -544,7 +553,6 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
     SELECT id, title, genre, novel_length AS novelLength, word_count AS wordCount, last_edited AS lastEdited, cover,
       target_platform AS targetPlatform,
       cover_history_json AS coverHistoryJson,
-      reference_works_json AS referenceWorksJson,
       writing_style_preset_id AS writingStylePresetId,
       writing_style_prompt AS writingStylePrompt,
       novel_workflow_stages_json AS novelWorkflowStagesJson,
@@ -553,9 +561,8 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
     FROM projects
     ORDER BY rowid ASC
   `).all() as Array<
-    Omit<WorkspacePayload['projects'][number], 'chapterAssistantTemplates' | 'novelWorkflowStages' | 'projectSkills' | 'referenceWorks' | 'coverHistory'> & {
+    Omit<WorkspacePayload['projects'][number], 'chapterAssistantTemplates' | 'novelWorkflowStages' | 'projectSkills' | 'coverHistory' | 'selectedReferenceWorkIds'> & {
       coverHistoryJson?: string
-      referenceWorksJson?: string
       chapterAssistantTemplatesJson?: string
       novelWorkflowStagesJson?: string
       projectSkillsJson?: string
@@ -567,7 +574,6 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
       ...project,
       coverHistory: parseJson(project.coverHistoryJson, []),
       novelWorkflowStages: parseJson(project.novelWorkflowStagesJson, []),
-      referenceWorks: parseJson(project.referenceWorksJson, []),
       projectSkills: parseJson(project.projectSkillsJson, []),
       chapterAssistantTemplates: parseJson(project.chapterAssistantTemplatesJson, [])
     })
@@ -669,12 +675,11 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
   `).all() as Array<WorkspacePayload['workspaces'][string]['messages'][number] & { projectId: string }>
 
   const knowledgeDocuments = db.prepare(`
-    SELECT project_id AS projectId, id, title, source_type AS sourceType, source_label AS sourceLabel, content, summary,
+    SELECT id, title, source_type AS sourceType, source_label AS sourceLabel, content, summary,
       keywords_json AS keywordsJson, metadata_json AS metadataJson, created_at AS createdAt, updated_at AS updatedAt
     FROM knowledge_documents
-    ORDER BY project_id ASC, created_at DESC, rowid DESC
+    ORDER BY created_at DESC, rowid DESC
   `).all().map((row) => ({
-    projectId: row.projectId as string,
     id: row.id as string,
     title: row.title as string,
     sourceType: row.sourceType as KnowledgeDocumentSourceType,
@@ -685,7 +690,23 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
     metadata: parseJson(row.metadataJson as string, {} as Record<string, unknown>),
     createdAt: row.createdAt as string,
     updatedAt: row.updatedAt as string
-  })) as Array<WorkspacePayload['workspaces'][string]['knowledgeDocuments'][number] & { projectId: string }>
+  })) as WorkspacePayload['knowledgeDocuments']
+
+  const referenceWorks = db.prepare(`
+    SELECT id, title, source, notes, file_name AS fileName, analysis_json AS analysisJson, created_at AS createdAt, updated_at AS updatedAt
+    FROM reference_works
+    ORDER BY created_at DESC, rowid DESC
+  `).all().map((row) => {
+    const analysis = parseJson<WorkspacePayload['referenceWorks'][number]['analysis'] | null>(row.analysisJson as string, null)
+    return {
+      id: row.id as string,
+      title: row.title as string,
+      source: row.source as string,
+      notes: row.notes as string,
+      fileName: row.fileName as string,
+      ...(analysis ? { analysis } : {})
+    }
+  }) as WorkspacePayload['referenceWorks']
 
   const aiRuns = db.prepare(`
     SELECT project_id AS projectId, id, chapter_id AS chapterId, task, provider, model, status,
@@ -813,7 +834,6 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
   const chaptersByProject = groupBy(chapters)
   const versionsByProject = groupBy(chapterVersions)
   const messagesByProject = groupBy(messages)
-  const knowledgeByProject = groupBy(knowledgeDocuments)
   const aiRunsByProject = groupBy(aiRuns)
   const plotThreadsByProject = groupBy(plotThreads)
 
@@ -859,8 +879,6 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
           .map(({ projectId: _projectId, ...version }) => version),
         messages: (messagesByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...message }) => message),
-        knowledgeDocuments: (knowledgeByProject.get(project.id) ?? [])
-          .map(({ projectId: _projectId, ...document }) => document),
         aiRuns: (aiRunsByProject.get(project.id) ?? [])
           .map(({ projectId: _projectId, ...run }) => run),
         workflowDocuments: [],
@@ -876,6 +894,8 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
   return {
     theme: settings.theme,
     selectedProjectId: settings.selectedProjectId,
+    knowledgeDocuments,
+    referenceWorks,
     projects,
     workspaces,
     appSettings: {
@@ -926,6 +946,7 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
       chapter_versions: new Set(),
       ai_messages: new Set(),
       knowledge_documents: new Set(),
+      reference_works: new Set(),
       ai_runs: new Set(),
       workflow_documents: new Set(),
       plot_threads: new Set(),
@@ -948,7 +969,7 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
         project.cover,
         project.targetPlatform,
         JSON.stringify(project.coverHistory ?? []),
-        JSON.stringify(project.referenceWorks ?? []),
+        '[]',
         project.writingStylePresetId,
         project.writingStylePrompt,
         JSON.stringify(project.novelWorkflowStages ?? []),
@@ -1012,8 +1033,13 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
     `)
 
     const insertKnowledgeDocument = db.prepare(`
-      INSERT OR REPLACE INTO knowledge_documents (id, project_id, title, source_type, source_label, content, summary, keywords_json, metadata_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO knowledge_documents (id, title, source_type, source_label, content, summary, keywords_json, metadata_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const insertReferenceWork = db.prepare(`
+      INSERT OR REPLACE INTO reference_works (id, title, source, notes, file_name, analysis_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const insertAiRun = db.prepare(`
@@ -1194,23 +1220,6 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
         insertMessage.run(message.id, project.id, message.role, message.content, index)
       })
 
-      workspace.knowledgeDocuments.forEach((document) => {
-        allIds.knowledge_documents.add(document.id)
-        insertKnowledgeDocument.run(
-          document.id,
-          project.id,
-          document.title,
-          document.sourceType,
-          document.sourceLabel,
-          document.content,
-          document.summary,
-          JSON.stringify(document.keywords ?? []),
-          JSON.stringify(document.metadata ?? {}),
-          document.createdAt,
-          document.updatedAt
-        )
-      })
-
       workspace.aiRuns.forEach((run, index) => {
         allIds.ai_runs.add(run.id)
         insertAiRun.run(
@@ -1285,6 +1294,40 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
     }
 
     const normalizedAppSettings = normalizeAppSettings(payload.appSettings)
+
+    const globalKnowledgeDocuments = Array.isArray(payload.knowledgeDocuments) ? payload.knowledgeDocuments : []
+    globalKnowledgeDocuments.forEach((document) => {
+      allIds.knowledge_documents.add(document.id)
+      insertKnowledgeDocument.run(
+        document.id,
+        document.title,
+        document.sourceType,
+        document.sourceLabel,
+        document.content,
+        document.summary,
+        JSON.stringify(document.keywords ?? []),
+        JSON.stringify(document.metadata ?? {}),
+        document.createdAt,
+        document.updatedAt
+      )
+    })
+
+    const globalReferenceWorks = Array.isArray(payload.referenceWorks) ? payload.referenceWorks : []
+    globalReferenceWorks.forEach((work) => {
+      allIds.reference_works.add(work.id)
+      const now = new Date().toISOString()
+      insertReferenceWork.run(
+        work.id,
+        work.title,
+        work.source,
+        work.notes ?? '',
+        work.fileName ?? '',
+        JSON.stringify(work.analysis ?? null),
+        work.analysis?.createdAt ?? now,
+        now
+      )
+    })
+
     const coverWorkbenchHistory = Array.isArray(payload.coverWorkbenchHistory) ? payload.coverWorkbenchHistory : []
     if (coverWorkbenchHistory.length > 0) {
       const insertCoverHistory = db.prepare(`
@@ -1330,9 +1373,8 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
       normalizedAppSettings.darkModeStyle
     )
 
-    // 删除不再存在于 payload 中的孤儿行（跳过空集合，避免误清整表）
+    // 删除不再存在于 payload 中的孤儿行
     for (const [table, ids] of Object.entries(allIds)) {
-      if (ids.size === 0) continue
       const existing = db.prepare(`SELECT id FROM ${table}`).all() as Array<{ id: string }>
       const deleteStmt = db.prepare(`DELETE FROM ${table} WHERE id = ?`)
       for (const row of existing) {
@@ -1343,10 +1385,8 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
     // 孤儿 embedding 清理
     const activeChapterIds = allIds.chapters
     const activeReferenceWorkIds = new Set<string>()
-    for (const project of payload.projects) {
-      for (const work of project.referenceWorks ?? []) {
-        if (work?.id) activeReferenceWorkIds.add(String(work.id))
-      }
+    for (const work of payload.referenceWorks ?? []) {
+      if (work?.id) activeReferenceWorkIds.add(String(work.id))
     }
 
     const embeddingRows = db.prepare(`SELECT id, source_type, source_id FROM story_embeddings`).all() as Array<{

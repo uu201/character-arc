@@ -76,7 +76,6 @@ function emitChapterStateWarnings(payload: ChapterStateWarningsPayload): void {
 }
 
 function buildImportedReferenceKnowledgeDocuments(
-  projectId: string,
   title: string,
   localContext: ReferenceNovelLocalContext,
   analysis: ReferenceStyleAnalysisResult,
@@ -85,7 +84,6 @@ function buildImportedReferenceKnowledgeDocuments(
 ): WorkspaceKnowledgeDocument[] {
   const summaryDocument: WorkspaceKnowledgeDocument = {
     id: `knowledge-reference-summary-${randomUUID()}`,
-    projectId,
     title: `${title}｜拆书总纲`,
     sourceType: 'reference-summary',
     sourceLabel: localContext.fileName,
@@ -143,7 +141,6 @@ function buildImportedReferenceKnowledgeDocuments(
 
     return {
       id: `knowledge-reference-chunk-${randomUUID()}`,
-      projectId,
       title: `${title}｜${chunk.label}`,
       sourceType: 'reference-chunk' as const,
       sourceLabel: `${localContext.fileName} / ${chunk.label}`,

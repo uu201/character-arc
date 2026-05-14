@@ -6,7 +6,6 @@ import type {
   CharacterRelationship,
   CharacterCard,
   InspirationEntry,
-  KnowledgeDocument,
   OutlineItemStatus,
   OrganizationEntry,
   OrganizationMembership,
@@ -191,20 +190,6 @@ function cloneWorldviewEntries(worldviewEntries?: WorldviewEntry[]): WorldviewEn
   return normalizeWorldviewEntries(worldviewEntries)
 }
 
-function cloneKnowledgeDocuments(documents?: KnowledgeDocument[]): KnowledgeDocument[] {
-  return documents?.length
-    ? documents.map((document) => ({
-        ...document,
-        keywords: Array.isArray(document.keywords) ? document.keywords.map((keyword) => String(keyword).trim()).filter(Boolean) : [],
-        metadata: document.metadata && typeof document.metadata === 'object'
-          ? JSON.parse(JSON.stringify(document.metadata)) as Record<string, unknown>
-          : {},
-        createdAt: toIsoTimestamp(document.createdAt),
-        updatedAt: toIsoTimestamp(document.updatedAt || document.createdAt)
-      }))
-    : []
-}
-
 function cloneAiRuns(aiRuns?: AiRunRecord[]): AiRunRecord[] {
   return aiRuns?.length
     ? aiRuns.map((run) => ({
@@ -252,7 +237,6 @@ export function createEmptyWorkspace(overrides?: Partial<ProjectWorkspaceData>):
     chapters: cloneChapters(volumeState.chapters),
     chapterVersions: cloneChapterVersions(overrides?.chapterVersions),
     messages: cloneMessages(overrides?.messages),
-    knowledgeDocuments: cloneKnowledgeDocuments(overrides?.knowledgeDocuments),
     aiRuns: cloneAiRuns(overrides?.aiRuns),
     workflowDocuments: normalizeWorkflowDocuments(overrides?.workflowDocuments as WorkflowDocument[] | undefined),
     plotThreads: Array.isArray(overrides?.plotThreads) ? (overrides.plotThreads as PlotThread[]) : []
@@ -304,7 +288,6 @@ export function normalizeWorkspace(
     chapters: cloneChapters(volumeState.chapters),
     chapterVersions: cloneChapterVersions(workspace.chapterVersions),
     messages: cloneMessages(workspace.messages),
-    knowledgeDocuments: cloneKnowledgeDocuments(workspace.knowledgeDocuments),
     aiRuns: cloneAiRuns(workspace.aiRuns),
     workflowDocuments: normalizeWorkflowDocuments(projectLevelDocs),
     plotThreads: Array.isArray(workspace.plotThreads) ? (workspace.plotThreads as PlotThread[]) : []

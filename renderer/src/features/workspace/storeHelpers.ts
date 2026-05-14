@@ -38,6 +38,8 @@ export interface StoredState {
   selectedProjectId: string
   projects: ProjectSummary[]
   workspaces: Record<string, ProjectWorkspaceData>
+  knowledgeDocuments: KnowledgeDocument[]
+  referenceWorks: ReferenceWorkItem[]
   appSettings: AppSettings
   coverWorkbenchHistory: import('@/types/app').CoverWorkbenchHistoryItem[]
 }
@@ -97,7 +99,6 @@ export function normalizeProjectSummary(project: ProjectSummary): ProjectSummary
     novelWorkflowStages: normalizeNovelWorkflowStages(project.novelWorkflowStages),
     projectSkills: normalizeProjectSkills(project.projectSkills),
     targetPlatform: project.targetPlatform?.trim() || '',
-    referenceWorks: normalizeReferenceWorks(project.referenceWorks),
     selectedReferenceWorkIds: Array.isArray(project.selectedReferenceWorkIds)
       ? project.selectedReferenceWorkIds.map((id) => String(id).trim()).filter(Boolean)
       : [],
@@ -339,6 +340,8 @@ export function loadStoredState(): StoredState {
     selectedProjectId: '',
     projects: defaultProjects,
     workspaces: {},
+    knowledgeDocuments: [],
+    referenceWorks: [],
     appSettings: defaultAppSettings,
     coverWorkbenchHistory: []
   }
@@ -383,7 +386,6 @@ export function normalizeProjectWorkspaceData(
     chapters: normalized.chapters.map(normalizeChapterDraft),
     chapterVersions: normalized.chapterVersions.map(normalizeChapterVersion),
     messages: normalized.messages,
-    knowledgeDocuments: normalizeKnowledgeDocuments(normalized.knowledgeDocuments),
     aiRuns: normalizeAiRuns(normalized.aiRuns),
     workflowDocuments: normalizeWorkflowDocuments(normalized.workflowDocuments),
     plotThreads: normalized.plotThreads

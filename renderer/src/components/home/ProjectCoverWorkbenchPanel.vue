@@ -95,10 +95,10 @@ function createWorkbenchInput(): CoverPromptWorkbenchInput | null {
       chapterAssistantTemplates: [],
       novelWorkflowStages: [],
       projectSkills: [],
-      referenceWorks: [],
       selectedReferenceWorkIds: [],
       coverHistory: []
     },
+    referenceWorks: [],
     authorName: workbench.authorName,
     extraNotes: workbench.extraNotes
   }
