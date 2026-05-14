@@ -22,6 +22,7 @@ import referenceStyleAnalysis from './reference-style-analysis'
 import referenceDeepAnalyze from './reference-deep-analyze'
 import styleFingerprintExtract from './style-fingerprint-extract'
 import storyDeepAudit from './story-deep-audit'
+import chapterRepair from './chapter-repair'
 
 const TASK_REGISTRY = new Map<AiTaskName, TaskHandler>()
 
@@ -50,6 +51,7 @@ register(referenceStyleAnalysis)
 register(referenceDeepAnalyze)
 register(styleFingerprintExtract)
 register(storyDeepAudit)
+register(chapterRepair)
 
 export function getTaskHandler(name: AiTaskName): TaskHandler {
   const handler = TASK_REGISTRY.get(name)

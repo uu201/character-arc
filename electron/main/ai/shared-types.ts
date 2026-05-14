@@ -46,6 +46,7 @@ export type AiTaskName =
   | 'plot-thread-detect'
   | 'project-bootstrap'
   | 'chapter-analysis'
+  | 'chapter-repair'
   | 'inspiration-pack'
   | 'story-deep-audit'
 
