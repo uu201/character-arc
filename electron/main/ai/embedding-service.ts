@@ -8,18 +8,20 @@ const EMBEDDING_MODEL_FALLBACKS = ['text-embedding-3-small', 'text-embedding-ada
 const PROVIDERS_WITHOUT_EMBEDDINGS: ReadonlySet<string> = new Set(['anthropic'])
 
 const observedDimensions = new Map<string, number>()
-let dimensionsHydrated = false
+let hydratePromise: Promise<void> | null = null
 
-async function hydrateDimensions(): Promise<void> {
-  if (dimensionsHydrated) return
-  dimensionsHydrated = true
-  try {
-    const db = await ensureWorkspaceDb()
-    const rows = db.prepare('SELECT key, dimension FROM embedding_metadata').all() as Array<{ key: string; dimension: number }>
-    for (const row of rows) {
-      observedDimensions.set(row.key, row.dimension)
-    }
-  } catch { /* table may not exist yet on first run */ }
+function hydrateDimensions(): Promise<void> {
+  if (hydratePromise) return hydratePromise
+  hydratePromise = (async () => {
+    try {
+      const db = await ensureWorkspaceDb()
+      const rows = db.prepare('SELECT key, dimension FROM embedding_metadata').all() as Array<{ key: string; dimension: number }>
+      for (const row of rows) {
+        observedDimensions.set(row.key, row.dimension)
+      }
+    } catch { /* table may not exist yet on first run */ }
+  })()
+  return hydratePromise
 }
 
 function persistDimension(key: string, dimension: number): void {
