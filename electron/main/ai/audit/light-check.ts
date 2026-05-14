@@ -135,8 +135,9 @@ function checkStateConflicts(
 
 function extractRuleKeywords(ruleContent: string): string[] {
   return ruleContent
-    .replace(/[，。、；：""''（）【】]/g, ' ')
+    .replace(/[，。、；：""''（）【】！？…—·「」『』]/g, ' ')
+    .replace(/(?:不能|不可|无法|不得|禁止|不会|不要|必须|只能|可以|应该|需要|的|了|是|在|有|和|与|或|而|但|也|都|就|才|又|被|把|让|给|对|从|向|到|以|为|于|之)/g, ' ')
     .split(/\s+/)
     .filter((w) => w.length >= 2)
-    .slice(0, 6)
+    .slice(0, 8)
 }
