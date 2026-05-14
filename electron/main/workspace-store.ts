@@ -1325,16 +1325,13 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
       normalizedAppSettings.darkModeStyle
     )
 
-    // 删除不再存在于 payload 中的孤儿行
+    // 删除不再存在于 payload 中的孤儿行（跳过空集合，避免误清整表）
     for (const [table, ids] of Object.entries(allIds)) {
-      if (ids.size === 0) {
-        db.exec(`DELETE FROM ${table}`)
-      } else {
-        const existing = db.prepare(`SELECT id FROM ${table}`).all() as Array<{ id: string }>
-        const deleteStmt = db.prepare(`DELETE FROM ${table} WHERE id = ?`)
-        for (const row of existing) {
-          if (!ids.has(row.id)) deleteStmt.run(row.id)
-        }
+      if (ids.size === 0) continue
+      const existing = db.prepare(`SELECT id FROM ${table}`).all() as Array<{ id: string }>
+      const deleteStmt = db.prepare(`DELETE FROM ${table} WHERE id = ?`)
+      for (const row of existing) {
+        if (!ids.has(row.id)) deleteStmt.run(row.id)
       }
     }
 
