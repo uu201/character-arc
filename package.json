@@ -9,7 +9,7 @@
     "dev": "cross-env ELECTRON_RUN_AS_NODE= electron-vite dev",
     "build": "cross-env ELECTRON_RUN_AS_NODE= vue-tsc --noEmit && cross-env ELECTRON_RUN_AS_NODE= electron-vite build",
     "preview": "cross-env ELECTRON_RUN_AS_NODE= electron-vite preview",
-    "dist": "npm run build && electron-builder"
+    "dist": "pnpm run build && electron-builder"
   },
   "dependencies": {
     "@node-rs/jieba": "^2.0.1",
