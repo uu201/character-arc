@@ -1,20 +1,34 @@
 import type { AppSettings } from './shared-types'
 import { normalizeSettings } from './settings'
+import { ensureWorkspaceDb } from '../workspace-store'
 
 const MAX_BATCH_SIZE = 16
 const EMBEDDING_MODEL_FALLBACKS = ['text-embedding-3-small', 'text-embedding-ada-002', 'embedding-2']
 
-/**
- * Providers that don't expose OpenAI-compatible /embeddings 接口。
- * 这些 provider 直接跳过向量索引，只依赖关键词检索。
- */
 const PROVIDERS_WITHOUT_EMBEDDINGS: ReadonlySet<string> = new Set(['anthropic'])
 
-/**
- * 运行时观测到的 embedding 维度，按 `${provider}:${model}` 缓存。
- * 同一 (provider, model) 第二次调用返回不同维度时抛错，调用方捕获后静默降级。
- */
 const observedDimensions = new Map<string, number>()
+let dimensionsHydrated = false
+
+async function hydrateDimensions(): Promise<void> {
+  if (dimensionsHydrated) return
+  dimensionsHydrated = true
+  try {
+    const db = await ensureWorkspaceDb()
+    const rows = db.prepare('SELECT key, dimension FROM embedding_metadata').all() as Array<{ key: string; dimension: number }>
+    for (const row of rows) {
+      observedDimensions.set(row.key, row.dimension)
+    }
+  } catch { /* table may not exist yet on first run */ }
+}
+
+function persistDimension(key: string, dimension: number): void {
+  ensureWorkspaceDb().then((db) => {
+    try {
+      db.prepare('INSERT OR REPLACE INTO embedding_metadata (key, dimension) VALUES (?, ?)').run(key, dimension)
+    } catch { /* non-critical */ }
+  }).catch(() => {})
+}
 
 export class EmbeddingUnsupportedError extends Error {
   constructor(provider: string) {
@@ -47,6 +61,8 @@ export async function embedTexts(
 ): Promise<Float32Array[]> {
   if (!texts.length) return []
 
+  await hydrateDimensions()
+
   const normalized = normalizeSettings(settings)
   if (!providerSupportsEmbedding(normalized)) {
     throw new EmbeddingUnsupportedError(normalized.provider)
@@ -66,6 +82,7 @@ export async function embedTexts(
       const existing = observedDimensions.get(dimKey)
       if (existing == null) {
         observedDimensions.set(dimKey, dim)
+        persistDimension(dimKey, dim)
       } else if (existing !== dim) {
         throw new EmbeddingDimensionMismatchError(dimKey, existing, dim)
       }

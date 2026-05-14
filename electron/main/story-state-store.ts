@@ -209,6 +209,11 @@ const STORY_STATE_SCHEMA = `
 
   CREATE INDEX IF NOT EXISTS idx_embeddings_project
     ON story_embeddings(project_id, source_type);
+
+  CREATE TABLE IF NOT EXISTS embedding_metadata (
+    key TEXT PRIMARY KEY,
+    dimension INTEGER NOT NULL
+  ) STRICT;
 `
 
 // ==================== Helpers ====================
