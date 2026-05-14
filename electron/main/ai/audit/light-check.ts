@@ -119,11 +119,14 @@ function checkStateConflicts(
     if (!charState) continue
 
     if (charState.physicalState.includes('昏迷') || charState.physicalState.includes('死亡')) {
-      if (!charUpdate.changes.physical_state) {
+      const hasActiveChanges = charUpdate.changes.goals_update ||
+        charUpdate.changes.arc_progression ||
+        charUpdate.changes.power_level
+      if (hasActiveChanges && !charUpdate.changes.physical_state) {
         violations.push({
           type: 'state_conflict',
-          severity: 'error',
-          message: `角色「${charUpdate.character_id}」当前状态为「${charState.physicalState}」，但 delta 未报告状态恢复`
+          severity: 'warning',
+          message: `角色「${charUpdate.character_id}」当前状态为「${charState.physicalState}」，但 delta 报告了主动行为变更且未恢复状态`
         })
       }
     }
