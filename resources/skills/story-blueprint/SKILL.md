@@ -11,6 +11,9 @@ manifest:
     - outline-chain
     - outline-item
     - project-bootstrap
+    - spiral-seed
+    - spiral-expand
+    - spiral-validate
   stages:
     - outline
   triggers:

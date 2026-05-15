@@ -22,6 +22,9 @@ manifest:
     - worldview-entry
     - character-card
     - outline-item
+    - spiral-seed
+    - spiral-expand
+    - spiral-validate
   triggers:
     - 写短篇
     - 短篇

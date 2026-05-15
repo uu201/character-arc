@@ -103,6 +103,14 @@ function computeScore(
     score = Math.max(score, 1)
   }
 
+  // 篇幅亲和：长篇项目优先 long skill，短篇项目优先 short skill
+  const novelLength = String(context.projectNovelLength ?? '').trim()
+  if (score > 0 && novelLength) {
+    const id = skill.id.toLowerCase()
+    if (novelLength === 'long' && id.includes('short')) score -= 4
+    if (novelLength === 'short' && id.includes('long')) score -= 4
+  }
+
   // priority (0-10) 折算为 0-2 的微调分量：影响排序，但不压过 task/stage 信号
   if (score > 0) {
     score += Math.max(0, Math.min(manifest.priority, 10)) * 0.2

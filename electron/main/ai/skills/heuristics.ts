@@ -59,7 +59,8 @@ export function buildFullManifest(
 const WRITING_TASKS: AiTaskName[] = [
   'chapter-assistant', 'chapter-first-draft', 'outline-batch', 'outline-chain',
   'chapter-analysis', 'inspiration-pack', 'project-bootstrap',
-  'worldview-entry', 'character-card', 'outline-item'
+  'worldview-entry', 'character-card', 'outline-item',
+  'spiral-seed', 'spiral-expand', 'spiral-validate'
 ]
 
 function buildHeuristic(

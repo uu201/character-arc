@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ArrowLeft, BookA, CheckCircle2, ChevronRight, Info, Sparkles } from 'lucide-vue-next'
-import { NButton, NInput, NSwitch, useMessage } from 'naive-ui'
+import { NButton, NInput, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
-import { createProjectWorkspaceSeed, type ProjectBootstrapResult } from '@/features/wizard/projectSeed'
+import {
+  createProjectWorkspaceSeed,
+  createProjectWorkspaceSeedFromSpiral,
+  type ProjectBootstrapResult,
+  type SpiralBootstrapResult
+} from '@/features/wizard/projectSeed'
 import {
   DEFAULT_PROJECT_GENRE,
   DEFAULT_PROJECT_GENRE_KEY,
@@ -21,6 +26,7 @@ const message = useMessage()
 
 const step = ref(1)
 const isGenerating = ref(false)
+let spiralAbortController: AbortController | null = null
 
 const viewportWidth = ref(window.innerWidth)
 const isCompactWizard = computed(() => viewportWidth.value <= 820)
@@ -32,14 +38,24 @@ function syncViewport(): void {
 onMounted(() => window.addEventListener('resize', syncViewport))
 onBeforeUnmount(() => window.removeEventListener('resize', syncViewport))
 
+type GenerationMode = 'off' | 'quick' | 'deep'
+
 const formData = reactive({
   title: '',
   selectedGenreKey: DEFAULT_PROJECT_GENRE_KEY,
   customGenre: '',
   novelLength: 'long' as NovelLength,
   premise: '',
-  shouldGenerate: true
+  generationMode: 'deep' as GenerationMode
 })
+
+const spiralPhase = ref<'idle' | 'seed' | 'expand' | 'validate'>('idle')
+const spiralPhaseLabels: Record<string, string> = {
+  idle: '',
+  seed: '正在提炼核心骨架（主角矛盾 + 主线方向 + 世界规则）...',
+  expand: '正在展开配角、大纲节拍和补充设定...',
+  validate: '正在校验一致性并修补缺口...'
+}
 
 const steps = [
   { num: 1, title: '基础设定', desc: '确定题材与作品长度' },
@@ -66,7 +82,11 @@ const selectedGenreLabel = computed(() =>
 const novelLengthLabel = computed(() => resolveNovelLengthLabel(formData.novelLength))
 const currentStep = computed(() => steps[step.value - 1])
 const premisePreview = computed(() => formData.premise.trim() || '还未填写故事简介')
-const creationModeLabel = computed(() => (formData.shouldGenerate ? 'AI 初始化' : '空白项目'))
+const creationModeLabel = computed(() => {
+  if (formData.generationMode === 'deep') return '深度生成'
+  if (formData.generationMode === 'quick') return '快速生成'
+  return '空白项目'
+})
 const sidebarNote = computed(() => {
   if (step.value === 1) {
     return '项目名称、题材和篇幅会直接影响工作台中的项目信息，以及 AI 初始化时的设定偏向。'
@@ -74,17 +94,22 @@ const sidebarNote = computed(() => {
   if (step.value === 2) {
     return '简介越具体，AI 生成的世界观、开局冲突和前几章大纲就越贴近你真正想写的故事。'
   }
-  return formData.shouldGenerate
-    ? '开启 AI 初始化后，系统会直接生成首批世界观、大纲和章节草稿。'
-    : '关闭 AI 初始化后，只会创建项目骨架与首章草稿，方便你从零开始搭建。'
+  if (formData.generationMode === 'deep') {
+    return '深度生成会通过三轮螺旋式推导，从角色核心矛盾出发生成完整的角色、大纲和世界设定。'
+  }
+  if (formData.generationMode === 'quick') {
+    return '快速生成会一次性生成首批世界观和大纲骨架，速度快但不含角色设计。'
+  }
+  return '关闭 AI 初始化后，只会创建项目骨架与首章草稿，方便你从零开始搭建。'
 })
+const spiralPhaseLabel = computed(() => spiralPhaseLabels[spiralPhase.value] || '')
 const footerHint = computed(() => {
   if (step.value < 3) {
     return '创建完成后会直接进入项目工作台。'
   }
-  return formData.shouldGenerate
-    ? '将生成首批世界观、大纲与章节草稿。'
-    : '将创建项目骨架与首章草稿。'
+  if (formData.generationMode === 'deep') return '将通过螺旋推导生成角色、大纲与世界设定。'
+  if (formData.generationMode === 'quick') return '将生成首批世界观、大纲与章节草稿。'
+  return '将创建项目骨架与首章草稿。'
 })
 
 const canContinue = computed(() => {
@@ -100,12 +125,13 @@ const canContinue = computed(() => {
 function resetWizard(): void {
   step.value = 1
   isGenerating.value = false
+  spiralPhase.value = 'idle'
   formData.title = ''
   formData.selectedGenreKey = DEFAULT_PROJECT_GENRE_KEY
   formData.customGenre = ''
   formData.novelLength = 'long'
   formData.premise = ''
-  formData.shouldGenerate = true
+  formData.generationMode = 'deep'
 }
 
 function goBack(): void {
@@ -116,6 +142,12 @@ function goBack(): void {
 
   if (!isGenerating.value) {
     appStore.closeWizard()
+  }
+}
+
+async function cancelGeneration(): Promise<void> {
+  if (formData.generationMode === 'deep') {
+    await window.characterArc.cancelSpiralBootstrap()
   }
 }
 
@@ -144,10 +176,44 @@ async function goNext(): Promise<void> {
   }
 
   isGenerating.value = true
-  try {
-    let bootstrapResult: ProjectBootstrapResult | null = null
+  spiralPhase.value = 'idle'
 
-    if (formData.shouldGenerate) {
+  const wizardValues = {
+    title: formData.title,
+    genre: resolvedGenre.value,
+    novelLength: formData.novelLength,
+    premise: formData.premise,
+    shouldGenerate: formData.generationMode !== 'off'
+  }
+
+  try {
+    if (formData.generationMode === 'deep') {
+      const cleanup = window.characterArc.onSpiralProgress((event) => {
+        spiralPhase.value = event.phase
+      })
+
+      try {
+        const result = await window.characterArc.spiralBootstrap(
+          toIpcPayload({
+            settings: appStore.appSettings,
+            projectTitle: formData.title,
+            projectGenre: resolvedGenre.value,
+            projectNovelLength: formData.novelLength,
+            projectPremise: formData.premise
+          })
+        )
+
+        if (!result.success || !result.result) {
+          throw new Error(result.error ?? '深度生成失败')
+        }
+
+        appStore.createProjectWorkspace(
+          createProjectWorkspaceSeedFromSpiral(wizardValues, result.result)
+        )
+      } finally {
+        cleanup()
+      }
+    } else if (formData.generationMode === 'quick') {
       const result = await window.characterArc.generateAi(
         toIpcPayload({
           task: 'project-bootstrap',
@@ -165,26 +231,19 @@ async function goNext(): Promise<void> {
         throw new Error(result.error ?? 'AI 初始化项目失败')
       }
 
-      bootstrapResult = result.result as ProjectBootstrapResult
+      appStore.createProjectWorkspace(
+        createProjectWorkspaceSeed(wizardValues, result.result as ProjectBootstrapResult)
+      )
+    } else {
+      appStore.createProjectWorkspace(createProjectWorkspaceSeed(wizardValues))
     }
 
-    appStore.createProjectWorkspace(
-      createProjectWorkspaceSeed(
-        {
-          title: formData.title,
-          genre: resolvedGenre.value,
-          novelLength: formData.novelLength,
-          premise: formData.premise,
-          shouldGenerate: formData.shouldGenerate
-        },
-        bootstrapResult
-      )
-    )
     resetWizard()
   } catch (error) {
     message.error(error instanceof Error ? error.message : '创建项目失败，请稍后重试')
   } finally {
     isGenerating.value = false
+    spiralPhase.value = 'idle'
   }
 }
 </script>
@@ -428,15 +487,24 @@ async function goNext(): Promise<void> {
 
                   <div class="review-copy">
                     <h3>{{ isGenerating ? '正在创建项目工作区...' : '准备创建项目' }}</h3>
-                    <p>
-                      {{
-                        isGenerating
-                          ? formData.shouldGenerate
-                            ? '正在根据题材、作品长度和小说简介生成首批世界观与剧情大纲，并同步创建章节草稿。'
-                            : '正在创建项目脚手架，并为你准备首卷与第一章草稿。'
-                          : '最后确认一次摘要和初始化方式。创建完成后会直接进入工作台。'
-                      }}
-                    </p>
+                    <p v-if="isGenerating && spiralPhaseLabel">{{ spiralPhaseLabel }}</p>
+                    <p v-else-if="isGenerating">正在生成中...</p>
+                    <p v-else>最后确认一次摘要和初始化方式。创建完成后会直接进入工作台。</p>
+                  </div>
+                </div>
+
+                <div v-if="isGenerating && formData.generationMode === 'deep'" class="spiral-progress">
+                  <div class="spiral-step" :class="{ active: spiralPhase === 'seed', done: spiralPhase === 'expand' || spiralPhase === 'validate' }">
+                    <span class="spiral-dot"></span>
+                    <span>核心骨架</span>
+                  </div>
+                  <div class="spiral-step" :class="{ active: spiralPhase === 'expand', done: spiralPhase === 'validate' }">
+                    <span class="spiral-dot"></span>
+                    <span>展开设计</span>
+                  </div>
+                  <div class="spiral-step" :class="{ active: spiralPhase === 'validate' }">
+                    <span class="spiral-dot"></span>
+                    <span>一致性校验</span>
                   </div>
                 </div>
 
@@ -463,16 +531,41 @@ async function goNext(): Promise<void> {
                   </div>
                 </dl>
 
-                <div v-if="!isGenerating" class="toggle-panel">
-                  <div class="toggle-copy">
-                    <strong>AI 初始化</strong>
-                    <p>默认会生成首批世界观、大纲和章节草稿，也可以只创建空白项目骨架。</p>
+                <div v-if="!isGenerating" class="generation-mode-panel">
+                  <div class="section-head">
+                    <h3>初始化方式</h3>
+                    <p>选择项目创建时的 AI 参与程度。</p>
                   </div>
 
-                  <n-switch v-model:value="formData.shouldGenerate" size="medium" class="bootstrap-toggle">
-                    <template #checked>已开启</template>
-                    <template #unchecked>已关闭</template>
-                  </n-switch>
+                  <div class="generation-mode-grid">
+                    <button
+                      type="button"
+                      class="mode-card"
+                      :class="{ active: formData.generationMode === 'deep' }"
+                      @click="formData.generationMode = 'deep'"
+                    >
+                      <strong>深度生成</strong>
+                      <span>螺旋式推导：从角色核心矛盾出发，生成完整角色、大纲和世界设定。质量更高，耗时约 30 秒。</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="mode-card"
+                      :class="{ active: formData.generationMode === 'quick' }"
+                      @click="formData.generationMode = 'quick'"
+                    >
+                      <strong>快速生成</strong>
+                      <span>一次性生成世界观和大纲骨架，不含角色设计。速度快，约 10 秒。</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="mode-card"
+                      :class="{ active: formData.generationMode === 'off' }"
+                      @click="formData.generationMode = 'off'"
+                    >
+                      <strong>空白项目</strong>
+                      <span>只创建项目骨架与首章草稿，从零开始搭建。</span>
+                    </button>
+                  </div>
                 </div>
               </section>
 
@@ -502,11 +595,10 @@ async function goNext(): Promise<void> {
           <div class="footer-actions">
             <n-button
               size="large"
-              :disabled="isGenerating"
-              class="footer-secondary-btn"
-              @click="goBack"
+              :class="isGenerating ? 'footer-cancel-btn' : 'footer-secondary-btn'"
+              @click="isGenerating ? cancelGeneration() : goBack()"
             >
-              {{ step > 1 ? '上一步' : '取消' }}
+              {{ isGenerating ? '取消生成' : step > 1 ? '上一步' : '取消' }}
             </n-button>
             <n-button
               type="primary"
@@ -524,7 +616,7 @@ async function goNext(): Promise<void> {
               </template>
               <template v-if="step < 3">下一步</template>
               <template v-else>
-                {{ isGenerating ? '创建中...' : formData.shouldGenerate ? '开始 AI 构建' : '直接创建项目' }}
+                {{ isGenerating ? '创建中...' : formData.generationMode === 'off' ? '直接创建项目' : formData.generationMode === 'deep' ? '开始深度构建' : '开始快速构建' }}
               </template>
             </n-button>
           </div>
@@ -1125,6 +1217,102 @@ async function goNext(): Promise<void> {
   font-weight: 600;
 }
 
+.generation-mode-panel {
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  padding: 18px;
+  background: var(--arc-bg-weak);
+}
+
+.generation-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--arc-bg-surface);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    background 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mode-card:hover {
+  border-color: color-mix(in srgb, var(--arc-primary) 14%, var(--arc-border));
+}
+
+.mode-card.active {
+  border-color: color-mix(in srgb, var(--arc-primary) 22%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
+}
+
+.mode-card strong {
+  color: var(--arc-text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.mode-card span {
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.spiral-progress {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-weak);
+}
+
+.spiral-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--arc-text-hint);
+  font-size: 13px;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.spiral-step.active {
+  color: var(--arc-primary);
+}
+
+.spiral-step.done {
+  color: var(--arc-text-secondary);
+}
+
+.spiral-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--arc-border);
+  transition: background 0.2s;
+}
+
+.spiral-step.active .spiral-dot {
+  background: var(--arc-primary);
+  animation: pulseGlow 1.4s ease-in-out infinite;
+}
+
+.spiral-step.done .spiral-dot {
+  background: var(--arc-primary);
+  opacity: 0.6;
+}
+
 .benefit-list {
   display: flex;
   flex-direction: column;
@@ -1178,10 +1366,15 @@ async function goNext(): Promise<void> {
 }
 
 .footer-primary-btn,
-.footer-secondary-btn {
+.footer-secondary-btn,
+.footer-cancel-btn {
   --n-height: 44px !important;
   min-width: 110px;
   border-radius: 10px !important;
+}
+
+.footer-cancel-btn {
+  color: var(--arc-text-secondary);
 }
 
 .footer-primary-btn :deep(.n-button__content),
@@ -1365,6 +1558,15 @@ async function goNext(): Promise<void> {
   .toggle-panel {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .generation-mode-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .spiral-progress {
+    flex-wrap: wrap;
+    gap: 10px;
   }
 
   .generate-icon {

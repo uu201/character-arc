@@ -90,6 +90,18 @@ contextBridge.exposeInMainWorld('characterArc', {
   generateImage: (payload: unknown) => ipcRenderer.invoke('characterarc:ai-generate-image', toIpcPayload(payload)),
   /** 读取当前项目的结构化世界状态（角色状态、伏笔、关系、时间线、世界规则、倒计时） */
   readStoryState: (projectId: string) => ipcRenderer.invoke('characterarc:ai-read-story-state', projectId),
+  /** 螺旋式深度生成（3圈：骨架→展开→校验） */
+  spiralBootstrap: (payload: unknown) => ipcRenderer.invoke('characterarc:ai-spiral-bootstrap', toIpcPayload(payload)),
+  /** 取消正在进行的螺旋生成 */
+  cancelSpiralBootstrap: () => ipcRenderer.invoke('characterarc:ai-spiral-cancel'),
+  /** 监听螺旋生成进度事件 */
+  onSpiralProgress: (callback: (payload: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
+    ipcRenderer.on('characterarc:ai-spiral-progress', listener)
+    return () => {
+      ipcRenderer.removeListener('characterarc:ai-spiral-progress', listener)
+    }
+  },
   /** 触发"从已有章节补录项目状态库"任务，返回汇总结果 */
   backfillProjectState: (payload: unknown) => ipcRenderer.invoke('characterarc:ai-backfill-state', toIpcPayload(payload)),
   /** 监听状态补录进度事件 */

@@ -246,6 +246,16 @@ declare global {
       onAiStreamEvent: (callback: (payload: CharacterArcAiStreamEvent) => void) => () => void
       onAiRunEvent: (callback: (payload: CharacterArcAiRunEventPayload) => void) => () => void
       onChapterStateWarnings: (callback: (payload: CharacterArcChapterStateWarningsPayload) => void) => () => void
+      spiralBootstrap: (payload: unknown) => Promise<{
+        success: boolean
+        result?: import('@/features/wizard/projectSeed').SpiralBootstrapResult
+        error?: string
+      }>
+      cancelSpiralBootstrap: () => Promise<{
+        success: boolean
+        error?: string
+      }>
+      onSpiralProgress: (callback: (payload: { phase: 'seed' | 'expand' | 'validate'; status: 'running' | 'done' | 'error'; error?: string }) => void) => () => void
       backfillProjectState: (payload: { settings: import('@/types/app').AppSettings; projectId: string }) => Promise<{
         success: boolean
         result?: CharacterArcBackfillStateResult

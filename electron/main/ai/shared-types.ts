@@ -3,6 +3,8 @@
  * IPC、index.ts、referenceAnalysis.ts 都从这里 import。
  */
 
+import type { SpiralSeedResult, SpiralExpandResult, SpiralValidateResult } from './spiral/types'
+
 export type ProviderName =
   | 'openai'
   | 'deepseek'
@@ -46,6 +48,9 @@ export type AiTaskName =
   | 'chapter-scene-plan'
   | 'plot-thread-detect'
   | 'project-bootstrap'
+  | 'spiral-seed'
+  | 'spiral-expand'
+  | 'spiral-validate'
   | 'chapter-analysis'
   | 'chapter-repair'
   | 'inspiration-pack'
@@ -289,6 +294,9 @@ export type AiTaskResult =
   | InspirationPackResult
   | PlotThreadDetectResult
   | ChapterScenePlanResult
+  | SpiralSeedResult
+  | SpiralExpandResult
+  | SpiralValidateResult
 
 export type AiTaskResponse = {
   result: AiTaskResult

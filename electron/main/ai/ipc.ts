@@ -7,6 +7,8 @@ import { retrieveKnowledgeContext } from './knowledge-retrieval'
 import { backfillProjectStateFromChapters } from './state-backfill'
 import { buildStoryStateContext } from '../story-state-store'
 import { ensureWorkspaceDb } from '../workspace-store'
+import { runSpiralBootstrap } from './spiral'
+import type { SpiralBootstrapInput } from './spiral'
 
 type AiIpcDeps = {
   getLatestWorkspaceSnapshot: () => { workspaces?: Record<string, { knowledgeDocuments?: unknown[]; aiRuns?: unknown[] }> } | null
@@ -187,6 +189,50 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : '读取世界状态失败' }
     }
+  })
+
+  // ── 螺旋式深度生成 ──
+  let activeSpiralController: AbortController | null = null
+
+  ipcMain.handle('characterarc:ai-spiral-bootstrap', async (event, payload: unknown) => {
+    const controller = new AbortController()
+    activeSpiralController = controller
+    try {
+      const request = payload as Partial<SpiralBootstrapInput>
+      if (!request.settings) throw new Error('缺少 AI 设置。')
+      if (!request.projectPremise?.trim()) throw new Error('缺少小说简介。')
+
+      const input: SpiralBootstrapInput = {
+        settings: request.settings,
+        projectTitle: request.projectTitle ?? '',
+        projectGenre: request.projectGenre ?? '',
+        projectNovelLength: request.projectNovelLength === 'short' ? 'short' : 'long',
+        projectPremise: request.projectPremise,
+        projectId: request.projectId,
+        projectSkills: request.projectSkills
+      }
+
+      const result = await runSpiralBootstrap(input, (progressEvent) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('characterarc:ai-spiral-progress', progressEvent)
+        }
+      }, controller.signal)
+
+      return { success: true, result }
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return { success: false, error: '螺旋生成已取消' }
+      }
+      return { success: false, error: error instanceof Error ? error.message : '螺旋生成失败' }
+    } finally {
+      activeSpiralController = null
+    }
+  })
+
+  ipcMain.handle('characterarc:ai-spiral-cancel', async () => {
+    if (!activeSpiralController) return { success: false, error: '没有正在进行的螺旋生成任务' }
+    activeSpiralController.abort()
+    return { success: true }
   })
 
   // ── 已有章节状态补录 ──
