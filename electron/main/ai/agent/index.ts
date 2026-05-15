@@ -10,7 +10,7 @@ import { getEnabledSkills, getSkillById, pickSkillsFor, refreshRegistry } from '
 import { requestAiText } from '../transport'
 import { buildPromptInput } from '../runtime/context-builder'
 import { buildRunMeta, buildResponsePreview } from '../runtime/run-meta'
-import { logPrompt, logResponse, logSelection } from '../runtime/logging'
+import { logPrompt, logResponse, logSelection, logError } from '../runtime/logging'
 import { buildRepairPrompt } from '../prompts/repair'
 import { runAgentLoop } from './loop'
 import { createSkillTools } from './tools/skill-tools'
@@ -103,9 +103,9 @@ export async function runAgentTask(
   const controller = new AbortController()
 
   logPrompt('AGENT_REQUEST', settings, { system: systemPrompt, user: prompt.user }, task.task, usedSkillIds)
+  const requestStartedAt = Date.now()
 
   try {
-    const requestStartedAt = Date.now()
     const loopResult = await runAgentLoop({
       settings,
       systemPrompt,
@@ -160,6 +160,7 @@ export async function runAgentTask(
   } catch (error) {
     const finishedAt = new Date().toISOString()
     const message = error instanceof Error ? error.message : 'AI 调用失败'
+    logError('AGENT_REQUEST', settings, task.task, error, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
     const meta = buildRunMeta(
       task.task,
       projectId,

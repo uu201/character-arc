@@ -46,15 +46,13 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
 
       const response = await runAiTask(payload, knowledgeContext, controller.signal)
 
-      if (response.meta.projectId) {
-        deps!.emitAiRunEvent({ projectId: response.meta.projectId, meta: { id: randomUUID(), ...response.meta } })
-      }
+      deps!.emitAiRunEvent({ projectId: response.meta.projectId ?? '', meta: { id: randomUUID(), ...response.meta } })
       return { success: true, result: response.result }
     } catch (error) {
       const aiRunMeta = error && typeof error === 'object' && 'aiRunMeta' in error
         ? (error as { aiRunMeta?: Record<string, unknown> }).aiRunMeta : undefined
-      if (aiRunMeta && (aiRunMeta as { projectId?: string }).projectId) {
-        deps!.emitAiRunEvent({ projectId: String((aiRunMeta as { projectId?: string }).projectId), meta: { id: randomUUID(), ...aiRunMeta } })
+      if (aiRunMeta) {
+        deps!.emitAiRunEvent({ projectId: String((aiRunMeta as { projectId?: string }).projectId ?? ''), meta: { id: randomUUID(), ...aiRunMeta } })
       }
       return { success: false, error: error instanceof Error ? error.message : 'AI 调用失败' }
     } finally {
@@ -108,8 +106,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
             ? (error as { aiRunMeta?: Record<string, unknown> }).aiRunMeta : undefined
           if (aiRunMeta && (aiRunMeta as { projectId?: string }).projectId) {
             deps!.emitAiRunEvent({ projectId: String((aiRunMeta as { projectId?: string }).projectId), meta: { id: randomUUID(), ...aiRunMeta } })
-          }
-          if (!event.sender.isDestroyed()) {
+          }          if (!event.sender.isDestroyed()) {
             event.sender.send('characterarc:ai-stream-event', controller.signal.aborted
               ? { streamId, type: 'canceled', content: streamedContent }
               : { streamId, type: 'error', error: error instanceof Error ? error.message : 'AI 流式调用失败' }

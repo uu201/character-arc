@@ -118,3 +118,43 @@ export function logResponse(
   console.log(`[ai] response: ${label} | task=${taskName} | provider=${provider} | model=${model} | ${durationMs}ms | ${rawText.length}字 | ${preview}`)
   void writePromptLogFile(content)
 }
+
+/**
+ * Log an AI call failure. Mirrors logResponse layout so prompt → error pairs are
+ * obvious in the log file. Called from orchestrator / agent catch blocks; without
+ * this, failed runs leave a REQUEST entry with no matching RESPONSE and the user
+ * has no way to see what went wrong.
+ */
+export function logError(
+  label: string,
+  settings: AppSettings,
+  taskName: string,
+  error: unknown,
+  durationMs: number,
+  extra?: { usedSkills?: string[] }
+): void {
+  const provider = settings.provider || 'unknown'
+  const model = settings.model || 'unknown'
+  const timestamp = new Date().toISOString()
+  const skillLine = extra?.usedSkills?.length ? `技能: ${extra.usedSkills.join(', ')}` : ''
+  const message = error instanceof Error ? error.message : String(error)
+  const stack = error instanceof Error && error.stack ? error.stack : ''
+  const content = [
+    '',
+    `===== AI 错误 ${label} =====`,
+    `时间: ${timestamp}`,
+    `任务: ${taskName}`,
+    `提供者: ${provider}`,
+    `模型: ${model}`,
+    `耗时: ${durationMs}ms`,
+    skillLine,
+    '--- ERROR ---',
+    message,
+    stack ? '--- STACK ---' : '',
+    stack,
+    `===== END AI 错误 ${label} =====`
+  ].filter(Boolean).join('\n')
+
+  console.error(`[ai] error: ${label} | task=${taskName} | provider=${provider} | model=${model} | ${durationMs}ms | ${message}`)
+  void writePromptLogFile(content)
+}

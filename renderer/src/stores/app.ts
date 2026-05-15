@@ -468,11 +468,15 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
-    if (!payload?.projectId || !payload.meta) {
+    if (!payload?.meta) {
       return
     }
 
-    appendAiRun(payload.projectId, payload.meta)
+    // 项目级 AI 历史只在 projectId 存在时落地；全局任务（如风格指纹提取）跳过这一步，
+    // 但下面的 producedKnowledgeDocuments 仍要合并到全局拆书库。
+    if (payload.projectId) {
+      appendAiRun(payload.projectId, payload.meta)
+    }
 
     // agent loop 通过 knowledge_save_document 工具落库的文档：随 ai-run-event 一起回灌
     const produced = (payload.meta as { producedKnowledgeDocuments?: Array<Partial<KnowledgeDocument>> }).producedKnowledgeDocuments

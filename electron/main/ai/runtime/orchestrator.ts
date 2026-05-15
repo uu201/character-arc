@@ -15,7 +15,7 @@ import type { StructuredOutputOptions } from '../transport'
 import { buildPromptInput } from './context-builder'
 import { probeStructuredOutputMode } from './capability-probe'
 import { buildRunMeta, buildResponsePreview } from './run-meta'
-import { logPrompt, logResponse, logSelection } from './logging'
+import { logPrompt, logResponse, logSelection, logError } from './logging'
 import { buildRepairPrompt } from '../prompts/repair'
 import { extractJsonObject } from '../tasks/base'
 import { runAgentTask } from '../agent'
@@ -85,9 +85,9 @@ export async function runAiTask(
   logPrompt('REQUEST', settings, prompt, task.task, usedSkillIds)
 
   const structured = resolveStructuredOptions(settings, handler.outputType)
+  const requestStartedAt = Date.now()
 
   try {
-    const requestStartedAt = Date.now()
     let rawText = await requestAiText(settings, prompt, maxTokens, structured, signal)
     logResponse('REQUEST', settings, task.task, rawText, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
     let result: AiTaskResult
@@ -164,6 +164,7 @@ export async function runAiTask(
   } catch (error) {
     const finishedAt = new Date().toISOString()
     const message = error instanceof Error ? error.message : 'AI 调用失败'
+    logError('REQUEST', settings, task.task, error, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
     throw Object.assign(new Error(message), {
       aiRunMeta: buildRunMeta(
         task.task,
@@ -223,9 +224,9 @@ export async function streamAiTask(
   const maxTokens = taskHandler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task)
 
   logPrompt('STREAM', settings, prompt, task.task, usedSkillIds)
+  const requestStartedAt = Date.now()
 
   try {
-    const requestStartedAt = Date.now()
     const rawText = await requestAiTextStream(settings, prompt, handlers, signal, maxTokens)
     logResponse('STREAM', settings, task.task, rawText, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
     const result = taskHandler.normalize(rawText)
@@ -264,6 +265,9 @@ export async function streamAiTask(
     const finishedAt = new Date().toISOString()
     const status = signal.aborted ? 'canceled' : 'error'
     const message = signal.aborted ? '' : (error instanceof Error ? error.message : 'AI 流式调用失败')
+    if (!signal.aborted) {
+      logError('STREAM', settings, task.task, error, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
+    }
     throw Object.assign(new Error(message || 'AI 流式调用失败'), {
       aiRunMeta: buildRunMeta(
         task.task,

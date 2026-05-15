@@ -251,12 +251,6 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 
     <section class="hero-shell">
       <div class="hero-copy">
-        <div class="hero-badge">
-          <WandSparkles :size="14" />
-          <span>章节工作台前置素材池</span>
-        </div>
-        <h3>先存住灵感，再决定它是标题、冲突，还是下一段正文的火种。</h3>
-        <p>选择一个焦点，批量生成灵感卡片，或者手动记录突发想法，再把单张卡片发送给 AI 助手继续扩写。</p>
         <div class="focus-row">
           <button
             v-for="type in focusTypes"

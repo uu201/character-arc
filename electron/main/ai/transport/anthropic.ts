@@ -11,12 +11,18 @@ import type {
 import { performAiRequest, readErrorMessage } from './http'
 import { consumeSseResponse, extractAnthropicDelta } from './sse'
 
-export async function requestAnthropic(
+const ANTHROPIC_MAX_TOKENS_RETRY_CAP = 16000
+
+type AnthropicSingleShotOutcome =
+  | { ok: true; content: string }
+  | { ok: false; retryableLength: boolean; error: Error }
+
+async function runAnthropicAttempt(
   settings: AppSettings,
   prompt: PromptPair,
-  maxTokens?: number,
-  signal?: AbortSignal
-): Promise<string> {
+  maxTokens: number,
+  signal: AbortSignal | undefined
+): Promise<AnthropicSingleShotOutcome> {
   const response = await performAiRequest(
     `${settings.baseUrl.replace(/\/$/, '')}/v1/messages`,
     {
@@ -28,7 +34,7 @@ export async function requestAnthropic(
       },
       body: JSON.stringify({
         model: settings.model,
-        max_tokens: maxTokens ?? 600,
+        max_tokens: maxTokens,
         system: prompt.system,
         messages: [{ role: 'user', content: prompt.user }]
       })
@@ -42,16 +48,37 @@ export async function requestAnthropic(
     error?: { message?: string }
   }
   if (data.error?.message) {
-    throw new Error(`Anthropic 接口错误：${data.error.message}`)
+    return { ok: false, retryableLength: false, error: new Error(`Anthropic 接口错误：${data.error.message}`) }
   }
   const content = data.content?.find((item) => item.type === 'text')?.text
   if (!content) {
     if (data.stop_reason === 'max_tokens') {
-      throw new Error('Anthropic 返回内容为空：输出被截断（max_tokens 不足或上下文超限），请尝试缩短输入或更换支持更长上下文的模型。')
+      return {
+        ok: false,
+        retryableLength: true,
+        error: new Error('Anthropic 返回内容为空：输出被截断（max_tokens 不足或上下文超限），请尝试缩短输入或更换支持更长上下文的模型。')
+      }
     }
-    throw new Error('Anthropic 返回内容为空，请检查模型是否正常、输入是否过长，或稍后重试。')
+    return { ok: false, retryableLength: false, error: new Error('Anthropic 返回内容为空，请检查模型是否正常、输入是否过长，或稍后重试。') }
   }
-  return content
+  return { ok: true, content }
+}
+
+export async function requestAnthropic(
+  settings: AppSettings,
+  prompt: PromptPair,
+  maxTokens?: number,
+  signal?: AbortSignal
+): Promise<string> {
+  const initialBudget = maxTokens ?? 600
+  const first = await runAnthropicAttempt(settings, prompt, initialBudget, signal)
+  if (first.ok) return first.content
+  if (!first.retryableLength) throw first.error
+  const retryBudget = Math.min(initialBudget * 2, ANTHROPIC_MAX_TOKENS_RETRY_CAP)
+  if (retryBudget <= initialBudget) throw first.error
+  const second = await runAnthropicAttempt(settings, prompt, retryBudget, signal)
+  if (second.ok) return second.content
+  throw second.error
 }
 
 export async function requestAnthropicStream(
