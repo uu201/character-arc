@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ArrowLeft, BookA, CheckCircle2, ChevronRight, Info, Sparkles } from 'lucide-vue-next'
-import { NCheckbox, useMessage } from 'naive-ui'
+import { NButton, NInput, NSwitch, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import { createProjectWorkspaceSeed, type ProjectBootstrapResult } from '@/features/wizard/projectSeed'
@@ -275,9 +275,9 @@ async function goNext(): Promise<void> {
         </div>
 
         <header class="wizard-header">
-          <button class="back-button" @click="goBack">
-            <ArrowLeft :size="18" />
-          </button>
+          <n-button quaternary circle class="back-button" @click="goBack">
+            <template #icon><ArrowLeft :size="18" /></template>
+          </n-button>
 
           <div class="header-copy">
             <span class="header-kicker">步骤 {{ step }} / {{ steps.length }}</span>
@@ -297,15 +297,19 @@ async function goNext(): Promise<void> {
 
                 <div class="field">
                   <label>作品名称</label>
-                  <div class="input-shell">
-                    <BookA :size="18" class="input-icon" />
-                    <input
-                      v-model="formData.title"
-                      type="text"
-                      placeholder="例如：星渊拾遗"
-                      class="wizard-input"
-                    />
-                  </div>
+                  <n-input
+                    v-model:value="formData.title"
+                    placeholder="例如：星渊拾遗"
+                    size="large"
+                    class="wizard-naive-input"
+                    :maxlength="60"
+                    show-count
+                    clearable
+                  >
+                    <template #prefix>
+                      <BookA :size="18" />
+                    </template>
+                  </n-input>
                 </div>
 
                 <div class="field">
@@ -338,11 +342,13 @@ async function goNext(): Promise<void> {
                         自定义题材
                       </button>
                       <div v-if="isCustomGenre" class="custom-genre-input-wrap">
-                        <input
-                          v-model="formData.customGenre"
-                          type="text"
+                        <n-input
+                          v-model:value="formData.customGenre"
                           placeholder="例如：废土美食 / 赛博修仙 / 民俗怪谈"
-                          class="wizard-input custom-genre-input"
+                          size="medium"
+                          :maxlength="30"
+                          show-count
+                          clearable
                         />
                         <p class="field-hint">会直接按你填写的题材生成，题材名会被写入项目卡片。</p>
                       </div>
@@ -385,11 +391,15 @@ async function goNext(): Promise<void> {
                     <span>小说简介</span>
                     <Info :size="14" />
                   </label>
-                  <textarea
-                    v-model="formData.premise"
-                    class="wizard-textarea"
+                  <n-input
+                    v-model:value="formData.premise"
+                    type="textarea"
                     placeholder="描述这个故事的主角、核心冲突、目标或最吸引人的设定。例如：一个能看见未来死亡片段的实习法医，被迫和自己即将解剖的尸体合作，追查一场还没发生的连环谋杀。"
-                  ></textarea>
+                    :autosize="{ minRows: 10, maxRows: 16 }"
+                    :maxlength="800"
+                    show-count
+                    class="wizard-naive-textarea"
+                  />
                   <p class="field-hint">AI 会优先根据题材、长短篇和这段简介来生成开局世界观与前三章大纲。</p>
                 </div>
 
@@ -459,9 +469,10 @@ async function goNext(): Promise<void> {
                     <p>默认会生成首批世界观、大纲和章节草稿，也可以只创建空白项目骨架。</p>
                   </div>
 
-                  <n-checkbox v-model:checked="formData.shouldGenerate" class="bootstrap-toggle">
-                    自动调用 AI 生成初始世界观与大纲
-                  </n-checkbox>
+                  <n-switch v-model:value="formData.shouldGenerate" size="medium" class="bootstrap-toggle">
+                    <template #checked>已开启</template>
+                    <template #unchecked>已关闭</template>
+                  </n-switch>
                 </div>
               </section>
 
@@ -489,19 +500,33 @@ async function goNext(): Promise<void> {
           </div>
 
           <div class="footer-actions">
-            <button class="secondary-action" :disabled="isGenerating" @click="goBack">
+            <n-button
+              size="large"
+              :disabled="isGenerating"
+              class="footer-secondary-btn"
+              @click="goBack"
+            >
               {{ step > 1 ? '上一步' : '取消' }}
-            </button>
-            <button class="primary-action" :disabled="!canContinue" @click="goNext">
-              <template v-if="step < 3">
-                <span>下一步</span>
+            </n-button>
+            <n-button
+              type="primary"
+              size="large"
+              :disabled="!canContinue"
+              :loading="isGenerating"
+              class="footer-primary-btn"
+              @click="goNext"
+            >
+              <template v-if="step < 3" #icon>
                 <ChevronRight :size="18" />
               </template>
-              <template v-else>
-                <Sparkles v-if="!isGenerating" :size="18" />
-                <span>{{ isGenerating ? '创建中...' : formData.shouldGenerate ? '开始 AI 构建' : '直接创建项目' }}</span>
+              <template v-else-if="!isGenerating" #icon>
+                <Sparkles :size="18" />
               </template>
-            </button>
+              <template v-if="step < 3">下一步</template>
+              <template v-else>
+                {{ isGenerating ? '创建中...' : formData.shouldGenerate ? '开始 AI 构建' : '直接创建项目' }}
+              </template>
+            </n-button>
           </div>
         </footer>
       </section>
@@ -802,7 +827,9 @@ async function goNext(): Promise<void> {
 
 .content-card {
   border: 1px solid var(--arc-border);
-  border-radius: 10px;
+  border-radius: 12px;
+  padding: 22px 24px;
+  background: var(--arc-bg-surface);
 }
 
 .section-head {
@@ -847,42 +874,24 @@ async function goNext(): Promise<void> {
   position: relative;
 }
 
-.input-icon {
-  position: absolute;
-  top: 50%;
-  left: 16px;
-  transform: translateY(-50%);
-  color: #9ca3af;
-}
-
-.wizard-input,
-.wizard-textarea {
-  width: 100%;
-  border: 1px solid var(--arc-border);
-  border-radius: 8px;
-  background: var(--arc-bg-weak);
-  color: var(--arc-text-primary);
-  outline: none;
-  transition:
-    border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-    background 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.wizard-input:focus,
-.wizard-textarea:focus {
-  border-color: color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
-  background: var(--arc-bg-surface);
-}
-
-.wizard-input {
-  padding: 14px 16px 14px 44px;
+.wizard-naive-input :deep(.n-input__input-el),
+.wizard-naive-input :deep(.n-input__textarea-el) {
   font-size: 15px;
 }
 
-.custom-genre-input {
-  padding-left: 16px;
-  font-size: 14px;
+.wizard-naive-input :deep(.n-input) {
+  --n-border-radius: 10px;
+  --n-height: 48px;
+}
+
+.wizard-naive-textarea :deep(.n-input) {
+  --n-border-radius: 10px;
+}
+
+.wizard-naive-textarea :deep(.n-input__textarea-el) {
+  padding: 4px 4px 4px 0;
+  font-size: 15px;
+  line-height: 1.75;
 }
 
 .genre-stack {
@@ -898,8 +907,15 @@ async function goNext(): Promise<void> {
 }
 
 .genre-section h4 {
-  margin: 0;
+  margin: 0 0 4px;
   color: var(--arc-text-hint);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.genre-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
@@ -910,9 +926,10 @@ async function goNext(): Promise<void> {
   border: 1px solid var(--arc-border);
   background: var(--arc-bg-weak);
   transition:
-    border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-    background 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    background 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    color 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .genre-chip {
@@ -921,7 +938,8 @@ async function goNext(): Promise<void> {
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
-  padding: 12px 10px;
+  padding: 11px 10px;
+  text-align: center;
 }
 
 .genre-chip:hover,
@@ -930,9 +948,7 @@ async function goNext(): Promise<void> {
   background: var(--arc-bg-surface);
 }
 
-.length-card:active,
-.primary-action:active:not(:disabled),
-.secondary-action:active:not(:disabled) {
+.length-card:active {
   transform: scale(0.985);
 }
 
@@ -985,20 +1001,11 @@ async function goNext(): Promise<void> {
   line-height: 1.6;
 }
 
-.wizard-textarea {
-  min-height: 320px;
-  resize: vertical;
-  padding: 18px;
-  font-size: 15px;
-  line-height: 1.75;
-}
-
 .field-hint {
   margin: 8px 0 0;
   color: var(--arc-text-hint);
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .premise-helper-grid {
@@ -1170,47 +1177,27 @@ async function goNext(): Promise<void> {
   flex-shrink: 0;
 }
 
-.primary-action,
-.secondary-action {
-  display: inline-flex;
-  min-height: 46px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: 8px;
-  padding: 0 18px;
-  transition:
-    border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-    background 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+.footer-primary-btn,
+.footer-secondary-btn {
+  --n-height: 44px !important;
+  min-width: 110px;
+  border-radius: 10px !important;
 }
 
-.secondary-action {
-  border: 1px solid var(--arc-border);
-  background: var(--arc-bg-surface);
-  color: var(--arc-text-primary);
+.footer-primary-btn :deep(.n-button__content),
+.footer-secondary-btn :deep(.n-button__content) {
+  font-weight: 600;
 }
 
-.secondary-action:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-border));
-  background: var(--arc-bg-weak);
+.back-button {
+  --n-width: 40px !important;
+  --n-height: 40px !important;
+  border: 1px solid var(--arc-border) !important;
+  border-radius: 10px !important;
 }
 
-.primary-action {
-  border: 1px solid var(--arc-primary);
-  background: var(--arc-primary);
-  color: white;
-}
-
-.primary-action:hover:not(:disabled) {
-  background: var(--arc-primary-hover);
-}
-
-.primary-action:disabled,
-.secondary-action:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.back-button:hover {
+  border-color: color-mix(in srgb, var(--arc-primary) 18%, var(--arc-border)) !important;
 }
 
 @media (max-width: 1120px) {
@@ -1331,13 +1318,13 @@ async function goNext(): Promise<void> {
     width: 100%;
   }
 
-  .footer-actions button {
+  .footer-actions :deep(.n-button) {
     flex: 1;
   }
 
   .content-card {
     border-radius: 10px;
-    padding: 14px;
+    padding: 16px 14px;
   }
 
   .section-head {
@@ -1386,11 +1373,10 @@ async function goNext(): Promise<void> {
     border-radius: 10px;
   }
 
-  .primary-action,
-  .secondary-action {
-    min-height: 40px;
-    font-size: 13px;
-    border-radius: 8px;
+  .footer-primary-btn,
+  .footer-secondary-btn {
+    --n-height: 40px !important;
+    min-width: 0;
   }
 }
 
@@ -1412,14 +1398,8 @@ async function goNext(): Promise<void> {
   }
 
   .content-card {
-    padding: 12px 10px;
+    padding: 14px 12px;
     border-radius: 10px;
-  }
-
-  .wizard-input,
-  .wizard-textarea {
-    font-size: 14px;
-    border-radius: 8px;
   }
 
   .header-copy h2 {
@@ -1435,9 +1415,9 @@ async function goNext(): Promise<void> {
     grid-template-columns: 1fr;
   }
 
-  .footer-actions button {
-    min-height: 38px;
-    font-size: 13px;
+  .footer-primary-btn,
+  .footer-secondary-btn {
+    --n-height: 38px !important;
   }
 
   .step-pane {
