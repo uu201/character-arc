@@ -19,24 +19,23 @@ const emit = defineEmits<{
     </div>
 
     <div class="hero-actions">
-      <n-button size="large" class="hero-btn" @click="emit('openDeconstruction')">
-        <template #icon><LibraryBig :size="18" /></template>
-        拆书知识库
-      </n-button>
-      <n-button size="large" class="hero-btn" @click="emit('openSkills')">
-        <template #icon><Wrench :size="18" /></template>
-        Skills
-      </n-button>
-      <n-button size="large" class="hero-btn" @click="emit('openCoverWorkbench')">
-        <template #icon><ImagePlus :size="18" /></template>
-        封面工作台
-      </n-button>
-      <n-button size="large" class="hero-btn" @click="emit('openSettings')">
-        <template #icon><Settings2 :size="18" /></template>
-        设置
-      </n-button>
-      <n-button type="primary" size="large" class="hero-btn" @click="emit('create')">
-        <template #icon><Plus :size="18" /></template>
+      <div class="action-group secondary-actions">
+        <n-button quaternary circle size="large" title="拆书知识库" @click="emit('openDeconstruction')">
+          <template #icon><LibraryBig :size="20" /></template>
+        </n-button>
+        <n-button quaternary circle size="large" title="Skills" @click="emit('openSkills')">
+          <template #icon><Wrench :size="20" /></template>
+        </n-button>
+        <n-button quaternary circle size="large" title="封面工作台" @click="emit('openCoverWorkbench')">
+          <template #icon><ImagePlus :size="20" /></template>
+        </n-button>
+        <n-button quaternary circle size="large" title="设置" @click="emit('openSettings')">
+          <template #icon><Settings2 :size="20" /></template>
+        </n-button>
+      </div>
+
+      <n-button type="primary" size="large" class="create-btn" @click="emit('create')">
+        <template #icon><Plus :size="20" /></template>
         新建作品
       </n-button>
     </div>
@@ -75,13 +74,25 @@ const emit = defineEmits<{
 .hero-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 16px;
   flex-shrink: 0;
 }
 
-.hero-btn {
-  border-radius: 14px !important;
-  font-weight: 650;
+.action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid var(--arc-border);
+  border-radius: 999px;
+  background: var(--arc-bg-weak);
+}
+
+.create-btn {
+  border-radius: 12px !important;
+  font-weight: 700 !important;
+  padding: 0 20px !important;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--arc-primary) 25%, transparent);
 }
 
 @media (max-width: 720px) {
@@ -92,10 +103,17 @@ const emit = defineEmits<{
 
   .hero-actions {
     width: 100%;
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 12px;
   }
 
-  .hero-actions :deep(.n-button) {
-    flex: 1;
+  .action-group {
+    justify-content: center;
+  }
+
+  .create-btn {
+    width: 100%;
   }
 }
 </style>

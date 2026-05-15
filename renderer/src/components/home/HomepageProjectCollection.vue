@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NEmpty } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
 import type { ProjectSummary } from '@/types/app'
 import HomepageProjectCard from './HomepageProjectCard.vue'
@@ -16,9 +17,12 @@ const emit = defineEmits<{
 
 <template>
   <section class="project-collection">
-    <div v-if="!projects.length" class="arc-empty-state homepage-empty-state">
-      <strong>还没有作品</strong>
-      <p>先创建一个项目，然后从这里继续写作。</p>
+    <div v-if="!projects.length" class="homepage-empty-state">
+      <n-empty description="还没有作品">
+        <template #extra>
+          <p class="empty-hint">先创建一个项目，然后从这里继续写作。</p>
+        </template>
+      </n-empty>
     </div>
 
     <div v-else class="project-grid">
@@ -42,25 +46,19 @@ const emit = defineEmits<{
 
 .homepage-empty-state {
   display: flex;
-  min-height: 180px;
-  flex-direction: column;
+  min-height: 280px;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-top: 0;
-  border-style: solid;
-  border-radius: 10px;
+  border: 1px solid var(--arc-border);
+  border-radius: 12px;
   background: var(--arc-bg-surface);
+  margin: 10px 0;
 }
 
-.homepage-empty-state strong {
-  color: var(--arc-text-primary);
-  font-size: 17px;
-}
-
-.homepage-empty-state p {
-  margin: 0;
+.empty-hint {
   color: var(--arc-text-secondary);
+  font-size: 13px;
+  margin: 0;
 }
 
 .project-grid {

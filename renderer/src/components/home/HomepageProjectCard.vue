@@ -29,7 +29,11 @@ const emit = defineEmits<{
       <div class="card-cover" :style="resolveCoverStyle(project.cover, 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)')"></div>
       <div class="card-copy">
         <h3>{{ project.title }}</h3>
-        <p class="card-meta">{{ project.genre }} · {{ resolveNovelLengthLabel(project.novelLength) }} · {{ project.lastEdited }}</p>
+        <div class="card-tags">
+          <span class="card-tag">{{ project.genre }}</span>
+          <span class="card-tag">{{ resolveNovelLengthLabel(project.novelLength) }}</span>
+        </div>
+        <p class="card-meta">最近编辑：{{ project.lastEdited }}</p>
       </div>
 
       <n-dropdown
@@ -87,11 +91,19 @@ const emit = defineEmits<{
 }
 
 .card-cover {
-  width: 58px;
-  height: 82px;
-  border-radius: 12px;
+  width: 62px;
+  height: 86px;
+  border-radius: 8px;
   flex-shrink: 0;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06),
+    0 10px 20px -5px rgba(15, 23, 42, 0.15);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.homepage-project-card:hover .card-cover {
+  transform: scale(1.04) rotate(-1deg);
 }
 
 .card-copy {
@@ -102,9 +114,29 @@ const emit = defineEmits<{
 .card-copy h3 {
   margin: 0;
   color: var(--arc-text-primary);
-  font-size: 18px;
-  font-weight: 680;
+  font-size: 19px;
+  font-weight: 700;
   letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.card-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-weak));
+  color: var(--arc-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .card-meta,
@@ -115,7 +147,8 @@ const emit = defineEmits<{
 }
 
 .card-meta {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
+  opacity: 0.8;
 }
 
 .card-menu {
