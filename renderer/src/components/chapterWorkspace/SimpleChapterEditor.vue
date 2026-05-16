@@ -16,6 +16,7 @@ const emit = defineEmits<{
 }>()
 
 const editorRef = ref<HTMLDivElement | null>(null)
+let savedRange: Range | null = null
 
 const EMIT_DEBOUNCE_MS = 600
 let emitTimer: number | null = null
@@ -61,6 +62,7 @@ function handleSelection(): void {
     emit('selection-change', null)
     return
   }
+  savedRange = range.cloneRange()
   emit('selection-change', { chapterId: props.chapterId, text })
 }
 
@@ -81,22 +83,27 @@ function applyInsertion(request: ChapterInsertionRequest): void {
   while (wrapper.firstChild) fragment.appendChild(wrapper.firstChild)
 
   const sel = window.getSelection()
-  const hasSelection = sel && sel.rangeCount > 0 && root.contains(sel.anchorNode) && !sel.isCollapsed
+  const liveRange = sel && sel.rangeCount > 0 && root.contains(sel.anchorNode) && !sel.isCollapsed
+    ? sel.getRangeAt(0)
+    : null
+  const usableRange = liveRange || (savedRange && root.contains(savedRange.commonAncestorContainer) ? savedRange : null)
 
   if (request.mode === 'append') {
     root.appendChild(fragment)
-  } else if (request.mode === 'replace-selection' && hasSelection) {
-    const range = sel!.getRangeAt(0)
-    range.deleteContents()
-    range.insertNode(fragment)
-  } else if (sel && sel.rangeCount > 0 && root.contains(sel.anchorNode)) {
-    const range = sel.getRangeAt(0)
-    range.deleteContents()
-    range.insertNode(fragment)
+  } else if (request.mode === 'replace-selection' && usableRange) {
+    usableRange.deleteContents()
+    usableRange.insertNode(fragment)
+  } else if (request.mode === 'cursor' && usableRange) {
+    usableRange.collapse(false)
+    usableRange.insertNode(fragment)
+  } else if (liveRange) {
+    liveRange.collapse(false)
+    liveRange.insertNode(fragment)
   } else {
     root.appendChild(fragment)
   }
 
+  savedRange = null
   emit('update:modelValue', root.innerHTML)
   emit('consume-insertion', request.id)
 }
