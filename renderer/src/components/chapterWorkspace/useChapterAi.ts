@@ -2,7 +2,6 @@ import { computed, ref } from 'vue'
 import type { Ref } from 'vue'
 import { buildChapterAssistantContext } from '@/features/ai/chapterAssistantContext'
 import { getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
-import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { ChapterInsertionMode } from '@/types/app'
@@ -140,7 +139,6 @@ export function useChapterAi(): {
           timeoutMs: 0
         },
         async () => {
-          const projectSkills = await loadEnabledProjectSkillsContext(appStore.currentProject, 'draft')
           const sameVolume = appStore.chapters.filter((item) => item.volumeId === chapter.volumeId)
           const context = buildChapterAssistantContext({
             project: appStore.currentProject,
@@ -178,8 +176,7 @@ export function useChapterAi(): {
             responseMode: 'freeform',
             responseLength: 'medium',
             userPrompt: trimmed,
-            chapterContent: getPlainTextFromEditorContent(chapter.content ?? ''),
-            projectSkills
+            chapterContent: getPlainTextFromEditorContent(chapter.content ?? '')
           })
 
           const result = await window.characterArc.startAiStream(toIpcPayload({
