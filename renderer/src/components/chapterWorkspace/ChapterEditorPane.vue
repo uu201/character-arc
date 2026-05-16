@@ -397,27 +397,27 @@ onBeforeUnmount(() => {
   position: relative;
   flex: 1;
   overflow-y: auto;
-  padding: 32px 0 64px;
+  padding: 48px 0 96px;
   min-height: 0;
 }
 
 .ep-canvas {
-  max-width: 760px;
+  max-width: 720px;
   margin: 0 auto;
-  padding: 0 48px;
+  padding: 0 56px;
 }
 
 .ep-title {
-  font-size: 28px;
+  font-size: 32px;
   font-weight: 700;
   border: none;
   outline: none;
   width: 100%;
   color: var(--arc-text-primary);
   background: transparent;
-  letter-spacing: -0.02em;
-  margin-bottom: 8px;
-  line-height: 1.3;
+  letter-spacing: -0.025em;
+  margin-bottom: 12px;
+  line-height: 1.25;
 }
 
 .ep-title::placeholder {
@@ -428,7 +428,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 24px;
+  margin-bottom: 32px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--arc-border);
   font-size: 12px;
   color: var(--arc-text-secondary);
   flex-wrap: wrap;
@@ -437,6 +439,7 @@ onBeforeUnmount(() => {
 .meta-summary {
   color: var(--arc-text-hint);
   font-size: 12px;
+  line-height: 1.5;
 }
 
 .ep-editor {

@@ -111,22 +111,23 @@ async function copyMessage(content: string): Promise<void> {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .empty {
   margin: auto;
   text-align: center;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--arc-text-hint);
-  max-width: 220px;
-  line-height: 1.6;
+  max-width: 240px;
+  line-height: 1.7;
+  padding: 32px 0;
 }
 
 .msg {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   user-select: text;
 }
 
@@ -134,11 +135,11 @@ async function copyMessage(content: string): Promise<void> {
 .msg.assistant { align-items: flex-start; }
 
 .bubble {
-  max-width: 95%;
-  padding: 10px 14px;
-  border-radius: var(--arc-radius-md);
-  font-size: 13px;
-  line-height: 1.65;
+  max-width: 92%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -147,6 +148,7 @@ async function copyMessage(content: string): Promise<void> {
   background: var(--arc-primary);
   color: white;
   border-bottom-right-radius: 4px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--arc-primary) 20%, transparent);
 }
 
 .msg.assistant .bubble {
@@ -198,29 +200,31 @@ async function copyMessage(content: string): Promise<void> {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  padding-top: 2px;
 }
 
 .mini {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 9px;
+  gap: 5px;
+  padding: 6px 12px;
   border: 1px solid var(--arc-border);
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--arc-bg-surface);
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--arc-text-secondary);
   cursor: pointer;
-  transition: 0.15s;
+  transition: all 0.2s ease;
 }
 
 .mini:hover:not(:disabled) {
   border-color: var(--arc-primary);
   color: var(--arc-primary);
+  background: var(--arc-primary-soft);
 }
 
 .mini:disabled {
-  opacity: 0.4;
+  opacity: 0.38;
   cursor: not-allowed;
   pointer-events: none;
 }
@@ -237,8 +241,9 @@ async function copyMessage(content: string): Promise<void> {
 }
 
 .msg-meta {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--arc-text-hint);
   padding: 0 4px;
+  letter-spacing: 0.01em;
 }
 </style>

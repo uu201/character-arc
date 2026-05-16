@@ -344,8 +344,8 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
 .chapter-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px 5px 26px;
+  gap: 8px;
+  padding: 7px 10px 7px 26px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -353,6 +353,7 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
   color: var(--arc-text-primary);
   border-left: 2px solid transparent;
   text-align: left;
+  transition: background 0.15s ease;
 }
 
 .chapter-row:hover {
