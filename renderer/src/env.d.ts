@@ -32,6 +32,37 @@ declare global {
         type: 'error'
         error: string
       }
+    | {
+        streamId: string
+        type: 'tool_use_start'
+        toolUseId: string
+        toolName: string
+        args: Record<string, unknown>
+      }
+    | {
+        streamId: string
+        type: 'tool_result'
+        toolUseId: string
+        toolName: string
+        content: string
+        isError?: boolean
+        durationMs: number
+      }
+    | {
+        streamId: string
+        type: 'agent_status'
+        message: string
+        iteration: number
+        maxIterations: number
+      }
+    | {
+        streamId: string
+        type: 'edit_applied'
+        chapterId: string
+        editType: string
+        preview: string
+        versionId: string
+      }
 
   type CharacterArcAssistantVisibilityPayload = {
     visible: boolean
@@ -241,6 +272,13 @@ declare global {
       }>
       stopAiStream: (streamId: string) => Promise<{
         success: boolean
+        error?: string
+      }>
+      startAiAgentStream: (payload: unknown) => Promise<{
+        success: boolean
+        result?: {
+          streamId: string
+        }
         error?: string
       }>
       onAiStreamEvent: (callback: (payload: CharacterArcAiStreamEvent) => void) => () => void

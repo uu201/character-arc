@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { ArrowDown, Copy, Replace, RotateCw } from 'lucide-vue-next'
+import { ArrowDown, Copy, Edit3, Replace, RotateCw, Undo2 } from 'lucide-vue-next'
 import { useMessage } from 'naive-ui'
+import ChapterAiToolCard from './ChapterAiToolCard.vue'
 import type { ChapterAiMessage } from './useChapterAi'
+import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{
   messages: ChapterAiMessage[]
@@ -13,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   apply: [content: string, mode: 'cursor' | 'append' | 'replace-selection']
   regenerate: [prompt: string]
+  undo: [versionId: string]
 }>()
 
 const message = useMessage()
@@ -62,13 +65,31 @@ async function copyMessage(content: string): Promise<void> {
     </div>
 
     <div v-for="msg in messages" :key="msg.id" class="msg" :class="msg.role">
-      <div class="bubble" :class="{ streaming: isStreaming(msg) }">
+      <!-- Tool call cards -->
+      <div v-if="msg.toolCalls?.length" class="tool-calls">
+        <ChapterAiToolCard v-for="tc in msg.toolCalls" :key="tc.toolUseId" :tool-call="tc" />
+      </div>
+
+      <!-- Edit events -->
+      <div v-if="msg.editEvents?.length" class="edit-events">
+        <div v-for="edit in msg.editEvents" :key="edit.versionId" class="edit-card">
+          <Edit3 :size="12" />
+          <span>{{ edit.preview }}</span>
+          <button class="mini" @click="emit('undo', edit.versionId)">
+            <Undo2 :size="11" /> 撤销
+          </button>
+        </div>
+      </div>
+
+      <!-- Text bubble -->
+      <div v-if="msg.content || isStreaming(msg)" class="bubble" :class="{ streaming: isStreaming(msg) }">
         <template v-if="msg.content">{{ msg.content }}</template>
-        <template v-else-if="isStreaming(msg)">
+        <template v-else-if="isStreaming(msg) && !msg.toolCalls?.length">
           <span class="dot" /><span class="dot" /><span class="dot" />
         </template>
         <span v-if="isStreaming(msg) && msg.content" class="cursor" />
       </div>
+
       <div v-if="msg.role === 'assistant' && !isStreaming(msg) && msg.content" class="actions">
         <button
           v-if="hasSelection"
@@ -245,5 +266,37 @@ async function copyMessage(content: string): Promise<void> {
   color: var(--arc-text-hint);
   padding: 0 4px;
   letter-spacing: 0.01em;
+}
+
+.tool-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 92%;
+}
+
+.edit-events {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 92%;
+}
+
+.edit-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  font-size: 12px;
+  color: #166534;
+}
+
+.edit-card .mini {
+  margin-left: auto;
+  padding: 4px 8px;
+  font-size: 11px;
 }
 </style>

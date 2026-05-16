@@ -2,6 +2,8 @@ import { ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
 import type { AiTaskPayload, AppSettings, ChapterStateWarningsPayload } from './shared-types'
 import { runAiTask, streamAiTask, testAiConnection, fetchModels, fetchImageModels, generateImage } from './runtime'
+import { runStreamingAgentTask } from './agent/streaming-orchestrator'
+import { providerSupportsTools } from './transport'
 import { setChapterWarningsEmitter } from './runtime/orchestrator'
 import { retrieveKnowledgeContext } from './knowledge-retrieval'
 import { backfillProjectStateFromChapters } from './state-backfill'
@@ -132,6 +134,78 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
     if (!controller) return { success: false, error: '当前没有可停止的生成任务' }
     controller.abort()
     return { success: true }
+  })
+
+  // ── Agent 流式生成（带工具调用） ──
+  ipcMain.handle('characterarc:ai-agent-stream-start', async (event, payload: AiTaskPayload) => {
+    try {
+      if (!providerSupportsTools(payload.settings as AppSettings)) {
+        return { success: false, error: '当前 AI 供应商不支持工具调用，请切换到支持 tool_use 的模型。' }
+      }
+
+      const streamId = `agent-${randomUUID()}`
+      const controller = new AbortController()
+      const knowledgeContext = retrieveKnowledgeContext(payload, deps!.getLatestWorkspaceSnapshot() as Parameters<typeof retrieveKnowledgeContext>[1])
+      activeAiStreams.set(streamId, controller)
+
+      let streamedContent = ''
+      void (async () => {
+        try {
+          const result = await runStreamingAgentTask(
+            payload,
+            {
+              onTextDelta: (delta) => {
+                streamedContent += delta
+                if (!event.sender.isDestroyed()) {
+                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'chunk', delta, charCount: streamedContent.length })
+                }
+              },
+              onToolUseStart: (toolUseId, toolName, args) => {
+                if (!event.sender.isDestroyed()) {
+                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'tool_use_start', toolUseId, toolName, args })
+                }
+              },
+              onToolResult: (toolUseId, toolName, content, isError, durationMs) => {
+                if (!event.sender.isDestroyed()) {
+                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'tool_result', toolUseId, toolName, content, isError, durationMs })
+                }
+              },
+              onAgentStatus: (message, iteration, maxIterations) => {
+                if (!event.sender.isDestroyed()) {
+                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'agent_status', message, iteration, maxIterations })
+                }
+              },
+              onEditApplied: (chapterId, editType, preview, versionId) => {
+                if (!event.sender.isDestroyed()) {
+                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'edit_applied', chapterId, editType, preview, versionId })
+                }
+              }
+            },
+            controller.signal,
+            knowledgeContext
+          )
+          if (result.meta.projectId) {
+            deps!.emitAiRunEvent({ projectId: result.meta.projectId, meta: { id: randomUUID(), ...result.meta } })
+          }
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('characterarc:ai-stream-event', { streamId, type: 'done', content: streamedContent })
+          }
+        } catch (error) {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('characterarc:ai-stream-event', controller.signal.aborted
+              ? { streamId, type: 'canceled', content: streamedContent }
+              : { streamId, type: 'error', error: error instanceof Error ? error.message : 'AI Agent 调用失败' }
+            )
+          }
+        } finally {
+          activeAiStreams.delete(streamId)
+        }
+      })()
+
+      return { success: true, result: { streamId } }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'AI Agent 启动失败' }
+    }
   })
 
   // ── 连接测试 ──

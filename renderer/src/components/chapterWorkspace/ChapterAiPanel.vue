@@ -103,6 +103,12 @@ async function handleHumanize(): Promise<void> {
   else message.success('已使用降低 AI 感结果替换选区')
 }
 
+async function handleUndoEdit(versionId: string): Promise<void> {
+  const result = await appStore.restoreChapterVersion(versionId)
+  if (result.success) message.success('已撤销 AI 编辑')
+  else message.warning(result.error ?? '撤销失败')
+}
+
 function sendPrompt(prompt: string): void {
   void send(prompt)
 }
@@ -178,6 +184,7 @@ onBeforeUnmount(() => {
       :has-selection="hasSelection"
       @apply="handleApply"
       @regenerate="send"
+      @undo="handleUndoEdit"
     />
 
     <ChapterAiInput :disabled="isResponding" @send="send" @stop="stop" />

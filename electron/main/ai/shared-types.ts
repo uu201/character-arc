@@ -312,10 +312,20 @@ export type AiStreamHandlers = {
   onTextDelta: (delta: string) => void
 }
 
+export type AiAgentStreamHandlers = {
+  onTextDelta: (delta: string) => void
+  onToolUseStart: (toolUseId: string, toolName: string, args: Record<string, unknown>) => void
+  onToolResult: (toolUseId: string, toolName: string, content: string, isError: boolean, durationMs: number) => void
+  onAgentStatus: (message: string, iteration: number, maxIterations: number) => void
+  onEditApplied: (chapterId: string, editType: string, preview: string, versionId: string) => void
+}
+
 export const AI_REQUEST_TIMEOUT_MS = 180_000
 
 /** Agent loop 单次任务最多允许的工具循环轮数。超过即抛错，避免死循环吃 token。 */
 export const AGENT_MAX_TOOL_ITERATIONS = 8
+
+export const AGENT_STREAM_MAX_ITERATIONS = 12
 
 /**
  * 章节轻检告警事件 payload。章节生成后的异步后处理流水线产出，

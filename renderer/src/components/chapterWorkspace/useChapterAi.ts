@@ -8,12 +8,31 @@ import type { ChapterInsertionMode } from '@/types/app'
 
 export type ChapterAiRole = 'user' | 'assistant'
 
+export type ChapterAiToolCall = {
+  toolUseId: string
+  toolName: string
+  args: Record<string, unknown>
+  status: 'running' | 'done' | 'error'
+  result?: string
+  isError?: boolean
+  durationMs?: number
+}
+
+export type ChapterAiEditEvent = {
+  chapterId: string
+  editType: string
+  preview: string
+  versionId: string
+}
+
 export interface ChapterAiMessage {
   id: string
   role: ChapterAiRole
   content: string
   createdAt: number
   chapterId?: string
+  toolCalls?: ChapterAiToolCall[]
+  editEvents?: ChapterAiEditEvent[]
 }
 
 const TASK_KEY = 'chapter-workspace-chat'
@@ -24,9 +43,16 @@ function nextMessageId(): string {
   return `cwm-${Date.now().toString(36)}-${messageSeq}`
 }
 
+function providerSupportsTools(provider: string): boolean {
+  if (provider === 'anthropic') return true
+  if (provider === 'ollama') return false
+  return true
+}
+
 export function useChapterAi(): {
   messages: Ref<ChapterAiMessage[]>
   isResponding: Ref<boolean>
+  agentStatus: Ref<string>
   hasSelection: Ref<boolean>
   selectedText: Ref<string>
   send: (prompt: string) => Promise<void>
@@ -39,6 +65,7 @@ export function useChapterAi(): {
   const appStore = useAppStore()
   const messages = ref<ChapterAiMessage[]>([])
   const isResponding = computed(() => appStore.isAiTaskRunning(TASK_KEY))
+  const agentStatus = ref('')
 
   const selectedText = computed(() => appStore.currentChapterSelection?.text.trim() ?? '')
   const hasSelection = computed(() =>
@@ -62,14 +89,56 @@ export function useChapterAi(): {
       if (msg) msg.content += payload.delta
       return
     }
+    if (payload.type === 'tool_use_start') {
+      const msg = messages.value.find((m) => m.id === streamingMsgId)
+      if (msg) {
+        if (!msg.toolCalls) msg.toolCalls = []
+        msg.toolCalls.push({
+          toolUseId: payload.toolUseId,
+          toolName: payload.toolName,
+          args: payload.args,
+          status: 'running'
+        })
+      }
+      return
+    }
+    if (payload.type === 'tool_result') {
+      const msg = messages.value.find((m) => m.id === streamingMsgId)
+      const tc = msg?.toolCalls?.find((t) => t.toolUseId === payload.toolUseId)
+      if (tc) {
+        tc.status = payload.isError ? 'error' : 'done'
+        tc.result = payload.content
+        tc.isError = payload.isError
+        tc.durationMs = payload.durationMs
+      }
+      return
+    }
+    if (payload.type === 'edit_applied') {
+      const msg = messages.value.find((m) => m.id === streamingMsgId)
+      if (msg) {
+        if (!msg.editEvents) msg.editEvents = []
+        msg.editEvents.push({
+          chapterId: payload.chapterId,
+          editType: payload.editType,
+          preview: payload.preview,
+          versionId: payload.versionId
+        })
+      }
+      return
+    }
+    if (payload.type === 'agent_status') {
+      agentStatus.value = payload.message
+      return
+    }
     if (payload.type === 'done') {
       const msg = messages.value.find((m) => m.id === streamingMsgId)
-      if (msg && payload.content) msg.content = payload.content
+      if (msg && payload.content && !msg.content) msg.content = payload.content
       const resolve = resolveStream
       resolveStream = null
       rejectStream = null
       streamId = null
       streamingMsgId = null
+      agentStatus.value = ''
       resolve?.(msg?.content ?? '')
       return
     }
@@ -79,6 +148,7 @@ export function useChapterAi(): {
       rejectStream = null
       streamId = null
       streamingMsgId = null
+      agentStatus.value = ''
       reject?.(new Error('canceled'))
       return
     }
@@ -88,6 +158,7 @@ export function useChapterAi(): {
       rejectStream = null
       streamId = null
       streamingMsgId = null
+      agentStatus.value = ''
       reject?.(new Error(payload.error || 'AI 对话生成失败'))
     }
   }
@@ -128,6 +199,8 @@ export function useChapterAi(): {
     pushMessage('user', trimmed)
     const assistantMsg = pushMessage('assistant', '')
     streamingMsgId = assistantMsg.id
+
+    const useAgentMode = providerSupportsTools(appStore.appSettings.provider)
 
     try {
       await appStore.runTrackedAiTask(
@@ -180,7 +253,11 @@ export function useChapterAi(): {
             chapterContent: getPlainTextFromEditorContent(chapter.content ?? '')
           })
 
-          const result = await window.characterArc.startAiStream(toIpcPayload({
+          const startFn = useAgentMode
+            ? window.characterArc.startAiAgentStream
+            : window.characterArc.startAiStream
+
+          const result = await startFn(toIpcPayload({
             task: 'chapter-assistant',
             settings: appStore.appSettings,
             context
@@ -199,7 +276,7 @@ export function useChapterAi(): {
         }
       )
 
-      if (!assistantMsg.content.trim()) {
+      if (!assistantMsg.content.trim() && !assistantMsg.toolCalls?.length && !assistantMsg.editEvents?.length) {
         assistantMsg.content = '（AI 未返回内容）'
       }
     } catch (error) {
@@ -230,6 +307,7 @@ export function useChapterAi(): {
   return {
     messages,
     isResponding,
+    agentStatus,
     hasSelection,
     selectedText,
     send,
