@@ -152,13 +152,13 @@ onBeforeUnmount(() => {
           <button @click="stepFont(1)"><Plus :size="11" /></button>
         </div>
 
-        <n-tooltip>
+        <n-tooltip placement="bottom">
           <template #trigger>
             <button class="toolbtn" @click="emit('toggleFocus')"><FocusIcon :size="13" /></button>
           </template>
           专注模式 (F11)
         </n-tooltip>
-        <n-tooltip>
+        <n-tooltip placement="bottom">
           <template #trigger>
             <button class="toolbtn" :disabled="!currentChapter" @click="versionDialogVisible = true">
               <History :size="13" />

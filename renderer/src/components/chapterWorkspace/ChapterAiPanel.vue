@@ -133,7 +133,7 @@ onBeforeUnmount(() => {
         <span>创作助理</span>
       </div>
       <div class="ai-header-actions">
-        <n-tooltip>
+        <n-tooltip placement="bottom">
           <template #trigger>
             <button class="icon-btn" :disabled="isResponding" @click="resetMessages">
               <Plus :size="13" />
@@ -141,7 +141,7 @@ onBeforeUnmount(() => {
           </template>
           新对话
         </n-tooltip>
-        <n-tooltip>
+        <n-tooltip placement="bottom">
           <template #trigger>
             <button class="icon-btn" @click="$emit('close')"><X :size="13" /></button>
           </template>

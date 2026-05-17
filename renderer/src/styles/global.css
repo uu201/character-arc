@@ -1,23 +1,23 @@
 :root {
-  color: #202124;
-  background: #f5f5f7;
+  color: #18181b;
+  background: #f6f6f7;
   /* Neutral */
-  --arc-bg-body: #f5f5f7;
-  --arc-bg-weak: #fafafa;
+  --arc-bg-body: #f6f6f7;
+  --arc-bg-weak: #fafafb;
   --arc-bg-surface: #ffffff;
-  --arc-bg-surface-hover: #f2f2f7;
+  --arc-bg-surface-hover: #eef0f3;
   /* Text */
-  --arc-text-primary: #202124;
-  --arc-text-secondary: #5f6368;
-  --arc-text-hint: #7a7f87;
+  --arc-text-primary: #18181b;
+  --arc-text-secondary: #52525b;
+  --arc-text-hint: #a1a1aa;
   /* Theme (overridden by App.vue) */
   --arc-primary: #0066cc;
   --arc-primary-hover: #0b76e8;
   --arc-primary-pressed: #0058b0;
   --arc-primary-soft: #ebf3fa;
   /* Borders */
-  --arc-border: #d4d4d8;
-  --arc-border-strong: #c7c7cf;
+  --arc-border: #e4e4e7;
+  --arc-border-strong: #d4d4d8;
   /* Shadows — only for floating layers */
   --arc-shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.07);
   --arc-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.09);
@@ -28,15 +28,11 @@
   /* Semantic */
   --arc-success: #15803d;
   --arc-warning: #a16207;
+  --arc-danger: #dc2626;
   /* Selection */
   --arc-selection-bg: #b4d5fe;
   --arc-selection-text: #1c1917;
   --arc-caret-color: var(--arc-primary);
-}
-  --arc-danger: #dc2626;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei',
-    sans-serif;
 }
 
 * {
@@ -56,6 +52,9 @@ body {
   background: var(--arc-bg-body);
   color: var(--arc-text-primary);
   caret-color: var(--arc-caret-color);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei',
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -97,11 +96,32 @@ input {
 }
 
 .app-titlebar {
+  display: flex;
+  align-items: center;
   height: 40px;
   flex-shrink: 0;
+  padding: 0 14px;
   -webkit-app-region: drag;
   app-region: drag;
   background: var(--arc-bg-body);
+}
+
+.app-titlebar__brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.app-titlebar__version {
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .app-titlebar + .app-content {

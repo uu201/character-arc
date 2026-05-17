@@ -107,7 +107,7 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
         <span class="dot" />
         {{ appStore.currentProject?.title || '未命名项目' }}
       </div>
-      <n-tooltip trigger="hover">
+      <n-tooltip trigger="hover" placement="bottom">
         <template #trigger>
           <button class="icon-btn" @click="appStore.backToWorkbench()">
             <Settings :size="14" />
@@ -118,19 +118,19 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
     </header>
 
     <div class="ts-toolbar">
-      <n-tooltip trigger="hover">
+      <n-tooltip trigger="hover" placement="bottom">
         <template #trigger>
           <button class="icon-btn flex" @click="appStore.createOutlineVolume()"><FolderPlus :size="14" /></button>
         </template>
         新建分卷
       </n-tooltip>
-      <n-tooltip trigger="hover">
+      <n-tooltip trigger="hover" placement="bottom">
         <template #trigger>
           <button class="icon-btn flex" @click="appStore.createChapter()"><FilePlus :size="14" /></button>
         </template>
         新建章节
       </n-tooltip>
-      <n-tooltip trigger="hover">
+      <n-tooltip trigger="hover" placement="bottom">
         <template #trigger>
           <button class="icon-btn flex" @click="toggleCollapseAll">
             <ChevronsDownUp :size="14" />

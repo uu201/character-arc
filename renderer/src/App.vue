@@ -18,6 +18,8 @@ import { isAssistantWindow } from '@/utils/windowKind'
 const appStore = useAppStore()
 // 当前运行平台（win32 / darwin / linux），用于适配标题栏高度
 const platform = window.characterArc?.platform ?? 'unknown'
+const appName = '弧光'
+const appVersion = window.characterArc?.version ?? ''
 
 // 根据当前选中主题生成 Naive UI 主题覆盖变量
 const themeOverrides = computed(() =>
@@ -35,23 +37,23 @@ const appStyleVars = computed(() => {
   const dark = appStore.appSettings.darkMode
   const darkPreset = getDarkModePreset(appStore.appSettings.darkModeStyle)
   return {
-    '--arc-bg-body': dark ? darkPreset.bgBody : '#f8f7f4',
-    '--arc-bg-weak': dark ? darkPreset.bgWeak : '#faf9f7',
+    '--arc-bg-body': dark ? darkPreset.bgBody : '#f6f6f7',
+    '--arc-bg-weak': dark ? darkPreset.bgWeak : '#fafafb',
     '--arc-bg-surface': dark ? darkPreset.bgSurface : '#ffffff',
-    '--arc-bg-surface-hover': dark ? darkPreset.bgSurfaceHover : '#f5f4f1',
-    '--arc-bg-sidebar': dark ? darkPreset.bgSidebar : '#f5f3f0',
-    '--arc-sidebar-border': dark ? darkPreset.sidebarBorder : '#e8e5e0',
-    '--arc-text-primary': dark ? darkPreset.textPrimary : '#1c1917',
-    '--arc-text-secondary': dark ? darkPreset.textSecondary : '#57534e',
-    '--arc-text-hint': dark ? darkPreset.textHint : '#a8a29e',
+    '--arc-bg-surface-hover': dark ? darkPreset.bgSurfaceHover : '#eef0f3',
+    '--arc-bg-sidebar': dark ? darkPreset.bgSidebar : '#ececef',
+    '--arc-sidebar-border': dark ? darkPreset.sidebarBorder : '#dcdce0',
+    '--arc-text-primary': dark ? darkPreset.textPrimary : '#18181b',
+    '--arc-text-secondary': dark ? darkPreset.textSecondary : '#52525b',
+    '--arc-text-hint': dark ? darkPreset.textHint : '#a1a1aa',
     '--arc-primary': appStore.currentTheme.primary,
     '--arc-primary-hover': appStore.currentTheme.primaryHover,
     '--arc-primary-pressed': appStore.currentTheme.primaryPressed,
     '--arc-primary-soft': dark
       ? `color-mix(in srgb, ${appStore.currentTheme.primary} 18%, ${darkPreset.primarySoftBase})`
       : appStore.currentTheme.softBackground,
-    '--arc-border': dark ? darkPreset.border : '#e7e5e0',
-    '--arc-border-strong': dark ? darkPreset.borderStrong : '#d6d3cd',
+    '--arc-border': dark ? darkPreset.border : '#e4e4e7',
+    '--arc-border-strong': dark ? darkPreset.borderStrong : '#d4d4d8',
     '--arc-shadow-sm': dark ? darkPreset.shadowSm : '0 1px 3px rgba(0, 0, 0, 0.06)',
     '--arc-shadow-md': dark ? darkPreset.shadowMd : '0 2px 8px rgba(0, 0, 0, 0.07)',
     '--arc-shadow-lg': dark ? darkPreset.shadowLg : '0 4px 16px rgba(0, 0, 0, 0.09)',
@@ -118,7 +120,12 @@ onBeforeUnmount(() => {
       <n-dialog-provider>
         <n-global-style />
         <div class="app-shell" :style="appStyleVars" :class="{ 'dark-mode': appStore.appSettings.darkMode }">
-          <div class="app-titlebar" />
+          <div class="app-titlebar">
+            <span class="app-titlebar__brand">
+              {{ appName }}
+              <span v-if="appVersion" class="app-titlebar__version">v{{ appVersion }}</span>
+            </span>
+          </div>
           <div class="app-content">
             <div v-if="appStore.persistenceError" class="app-error-banner">
               <strong>本地数据读写异常</strong>
