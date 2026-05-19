@@ -119,6 +119,8 @@ export function useChapterFirstDraft(): {
   function reset(finalLabel = ''): void {
     streamId.value = null
     currentStreamTask.value = null
+    resolveStream = null
+    rejectStream = null
     streamingCharCount.value = 0
     executionLabel.value = finalLabel
     isStopping.value = false
@@ -127,6 +129,18 @@ export function useChapterFirstDraft(): {
     isStreaming.value = false
     stopElapsedTimer()
     recompute()
+  }
+
+  function releaseCurrentStreamState(): void {
+    streamId.value = null
+    resolveStream = null
+    rejectStream = null
+    isStopping.value = false
+    isStreaming.value = false
+  }
+
+  function isAlreadyStoppedStreamError(message: string): boolean {
+    return message.includes('当前没有可停止的生成任务')
   }
 
   function getActiveStreamBuffer(): string {
@@ -178,22 +192,19 @@ export function useChapterFirstDraft(): {
     if (payload.type === 'done') {
       const text = (payload.content?.trim() ? payload.content : getActiveStreamBuffer()).trim()
       const resolve = resolveStream
-      resolveStream = null
-      rejectStream = null
+      releaseCurrentStreamState()
       resolve?.({ text, result: payload.result })
       return
     }
     if (payload.type === 'canceled') {
       const reject = rejectStream
-      resolveStream = null
-      rejectStream = null
+      releaseCurrentStreamState()
       reject?.(new Error('canceled'))
       return
     }
     if (payload.type === 'error') {
       const reject = rejectStream
-      resolveStream = null
-      rejectStream = null
+      releaseCurrentStreamState()
       reject?.(new Error(payload.error || getActiveTaskErrorMessage()))
     }
   }
@@ -428,6 +439,10 @@ export function useChapterFirstDraft(): {
     isStopping.value = true
     const result = await window.characterArc.stopAiStream(streamId.value)
     if (!result.success) {
+      if (isAlreadyStoppedStreamError(result.error ?? '')) {
+        releaseCurrentStreamState()
+        return
+      }
       isStopping.value = false
       throw new Error(result.error ?? '停止 AI 初稿失败')
     }

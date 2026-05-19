@@ -50,7 +50,7 @@ export async function runAiTask(
       return runAgentTask(task, knowledgeContext)
     }
     if (task.task === 'reference-deep-analyze') {
-      throw new Error('深度拆书需要模型支持 tool_use（工具调用）。当前供应商不支持此功能，请切换到 DeepSeek、通义千问、OpenAI 或 Anthropic 等支持工具调用的供应商后重试。')
+      throw new Error('深度拆书需要模型支持 tool_use（工具调用）。当前供应商不支持此功能，请切换到通义千问、OpenAI 或 Anthropic 等支持工具调用的供应商后重试。')
     }
   }
 

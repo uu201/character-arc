@@ -45,6 +45,7 @@ function nextMessageId(): string {
 
 function providerSupportsTools(provider: string): boolean {
   if (provider === 'anthropic') return true
+  if (provider === 'deepseek') return false
   if (provider === 'ollama') return false
   return true
 }

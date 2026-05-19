@@ -1,7 +1,7 @@
 import { generateObject, generateText, streamObject, streamText } from 'ai'
 import type { LanguageModelUsage } from 'ai'
 import type { ZodTypeAny } from 'zod'
-import { buildSystemPrompt, createModel } from './provider'
+import { buildSystemPrompt, createModel, providerSupportsNativeStructuredOutput } from './provider'
 import type { AiRunUsage, AppSettings, AiStreamHandlers, PromptPair } from './shared-types'
 
 export type AiGenerateOptions = {
@@ -34,10 +34,13 @@ export function addAiRunUsage(left?: AiRunUsage, right?: AiRunUsage): AiRunUsage
   if (!right) return left
 
   const add = (a?: number, b?: number): number | undefined => {
-    if (!Number.isFinite(a) && !Number.isFinite(b)) {
+    const safeA = typeof a === 'number' && Number.isFinite(a) ? a : undefined
+    const safeB = typeof b === 'number' && Number.isFinite(b) ? b : undefined
+
+    if (safeA === undefined && safeB === undefined) {
       return undefined
     }
-    return (Number.isFinite(a) ? a : 0) + (Number.isFinite(b) ? b : 0)
+    return (safeA ?? 0) + (safeB ?? 0)
   }
 
   const merged: AiRunUsage = {
@@ -59,8 +62,9 @@ export async function aiGenerateTextWithUsage(
   options?: AiGenerateOptions
 ): Promise<AiTextGenerationResult> {
   const system = buildSystemPrompt(settings, prompt.system)
+  const canUseNativeStructuredOutput = providerSupportsNativeStructuredOutput(settings)
 
-  if (options?.schema) {
+  if (options?.schema && canUseNativeStructuredOutput) {
     const result = await generateObject({
       model: createModel(settings),
       system,
@@ -132,6 +136,10 @@ export async function aiStreamObjectWithUsage(
   schema: ZodTypeAny,
   maxTokens?: number
 ): Promise<AiTextGenerationResult> {
+  if (!providerSupportsNativeStructuredOutput(settings)) {
+    return aiStreamTextWithUsage(settings, prompt, handlers, signal, maxTokens)
+  }
+
   const result = streamObject({
     model: createModel(settings),
     system: buildSystemPrompt(settings, prompt.system),

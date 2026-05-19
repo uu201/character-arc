@@ -496,7 +496,9 @@ function computeChapterDistanceBoost(chapterIndex: number | null, currentChapter
     return 0
   }
 
-  const distance = Math.abs((chapterIndex ?? 0) - currentChapterIndex)
+  const normalizedChapterIndex = chapterIndex as number
+  const normalizedCurrentChapterIndex = currentChapterIndex as number
+  const distance = Math.abs(normalizedChapterIndex - normalizedCurrentChapterIndex)
   if (distance <= 1) return 0.06
   if (distance <= 3) return 0.03
   if (distance <= 6) return 0.01
