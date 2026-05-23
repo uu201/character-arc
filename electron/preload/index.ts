@@ -138,86 +138,12 @@ contextBridge.exposeInMainWorld('characterArc', {
   setTitleBarOverlay: (options: { color: string; symbolColor: string }) =>
     ipcRenderer.invoke('characterarc:set-titlebar-overlay', options),
 
-  // ── 助手窗口管理 ──
-  /** 打开浮动 AI 助手窗口 */
-  openAssistantWindow: () => ipcRenderer.invoke('characterarc:assistant-window-open'),
-  /** 关闭浮动 AI 助手窗口 */
-  closeAssistantWindow: () => ipcRenderer.invoke('characterarc:assistant-window-close'),
-  /** 查询助手窗口是否打开 */
-  getAssistantWindowState: () => ipcRenderer.invoke('characterarc:assistant-window-state'),
-  /** 主窗口向助手窗口推送当前选中的项目/章节上下文 */
-  publishAssistantContext: (payload: unknown) => ipcRenderer.invoke('characterarc:assistant-context-publish', toIpcPayload(payload)),
-  /** 助手窗口拉取最新的上下文信息 */
-  getAssistantContext: () => ipcRenderer.invoke('characterarc:assistant-context-get'),
-  /** 主窗口向助手窗口发送用户提示词请求 */
-  publishAssistantPrompt: (payload: unknown) => ipcRenderer.invoke('characterarc:assistant-prompt-publish', toIpcPayload(payload)),
-  /** 助手窗口拉取最新的提示词请求 */
-  getAssistantPrompt: () => ipcRenderer.invoke('characterarc:assistant-prompt-get'),
-  /** 标记某条提示词请求已消费，避免重复处理 */
-  clearAssistantPrompt: (promptId: string) => ipcRenderer.invoke('characterarc:assistant-prompt-clear', promptId),
-  /** 主窗口向助手窗口广播工作区数据同步 */
+  // ── 工作区同步 ──
+  /** 广播工作区数据同步 */
   publishWorkspaceSync: (payload: unknown) => ipcRenderer.invoke('characterarc:workspace-sync-publish', toIpcPayload(payload)),
-  /** 助手窗口请求主窗口追加一条聊天消息 */
-  publishAssistantMessage: (payload: unknown) => ipcRenderer.invoke('characterarc:assistant-message-publish', toIpcPayload(payload)),
-  /** 主窗口向助手窗口发送命令（如插入正文等） */
-  publishAssistantCommand: (payload: unknown) => ipcRenderer.invoke('characterarc:assistant-command-publish', toIpcPayload(payload)),
-  /** 助手窗口确认当前 proposal，由主窗口执行 */
-  approveAssistantProposal: () => ipcRenderer.invoke('characterarc:assistant-proposal-approve'),
-  /** 助手窗口拒绝当前 proposal */
-  rejectAssistantProposal: () => ipcRenderer.invoke('characterarc:assistant-proposal-reject'),
-  /** 助手窗口关闭当前 proposal 卡片 */
-  clearAssistantProposal: () => ipcRenderer.invoke('characterarc:assistant-proposal-clear'),
-  /** 主窗口监听助手窗口发起的 proposal 确认 */
-  onAssistantProposalApprove: (callback: () => void) => {
-    const listener = () => callback()
-    ipcRenderer.on('characterarc:assistant-proposal-approve', listener)
-    return () => {
-      ipcRenderer.removeListener('characterarc:assistant-proposal-approve', listener)
-    }
-  },
-  /** 主窗口监听助手窗口发起的 proposal 拒绝 */
-  onAssistantProposalReject: (callback: () => void) => {
-    const listener = () => callback()
-    ipcRenderer.on('characterarc:assistant-proposal-reject', listener)
-    return () => {
-      ipcRenderer.removeListener('characterarc:assistant-proposal-reject', listener)
-    }
-  },
-  /** 主窗口监听助手窗口关闭 proposal 卡片 */
-  onAssistantProposalClear: (callback: () => void) => {
-    const listener = () => callback()
-    ipcRenderer.on('characterarc:assistant-proposal-clear', listener)
-    return () => {
-      ipcRenderer.removeListener('characterarc:assistant-proposal-clear', listener)
-    }
-  },
 
   // ── 事件监听（返回清理函数，组件卸载时调用以移除监听） ──
-  /** 监听助手窗口可见性变化事件 */
-  onAssistantWindowVisibility: (callback: (payload: unknown) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
-    ipcRenderer.on('characterarc:assistant-window-visibility', listener)
-    return () => {
-      ipcRenderer.removeListener('characterarc:assistant-window-visibility', listener)
-    }
-  },
-  /** 监听主窗口推送的上下文更新事件 */
-  onAssistantContext: (callback: (payload: unknown) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
-    ipcRenderer.on('characterarc:assistant-context', listener)
-    return () => {
-      ipcRenderer.removeListener('characterarc:assistant-context', listener)
-    }
-  },
-  /** 监听主窗口推送的提示词请求事件 */
-  onAssistantPrompt: (callback: (payload: unknown) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
-    ipcRenderer.on('characterarc:assistant-prompt', listener)
-    return () => {
-      ipcRenderer.removeListener('characterarc:assistant-prompt', listener)
-    }
-  },
-  /** 监听工作区数据同步事件（用于助手窗口实时获取主窗口的最新数据） */
+  /** 监听工作区数据同步事件 */
   onWorkspaceSync: (callback: (payload: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
     ipcRenderer.on('characterarc:workspace-sync-event', listener)
@@ -231,22 +157,6 @@ contextBridge.exposeInMainWorld('characterArc', {
     ipcRenderer.on('characterarc:reference-import-progress', listener)
     return () => {
       ipcRenderer.removeListener('characterarc:reference-import-progress', listener)
-    }
-  },
-  /** 主窗口监听助手窗口发来的聊天消息追加请求 */
-  onAssistantMessage: (callback: (payload: unknown) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
-    ipcRenderer.on('characterarc:assistant-message', listener)
-    return () => {
-      ipcRenderer.removeListener('characterarc:assistant-message', listener)
-    }
-  },
-  /** 监听主窗口发送的命令事件（如将 AI 结果插入正文） */
-  onAssistantCommand: (callback: (payload: unknown) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
-    ipcRenderer.on('characterarc:assistant-command', listener)
-    return () => {
-      ipcRenderer.removeListener('characterarc:assistant-command', listener)
     }
   }
 })

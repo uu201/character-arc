@@ -11,7 +11,7 @@ import { refreshRegistry as refreshSkillRegistry, toScanEntries as skillScanEntr
 import { getProjectSkillsDirPath as getSkillsDirPath } from './ai/skills/discovery'
 import { extractReferenceNovelContext, type ReferenceNovelLocalContext } from './referenceAnalysis'
 import { getWorkspaceDirPath } from './workspace-store'
-import type { AssistantPromptPayload, WindowManager } from './window-manager'
+import type { WindowManager } from './window-manager'
 
 type ReferenceNovelImportRequest = {
   settings: AiTaskPayload['settings']
@@ -41,10 +41,6 @@ type ReferenceImportProgressPayload = {
 type RegisterMainIpcHandlersDeps = {
   windowManager: WindowManager
   setLatestWorkspaceSnapshot: (payload: unknown) => void
-  getLatestAssistantContext: () => unknown
-  setLatestAssistantContext: (payload: unknown) => void
-  getLatestAssistantPrompt: () => AssistantPromptPayload | null
-  setLatestAssistantPrompt: (payload: AssistantPromptPayload | null) => void
   normalizeWorkspacePayload: (payload: unknown) => unknown
   ensureWorkspaceDb: () => Promise<DatabaseSync>
   readWorkspaceSnapshot: (db: DatabaseSync) => unknown
@@ -569,97 +565,11 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     }
   })
 
-  ipcMain.handle('characterarc:assistant-window-open', async () => {
-    try {
-      deps.windowManager.createAssistantWindow()
-      return { success: true, visible: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'AI 助手窗口打开失败'
-      }
-    }
-  })
-
-  ipcMain.handle('characterarc:assistant-window-close', async () => {
-    try {
-      deps.windowManager.closeAssistantWindow()
-      return { success: true, visible: false }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'AI 助手窗口关闭失败'
-      }
-    }
-  })
-
-  ipcMain.handle('characterarc:assistant-window-state', () => ({
-    success: true,
-    visible: deps.windowManager.isAssistantWindowVisible()
-  }))
-
-  ipcMain.handle('characterarc:assistant-context-publish', (_event, payload: unknown) => {
-    const nextPayload = payload && typeof payload === 'object' ? payload : {}
-    deps.setLatestAssistantContext(nextPayload)
-    deps.windowManager.sendWindowEvent(deps.windowManager.getAssistantWindow(), 'characterarc:assistant-context', nextPayload)
-    return { success: true }
-  })
-
-  ipcMain.handle('characterarc:assistant-context-get', () => ({
-    success: true,
-    payload: deps.getLatestAssistantContext()
-  }))
-
-  ipcMain.handle('characterarc:assistant-prompt-publish', (_event, payload: unknown) => {
-    const nextPayload = payload && typeof payload === 'object' ? (payload as AssistantPromptPayload) : null
-    deps.setLatestAssistantPrompt(nextPayload)
-    deps.windowManager.sendWindowEvent(deps.windowManager.getAssistantWindow(), 'characterarc:assistant-prompt', nextPayload)
-    return { success: true }
-  })
-
-  ipcMain.handle('characterarc:assistant-prompt-get', () => ({
-    success: true,
-    payload: deps.getLatestAssistantPrompt()
-  }))
-
-  ipcMain.handle('characterarc:assistant-prompt-clear', (_event, promptId: unknown) => {
-    if (typeof promptId === 'string' && deps.getLatestAssistantPrompt()?.id === promptId) {
-      deps.setLatestAssistantPrompt(null)
-    }
-
-    return { success: true }
-  })
-
   ipcMain.handle('characterarc:workspace-sync-publish', (event, payload: unknown) => {
     if (payload && typeof payload === 'object') {
       deps.setLatestWorkspaceSnapshot(deps.normalizeWorkspacePayload(payload))
     }
     deps.windowManager.broadcastWindowEvent('characterarc:workspace-sync-event', payload, event.sender.id)
-    return { success: true }
-  })
-
-  ipcMain.handle('characterarc:assistant-message-publish', (_event, payload: unknown) => {
-    deps.windowManager.sendWindowEvent(deps.windowManager.getMainWindow(), 'characterarc:assistant-message', payload)
-    return { success: true }
-  })
-
-  ipcMain.handle('characterarc:assistant-command-publish', (_event, payload: unknown) => {
-    deps.windowManager.sendWindowEvent(deps.windowManager.getMainWindow(), 'characterarc:assistant-command', payload)
-    return { success: true }
-  })
-
-  ipcMain.handle('characterarc:assistant-proposal-approve', () => {
-    deps.windowManager.sendWindowEvent(deps.windowManager.getMainWindow(), 'characterarc:assistant-proposal-approve', null)
-    return { success: true }
-  })
-
-  ipcMain.handle('characterarc:assistant-proposal-reject', () => {
-    deps.windowManager.sendWindowEvent(deps.windowManager.getMainWindow(), 'characterarc:assistant-proposal-reject', null)
-    return { success: true }
-  })
-
-  ipcMain.handle('characterarc:assistant-proposal-clear', () => {
-    deps.windowManager.sendWindowEvent(deps.windowManager.getMainWindow(), 'characterarc:assistant-proposal-clear', null)
     return { success: true }
   })
 

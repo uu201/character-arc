@@ -13,7 +13,7 @@ import { registerAiIpcHandlers } from './ai/ipc'
 import { type ReferenceNovelLocalContext } from './referenceAnalysis'
 import { registerMainIpcHandlers } from './register-main-ipc'
 import { initRegistry as initSkillRegistry } from './ai/skills'
-import { createWindowManager, type AssistantPromptPayload } from './window-manager'
+import { createWindowManager } from './window-manager'
 import {
   type LegacyWorkspacePayload,
   type WorkspaceAiRunRecord,
@@ -40,20 +40,6 @@ function configureCanonicalUserDataPath(): void {
 
 configureCanonicalUserDataPath()
 
-/** 主窗口向助手窗口推送的上下文载荷 */
-type AssistantContextPayload = {
-  selectedProjectId?: string
-  selectedChapterId?: string
-  currentChapterSelection?: {
-    chapterId: string
-    text: string
-  } | null
-  activeAgentProposal?: import('../../renderer/src/types/app').AgentProposal | null
-  agentConfirmationState?: import('../../renderer/src/types/app').AgentConfirmationState | null
-  agentExecutionStep?: import('../../renderer/src/types/app').AgentExecutionStep
-  agentIntentState?: import('../../renderer/src/types/app').AgentIntentKind
-}
-
 type ReferenceImportProgressPayload = {
   phase: 'extracting' | 'chunking' | 'chunk-analysis' | 'aggregating' | 'saving' | 'done'
   message: string
@@ -69,13 +55,8 @@ type WorkspaceAiRunEventPayload = {
 }
 
 let latestWorkspaceSnapshot: WorkspacePayload | null = null
-let latestAssistantContext: AssistantContextPayload = {}
-let latestAssistantPrompt: AssistantPromptPayload | null = null
 
-const windowManager = createWindowManager({
-  getLatestAssistantContext: () => latestAssistantContext,
-  getLatestAssistantPrompt: () => latestAssistantPrompt
-})
+const windowManager = createWindowManager()
 
 function updateLatestWorkspaceSnapshot(payload: WorkspacePayload | null): void {
   latestWorkspaceSnapshot = payload
@@ -564,14 +545,6 @@ registerMainIpcHandlers({
   windowManager,
   setLatestWorkspaceSnapshot: (payload) => {
     updateLatestWorkspaceSnapshot(payload as WorkspacePayload | null)
-  },
-  getLatestAssistantContext: () => latestAssistantContext,
-  setLatestAssistantContext: (payload) => {
-    latestAssistantContext = payload && typeof payload === 'object' ? (payload as AssistantContextPayload) : {}
-  },
-  getLatestAssistantPrompt: () => latestAssistantPrompt,
-  setLatestAssistantPrompt: (payload) => {
-    latestAssistantPrompt = payload
   },
   normalizeWorkspacePayload: (payload) => normalizeWorkspacePayload(payload as WorkspacePayload | LegacyWorkspacePayload),
   ensureWorkspaceDb,

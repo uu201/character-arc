@@ -10,9 +10,7 @@ import ChapterStudioPage from '@/pages/ChapterStudioPage.vue'
 import DeconstructionLibraryPage from '@/pages/DeconstructionLibraryPage.vue'
 import SkillsPage from '@/pages/SkillsPage.vue'
 import CoverWorkbenchPage from '@/pages/CoverWorkbenchPage.vue'
-import AssistantWindowPage from '@/pages/AssistantWindowPage.vue'
 import AiTaskProgressDock from '@/components/AiTaskProgressDock.vue'
-import { isAssistantWindow } from '@/utils/windowKind'
 
 // 全局应用状态
 const appStore = useAppStore()
@@ -150,8 +148,7 @@ onBeforeUnmount(() => {
               <p>正在载入本地工作区...</p>
             </div>
             <Transition v-else name="view-fade" mode="out-in">
-              <AssistantWindowPage v-if="isAssistantWindow" key="assistant-window" />
-              <ProjectCenter v-else-if="appStore.currentView === 'projects'" key="projects" />
+              <ProjectCenter v-if="appStore.currentView === 'projects'" key="projects" />
               <ProjectWizardPage v-else-if="appStore.currentView === 'wizard'" key="wizard" />
               <ChapterStudioPage v-else-if="appStore.currentView === 'chapter-studio'" key="chapter-studio" />
               <DeconstructionLibraryPage v-else-if="appStore.currentView === 'deconstruction-library'" key="deconstruction-library" />
@@ -160,7 +157,7 @@ onBeforeUnmount(() => {
               <WorkbenchPage v-else key="workbench" />
             </Transition>
           </div>
-          <AiTaskProgressDock v-if="!isAssistantWindow" />
+          <AiTaskProgressDock />
         </div>
       </n-dialog-provider>
     </n-message-provider>

@@ -5,7 +5,6 @@ import { createDefaultWorkflowDocuments } from '@/features/novelWorkflow/documen
 import { createDefaultNovelWorkflowStages } from '@/features/novelWorkflow/stages'
 import { DEFAULT_CHAPTER_WORD_TARGET, normalizeChapterWordTarget } from '@/features/chapters/wordTarget'
 import { formatProjectWordCount } from '@/features/projects/wordCount'
-import { buildAgentScratchpadSyncPlan } from '@/features/assistant/agentScratchpad'
 import {
   buildVolumeGroups,
   createOutlineVolume as createWorkspaceVolume
@@ -13,7 +12,6 @@ import {
 import { getThemePreset } from '@/theme/presets'
 import { createEmptyWorkspace } from '@/features/workspace/projectWorkspace'
 import { createWorkspacePersistence } from '@/features/workspace/persistence'
-import { validateAssistantCommand } from '@/features/assistant/agentGuards'
 import {
   buildStarterChapter,
   buildWorkspaceMapFromLegacy,
@@ -33,15 +31,8 @@ import {
   type LegacyStoredState,
   type StoredState
 } from '@/features/workspace/storeHelpers'
-import { characterArcWindowKind, isAssistantWindow } from '@/utils/windowKind'
-import { toIpcPayload } from '@/utils/ipcPayload'
 import { AI_TASK_RETENTION_MS, AI_TASK_DEFAULT_TIMEOUT_MS, type AiTaskRun, type AiTaskRunInput } from '@/features/ai/taskRegistry'
 import type {
-  AgentConfirmationState,
-  AgentExecutionStep,
-  AgentIntentKind,
-  AgentProposal,
-  AssistantPromptRequest,
   AppSettings,
   ChapterDraft,
   ChapterInsertionMode,
@@ -170,8 +161,6 @@ export const useAppStore = defineStore('app', () => {
   const activePanel = ref<PanelName>('workflow')
   /** 上一次在工作台中查看的面板（非 chapters），用于从章节写作返回时恢复 */
   const lastWorkbenchPanel = ref<Exclude<PanelName, 'chapters'>>('workflow')
-  /** AI 助手窗口是否可见 */
-  const aiVisible = ref(true)
   /** 当前主题名称 */
   const theme = ref<ThemeName>(stored.theme)
   /** 当前选中的项目 ID */
@@ -183,18 +172,8 @@ export const useAppStore = defineStore('app', () => {
   /** 应用全局设置（AI 供应商、模型、自动保存等） */
   const appSettings = ref<AppSettings>(stored.appSettings)
   const coverWorkbenchHistory = ref<import('@/types/app').CoverWorkbenchHistoryItem[]>(stored.coverWorkbenchHistory ?? [])
-  /** 待处理的助手提示词请求（来自主窗口） */
-  const pendingAssistantRequest = ref<AssistantPromptRequest | null>(null)
   /** 待执行的章节正文插入请求 */
   const pendingChapterInsertion = ref<ChapterInsertionRequest | null>(null)
-  /** 当前激活的 Agent proposal */
-  const activeAgentProposal = ref<AgentProposal | null>(null)
-  /** Agent proposal 当前确认状态 */
-  const agentConfirmationState = ref<AgentConfirmationState | null>(null)
-  /** Agent proposal 当前执行阶段 */
-  const agentExecutionStep = ref<AgentExecutionStep>('idle')
-  /** 当前助手意图分类 */
-  const agentIntentState = ref<AgentIntentKind>('chat')
   /** 用户在编辑器中当前选中的文本状态 */
   const currentChapterSelection = ref<ChapterSelectionState | null>(null)
   /** 章节轻检告警：key 为 chapterId，value 为告警 payload。由章节生成后的异步后处理流水线推送。 */
@@ -315,161 +294,9 @@ export const useAppStore = defineStore('app', () => {
       || ''
   }
 
-  function buildKnowledgeDocumentFromCommand(payload: Extract<CharacterArcAssistantCommand, { type: 'save-knowledge-document' }>): KnowledgeDocument | null {
-    const projectId = selectedProjectId.value
-    if (!projectId) {
-      return null
-    }
-
-    const document = payload.document ?? {}
-    const title = String(document.title ?? '').trim()
-    const content = String(document.content ?? '').trim()
-    if (!title || !content) {
-      return null
-    }
-
-    const now = new Date().toISOString()
-    const sourceType: KnowledgeDocument['sourceType'] = document.sourceType === 'reference-summary'
-      || document.sourceType === 'workflow-document'
-      || document.sourceType === 'canon-fact'
-      || document.sourceType === 'chapter-summary'
-        ? document.sourceType
-        : 'canon-fact'
-
-    return {
-      id: String(document.id ?? '').trim() || uniqueId('knowledge'),
-      title,
-      sourceType,
-      sourceLabel: String(document.sourceLabel ?? '').trim(),
-      content,
-      summary: String(document.summary ?? '').trim() || content.slice(0, 220),
-      keywords: normalizeKnowledgeKeywords(document.keywords),
-      metadata: document.metadata && typeof document.metadata === 'object' ? document.metadata : {},
-      createdAt: String(document.createdAt ?? '').trim() || now,
-      updatedAt: String(document.updatedAt ?? '').trim() || now
-    }
-  }
-
-  function buildAssistantCommandGuardContext() {
-    return {
-      hasSelectedProject: Boolean(selectedProjectId.value),
-      hasWorkflowVolume: Boolean(resolveWorkflowVolumeId()),
-      availableWorkflowDocumentKeys: workflowDocuments.value.map((document) => document.key)
-    }
-  }
-
-  // ── 助手窗口通信 ──
-  /** 将当前选中的项目/章节上下文序列化为推送给助手窗口的载荷 */
-  function serializeAssistantContext(): CharacterArcAssistantContextPayload {
-    return {
-      selectedProjectId: selectedProjectId.value,
-      selectedChapterId: selectedChapterId.value,
-      currentChapterSelection: currentChapterSelection.value
-        ? {
-            chapterId: currentChapterSelection.value.chapterId,
-            text: currentChapterSelection.value.text
-          }
-        : null,
-      activeAgentProposal: activeAgentProposal.value,
-      agentConfirmationState: agentConfirmationState.value,
-      agentExecutionStep: agentExecutionStep.value,
-      agentIntentState: agentIntentState.value
-    }
-  }
-
-  /** 从主窗口推送的上下文载荷中恢复状态（助手窗口调用） */
-  function applyAssistantContext(payload?: CharacterArcAssistantContextPayload | null): void {
-    if (!payload?.selectedProjectId) {
-      return
-    }
-
-    ensureProjectWorkspace(payload.selectedProjectId)
-    selectedProjectId.value = payload.selectedProjectId
-
-    if (payload.selectedChapterId) {
-      selectedChapterId.value = payload.selectedChapterId
-    } else {
-      syncSelectedChapter(payload.selectedProjectId)
-    }
-
-    activeAgentProposal.value = payload.activeAgentProposal ?? null
-    agentConfirmationState.value = payload.agentConfirmationState ?? null
-    agentExecutionStep.value = payload.agentExecutionStep ?? 'idle'
-    agentIntentState.value = payload.agentIntentState ?? 'chat'
-
-    if (
-      payload.currentChapterSelection &&
-      payload.currentChapterSelection.chapterId === selectedChapterId.value &&
-      payload.currentChapterSelection.text.trim()
-    ) {
-      currentChapterSelection.value = {
-        chapterId: payload.currentChapterSelection.chapterId,
-        text: payload.currentChapterSelection.text.trim()
-      }
-      return
-    }
-
-    currentChapterSelection.value = null
-  }
-
-  /** 向助手窗口推送最新的项目/章节上下文（仅主窗口调用） */
-  function publishAssistantContext(): void {
-    if (characterArcWindowKind !== 'main') {
-      return
-    }
-
-    void window.characterArc.publishAssistantContext(toIpcPayload(serializeAssistantContext()))
-  }
-
-  /** 查询助手窗口是否打开，同步 aiVisible 状态 */
-  async function syncAssistantWindowState(): Promise<void> {
-    if (characterArcWindowKind !== 'main') {
-      aiVisible.value = true
-      return
-    }
-
-    const result = await window.characterArc.getAssistantWindowState()
-    aiVisible.value = result.success ? Boolean(result.visible) : false
-  }
-
-  /** 打开 AI 助手窗口并同步上下文 */
-  async function openAssistantWindow(): Promise<void> {
-    const result = await window.characterArc.openAssistantWindow()
-    if (!result.success) {
-      return
-    }
-
-    aiVisible.value = true
-    publishAssistantContext()
-    scheduleWorkspaceSync()
-  }
-
-  /** 关闭 AI 助手窗口 */
-  async function closeAssistantWindow(): Promise<void> {
-    const result = await window.characterArc.closeAssistantWindow()
-    if (result.success) {
-      aiVisible.value = false
-    }
-  }
-
-  /** 接收主窗口推送的提示词请求，存入 pendingAssistantRequest */
-  function receiveAssistantPrompt(payload?: CharacterArcAssistantPromptPayload | null): void {
-    if (!payload?.id || !payload.prompt.trim()) {
-      return
-    }
-
-    pendingAssistantRequest.value = {
-      id: payload.id,
-      prompt: payload.prompt,
-      quickAction: payload.quickAction
-    }
-  }
+  // ── AI 事件处理 ──
 
   function handleAiRunEvent(payload: CharacterArcAiRunEventPayload): void {
-    if (characterArcWindowKind !== 'main') {
-      return
-    }
-
     if (!payload?.meta) {
       return
     }
@@ -507,7 +334,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function handleChapterStateWarnings(payload: CharacterArcChapterStateWarningsPayload): void {
-    if (characterArcWindowKind !== 'main' || !payload?.chapterId || !Array.isArray(payload.violations) || !payload.violations.length) {
+    if (!payload?.chapterId || !Array.isArray(payload.violations) || !payload.violations.length) {
       return
     }
     const next = new Map(chapterStateWarnings.value)
@@ -528,7 +355,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function handleChapterPostGenerationIssues(payload: CharacterArcChapterPostGenerationIssuesPayload): void {
-    if (characterArcWindowKind !== 'main' || !payload?.chapterId || !Array.isArray(payload.issues)) {
+    if (!payload?.chapterId || !Array.isArray(payload.issues)) {
       return
     }
     const next = new Map(chapterPostGenerationIssues.value)
@@ -550,288 +377,6 @@ export const useAppStore = defineStore('app', () => {
     const next = new Map(chapterPostGenerationIssues.value)
     next.delete(chapterId)
     chapterPostGenerationIssues.value = next
-  }
-
-  function handleAssistantMessage(payload: CharacterArcAssistantMessagePayload): void {
-    if (characterArcWindowKind !== 'main') {
-      return
-    }
-
-    const content = String(payload?.content ?? '').trim()
-    if (!content) {
-      return
-    }
-
-    if (payload.role === 'assistant') {
-      pushAssistantMessage(content)
-      return
-    }
-
-    pushUserMessage(content)
-  }
-
-  /** 处理助手窗口发送的命令（如将 AI 结果插入正文），仅主窗口响应 */
-  function handleAssistantCommand(payload: CharacterArcAssistantCommand): void {
-    if (characterArcWindowKind !== 'main') {
-      return
-    }
-
-    const guardResult = validateAssistantCommand(payload, buildAssistantCommandGuardContext())
-    if (!guardResult.valid) {
-      pushAssistantMessage(`动作提议已拦截：${guardResult.issues.join('；')}`)
-      agentExecutionStep.value = 'idle'
-      agentIntentState.value = 'chat'
-      return
-    }
-
-    agentIntentState.value = payload.kind === 'proposal' ? 'proposal' : 'command'
-
-    if (payload.kind === 'proposal') {
-      activeAgentProposal.value = {
-        id: uniqueId('agent-proposal'),
-        commandType: payload.type,
-        target: payload.target ?? resolveAssistantCommandTarget(payload),
-        reason: payload.reason?.trim() || 'AI 提议执行一个写作动作。',
-        preview: payload.preview ?? buildAssistantCommandPreview(payload),
-        destructive: Boolean(payload.destructive),
-        requiresConfirmation: payload.requiresConfirmation !== false,
-        status: 'pending',
-        payload: JSON.parse(JSON.stringify(payload)) as Record<string, unknown>,
-        createdAt: new Date().toISOString()
-      }
-      agentConfirmationState.value = {
-        required: payload.requiresConfirmation !== false
-      }
-      agentExecutionStep.value = 'proposed'
-      publishAssistantContext()
-      return
-    }
-
-    applyAssistantCommand(payload)
-  }
-
-  function resolveAssistantCommandTarget(payload: CharacterArcAssistantCommand): AgentProposal['target'] {
-    switch (payload.type) {
-      case 'insert-into-chapter':
-        return 'chapter-content'
-      case 'update-chapter-title':
-        return 'chapter-title'
-      case 'update-chapter-summary':
-        return 'chapter-summary'
-      case 'create-outline-item':
-        return 'outline-item'
-      case 'append-workflow-document-entry':
-      case 'update-workflow-document':
-        return 'workflow-document'
-      case 'save-knowledge-document':
-        return 'knowledge-document'
-    }
-  }
-
-  function buildAssistantCommandPreview(payload: CharacterArcAssistantCommand): AgentProposal['preview'] {
-    switch (payload.type) {
-      case 'insert-into-chapter':
-        return {
-          title: '写入章节正文',
-          summary: payload.mode === 'append' ? '将内容追加到章节末尾。' : payload.mode === 'replace-selection' ? '将内容替换当前选区。' : '将内容插入当前光标位置。',
-          after: payload.content.trim().slice(0, 220)
-        }
-      case 'update-chapter-title':
-        return {
-          title: '更新章节标题',
-          summary: '将当前章节标题替换为新的候选标题。',
-          before: selectedChapter.value?.title ?? '',
-          after: payload.value.trim()
-        }
-      case 'update-chapter-summary':
-        return {
-          title: '更新章节摘要',
-          summary: '将当前章节摘要替换为新的候选摘要。',
-          before: selectedChapter.value?.summary ?? '',
-          after: payload.value.trim().slice(0, 220)
-        }
-      case 'create-outline-item':
-        return {
-          title: '创建大纲节点',
-          summary: '将新的剧情大纲节点插入当前分卷。',
-          after: [payload.payload.title, payload.payload.conflict, payload.payload.summary].filter(Boolean).join('\n').slice(0, 220)
-        }
-      case 'append-workflow-document-entry': {
-        const document = workflowDocuments.value.find((item) => item.key === payload.documentKey)
-        return {
-          title: '追加流程文档条目',
-          summary: `准备向 ${document?.title ?? payload.documentKey} 追加一条新记录。`,
-          before: document?.content.slice(0, 220) ?? '',
-          after: `## ${payload.entryTitle.trim() || '新增条目'}\n${payload.content.trim()}`.slice(0, 220)
-        }
-      }
-      case 'update-workflow-document': {
-        const document = workflowDocuments.value.find((item) => item.key === payload.documentKey)
-        return {
-          title: '更新流程文档',
-          summary: `准备覆盖 ${document?.title ?? payload.documentKey} 的正文内容。`,
-          before: document?.content.slice(0, 220) ?? '',
-          after: payload.content.trim().slice(0, 220)
-        }
-      }
-      case 'save-knowledge-document': {
-        const document = buildKnowledgeDocumentFromCommand(payload)
-        return {
-          title: '沉淀项目知识',
-          summary: '准备把当前确认后的设定或结论写入项目知识库。',
-          before: '',
-          after: [document?.title ?? '', document?.summary ?? ''].filter(Boolean).join('\n').slice(0, 220)
-        }
-      }
-    }
-  }
-
-  function applyAssistantCommand(payload: CharacterArcAssistantCommand): void {
-    const guardResult = validateAssistantCommand(payload, buildAssistantCommandGuardContext())
-    if (!guardResult.valid) {
-      pushAssistantMessage(`动作执行已拦截：${guardResult.issues.join('；')}`)
-      agentExecutionStep.value = 'idle'
-      return
-    }
-
-    agentExecutionStep.value = 'applying'
-    let didApply = false
-    switch (payload.type) {
-      case 'insert-into-chapter':
-        didApply = insertIntoChapter(payload.content, payload.mode)
-        break
-      case 'update-chapter-title':
-        if (!payload.value.trim()) break
-        void saveCurrentChapterVersion()
-        updateChapterTitle(payload.value)
-        didApply = true
-        break
-      case 'update-chapter-summary':
-        if (!payload.value.trim()) break
-        void saveCurrentChapterVersion()
-        updateChapterSummary(payload.value)
-        didApply = true
-        break
-      case 'create-outline-item':
-        createOutlineItem(payload.payload)
-        didApply = true
-        break
-      case 'append-workflow-document-entry': {
-        const volumeId = resolveWorkflowVolumeId(payload.volumeId)
-        if (!volumeId || !payload.content.trim()) {
-          break
-        }
-        appendWorkflowDocumentEntry(volumeId, payload.documentKey, payload.entryTitle.trim() || '新增条目', payload.content)
-        didApply = true
-        break
-      }
-      case 'update-workflow-document': {
-        const volumeId = resolveWorkflowVolumeId(payload.volumeId)
-        if (!volumeId || !payload.content.trim()) {
-          break
-        }
-        updateWorkflowDocument(volumeId, payload.documentKey, payload.content)
-        didApply = true
-        break
-      }
-      case 'save-knowledge-document': {
-        const document = buildKnowledgeDocumentFromCommand(payload)
-        if (!document) {
-          break
-        }
-        mergeKnowledgeDocuments([document])
-        didApply = true
-        break
-      }
-    }
-
-    if (didApply && payload.kind === 'proposal') {
-      syncScratchpadAfterAssistantCommand(payload)
-    }
-
-    if (activeAgentProposal.value && activeAgentProposal.value.commandType === payload.type) {
-      activeAgentProposal.value = {
-        ...activeAgentProposal.value,
-        status: 'applied'
-      }
-      agentConfirmationState.value = activeAgentProposal.value.requiresConfirmation
-        ? {
-            required: true,
-            confirmedAt: new Date().toISOString()
-          }
-        : agentConfirmationState.value
-    }
-
-    agentExecutionStep.value = 'idle'
-  }
-
-  function syncScratchpadAfterAssistantCommand(payload: CharacterArcAssistantCommand): void {
-    const plan = buildAgentScratchpadSyncPlan(payload, {
-      projectTitle: currentProject.value?.title,
-      activeVolumeTitle: activeWorkflowVolume.value?.title || selectedChapterVolume.value?.title,
-      selectedChapter: selectedChapter.value
-        ? {
-            title: selectedChapter.value.title,
-            summary: selectedChapter.value.summary,
-            status: selectedChapter.value.status
-          }
-        : undefined,
-      workflowDocuments: workflowDocuments.value,
-      stageStates: currentProject.value?.novelWorkflowStages ?? [],
-      now: new Date().toISOString()
-    })
-
-    const volumeId = resolveWorkflowVolumeId()
-    if (!volumeId) {
-      return
-    }
-
-    plan.appendEntries.forEach((entry) => {
-      appendWorkflowDocumentEntry(volumeId, entry.documentKey, entry.entryTitle, entry.content)
-    })
-
-    plan.updates.forEach((update) => {
-      updateWorkflowDocument(volumeId, update.documentKey, update.content)
-    })
-  }
-
-  function approveActiveAgentProposal(): void {
-    if (!activeAgentProposal.value) {
-      return
-    }
-
-    activeAgentProposal.value = {
-      ...activeAgentProposal.value,
-      status: 'approved'
-    }
-    agentConfirmationState.value = {
-      required: activeAgentProposal.value.requiresConfirmation,
-      confirmedAt: new Date().toISOString()
-    }
-    applyAssistantCommand(activeAgentProposal.value.payload as unknown as CharacterArcAssistantCommand)
-  }
-
-  function rejectActiveAgentProposal(): void {
-    if (!activeAgentProposal.value) {
-      return
-    }
-
-    activeAgentProposal.value = {
-      ...activeAgentProposal.value,
-      status: 'rejected'
-    }
-    agentConfirmationState.value = {
-      required: activeAgentProposal.value.requiresConfirmation,
-      rejectedAt: new Date().toISOString()
-    }
-    agentExecutionStep.value = 'idle'
-  }
-
-  function clearActiveAgentProposal(): void {
-    activeAgentProposal.value = null
-    agentConfirmationState.value = null
-    agentExecutionStep.value = 'idle'
-    agentIntentState.value = 'chat'
   }
 
   /** 同步选中章节 ID：确保当前选中的章节仍属于指定项目，否则回退到第一章 */
@@ -941,7 +486,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /**
-   * Store 初始化入口：从 SQLite 加载工作区 → 同步助手窗口状态 → 助手窗口拉取上下文 → 标记水合完成。
+   * Store 初始化入口：从 SQLite 加载工作区 → 标记水合完成。
    * 必须在 Vue 挂载前调用。
    */
   async function initialize(): Promise<void> {
@@ -953,25 +498,6 @@ export const useAppStore = defineStore('app', () => {
       const err = result.error ?? null
       console.error('[workspace] loadWorkspace failed:', err)
       persistenceError.value = err
-    }
-
-    await syncAssistantWindowState()
-
-    if (isAssistantWindow) {
-      const [contextResult, promptResult] = await Promise.all([
-        window.characterArc.getAssistantContext(),
-        window.characterArc.getAssistantPrompt()
-      ])
-
-      if (contextResult.success) {
-        applyAssistantContext(contextResult.payload)
-      }
-
-      if (promptResult.success) {
-        receiveAssistantPrompt(promptResult.payload ?? null)
-      }
-    } else {
-      publishAssistantContext()
     }
 
     hasHydrated.value = true
@@ -1397,7 +923,6 @@ export const useAppStore = defineStore('app', () => {
     }
     selectedProjectId.value = projectId
     pendingChapterInsertion.value = null
-    aiVisible.value = true
     currentView.value = 'workbench'
     activePanel.value =
       payload.worldviewEntries?.length || payload.inspirationEntries?.length || payload.outlineItems?.length
@@ -2589,67 +2114,6 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  // ── AI 助手交互 ──
-  /** 切换 AI 助手窗口的显示/隐藏 */
-  function toggleAi(): void {
-    if (isAssistantWindow) {
-      void closeAssistantWindow()
-      return
-    }
-
-    if (aiVisible.value) {
-      void closeAssistantWindow()
-      return
-    }
-
-    void openAssistantWindow()
-  }
-
-  /** 打开 AI 助手面板，若已打开则刷新上下文 */
-  function openAiAssistant(): void {
-    if (isAssistantWindow) {
-      aiVisible.value = true
-      return
-    }
-
-    if (aiVisible.value) {
-      publishAssistantContext()
-      scheduleWorkspaceSync()
-      return
-    }
-
-    void openAssistantWindow()
-  }
-
-  /** 向助手窗口发送提示词请求，若助手窗口未打开则先打开 */
-  function queueAssistantPrompt(prompt: string, quickAction?: string): void {
-    const request = {
-      id: uniqueId('assistant'),
-      prompt,
-      quickAction
-    }
-
-    if (isAssistantWindow) {
-      pendingAssistantRequest.value = request
-      return
-    }
-
-    aiVisible.value = true
-    void openAssistantWindow()
-    void window.characterArc.publishAssistantPrompt(toIpcPayload(request))
-  }
-
-  /** 标记提示词请求已消费，清空待处理状态 */
-  function consumeAssistantPrompt(requestId: string): void {
-    if (pendingAssistantRequest.value?.id === requestId) {
-      pendingAssistantRequest.value = null
-    }
-
-    if (isAssistantWindow) {
-      void window.characterArc.clearAssistantPrompt(requestId)
-    }
-  }
-
   /** 更新单个应用设置项并触发快速持久化（仅写入 app_settings 行） */
   function updateAppSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
     appSettings.value[key] = value
@@ -2902,43 +2366,11 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  // ── 跨窗口事件监听注册 ──
-  // 监听工作区同步事件（来自其他窗口的状态更新）
+  // ── 事件监听注册 ──
   window.characterArc.onWorkspaceSync(handleRemoteWorkspaceSync)
-  window.characterArc.onAssistantWindowVisibility((payload) => {
-    aiVisible.value = payload.visible
-  })
-
-  if (isAssistantWindow) {
-    window.characterArc.onAssistantContext((payload) => {
-      applyAssistantContext(payload)
-    })
-    window.characterArc.onAssistantPrompt((payload) => {
-      receiveAssistantPrompt(payload)
-    })
-  } else {
-    window.characterArc.onAiRunEvent(handleAiRunEvent)
-    window.characterArc.onChapterStateWarnings(handleChapterStateWarnings)
-    window.characterArc.onChapterPostGenerationIssues(handleChapterPostGenerationIssues)
-    window.characterArc.onAssistantMessage((payload) => {
-      handleAssistantMessage(payload)
-    })
-    window.characterArc.onAssistantCommand((payload) => {
-      handleAssistantCommand(payload)
-    })
-    window.characterArc.onAssistantProposalApprove(() => {
-      approveActiveAgentProposal()
-      publishAssistantContext()
-    })
-    window.characterArc.onAssistantProposalReject(() => {
-      rejectActiveAgentProposal()
-      publishAssistantContext()
-    })
-    window.characterArc.onAssistantProposalClear(() => {
-      clearActiveAgentProposal()
-      publishAssistantContext()
-    })
-  }
+  window.characterArc.onAiRunEvent(handleAiRunEvent)
+  window.characterArc.onChapterStateWarnings(handleChapterStateWarnings)
+  window.characterArc.onChapterPostGenerationIssues(handleChapterPostGenerationIssues)
 
   // ── 响应式监听器 ──
   // 切换章节时清空选中文本
@@ -2959,44 +2391,10 @@ export const useAppStore = defineStore('app', () => {
     }
   )
 
-  // 项目/章节/选中文本变化时，向助手窗口推送最新上下文
-  watch(
-    [() => selectedProjectId.value, () => selectedChapterId.value, () => currentChapterSelection.value],
-    () => {
-      publishAssistantContext()
-    },
-    { deep: true }
-  )
-
-  // 视图切换时的助手窗口联动：进入章节写作时同步上下文，离开时关闭助手窗口
-  watch(
-    () => currentView.value,
-    (view) => {
-      if (characterArcWindowKind !== 'main') {
-        return
-      }
-
-      if (view === 'chapter-studio') {
-        publishAssistantContext()
-        return
-      }
-
-      if (aiVisible.value) {
-        void closeAssistantWindow()
-      }
-    },
-    { immediate: true }
-  )
-
   return {
     activePanel,
     autoSaveIntervalLabel,
-    activeAgentProposal,
-    agentConfirmationState,
-    agentExecutionStep,
-    agentIntentState,
     aiRuns,
-    aiVisible,
     appSettings,
     coverWorkbenchHistory,
     backToProjects,
@@ -3043,13 +2441,11 @@ export const useAppStore = defineStore('app', () => {
     insertIntoChapter,
     importProjectData,
     importModuleData,
-    consumeAssistantPrompt,
+    consumeChapterInsertion,
     getChapterVersions,
-    handleAssistantCommand,
     messages,
     moveChapter,
     moveOutlineItem,
-    openAiAssistant,
     openChapterStudio,
     openDeconstructionLibrary,
     openProject,
@@ -3061,15 +2457,12 @@ export const useAppStore = defineStore('app', () => {
     organizations,
     outlineVolumeGroups,
     outlineVolumes,
-    pendingAssistantRequest,
     pendingChapterInsertion,
     plotThreads,
     projects,
     pushAssistantMessage,
     pushUserMessage,
-    queueAssistantPrompt,
     restoreChapterVersion,
-    rejectActiveAgentProposal,
     saveCurrentChapterVersion,
     selectChapter,
     selectedChapter,
@@ -3079,8 +2472,6 @@ export const useAppStore = defineStore('app', () => {
     setPanel,
     setTheme,
     theme,
-    toggleAi,
-    consumeChapterInsertion,
     updateAppSetting,
     updateCoverWorkbenchHistory,
     updateProject,
@@ -3096,9 +2487,7 @@ export const useAppStore = defineStore('app', () => {
     updateWorkflowDocument,
     updateWorkflowDocuments,
     appendWorkflowDocumentEntry,
-    approveActiveAgentProposal,
     workflowDocuments,
-    clearActiveAgentProposal,
     flushWorkspaceSync,
     persistWorkspace,
     updateChapter,
