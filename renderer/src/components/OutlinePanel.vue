@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { FilePlus2, GripVertical, MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
+import { ChevronDown, FilePlus2, GripVertical, MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
@@ -58,6 +58,17 @@ const menuOptions: DropdownOption[] = [ // 大纲节点的右键菜单选项
   { key: 'edit', label: '编辑节点' },
   { key: 'delete', label: '删除节点' }
 ]
+const volumeCollapsed = reactive<Record<string, boolean>>({})
+
+const progressStats = computed(() => {
+  const items = appStore.outlineItems
+  const total = items.length
+  const done = items.filter((i) => i.status === 'done').length
+  const drafting = items.filter((i) => i.status === 'drafting').length
+  const planned = items.filter((i) => i.status === 'planned').length
+  const idea = items.filter((i) => i.status === 'idea').length
+  return { total, done, drafting, planned, idea }
+})
 // 分卷选项列表，用于大纲节点编辑弹窗中的分卷下拉选择器
 const volumeOptions = computed<SelectOption[]>(() =>
   appStore.outlineVolumes.map((volume, index) => ({
@@ -454,7 +465,7 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
 
   dialog.warning({
     title: '确认删除节点',
-    content: `确定要删除“${item.title}”吗？删除后该大纲节点将无法恢复。`,
+    content: `确定要删除"${item.title}"吗？删除后该大纲节点将无法恢复。`,
     positiveText: '确认删除',
     negativeText: '取消',
     autoFocus: false,
@@ -469,13 +480,29 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
 
 <template>
   <section class="outline-panel">
+    <!-- 进度概览条 -->
+    <div v-if="progressStats.total" class="progress-bar-section">
+      <div class="progress-track">
+        <span class="progress-fill done" :style="{ width: (progressStats.done / progressStats.total) * 100 + '%' }" />
+        <span class="progress-fill drafting" :style="{ width: (progressStats.drafting / progressStats.total) * 100 + '%' }" />
+        <span class="progress-fill planned" :style="{ width: (progressStats.planned / progressStats.total) * 100 + '%' }" />
+      </div>
+      <div class="progress-legend">
+        <span class="legend-item done">已完成 {{ progressStats.done }}</span>
+        <span class="legend-item drafting">写作中 {{ progressStats.drafting }}</span>
+        <span class="legend-item planned">已规划 {{ progressStats.planned }}</span>
+        <span class="legend-item idea">点子 {{ progressStats.idea }}</span>
+        <span class="legend-total">共 {{ progressStats.total }} 个节点</span>
+      </div>
+    </div>
+
+    <!-- 标题区 -->
     <div class="section-head">
       <div>
         <span class="section-kicker">Outline Architecture</span>
         <h2>剧情大纲</h2>
         <p>按卷组织剧情骨架、冲突节拍和章节节点，方便后续创作连续推进。</p>
       </div>
-
       <div class="section-actions">
         <button class="soft-button neutral" @click="openVolumeEditor()">
           <Rows3 :size="16" />
@@ -488,113 +515,92 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
       </div>
     </div>
 
-    <div class="outline-summary">
-      <span>{{ appStore.outlineVolumes.length }} 个分卷</span>
-      <span>{{ totalVisibleItems }} 个剧情节点</span>
-      <span>{{ props.searchQuery ? `搜索：${props.searchQuery}` : '支持按卷管理与章节规划' }}</span>
-    </div>
-
-    <div v-if="filteredOutlineGroups.length" class="outline-groups">
-      <section v-for="group in filteredOutlineGroups" :key="group.volume.id" class="volume-section">
-        <div class="volume-header">
-          <div class="volume-copy">
-            <span class="volume-kicker">{{ group.volume.wordTarget }}</span>
-            <h3>{{ formatVolumeLabel(group.volume, group.index, 'formal') }}</h3>
-            <p>{{ group.volume.summary }}</p>
-          </div>
-          <div class="volume-actions">
-            <n-button round secondary strong @click="openVolumeEditor(group.volume)">编辑分卷</n-button>
-            <n-button
-              round
-              strong
-              secondary
-              :disabled="isAnyVolumeExpanding"
-              @click="handleExpandVolumeOutline(group.volume)"
-            >
+    <!-- 时间线主体 -->
+    <div v-if="filteredOutlineGroups.length" class="timeline">
+      <template v-for="group in filteredOutlineGroups" :key="group.volume.id">
+        <!-- 分卷标记 -->
+        <div class="timeline-volume-marker">
+          <button class="volume-marker-btn" @click="volumeCollapsed[group.volume.id] = !volumeCollapsed[group.volume.id]">
+            <span class="volume-diamond" />
+            <span class="volume-label">{{ formatVolumeLabel(group.volume, group.index, 'formal') }}</span>
+            <span v-if="group.volume.summary" class="volume-summary">{{ group.volume.summary }}</span>
+            <ChevronDown :size="14" class="volume-chevron" :class="{ collapsed: volumeCollapsed[group.volume.id] }" />
+          </button>
+          <div class="volume-marker-actions">
+            <n-button size="small" secondary @click="openVolumeEditor(group.volume)">编辑</n-button>
+            <n-button size="small" secondary :disabled="isAnyVolumeExpanding" @click="handleExpandVolumeOutline(group.volume)">
               {{ isExpandingVolume(group.volume.id) ? '补全中...' : 'AI补本卷' }}
             </n-button>
-            <n-button round type="primary" strong @click="handleCreateOutline(group.volume.id)">新增节点</n-button>
+            <n-button size="small" type="primary" @click="handleCreateOutline(group.volume.id)">
+              <template #icon><Plus :size="12" /></template>
+              新增节点
+            </n-button>
           </div>
         </div>
 
-        <div class="outline-list">
-          <article
-            v-for="item in group.items"
+        <!-- 节点列表 -->
+        <template v-if="!volumeCollapsed[group.volume.id]">
+          <div
+            v-for="(item, idx) in group.items"
             :key="item.id"
-            class="outline-item"
+            class="timeline-node"
             :class="{
+              left: idx % 2 === 0,
+              right: idx % 2 === 1,
               dragging: draggingOutlineId === item.id,
               'drop-target': dragTargetOutlineId === item.id && draggingOutlineId !== item.id
             }"
             draggable="true"
-            @click="openEditor(item)"
             @dragstart="handleDragStart(item.id, $event)"
             @dragover="handleDragOver(item.id, $event)"
             @drop="handleDrop(item.id, $event)"
             @dragend="resetDragState"
           >
-            <div class="outline-header">
-              <div class="outline-title-row">
-                <span class="outline-grip" aria-hidden="true">
-                  <GripVertical :size="14" />
-                </span>
-                <div class="outline-title-copy">
-                  <span class="outline-title">{{ item.title }}</span>
-                  <div class="outline-meta-row">
-                    <span class="outline-status-pill" :class="resolveOutlineStatusMeta(item.status).tone">
-                      {{ resolveOutlineStatusMeta(item.status).label }}
-                    </span>
-                    <span class="outline-status-pill chapter" :class="resolveLinkedChapterMeta(item).tone">
-                      {{ resolveLinkedChapterMeta(item).label }}
-                    </span>
-                  </div>
-                  <div v-if="resolveLinkedChapter(item)" class="outline-progress-row">
-                    <span class="outline-progress-copy">
-                      实际 {{ resolveLinkedChapterProgress(item).actual }} 字
-                      <template v-if="resolveLinkedChapterProgress(item).target">
-                        / 目标 {{ resolveLinkedChapterProgress(item).target }} 字
-                      </template>
-                    </span>
-                    <span class="outline-progress-copy emphasis">
-                      {{ resolveLinkedChapterProgress(item).target ? `${resolveLinkedChapterProgress(item).percent}%` : '自由字数' }}
-                    </span>
-                    <span v-if="resolveLinkedChapterProgress(item).target" class="outline-progress-track">
-                      <span :style="{ width: `${resolveLinkedChapterProgress(item).percent}%` }"></span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div class="outline-actions">
-                <n-button tertiary size="small" @click.stop="openLinkedChapter(item)">
-                  <template #icon>
-                    <FilePlus2 :size="14" />
-                  </template>
-                  {{ resolveLinkedChapter(item) ? '打开章节' : '创建章节' }}
-                </n-button>
-                <span class="outline-word">{{ item.wordTarget }}</span>
+            <span class="timeline-dot" :class="resolveOutlineStatusMeta(item.status).tone" />
+            <article class="timeline-card" @click="openEditor(item)">
+              <div class="card-header">
+                <GripVertical :size="13" class="card-grip" />
+                <span class="card-title">{{ item.title }}</span>
                 <n-dropdown :options="menuOptions" placement="bottom-end" @select="(key) => handleMenuSelect(key, item)">
                   <button class="more-button" @click.stop>
-                    <MoreVertical :size="14" />
+                    <MoreVertical :size="13" />
                   </button>
                 </n-dropdown>
               </div>
-            </div>
-            <div class="outline-desc">
-              <b>核心冲突：</b>{{ item.conflict }}<br />
-              <b>剧情：</b>{{ item.summary }}
-            </div>
-          </article>
+              <div class="card-meta">
+                <span class="status-pill" :class="resolveOutlineStatusMeta(item.status).tone">
+                  {{ resolveOutlineStatusMeta(item.status).label }}
+                </span>
+                <span class="status-pill chapter" :class="resolveLinkedChapterMeta(item).tone">
+                  {{ resolveLinkedChapterMeta(item).label }}
+                </span>
+                <span v-if="item.wordTarget" class="card-word">{{ item.wordTarget }}</span>
+              </div>
+              <p v-if="item.conflict" class="card-conflict">{{ item.conflict }}</p>
+              <div class="card-actions">
+                <n-button quaternary size="tiny" @click.stop="openLinkedChapter(item)">
+                  <template #icon><FilePlus2 :size="12" /></template>
+                  {{ resolveLinkedChapter(item) ? '打开章节' : '创建章节' }}
+                </n-button>
+              </div>
+            </article>
+          </div>
 
-          <button v-if="!props.searchQuery" class="outline-add" @click="handleCreateOutline(group.volume.id)">
-            <Plus :size="16" />
-            <span>在本卷中新增章节节点</span>
-          </button>
-        </div>
-      </section>
+          <!-- 本卷新增按钮 -->
+          <div v-if="!props.searchQuery" class="timeline-node add-node">
+            <span class="timeline-dot ghost" />
+            <button class="timeline-add-btn" @click="handleCreateOutline(group.volume.id)">
+              <Plus :size="14" />
+              <span>在本卷新增节点</span>
+            </button>
+          </div>
+        </template>
+      </template>
     </div>
 
-    <div v-else class="arc-empty-state">没有匹配“{{ props.searchQuery }}”的大纲节点。</div>
+    <div v-else class="arc-empty-state">没有匹配"{{ props.searchQuery }}"的大纲节点。</div>
 
+    <!-- 编辑弹窗保持不变 -->
     <n-modal
       :show="editorVisible"
       preset="card"
@@ -628,7 +634,6 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
           />
         </n-form-item>
       </n-form>
-
       <template #footer>
         <div class="arc-modal-actions">
           <n-button round strong @click="editorVisible = false">取消</n-button>
@@ -663,7 +668,6 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
           />
         </n-form-item>
       </n-form>
-
       <template #footer>
         <div class="arc-modal-actions">
           <n-button round strong @click="volumeEditorVisible = false">取消</n-button>
@@ -678,379 +682,515 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
 
 <style scoped>
 .outline-panel {
-  max-width: 1040px;
+  max-width: 1080px;
   margin: 0 auto;
+  padding: 0 24px;
 }
 
+/* ── 进度概览条 ── */
+.progress-bar-section {
+  margin-bottom: 32px;
+  padding: 16px 20px;
+  background: var(--arc-bg-surface);
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-lg);
+}
+
+.progress-track {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--arc-bg-surface-hover);
+  overflow: hidden;
+  gap: 1px;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.progress-fill.done { background: #10b981; }
+.progress-fill.drafting { background: #f59e0b; }
+.progress-fill.planned { background: #3b82f6; }
+
+.progress-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--arc-text-secondary);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-item::before {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legend-item.done::before { background: #10b981; }
+.legend-item.drafting::before { background: #f59e0b; }
+.legend-item.planned::before { background: #3b82f6; }
+.legend-item.idea::before { background: var(--arc-text-hint); }
+
+.legend-total {
+  margin-left: auto;
+  color: var(--arc-text-hint);
+  font-weight: 600;
+}
+
+/* ── 标题区 ── */
 .section-head {
   display: flex;
-  align-items: end;
+  align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: 18px;
-  gap: 16px;
+  margin-bottom: 36px;
+  gap: 20px;
   flex-wrap: wrap;
 }
 
 .section-kicker {
   color: var(--arc-primary);
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.2em;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
 }
 
 .section-head h2 {
-  margin: 8px 0;
-  font-size: clamp(30px, 3.4vw, 38px);
-  font-weight: 650;
-  letter-spacing: -0.04em;
+  margin: 6px 0;
+  font-size: clamp(24px, 2.8vw, 32px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--arc-text-primary);
 }
 
 .section-head p {
-  max-width: 660px;
+  max-width: 560px;
   margin: 0;
   color: var(--arc-text-secondary);
-  font-size: 15px;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .section-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .soft-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   border: none;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
+  border-radius: var(--arc-radius-md);
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
   color: var(--arc-primary);
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 650;
-  padding: 12px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 14px;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.soft-button:hover {
+  background: color-mix(in srgb, var(--arc-primary) 16%, var(--arc-bg-surface));
+}
+
+.soft-button:active {
+  transform: scale(0.97);
 }
 
 .soft-button.neutral {
-  background: var(--arc-bg-mix);
+  background: var(--arc-bg-surface);
+  border: 1px solid var(--arc-border);
   color: var(--arc-text-primary);
+}
+
+.soft-button.neutral:hover {
+  background: var(--arc-bg-surface-hover);
 }
 
 .soft-button:disabled {
-  opacity: 0.55;
+  opacity: 0.45;
   cursor: not-allowed;
+  transform: none;
 }
 
-.outline-summary {
+/* ── 时间线 ── */
+.timeline {
+  position: relative;
+  padding: 24px 0;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--arc-border) 0%, color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border)) 50%, var(--arc-border) 100%);
+  transform: translateX(-50%);
+  border-radius: 2px;
+}
+
+/* ── 分卷标记 ── */
+.timeline-volume-marker {
+  position: relative;
+  z-index: 2;
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 28px;
-}
-
-.outline-summary span {
-  display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  border-radius: 999px;
-  background: var(--arc-bg-weak);
-  color: var(--arc-text-secondary);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 9px 14px;
-}
-
-.outline-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.volume-section {
-  border: 1px solid var(--arc-border);
-  border-radius: 10px;
-  background: var(--arc-bg-surface);
-  padding: 22px;
-}
-
-.volume-header {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 18px;
-  padding-bottom: 18px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--arc-border);
-}
-
-.volume-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.volume-kicker {
-  color: var(--arc-primary);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-}
-
-.volume-copy h3 {
-  margin: 0;
-  color: var(--arc-text-primary);
-  font-size: clamp(22px, 2.6vw, 28px);
-  font-weight: 650;
-  letter-spacing: -0.03em;
-}
-
-.volume-copy p {
-  max-width: 720px;
-  margin: 0;
-  color: var(--arc-text-secondary);
-  font-size: 14px;
-  line-height: 1.75;
-}
-
-.volume-actions {
-  display: flex;
+  margin: 40px 0 28px;
   gap: 10px;
-  flex-wrap: wrap;
 }
 
-.outline-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.timeline-volume-marker:first-child {
+  margin-top: 0;
 }
 
-.outline-item {
+.volume-marker-btn {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 22px;
   border: 1px solid var(--arc-border);
-  border-radius: 8px;
+  border-radius: var(--arc-radius-lg);
   background: var(--arc-bg-surface);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.03);
-  padding: 16px 20px;
   cursor: pointer;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+  box-shadow: var(--arc-shadow-sm);
+  transition: box-shadow 0.2s, border-color 0.2s;
 }
 
-.outline-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.05);
+.volume-marker-btn:hover {
+  box-shadow: var(--arc-shadow-md);
+  border-color: var(--arc-primary);
 }
 
-.outline-item.dragging {
-  opacity: 0.56;
-}
-
-.outline-item.drop-target {
-  border-color: color-mix(in srgb, var(--arc-primary) 26%, var(--arc-bg-mix));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 12%, transparent);
-}
-
-.outline-item:hover .outline-title {
-  color: var(--arc-primary);
-}
-
-.outline-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.outline-title {
-  flex: 1;
-}
-
-.outline-title-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.outline-title-row {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-}
-
-.outline-meta-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.outline-progress-row {
-  display: grid;
-  grid-template-columns: auto auto minmax(120px, 1fr);
-  align-items: center;
-  gap: 10px;
-}
-
-.outline-progress-copy {
-  color: var(--arc-text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.outline-progress-copy.emphasis {
-  color: var(--arc-text-primary);
-  font-weight: 800;
-}
-
-.outline-progress-track {
-  display: inline-flex;
-  height: 7px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--arc-border);
-}
-
-.outline-progress-track span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
-}
-
-.outline-status-pill {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
-  padding: 5px 9px;
-}
-
-.outline-status-pill.ghost {
-  background: var(--arc-bg-mix);
-  color: var(--arc-text-hint);
-}
-
-.outline-status-pill.neutral {
-  background: color-mix(in srgb, #1d4ed8 14%, var(--arc-bg-surface));
-  color: color-mix(in srgb, #1d4ed8 70%, var(--arc-text-primary));
-}
-
-.outline-status-pill.primary {
-  background: color-mix(in srgb, #2563eb 14%, var(--arc-bg-surface));
-  color: color-mix(in srgb, #2563eb 70%, var(--arc-text-primary));
-}
-
-.outline-status-pill.warning {
-  background: color-mix(in srgb, var(--arc-warning) 14%, var(--arc-bg-surface));
-  color: var(--arc-warning);
-}
-
-.outline-status-pill.success {
-  background: color-mix(in srgb, var(--arc-success) 14%, var(--arc-bg-surface));
-  color: var(--arc-success);
-}
-
-.outline-status-pill.chapter {
-  border: 1px solid var(--arc-border);
-}
-
-.outline-grip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--arc-text-hint);
+.volume-diamond {
+  width: 10px;
+  height: 10px;
+  background: var(--arc-primary);
+  transform: rotate(45deg);
+  border-radius: 2px;
   flex-shrink: 0;
 }
 
-.outline-item:hover .outline-grip {
-  color: var(--arc-text-secondary);
+.volume-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--arc-text-primary);
 }
 
-.outline-actions {
+.volume-summary {
+  font-size: 12px;
+  color: var(--arc-text-hint);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.volume-chevron {
+  color: var(--arc-text-hint);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.volume-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.volume-marker-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ── 时间线节点 ── */
+.timeline-node {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  width: 50%;
+}
+
+.timeline-node.left {
+  align-self: flex-start;
+  padding-right: 40px;
+  justify-content: flex-end;
+}
+
+.timeline-node.right {
+  align-self: flex-end;
+  margin-left: 50%;
+  padding-left: 40px;
+  justify-content: flex-start;
+}
+
+.timeline-node.add-node {
+  justify-content: flex-end;
+  padding-right: 40px;
+}
+
+/* ── 轴线圆点 ── */
+.timeline-dot {
+  position: absolute;
+  top: 20px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 3px solid var(--arc-bg-surface);
+  box-shadow: 0 0 0 2px var(--arc-border);
+  z-index: 3;
+  flex-shrink: 0;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.timeline-node:hover .timeline-dot {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 30%, transparent);
+}
+
+.timeline-node.left .timeline-dot {
+  right: -7px;
+}
+
+.timeline-node.right .timeline-dot {
+  left: -7px;
+}
+
+.timeline-node.add-node .timeline-dot {
+  right: -7px;
+}
+
+.timeline-dot.ghost { background: var(--arc-text-hint); }
+.timeline-dot.neutral { background: #3b82f6; box-shadow: 0 0 0 2px color-mix(in srgb, #3b82f6 20%, var(--arc-border)); }
+.timeline-dot.primary { background: #f59e0b; box-shadow: 0 0 0 2px color-mix(in srgb, #f59e0b 20%, var(--arc-border)); }
+.timeline-dot.success { background: #10b981; box-shadow: 0 0 0 2px color-mix(in srgb, #10b981 20%, var(--arc-border)); }
+
+/* ── 节点卡片 ── */
+.timeline-card {
+  flex: 1;
+  max-width: 440px;
+  padding: 16px 18px;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-lg);
+  background: var(--arc-bg-surface);
+  cursor: pointer;
+  box-shadow: var(--arc-shadow-sm);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s, border-color 0.2s;
+}
+
+.timeline-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--arc-shadow-lg);
+  border-color: color-mix(in srgb, var(--arc-primary) 30%, var(--arc-border));
+}
+
+.timeline-node.dragging .timeline-card {
+  opacity: 0.45;
+  transform: scale(0.96);
+}
+
+.timeline-node.drop-target .timeline-card {
+  border-color: var(--arc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 15%, transparent);
+}
+
+.card-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
-.outline-word {
-  color: var(--arc-text-secondary);
+.card-grip {
+  color: var(--arc-text-hint);
+  flex-shrink: 0;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.timeline-card:hover .card-grip {
+  opacity: 1;
+}
+
+.card-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--arc-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.timeline-card:hover .card-title {
+  color: var(--arc-primary);
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  letter-spacing: 0.02em;
+}
+
+.status-pill.ghost { background: var(--arc-bg-surface-hover); color: var(--arc-text-hint); }
+.status-pill.neutral { background: color-mix(in srgb, #3b82f6 12%, var(--arc-bg-surface)); color: #2563eb; }
+.status-pill.primary { background: color-mix(in srgb, #f59e0b 12%, var(--arc-bg-surface)); color: #d97706; }
+.status-pill.success { background: color-mix(in srgb, #10b981 12%, var(--arc-bg-surface)); color: #059669; }
+.status-pill.chapter { border: 1px solid var(--arc-border); }
+
+.card-word {
+  font-size: 11px;
+  color: var(--arc-text-hint);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-conflict {
+  margin: 0 0 8px;
   font-size: 12px;
-  font-weight: 400;
+  color: var(--arc-text-secondary);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card-actions {
+  display: flex;
+  padding-top: 4px;
+  border-top: 1px solid var(--arc-border);
+  margin-top: 4px;
 }
 
 .more-button {
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--arc-radius-sm);
   background: transparent;
   color: var(--arc-text-hint);
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 
 .more-button:hover {
-  background: var(--arc-bg-mix);
-  color: var(--arc-text-secondary);
-}
-
-.outline-desc {
-  border-radius: var(--arc-radius-sm);
   background: var(--arc-bg-surface-hover);
-  color: var(--arc-text-secondary);
-  font-size: 13px;
-  line-height: 1.7;
-  padding: 12px;
+  color: var(--arc-text-primary);
 }
 
-.outline-add {
+/* ── 新增按钮 ── */
+.timeline-add-btn {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
+  gap: 6px;
+  padding: 10px 16px;
   border: 1px dashed var(--arc-border);
   border-radius: var(--arc-radius-md);
   background: transparent;
-  color: var(--arc-text-secondary);
+  color: var(--arc-text-hint);
+  font-size: 12px;
   cursor: pointer;
-  font-size: 14px;
-  padding: 18px 20px;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
-@media (max-width: 860px) {
-  .volume-header {
-    flex-direction: column;
+.timeline-add-btn:hover {
+  border-color: var(--arc-primary);
+  color: var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 4%, transparent);
+}
+
+/* ── 响应式：窄屏退化为单侧 ── */
+@media (max-width: 900px) {
+  .outline-panel {
+    padding: 0 16px;
+  }
+
+  .timeline::before {
+    left: 24px;
+  }
+
+  .timeline-node,
+  .timeline-node.left,
+  .timeline-node.right,
+  .timeline-node.add-node {
+    width: 100%;
+    margin-left: 0;
+    padding-left: 56px;
+    padding-right: 0;
+    justify-content: flex-start;
+  }
+
+  .timeline-node .timeline-dot,
+  .timeline-node.left .timeline-dot,
+  .timeline-node.right .timeline-dot,
+  .timeline-node.add-node .timeline-dot {
+    left: 17px;
+    right: auto;
+  }
+
+  .timeline-card {
+    max-width: none;
+  }
+
+  .timeline-volume-marker {
+    align-items: flex-start;
+    padding-left: 48px;
+  }
+
+  .volume-summary {
+    display: none;
   }
 }
 
-@media (max-width: 760px) {
-  .section-actions,
-  .volume-actions {
-    width: 100%;
-  }
-
-  .soft-button,
-  .volume-actions :deep(.n-button) {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .outline-header {
+@media (max-width: 600px) {
+  .section-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .volume-marker-actions {
+    flex-wrap: wrap;
+  }
+
+  .progress-bar-section {
+    padding: 12px 14px;
   }
 }
 </style>
