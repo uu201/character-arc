@@ -4,6 +4,10 @@ import type { ZodTypeAny } from 'zod'
 import { buildSystemPrompt, createModel, providerSupportsNativeStructuredOutput } from './provider'
 import type { AiRunUsage, AppSettings, AiStreamHandlers, PromptPair } from './shared-types'
 
+function useStreamFallback(settings: AppSettings): boolean {
+  return settings.provider === 'anthropic'
+}
+
 export type AiGenerateOptions = {
   schema?: ZodTypeAny
 }
@@ -65,6 +69,24 @@ export async function aiGenerateTextWithUsage(
   const canUseNativeStructuredOutput = providerSupportsNativeStructuredOutput(settings)
 
   if (options?.schema && canUseNativeStructuredOutput) {
+    if (useStreamFallback(settings)) {
+      const result = streamObject({
+        model: createModel(settings),
+        system,
+        prompt: prompt.user,
+        schema: options.schema,
+        maxOutputTokens: maxTokens,
+        abortSignal: signal
+      })
+      let full = ''
+      for await (const chunk of result.textStream) {
+        full += chunk
+      }
+      return {
+        text: full || JSON.stringify(await result.object),
+        usage: toAiRunUsage(await result.usage)
+      }
+    }
     const result = await generateObject({
       model: createModel(settings),
       system,
@@ -76,6 +98,24 @@ export async function aiGenerateTextWithUsage(
     return {
       text: JSON.stringify(result.object),
       usage: toAiRunUsage(result.usage)
+    }
+  }
+
+  if (useStreamFallback(settings)) {
+    const result = streamText({
+      model: createModel(settings),
+      system,
+      prompt: prompt.user,
+      maxOutputTokens: maxTokens,
+      abortSignal: signal
+    })
+    let full = ''
+    for await (const chunk of result.textStream) {
+      full += chunk
+    }
+    return {
+      text: full,
+      usage: toAiRunUsage(await result.totalUsage)
     }
   }
 

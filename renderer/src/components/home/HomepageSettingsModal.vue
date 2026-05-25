@@ -254,15 +254,33 @@ async function saveSettings(): Promise<void> {
             <Cpu :size="18" />
             <div>
               <strong>AI 接口配置</strong>
-              <p>选择供应商并维护模型连接参数。</p>
+              <p>选择协议类型，填写接口地址和密钥，然后拉取或手动输入模型名称。</p>
             </div>
           </div>
           <div class="settings-grid">
-            <n-form-item label="模型供应商">
+            <n-form-item label="协议类型">
               <n-select
                 :options="providerOptions"
                 :value="draftSettings.provider"
-                @update:value="(value) => handleProviderChange(value ?? 'deepseek')"
+                @update:value="(value) => handleProviderChange(value ?? 'openai-compatible')"
+              />
+            </n-form-item>
+            <n-form-item label="Base URL">
+              <n-input
+                :value="draftSettings.baseUrl"
+                :placeholder="draftSettings.provider === 'anthropic' ? '例如：https://api.anthropic.com（自动补 /v1）' : '例如：https://api.deepseek.com/v1'"
+                @update:value="(value) => { draftSettings.baseUrl = value }"
+              />
+            </n-form-item>
+          </div>
+          <div class="settings-grid">
+            <n-form-item label="API Key">
+              <n-input
+                type="password"
+                show-password-on="click"
+                :value="draftSettings.apiKey"
+                placeholder="填写接口对应的 API Key / Token"
+                @update:value="(value) => { draftSettings.apiKey = value }"
               />
             </n-form-item>
             <n-form-item label="模型名称">
@@ -279,13 +297,13 @@ async function saveSettings(): Promise<void> {
                 <n-input
                   v-else
                   :value="draftSettings.model"
-                  :placeholder="`例如：${activeProviderPreset.model}`"
+                  placeholder="填写 URL 和 Key 后可点右侧按钮拉取"
                   @update:value="(value) => { draftSettings.model = value }"
                 />
                 <n-button
                   quaternary
                   class="model-fetch-btn"
-                  :disabled="isFetchingModels"
+                  :disabled="isFetchingModels || !draftSettings.baseUrl.trim()"
                   @click="handleFetchModels"
                 >
                   <template #icon>
@@ -297,27 +315,7 @@ async function saveSettings(): Promise<void> {
             </n-form-item>
           </div>
           <div class="provider-hint-block">
-            <strong>{{ activeProviderPreset.label }}</strong>
             <p>{{ activeProviderPreset.hint }}</p>
-            <code>{{ activeProviderPreset.baseUrl }}</code>
-          </div>
-          <div class="settings-grid">
-            <n-form-item label="API Key">
-              <n-input
-                type="password"
-                show-password-on="click"
-                :value="draftSettings.apiKey"
-                :placeholder="draftSettings.provider === 'ollama' ? '本地 Ollama 通常不需要 API Key' : '填写对应平台或网关的 Token'"
-                @update:value="(value) => { draftSettings.apiKey = value }"
-              />
-            </n-form-item>
-            <n-form-item label="Base URL">
-              <n-input
-                :value="draftSettings.baseUrl"
-                placeholder="支持官方接口地址，也支持 OpenAI 兼容网关地址"
-                @update:value="(value) => { draftSettings.baseUrl = value }"
-              />
-            </n-form-item>
           </div>
           <div class="section-actions">
             <n-button round strong secondary :disabled="isTestingAiConnection" @click="handleTestAiConnection">

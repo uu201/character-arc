@@ -16,8 +16,14 @@ function isDeepSeekProvider(settings: AppSettings): boolean {
   return settings.provider === 'deepseek'
 }
 
+function isClaudeModel(settings: AppSettings): boolean {
+  const model = settings.model?.trim().toLowerCase() || ''
+  return model.startsWith('claude')
+}
+
 export function providerSupportsNativeStructuredOutput(settings: AppSettings): boolean {
-  return settings.provider === 'anthropic' || isOfficialOpenAIProvider(settings)
+  if (settings.provider === 'anthropic') return isClaudeModel(settings)
+  return isOfficialOpenAIProvider(settings)
 }
 
 function isOllamaProvider(settings: AppSettings): boolean {
@@ -68,7 +74,7 @@ export function buildSystemPrompt(settings: AppSettings, systemPrompt: string) {
 }
 
 export function providerSupportsTools(settings: AppSettings): boolean {
-  if (settings.provider === 'anthropic') return true
+  if (settings.provider === 'anthropic') return isClaudeModel(settings)
   if (isDeepSeekProvider(settings)) return false
   if (isOllamaProvider(settings)) return false
   return true

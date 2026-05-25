@@ -83,4 +83,4 @@ export const AI_TASK_RETENTION_MS = 4_500
  * 超时后前端会标记任务失败并通知主进程 abort。
  * 90 秒对大多数任务足够；章节初稿等长任务应在 input 里覆盖为更大值。
  */
-export const AI_TASK_DEFAULT_TIMEOUT_MS = 90_000
+export const AI_TASK_DEFAULT_TIMEOUT_MS = 300_000

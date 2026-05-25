@@ -126,7 +126,8 @@ async function handleExpandOutline(): Promise<void> {
         kind: 'outline',
         label: 'AI 扩写大纲',
         description: '正在补充一条剧情大纲节点',
-        panel: 'outline'
+        panel: 'outline',
+        timeoutMs: 300_000
       },
       () =>
         window.characterArc.generateAi(toIpcPayload({
@@ -182,7 +183,8 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
         kind: 'outline',
         label: `AI 补全分卷·${volume.title}`,
         description: `正在为《${volume.title}》补充 3-5 个剧情节点`,
-        panel: 'outline'
+        panel: 'outline',
+        timeoutMs: 300_000
       },
       () =>
         (async () => {

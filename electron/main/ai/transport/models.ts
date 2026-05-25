@@ -80,7 +80,7 @@ async function fetchModelsOpenAiCompatible(baseUrl: string, apiKey: string): Pro
 /** 通过 Anthropic 原生接口获取模型列表 */
 async function fetchModelsAnthropic(baseUrl: string, apiKey: string): Promise<FetchedModel[]> {
   const trimmed = baseUrl.trim().replace(/\/+$/, '')
-  const url = `${trimmed}/v1/models`
+  const url = `${trimmed}/models`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), FETCH_MODELS_TIMEOUT_MS)
   try {
@@ -89,6 +89,7 @@ async function fetchModelsAnthropic(baseUrl: string, apiKey: string): Promise<Fe
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       signal: controller.signal
     })
+    if (response.status === 404) throw new Error('该接口不支持拉取模型列表，请手动输入模型名称（如 claude-sonnet-4-6）。')
     if (!response.ok) throw new Error(`Anthropic 模型列表请求失败：HTTP ${response.status} ${response.statusText}`)
     const data = (await response.json()) as { data?: Array<{ id: string; owned_by?: string | null }> }
     const models = (data.data ?? []).map((m) => ({ id: m.id, ownedBy: m.owned_by ?? null }))
@@ -111,11 +112,9 @@ async function fetchModelsAnthropic(baseUrl: string, apiKey: string): Promise<Fe
 export async function fetchModels(settings: AppSettings): Promise<FetchedModel[]> {
   const normalized = normalizeSettings(settings)
   if (!normalized.baseUrl.trim()) throw new Error('请先填写 Base URL。')
-  if (normalized.provider === 'anthropic') {
-    if (!normalized.apiKey.trim()) throw new Error('Anthropic 供应商需要 API Key 才能获取模型列表。')
-    return fetchModelsAnthropic(normalized.baseUrl, normalized.apiKey)
-  }
-  return fetchModelsOpenAiCompatible(normalized.baseUrl, normalized.apiKey)
+  if (!normalized.apiKey.trim()) throw new Error('需要 API Key 才能获取模型列表。')
+  const rawBaseUrl = (settings.baseUrl?.trim() || '').replace(/\/+$/, '')
+  return fetchModelsOpenAiCompatible(rawBaseUrl || normalized.baseUrl, normalized.apiKey)
 }
 
 /**

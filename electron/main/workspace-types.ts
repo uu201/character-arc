@@ -415,10 +415,10 @@ export function normalizeAppSettings(
       : 1
 
   return {
-    provider: settings?.provider || 'deepseek',
-    model: settings?.model || 'deepseek-chat',
+    provider: settings?.provider || 'openai-compatible',
+    model: settings?.model || '',
     apiKey: settings?.apiKey || '',
-    baseUrl: settings?.baseUrl || 'https://api.deepseek.com/v1',
+    baseUrl: settings?.baseUrl || '',
     imageProvider: settings?.imageProvider || '',
     imageModel: settings?.imageModel || '',
     imageApiKey: settings?.imageApiKey || '',

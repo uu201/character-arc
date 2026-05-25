@@ -9,27 +9,20 @@ import type { AiTaskName, AiTaskPayload, AppSettings, ProviderName } from './sha
  */
 export function resolveProviderDefaults(provider: ProviderName): { baseUrl: string; model: string } {
   switch (provider) {
-    case 'openai':
-      return { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' }
-    case 'deepseek':
-      return { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' }
-    case 'qwen':
-      return { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' }
-    case 'zhipu':
-      return { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.7' }
-    case 'moonshot':
-      return { baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k2.5' }
-    case 'siliconflow':
-      return { baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-72B-Instruct' }
     case 'anthropic':
-      return { baseUrl: 'https://api.anthropic.com', model: 'claude-3-5-sonnet-latest' }
+      return { baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-6' }
+    case 'openai-compatible':
+    case 'openai':
+    case 'deepseek':
+    case 'qwen':
+    case 'zhipu':
+    case 'moonshot':
+    case 'siliconflow':
     case 'ollama':
-      return { baseUrl: 'http://127.0.0.1:11434/v1', model: 'llama3.2' }
     case 'new-api':
     case 'one-api':
-      return { baseUrl: 'http://127.0.0.1:3000/v1', model: 'qwen-plus' }
     default:
-      return { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' }
+      return { baseUrl: '', model: '' }
   }
 }
 
@@ -40,13 +33,20 @@ export function resolveProviderDefaults(provider: ProviderName): { baseUrl: stri
  * @returns 规范化后的 AppSettings
  */
 export function normalizeSettings(settings: AppSettings): AppSettings {
-  const provider = settings.provider?.trim().toLowerCase() || 'deepseek'
+  const provider = settings.provider?.trim().toLowerCase() || 'openai-compatible'
   const defaults = resolveProviderDefaults(provider)
+  let baseUrl = settings.baseUrl?.trim() || defaults.baseUrl
+  if (baseUrl) {
+    baseUrl = baseUrl.replace(/\/+$/, '')
+    if (!baseUrl.endsWith('/v1')) {
+      baseUrl = `${baseUrl}/v1`
+    }
+  }
   return {
     provider,
     model: settings.model?.trim() || defaults.model,
     apiKey: settings.apiKey?.trim() || '',
-    baseUrl: settings.baseUrl?.trim() || defaults.baseUrl,
+    baseUrl,
     embeddingModel: settings.embeddingModel?.trim() || '',
     imageModel: settings.imageModel?.trim() || '',
     imageApiKey: settings.imageApiKey?.trim() || '',
