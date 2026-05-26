@@ -87,11 +87,9 @@ export function createWindowManager() {
       minHeight,
       icon: windowIcon,
       titleBarStyle: 'hidden',
-      titleBarOverlay: {
-        color: '#f8f7f4',
-        symbolColor: '#1c1917',
-        height: 40
-      },
+      ...(process.platform === 'darwin'
+        ? { trafficLightPosition: { x: 14, y: 13 } }
+        : { titleBarOverlay: { color: '#f8f7f4', symbolColor: '#1c1917', height: 40 } }),
       autoHideMenuBar: true,
       title: `弧光 v${app.getVersion()}`,
       backgroundColor: '#f8f7f4',
@@ -131,6 +129,8 @@ export function createWindowManager() {
   }
 
   function updateTitleBarOverlayColors(): void {
+    if (process.platform !== 'win32') return
+
     const dark = nativeTheme.shouldUseDarkColors
     const color = dark ? '#2e3440' : '#f8f7f4'
     const symbolColor = dark ? '#eceff4' : '#1c1917'

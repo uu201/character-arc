@@ -131,7 +131,7 @@ onBeforeUnmount(() => {
     <n-message-provider>
       <n-dialog-provider>
         <n-global-style />
-        <div class="app-shell" :style="appStyleVars" :class="{ 'dark-mode': appStore.appSettings.darkMode }">
+        <div class="app-shell" :style="appStyleVars" :class="{ 'dark-mode': appStore.appSettings.darkMode, 'platform-darwin': platform === 'darwin' }">
           <div class="app-titlebar">
             <span class="app-titlebar__brand">
               {{ appName }}
