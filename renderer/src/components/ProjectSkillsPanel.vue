@@ -52,10 +52,14 @@ const groupedSkills = computed(() => {
     groupMap.get(groupName)!.push(skill)
   }
 
+  const groupLabels: Record<string, string> = {
+    '_root': '内置 Skills'
+  }
+
   for (const [name, skills] of groupMap) {
     groups.push({
       name,
-      label: name === '_root' ? '内置 Skills' : name,
+      label: groupLabels[name] ?? name,
       skills
     })
   }
