@@ -106,7 +106,7 @@ function handleCreateOutline(volumeId = appStore.outlineVolumes[0]?.id): void {
   editingOutlineId.value = null
   form.volumeId = volumeId || appStore.outlineVolumes[0]?.id || ''
   form.title = ''
-  form.wordTarget = '预估 3000字'
+  form.wordTarget = '3000'
   form.conflict = ''
   form.summary = ''
   form.status = 'planned'
@@ -159,7 +159,7 @@ async function handleExpandOutline(): Promise<void> {
     appStore.createOutlineItem({
       volumeId: fallbackVolumeId,
       title: item.title ?? `第${appStore.outlineItems.length + 1}章：新剧情节点`,
-      wordTarget: item.wordTarget ?? '预估 3000字',
+      wordTarget: String(Math.min(Number((item.wordTarget ?? '3000').replace(/\D/g, '')) || 3000, 3500)),
       conflict: item.conflict ?? '新的冲突正在酝酿。',
       summary: item.summary ?? 'AI 未返回有效剧情摘要',
       status: 'planned'
@@ -244,7 +244,7 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
       appStore.createOutlineItem({
         volumeId: volume.id,
         title: entry.title,
-        wordTarget: entry.wordTarget,
+        wordTarget: entry.wordTarget ? String(Math.min(Number(entry.wordTarget.replace(/\D/g, '')) || 3000, 3500)) : undefined,
         conflict: entry.conflict,
         summary: entry.summary,
         status: 'planned'
@@ -278,7 +278,7 @@ function openEditor(item?: OutlineItem): void {
   editingOutlineId.value = item?.id ?? null
   form.volumeId = item?.volumeId ?? appStore.outlineVolumes[0]?.id ?? ''
   form.title = item?.title ?? ''
-  form.wordTarget = item?.wordTarget ?? '预估 3000字'
+  form.wordTarget = item?.wordTarget ?? '3000'
   form.conflict = item?.conflict ?? ''
   form.summary = item?.summary ?? ''
   form.status = item?.status ?? 'planned'
@@ -306,11 +306,13 @@ function submitOutline(): void {
     return
   }
 
+  const payload = { ...form, wordTarget: form.wordTarget.replace(/\D/g, '') }
+
   if (editingOutlineId.value) {
-    appStore.updateOutlineItem(editingOutlineId.value, form)
+    appStore.updateOutlineItem(editingOutlineId.value, payload)
     message.success('大纲节点已更新')
   } else {
-    appStore.createOutlineItem(form)
+    appStore.createOutlineItem(payload)
     message.success('已新增大纲节点')
   }
 
@@ -576,7 +578,7 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
                 <span class="status-pill chapter" :class="resolveLinkedChapterMeta(item).tone">
                   {{ resolveLinkedChapterMeta(item).label }}
                 </span>
-                <span v-if="item.wordTarget" class="card-word">{{ item.wordTarget }}</span>
+                <span v-if="item.wordTarget" class="card-word">{{ item.wordTarget }}字</span>
               </div>
               <p v-if="item.conflict" class="card-conflict">{{ item.conflict }}</p>
               <div class="card-actions">
@@ -619,7 +621,9 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
           <n-input v-model:value="form.title" placeholder="例如：第4章：夜城回响" />
         </n-form-item>
         <n-form-item label="预估字数">
-          <n-input v-model:value="form.wordTarget" placeholder="例如：预估 3200字" />
+          <n-input v-model:value="form.wordTarget" placeholder="例如：3200">
+            <template #suffix>字</template>
+          </n-input>
         </n-form-item>
         <n-form-item label="推进状态">
           <n-select v-model:value="form.status" :options="outlineStatusOptions" placeholder="选择当前节点所处阶段" />

@@ -438,6 +438,10 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
   color: var(--arc-text-secondary);
   font-size: 14px;
   line-height: 1.8;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .card-meta {

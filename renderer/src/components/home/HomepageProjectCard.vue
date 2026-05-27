@@ -2,7 +2,7 @@
 import { Clock4, MoreHorizontal } from 'lucide-vue-next'
 import type { DropdownOption } from 'naive-ui'
 import { NDropdown } from 'naive-ui'
-import { resolveCoverStyle } from '@/features/cover/display'
+import { isImageCover, resolveCoverStyle } from '@/features/cover/display'
 import { resolveNovelLengthLabel } from '@/features/wizard/projectGenres'
 import type { ProjectSummary } from '@/types/app'
 
@@ -26,7 +26,10 @@ const emit = defineEmits<{
     @click="emit('open', project.id)"
   >
     <div class="card-main">
-      <div class="card-cover" :style="resolveCoverStyle(project.cover, 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)')"></div>
+      <div v-if="isImageCover(project.cover)" class="card-cover" :style="resolveCoverStyle(project.cover)"></div>
+      <div v-else class="card-cover card-cover--empty">
+        <span class="card-cover-placeholder">暂无封面</span>
+      </div>
       <div class="card-copy">
         <h3>{{ project.title }}</h3>
         <div class="card-tags">
@@ -91,8 +94,11 @@ const emit = defineEmits<{
 }
 
 .card-cover {
+  display: flex;
   width: 62px;
   height: 86px;
+  align-items: center;
+  justify-content: center;
   border-radius: 8px;
   flex-shrink: 0;
   box-shadow:
@@ -100,6 +106,18 @@ const emit = defineEmits<{
     0 2px 4px -1px rgba(0, 0, 0, 0.06),
     0 10px 20px -5px rgba(15, 23, 42, 0.15);
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-cover-placeholder {
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.card-cover--empty {
+  border: 1px dashed var(--arc-border);
+  background: var(--arc-bg-weak);
 }
 
 .homepage-project-card:hover .card-cover {
