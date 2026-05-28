@@ -54,6 +54,13 @@ export type ContextModule = 'chapter' | 'outline' | 'characters' | 'worldview' |
 
 const ALL_CONTEXT_MODULES: ContextModule[] = ['chapter', 'outline', 'characters', 'worldview', 'plotThreads', 'knowledge']
 
+export interface SessionSummary {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
 export function useChapterAi(): {
   messages: Ref<ChapterAiMessage[]>
   isResponding: Ref<boolean>
@@ -62,9 +69,16 @@ export function useChapterAi(): {
   selectedText: Ref<string>
   enabledContextModules: Set<ContextModule>
   toggleContextModule: (mod: ContextModule) => void
+  currentSessionId: Ref<string | null>
+  sessions: Ref<SessionSummary[]>
   send: (prompt: string) => Promise<void>
   stop: () => Promise<void>
   resetMessages: () => void
+  newSession: () => void
+  saveCurrentSession: () => Promise<void>
+  loadSession: (sessionId: string) => Promise<void>
+  deleteSession: (sessionId: string) => Promise<void>
+  refreshSessions: () => Promise<void>
   applyToChapter: (content: string, mode: ChapterInsertionMode) => boolean
   registerStreamListener: () => void
   unregisterStreamListener: () => void
@@ -81,6 +95,66 @@ export function useChapterAi(): {
     } else {
       enabledContextModules.add(mod)
     }
+  }
+
+  const currentSessionId = ref<string | null>(null)
+  const sessions = ref<SessionSummary[]>([])
+
+  function generateSessionId(): string {
+    return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  }
+
+  function deriveSessionTitle(): string {
+    const firstUserMsg = messages.value.find((m) => m.role === 'user')
+    if (!firstUserMsg) return '新对话'
+    const text = firstUserMsg.content.trim()
+    return text.length > 30 ? text.slice(0, 30) + '…' : text
+  }
+
+  async function refreshSessions(): Promise<void> {
+    const projectId = appStore.currentProject?.id
+    if (!projectId) return
+    const result = await window.characterArc.listSessions(projectId)
+    if (result.success && result.result) {
+      sessions.value = result.result
+    }
+  }
+
+  async function saveCurrentSession(): Promise<void> {
+    const projectId = appStore.currentProject?.id
+    if (!projectId || messages.value.length === 0) return
+    if (!currentSessionId.value) {
+      currentSessionId.value = generateSessionId()
+    }
+    await window.characterArc.saveSession({
+      id: currentSessionId.value,
+      projectId,
+      title: deriveSessionTitle(),
+      messages: messages.value
+    })
+    await refreshSessions()
+  }
+
+  async function loadSession(sessionId: string): Promise<void> {
+    const result = await window.characterArc.loadSession(sessionId)
+    if (result.success && result.result) {
+      currentSessionId.value = result.result.id
+      messages.value = result.result.messages as ChapterAiMessage[]
+    }
+  }
+
+  async function deleteSession(sessionId: string): Promise<void> {
+    await window.characterArc.deleteSession(sessionId)
+    if (currentSessionId.value === sessionId) {
+      currentSessionId.value = null
+      messages.value = []
+    }
+    await refreshSessions()
+  }
+
+  function newSession(): void {
+    currentSessionId.value = null
+    messages.value = []
   }
 
   const selectedText = computed(() => appStore.currentChapterSelection?.text.trim() ?? '')
@@ -334,6 +408,8 @@ export function useChapterAi(): {
         assistantMsg.content = `生成失败：${error instanceof Error ? error.message : '未知错误'}`
       }
     }
+
+    void saveCurrentSession()
   }
 
   async function stop(): Promise<void> {
@@ -357,9 +433,16 @@ export function useChapterAi(): {
     selectedText,
     enabledContextModules,
     toggleContextModule,
+    currentSessionId,
+    sessions,
     send,
     stop,
     resetMessages,
+    newSession,
+    saveCurrentSession,
+    loadSession,
+    deleteSession,
+    refreshSessions,
     applyToChapter,
     registerStreamListener,
     unregisterStreamListener

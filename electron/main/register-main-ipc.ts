@@ -1163,4 +1163,57 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
       shell.openExternal(url)
     }
   })
+
+  // ── AI 助手会话持久化 ──
+
+  ipcMain.handle('characterarc:session-list', async (_event, projectId: string) => {
+    try {
+      const db = await deps.ensureWorkspaceDb()
+      const rows = db.prepare(
+        'SELECT id, title, created_at, updated_at FROM assistant_sessions WHERE project_id = ? ORDER BY updated_at DESC'
+      ).all(projectId) as Array<{ id: string; title: string; created_at: string; updated_at: string }>
+      return { success: true, result: rows }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '获取会话列表失败' }
+    }
+  })
+
+  ipcMain.handle('characterarc:session-load', async (_event, sessionId: string) => {
+    try {
+      const db = await deps.ensureWorkspaceDb()
+      const row = db.prepare(
+        'SELECT id, project_id, title, messages_json, created_at, updated_at FROM assistant_sessions WHERE id = ?'
+      ).get(sessionId) as { id: string; project_id: string; title: string; messages_json: string; created_at: string; updated_at: string } | undefined
+      if (!row) return { success: false, error: '会话不存在' }
+      return { success: true, result: { ...row, messages: JSON.parse(row.messages_json) } }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '加载会话失败' }
+    }
+  })
+
+  ipcMain.handle('characterarc:session-save', async (_event, payload: { id: string; projectId: string; title: string; messages: unknown[] }) => {
+    try {
+      const db = await deps.ensureWorkspaceDb()
+      const now = new Date().toISOString()
+      const messagesJson = JSON.stringify(payload.messages)
+      db.prepare(
+        `INSERT INTO assistant_sessions (id, project_id, title, messages_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, messages_json = excluded.messages_json, updated_at = excluded.updated_at`
+      ).run(payload.id, payload.projectId, payload.title, messagesJson, now, now)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '保存会话失败' }
+    }
+  })
+
+  ipcMain.handle('characterarc:session-delete', async (_event, sessionId: string) => {
+    try {
+      const db = await deps.ensureWorkspaceDb()
+      db.prepare('DELETE FROM assistant_sessions WHERE id = ?').run(sessionId)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '删除会话失败' }
+    }
+  })
 }

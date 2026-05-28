@@ -166,6 +166,13 @@ contextBridge.exposeInMainWorld('characterArc', {
     }
   },
 
+  // ── AI 助手会话 ──
+  listSessions: (projectId: string) => ipcRenderer.invoke('characterarc:session-list', projectId),
+  loadSession: (sessionId: string) => ipcRenderer.invoke('characterarc:session-load', sessionId),
+  saveSession: (payload: { id: string; projectId: string; title: string; messages: unknown[] }) =>
+    ipcRenderer.invoke('characterarc:session-save', toIpcPayload(payload)),
+  deleteSession: (sessionId: string) => ipcRenderer.invoke('characterarc:session-delete', sessionId),
+
   // ── 检查更新 & 公告 ──
   checkUpdate: () => ipcRenderer.invoke('characterarc:check-update'),
   openExternalUrl: (url: string) => ipcRenderer.invoke('characterarc:open-external-url', url)

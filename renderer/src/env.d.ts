@@ -428,6 +428,24 @@ declare global {
         error?: string
       }>
       openExternalUrl: (url: string) => Promise<void>
+      listSessions: (projectId: string) => Promise<{
+        success: boolean
+        result?: Array<{ id: string; title: string; created_at: string; updated_at: string }>
+        error?: string
+      }>
+      loadSession: (sessionId: string) => Promise<{
+        success: boolean
+        result?: { id: string; project_id: string; title: string; messages: unknown[]; created_at: string; updated_at: string }
+        error?: string
+      }>
+      saveSession: (payload: { id: string; projectId: string; title: string; messages: unknown[] }) => Promise<{
+        success: boolean
+        error?: string
+      }>
+      deleteSession: (sessionId: string) => Promise<{
+        success: boolean
+        error?: string
+      }>
     }
   }
 }
