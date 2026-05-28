@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
-import { FileText, GitMerge, Globe, Plus, Sparkles, Users, X } from 'lucide-vue-next'
+import { BookOpen, FileText, GitMerge, Globe, Plus, Route, Sparkles, Users, X } from 'lucide-vue-next'
 import { NTooltip, useMessage } from 'naive-ui'
 import ChapterAiMessages from './ChapterAiMessages.vue'
 import ChapterAiInput from './ChapterAiInput.vue'
@@ -22,7 +22,7 @@ defineEmits<{
 
 const message = useMessage()
 const appStore = useAppStore()
-const { messages, isResponding, agentStatus, hasSelection, send, stop, resetMessages, applyToChapter, registerStreamListener: registerChatStream, unregisterStreamListener: unregisterChatStream } = useChapterAi()
+const { messages, isResponding, agentStatus, hasSelection, enabledContextModules, toggleContextModule, send, stop, resetMessages, applyToChapter, registerStreamListener: registerChatStream, unregisterStreamListener: unregisterChatStream } = useChapterAi()
 const draft = useChapterFirstDraft()
 const detect = useChapterThreadDetect()
 const summary = useChapterSummary()
@@ -30,20 +30,14 @@ const inspiration = useChapterInspiration()
 const humanize = useChapterHumanize()
 
 const contextChips = computed(() => {
-  const chips: { label: string; icon: string; active: boolean }[] = []
   const chapter = appStore.selectedChapter
-  if (chapter) {
-    chips.push({ label: '当前章节', icon: 'file-text', active: true })
-    if (chapter.summary) {
-      chips.push({ label: '章节大纲', icon: 'git-merge', active: true })
-    }
-  }
-  if (appStore.characters.length > 0) {
-    chips.push({ label: '角色卡', icon: 'users', active: true })
-  }
-  if (appStore.worldviewEntries.length > 0) {
-    chips.push({ label: '世界观', icon: 'globe', active: true })
-  }
+  const chips: { label: string; icon: string; module: import('./useChapterAi').ContextModule; available: boolean }[] = []
+  chips.push({ label: '当前章节', icon: 'file-text', module: 'chapter', available: !!chapter })
+  chips.push({ label: '章节大纲', icon: 'git-merge', module: 'outline', available: appStore.outlineItems.length > 0 })
+  chips.push({ label: '角色卡', icon: 'users', module: 'characters', available: appStore.characters.length > 0 })
+  chips.push({ label: '世界观', icon: 'globe', module: 'worldview', available: appStore.worldviewEntries.length > 0 })
+  chips.push({ label: '剧情线索', icon: 'route', module: 'plotThreads', available: appStore.plotThreads.length > 0 })
+  chips.push({ label: '知识文档', icon: 'book-open', module: 'knowledge', available: appStore.knowledgeDocuments.length > 0 })
   return chips
 })
 
@@ -150,12 +144,21 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <div v-if="contextChips.length" class="context-strip">
-      <span v-for="chip in contextChips" :key="chip.label" class="ctx-chip" :class="{ active: chip.active }">
+    <div class="context-strip">
+      <span class="context-label">上下文</span>
+      <span
+        v-for="chip in contextChips"
+        :key="chip.module"
+        class="ctx-chip"
+        :class="{ active: chip.available && enabledContextModules.has(chip.module), inactive: !chip.available || !enabledContextModules.has(chip.module) }"
+        @click="chip.available && toggleContextModule(chip.module)"
+      >
         <FileText v-if="chip.icon === 'file-text'" :size="11" />
         <GitMerge v-if="chip.icon === 'git-merge'" :size="11" />
         <Users v-if="chip.icon === 'users'" :size="11" />
         <Globe v-if="chip.icon === 'globe'" :size="11" />
+        <Route v-if="chip.icon === 'route'" :size="11" />
+        <BookOpen v-if="chip.icon === 'book-open'" :size="11" />
         {{ chip.label }}
       </span>
     </div>
@@ -285,26 +288,57 @@ onBeforeUnmount(() => {
   background: var(--arc-bg-weak);
   border-bottom: 1px solid var(--arc-border);
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.context-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--arc-text-hint);
+  margin-right: 2px;
+  user-select: none;
 }
 
 .ctx-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
-  background: var(--arc-bg-surface);
-  border: 1px solid var(--arc-border);
-  border-radius: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
   font-size: 11px;
-  color: var(--arc-text-secondary);
+  font-weight: 550;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid transparent;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .ctx-chip.active {
   background: var(--arc-primary-soft);
-  border-color: color-mix(in srgb, var(--arc-primary) 20%, transparent);
+  border-color: color-mix(in srgb, var(--arc-primary) 18%, transparent);
   color: var(--arc-primary);
+}
+
+.ctx-chip.active:hover {
+  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-surface));
+  border-color: color-mix(in srgb, var(--arc-primary) 28%, transparent);
+}
+
+.ctx-chip.inactive {
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-hint);
+  border-color: var(--arc-border);
+  text-decoration: line-through;
+  text-decoration-color: var(--arc-border-strong);
+}
+
+.ctx-chip.inactive:hover {
+  background: var(--arc-bg-surface-hover);
+  color: var(--arc-text-secondary);
+  border-color: var(--arc-border-strong);
+  text-decoration: none;
 }
 
 .selection-hint {

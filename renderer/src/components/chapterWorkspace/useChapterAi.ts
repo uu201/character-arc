@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import type { Ref } from 'vue'
 import { buildChapterAssistantContext } from '@/features/ai/chapterAssistantContext'
 import { getChapterPreviewText, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
@@ -50,12 +50,18 @@ function providerSupportsTools(provider: string): boolean {
   return true
 }
 
+export type ContextModule = 'chapter' | 'outline' | 'characters' | 'worldview' | 'plotThreads' | 'knowledge'
+
+const ALL_CONTEXT_MODULES: ContextModule[] = ['chapter', 'outline', 'characters', 'worldview', 'plotThreads', 'knowledge']
+
 export function useChapterAi(): {
   messages: Ref<ChapterAiMessage[]>
   isResponding: Ref<boolean>
   agentStatus: Ref<string>
   hasSelection: Ref<boolean>
   selectedText: Ref<string>
+  enabledContextModules: Set<ContextModule>
+  toggleContextModule: (mod: ContextModule) => void
   send: (prompt: string) => Promise<void>
   stop: () => Promise<void>
   resetMessages: () => void
@@ -67,6 +73,15 @@ export function useChapterAi(): {
   const messages = ref<ChapterAiMessage[]>([])
   const isResponding = computed(() => appStore.isAiTaskRunning(TASK_KEY))
   const agentStatus = ref('')
+  const enabledContextModules = reactive(new Set<ContextModule>(ALL_CONTEXT_MODULES))
+
+  function toggleContextModule(mod: ContextModule): void {
+    if (enabledContextModules.has(mod)) {
+      enabledContextModules.delete(mod)
+    } else {
+      enabledContextModules.add(mod)
+    }
+  }
 
   const selectedText = computed(() => appStore.currentChapterSelection?.text.trim() ?? '')
   const hasSelection = computed(() =>
@@ -231,43 +246,48 @@ export function useChapterAi(): {
         },
         async () => {
           const sameVolume = appStore.chapters.filter((item) => item.volumeId === chapter.volumeId)
+          const hasModule = (mod: ContextModule) => enabledContextModules.has(mod)
           const context = buildChapterAssistantContext({
             project: appStore.currentProject,
-            chapter,
-            chapterVolume: appStore.selectedChapterVolume,
-            relatedChapters: sameVolume
-              .filter((item) => item.id !== chapter.id)
-              .slice(0, 2)
-              .map((item) => ({
-                title: item.title,
-                summary: item.summary,
-                preview: getChapterPreviewText(item.content, '该章节暂无正文')
-              })),
-            volumeChapterSummaries: sameVolume
-              .filter((item) => item.id !== chapter.id)
-              .map((item) => ({ title: item.title, summary: item.summary })),
+            chapter: hasModule('chapter') ? chapter : undefined,
+            chapterVolume: hasModule('chapter') ? appStore.selectedChapterVolume : undefined,
+            relatedChapters: hasModule('chapter')
+              ? sameVolume
+                  .filter((item) => item.id !== chapter.id)
+                  .slice(0, 2)
+                  .map((item) => ({
+                    title: item.title,
+                    summary: item.summary,
+                    preview: getChapterPreviewText(item.content, '该章节暂无正文')
+                  }))
+              : [],
+            volumeChapterSummaries: hasModule('chapter')
+              ? sameVolume
+                  .filter((item) => item.id !== chapter.id)
+                  .map((item) => ({ title: item.title, summary: item.summary }))
+              : [],
             novelOpenerSummary:
-              appStore.chapters[0] && appStore.chapters[0].id !== chapter.id
+              hasModule('chapter') && appStore.chapters[0] && appStore.chapters[0].id !== chapter.id
                 ? { title: appStore.chapters[0].title, summary: appStore.chapters[0].summary }
                 : undefined,
             recentMessages: messages.value
               .slice(-8, -2)
               .map((item) => ({ role: item.role, content: item.content })),
-            worldviewEntries: appStore.worldviewEntries,
-            characters: appStore.characters,
-            organizations: appStore.organizations,
-            characterRelationships: appStore.characterRelationships,
-            organizationMemberships: appStore.organizationMemberships,
+            worldviewEntries: hasModule('worldview') ? appStore.worldviewEntries : [],
+            characters: hasModule('characters') ? appStore.characters : [],
+            organizations: hasModule('characters') ? appStore.organizations : [],
+            characterRelationships: hasModule('characters') ? appStore.characterRelationships : [],
+            organizationMemberships: hasModule('characters') ? appStore.organizationMemberships : [],
             inspirationEntries: appStore.inspirationEntries,
-            outlineItems: appStore.outlineItems,
-            plotThreads: appStore.plotThreads,
-            workflowDocuments: appStore.workflowDocuments,
-            knowledgeDocuments: appStore.knowledgeDocuments,
+            outlineItems: hasModule('outline') ? appStore.outlineItems : [],
+            plotThreads: hasModule('plotThreads') ? appStore.plotThreads : [],
+            workflowDocuments: hasModule('outline') ? appStore.workflowDocuments : [],
+            knowledgeDocuments: hasModule('knowledge') ? appStore.knowledgeDocuments : [],
             selectedText: selectedText.value,
             responseMode: 'freeform',
             responseLength: 'medium',
             userPrompt: trimmed,
-            chapterContent: getPlainTextFromEditorContent(chapter.content ?? '')
+            chapterContent: hasModule('chapter') ? getPlainTextFromEditorContent(chapter.content ?? '') : ''
           })
 
           const startFn = useAgentMode
@@ -327,6 +347,8 @@ export function useChapterAi(): {
     agentStatus,
     hasSelection,
     selectedText,
+    enabledContextModules,
+    toggleContextModule,
     send,
     stop,
     resetMessages,
