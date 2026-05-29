@@ -339,8 +339,8 @@ function replaceInHtml(html: string, searchPlain: string, replacePlain: string):
 
   const startPos = mapPlainIndexToHtml(html, idx)
   const endPos = mapPlainIndexToHtml(html, idx + searchPlain.length)
-  const isMultiParagraph = /\n{2,}/.test(replacePlain.trim())
-  const replaceHtml = isMultiParagraph ? textToHtmlParagraphs(replacePlain) : escapeHtml(replacePlain)
+  const hasNewlines = /\n/.test(replacePlain.trim())
+  const replaceHtml = hasNewlines ? textToHtmlParagraphs(replacePlain) : escapeHtml(replacePlain)
   return html.slice(0, startPos) + replaceHtml + html.slice(endPos)
 }
 

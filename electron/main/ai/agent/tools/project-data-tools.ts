@@ -111,21 +111,24 @@ async function readEntities(projectId: string, type: EntityType, entityId: strin
     }
     case 'characters': {
       if (entityId) {
-        const row = db.prepare('SELECT name, role, description, appearance, personality, background, abilities, goals, weaknesses FROM characters WHERE id = ? AND project_id = ?').get(entityId, projectId) as Record<string, string> | undefined
+        const row = db.prepare('SELECT name, role, description FROM characters WHERE id = ? AND project_id = ?').get(entityId, projectId) as Record<string, string> | undefined
         if (!row) return `未找到角色: ${entityId}`
-        return formatCharacter(row)
+        return `# ${row.name}（${row.role}）\n\n${row.description}`
       }
-      const rows = db.prepare('SELECT id, name, role, description, appearance, personality, background, abilities, goals, weaknesses FROM characters WHERE project_id = ?').all(projectId) as Record<string, string>[]
-      return rows.map(formatCharacter).join('\n\n---\n\n') || '暂无角色。'
+      const rows = db.prepare('SELECT id, name, role, description FROM characters WHERE project_id = ?').all(projectId) as Record<string, string>[]
+      return rows.map((r) => `# ${r.name}（${r.role}）\n${r.description}`).join('\n\n---\n\n') || '暂无角色。'
     }
     case 'organizations': {
       if (entityId) {
-        const row = db.prepare('SELECT name, description, purpose, structure, history FROM organizations WHERE id = ? AND project_id = ?').get(entityId, projectId) as Record<string, string> | undefined
+        const row = db.prepare('SELECT name, type, description, motto FROM organizations WHERE id = ? AND project_id = ?').get(entityId, projectId) as Record<string, string> | undefined
         if (!row) return `未找到组织: ${entityId}`
-        return formatOrganization(row)
+        const parts = [`# ${row.name}（${row.type}）`]
+        if (row.description) parts.push(row.description)
+        if (row.motto) parts.push(`信条: ${row.motto}`)
+        return parts.join('\n')
       }
-      const rows = db.prepare('SELECT id, name, description, purpose, structure, history FROM organizations WHERE project_id = ?').all(projectId) as Record<string, string>[]
-      return rows.map(formatOrganization).join('\n\n---\n\n') || '暂无组织。'
+      const rows = db.prepare('SELECT id, name, type, description FROM organizations WHERE project_id = ?').all(projectId) as Record<string, string>[]
+      return rows.map((r) => `# ${r.name}（${r.type}）\n${r.description}`).join('\n\n---\n\n') || '暂无组织。'
     }
     case 'relationships': {
       const rows = db.prepare('SELECT id, from_character_id, to_character_id, type, description, intensity FROM character_relationships WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
@@ -141,9 +144,13 @@ async function readEntities(projectId: string, type: EntityType, entityId: strin
     }
     case 'outline': {
       if (entityId) {
-        const row = db.prepare('SELECT title, summary, conflict, resolution, notes FROM outline_items WHERE id = ? AND project_id = ?').get(entityId, projectId) as Record<string, string> | undefined
+        const row = db.prepare('SELECT title, summary, conflict, word_target FROM outline_items WHERE id = ? AND project_id = ?').get(entityId, projectId) as Record<string, string> | undefined
         if (!row) return `未找到大纲条目: ${entityId}`
-        return formatOutline(row)
+        const parts = [`## ${row.title}`]
+        if (row.summary) parts.push(row.summary)
+        if (row.conflict) parts.push(`冲突: ${row.conflict}`)
+        if (row.word_target) parts.push(`目标字数: ${row.word_target}`)
+        return parts.join('\n')
       }
       const rows = db.prepare('SELECT id, title, summary, conflict FROM outline_items WHERE project_id = ? ORDER BY sort_order').all(projectId) as Record<string, string>[]
       return rows.map((r) => `## ${r.title}\n${r.summary}${r.conflict ? `\n冲突: ${r.conflict}` : ''}`).join('\n\n') || '暂无大纲。'
@@ -182,32 +189,3 @@ async function readEntities(projectId: string, type: EntityType, entityId: strin
   }
 }
 
-function formatCharacter(row: Record<string, string>): string {
-  const parts = [`# ${row.name}（${row.role}）`]
-  if (row.description) parts.push(row.description)
-  if (row.appearance) parts.push(`外貌: ${row.appearance}`)
-  if (row.personality) parts.push(`性格: ${row.personality}`)
-  if (row.background) parts.push(`背景: ${row.background}`)
-  if (row.abilities) parts.push(`能力: ${row.abilities}`)
-  if (row.goals) parts.push(`目标: ${row.goals}`)
-  if (row.weaknesses) parts.push(`弱点: ${row.weaknesses}`)
-  return parts.join('\n')
-}
-
-function formatOrganization(row: Record<string, string>): string {
-  const parts = [`# ${row.name}`]
-  if (row.description) parts.push(row.description)
-  if (row.purpose) parts.push(`目的: ${row.purpose}`)
-  if (row.structure) parts.push(`结构: ${row.structure}`)
-  if (row.history) parts.push(`历史: ${row.history}`)
-  return parts.join('\n')
-}
-
-function formatOutline(row: Record<string, string>): string {
-  const parts = [`# ${row.title}`]
-  if (row.summary) parts.push(row.summary)
-  if (row.conflict) parts.push(`冲突: ${row.conflict}`)
-  if (row.resolution) parts.push(`解决: ${row.resolution}`)
-  if (row.notes) parts.push(`备注: ${row.notes}`)
-  return parts.join('\n')
-}

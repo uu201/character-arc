@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ensureEditorHtmlContent, serializePlainTextToHtml } from '@/features/chapters/editorContent'
+import { nextTick, onBeforeUnmount, watch } from 'vue'
+import { useEditor, EditorContent } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import Placeholder from '@tiptap/extension-placeholder'
+import CharacterCount from '@tiptap/extension-character-count'
+import Underline from '@tiptap/extension-underline'
+import { ensureEditorHtmlContent } from '@/features/chapters/editorContent'
 import type { ChapterInsertionRequest, ChapterSelectionState } from '@/types/app'
 
 const props = defineProps<{
@@ -15,121 +20,103 @@ const emit = defineEmits<{
   'selection-change': [selection: ChapterSelectionState | null]
 }>()
 
-const editorRef = ref<HTMLDivElement | null>(null)
-let savedRange: Range | null = null
-let editorFocused = false
-
 const EMIT_DEBOUNCE_MS = 600
 let emitTimer: number | null = null
-let pendingHtml: string | null = null
+let pendingEmit = false
+let editorFocused = false
+let savedSelection: { from: number; to: number } | null = null
 
 function flushEmit(): void {
   if (emitTimer !== null) {
     window.clearTimeout(emitTimer)
     emitTimer = null
   }
-  if (pendingHtml !== null) {
-    const html = pendingHtml
-    pendingHtml = null
-    if (html !== props.modelValue) emit('update:modelValue', html)
+  if (pendingEmit && editor.value) {
+    pendingEmit = false
+    emit('update:modelValue', editor.value.getHTML())
   }
 }
 
 function scheduleEmit(html: string): void {
-  pendingHtml = html
+  pendingEmit = true
   if (emitTimer !== null) window.clearTimeout(emitTimer)
-  emitTimer = window.setTimeout(flushEmit, EMIT_DEBOUNCE_MS)
+  emitTimer = window.setTimeout(() => {
+    emitTimer = null
+    pendingEmit = false
+    emit('update:modelValue', html)
+  }, EMIT_DEBOUNCE_MS)
 }
 
-function handleInput(): void {
-  if (!editorRef.value) return
-  scheduleEmit(editorRef.value.innerHTML)
-}
-
-function handleSelection(): void {
-  if (!editorRef.value) return
-  const sel = window.getSelection()
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
-    if (editorFocused) {
-      emit('selection-change', null)
-    }
+function handleSelectionUpdate(): void {
+  if (!editor.value) return
+  const { from, to } = editor.value.state.selection
+  if (from === to) {
+    if (editorFocused) emit('selection-change', null)
     return
   }
-  const range = sel.getRangeAt(0)
-  if (!editorRef.value.contains(range.commonAncestorContainer)) {
+  const text = editor.value.state.doc.textBetween(from, to, '\n')
+  if (!text.trim()) {
+    if (editorFocused) emit('selection-change', null)
     return
   }
-  const text = sel.toString().trim()
-  if (!text) {
-    if (editorFocused) {
-      emit('selection-change', null)
-    }
-    return
-  }
-  savedRange = range.cloneRange()
-  emit('selection-change', { chapterId: props.chapterId, text })
+  savedSelection = { from, to }
+  emit('selection-change', { chapterId: props.chapterId, text: text.trim() })
 }
 
-function syncContent(): void {
-  if (!editorRef.value) return
-  editorRef.value.innerHTML = ensureEditorHtmlContent(props.modelValue || '')
-}
-
-function applyInsertion(request: ChapterInsertionRequest): void {
-  const root = editorRef.value
-  if (!root || request.chapterId !== props.chapterId) return
-  flushEmit()
-
-  const html = serializePlainTextToHtml(request.content)
-  const wrapper = document.createElement('div')
-  wrapper.innerHTML = html
-  const fragment = document.createDocumentFragment()
-  while (wrapper.firstChild) fragment.appendChild(wrapper.firstChild)
-
-  const sel = window.getSelection()
-  const liveRange = sel && sel.rangeCount > 0 && root.contains(sel.anchorNode) && !sel.isCollapsed
-    ? sel.getRangeAt(0)
-    : null
-  const usableRange = liveRange || (savedRange && root.contains(savedRange.commonAncestorContainer) ? savedRange : null)
-
-  if (request.mode === 'append') {
-    root.appendChild(fragment)
-  } else if (request.mode === 'replace-selection' && usableRange) {
-    usableRange.deleteContents()
-    usableRange.insertNode(fragment)
-  } else if (request.mode === 'cursor' && usableRange) {
-    usableRange.collapse(false)
-    usableRange.insertNode(fragment)
-  } else if (liveRange) {
-    liveRange.collapse(false)
-    liveRange.insertNode(fragment)
-  } else {
-    root.appendChild(fragment)
-  }
-
-  savedRange = null
-  emit('update:modelValue', root.innerHTML)
-  emit('consume-insertion', request.id)
-}
+const editor = useEditor({
+  extensions: [
+    StarterKit.configure({
+      heading: { levels: [1, 2, 3] },
+    }),
+    Placeholder.configure({
+      placeholder: '开始写作...',
+    }),
+    CharacterCount,
+    Underline,
+  ],
+  content: ensureEditorHtmlContent(props.modelValue),
+  editorProps: {
+    attributes: {
+      class: 'simple-editor',
+      spellcheck: 'false',
+    },
+  },
+  onUpdate: ({ editor: e }) => {
+    scheduleEmit(e.getHTML())
+  },
+  onFocus: () => {
+    editorFocused = true
+  },
+  onBlur: () => {
+    editorFocused = false
+    flushEmit()
+  },
+  onSelectionUpdate: () => {
+    handleSelectionUpdate()
+  },
+})
 
 watch(
   () => props.chapterId,
   () => {
     flushEmit()
-    nextTick(syncContent)
-  },
-  { immediate: true }
+    savedSelection = null
+    nextTick(() => {
+      if (editor.value) {
+        editor.value.commands.setContent(ensureEditorHtmlContent(props.modelValue), { emitUpdate: false })
+      }
+    })
+  }
 )
 
 watch(
   () => props.modelValue,
   (next) => {
-    const root = editorRef.value
-    if (!root) return
+    if (!editor.value) return
+    if (pendingEmit) return
     const normalized = ensureEditorHtmlContent(next || '')
-    if (normalized === root.innerHTML) return
-    if (pendingHtml !== null) return
-    root.innerHTML = normalized
+    if (normalized === editor.value.getHTML()) return
+    editor.value.commands.setContent(normalized, { emitUpdate: false })
   }
 )
 
@@ -137,57 +124,69 @@ watch(
   () => props.insertionRequest?.id,
   () => {
     const request = props.insertionRequest
-    if (request) nextTick(() => applyInsertion(request))
+    if (!request || !editor.value) return
+    if (request.chapterId !== props.chapterId) return
+
+    flushEmit()
+    const e = editor.value
+
+    if (request.mode === 'append') {
+      const endPos = e.state.doc.content.size - 1
+      e.chain().insertContentAt(endPos, request.content).run()
+    } else if (request.mode === 'replace-selection' && savedSelection) {
+      const { from, to } = savedSelection
+      e.chain().deleteRange({ from, to }).insertContentAt(from, request.content).run()
+      savedSelection = null
+    } else if (request.mode === 'cursor') {
+      e.commands.insertContent(request.content)
+    } else {
+      const endPos = e.state.doc.content.size - 1
+      e.chain().insertContentAt(endPos, request.content).run()
+    }
+
+    emit('update:modelValue', e.getHTML())
+    emit('consume-insertion', request.id)
   }
 )
 
-onMounted(() => {
-  try {
-    document.execCommand('defaultParagraphSeparator', false, 'p')
-  } catch {
-    // ignore on browsers that don't support this command
-  }
-  nextTick(syncContent)
-  document.addEventListener('selectionchange', handleSelection)
-  editorRef.value?.addEventListener('focus', () => { editorFocused = true })
-  editorRef.value?.addEventListener('blur', () => { editorFocused = false })
-})
-
 onBeforeUnmount(() => {
-  document.removeEventListener('selectionchange', handleSelection)
   flushEmit()
+  editor.value?.destroy()
 })
 </script>
 
 <template>
-  <div
-    ref="editorRef"
-    class="simple-editor"
-    contenteditable="true"
-    spellcheck="false"
-    @input="handleInput"
-    @blur="flushEmit"
-  />
+  <EditorContent v-if="editor" :editor="editor" />
 </template>
 
 <style scoped>
-.simple-editor {
-  font-size: inherit;
-  line-height: 2;
-  color: var(--arc-text-primary);
+:deep(.simple-editor) {
   outline: none;
-  min-height: 400px;
-  user-select: text;
-  white-space: pre-wrap;
-  word-break: break-word;
+  min-height: 300px;
+  font-size: inherit;
+  line-height: 1.8;
+  color: var(--arc-text-primary);
+  caret-color: var(--arc-caret-color);
 }
 
-.simple-editor :deep(p) {
-  margin: 0 0 1em;
+:deep(.simple-editor p) {
+  margin-bottom: 16px;
   text-indent: 2em;
 }
 
-.simple-editor :deep(p:last-child) {
-  margin-bottom: 0;
+:deep(.simple-editor p.is-editor-empty:first-child::before) {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--arc-text-hint);
+  pointer-events: none;
+  height: 0;
+}
+
+:deep(.simple-editor h1),
+:deep(.simple-editor h2),
+:deep(.simple-editor h3) {
+  text-indent: 0;
+  margin-bottom: 12px;
+  font-weight: 700;
 }
 </style>

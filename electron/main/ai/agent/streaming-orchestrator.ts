@@ -128,8 +128,9 @@ export async function runStreamingAgentTask(
     '- 每次对话开始时，先用 `read_chapter` 读取当前章节内容，了解正文现状。',
     '- 涉及创作、改写、续写时，先用 `read_project_data` 读取相关设定（角色、世界观、大纲、知识文档等），确保内容一致性。',
     '- 知识文档（拆书知识库）包含写作技法、风格参考等重要资料，创作和改写时应主动查阅：先调用 `read_project_data({ entity_type: "knowledge" })` 获取列表，再按需读取具体文档。',
-    '- 当用户要求修改正文时，优先使用 `edit_chapter` 工具直接修改，而不是只给出建议文本。',
-    '- 修改前先用 `read_chapter` 读取当前内容，确认要修改的位置。'
+    '- 【重要】当用户要求修改、改写、应用建议、执行修改时（如"改一下"、"修改吧"、"按建议改"、"应用到正文"等），你必须使用 `edit_chapter` 工具直接修改正文，而不是只输出建议文本。用户说"改"就意味着要你动手改，不是再给建议。',
+    '- 修改前先用 `read_chapter` 读取当前内容，确认要修改的位置，然后用 `edit_chapter` 执行替换。',
+    '- 如果用户的意图不明确（比如只是问"怎么改比较好"），可以先给建议；但一旦用户确认或要求执行，立即使用工具修改。'
   ].join('\n')
 
   const chapterDraftRules = task.task === 'chapter-first-draft'
