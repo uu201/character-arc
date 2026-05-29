@@ -9,6 +9,7 @@ import {
   Rows3,
   Search,
   Shield,
+  Sparkles,
   Trash2,
   UserRoundCog,
   Users
@@ -16,8 +17,12 @@ import {
 import { NButton, NDynamicTags, NForm, NFormItem, NInput, NModal, NSelect, NSlider, useDialog, useMessage } from 'naive-ui'
 import RelationsGraphView from '@/components/RelationsGraphView.vue'
 import { buildRelationsGraphData } from '@/features/relations/graph'
+import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { useAppStore } from '@/stores/app'
+import { toIpcPayload } from '@/utils/ipcPayload'
 import type { CharacterCard, CharacterRelationship, OrganizationEntry, OrganizationMembership } from '@/types/app'
+import AiEnhancePreview from './AiEnhancePreview.vue'
+import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
 
 const props = defineProps<{
   searchQuery?: string // 全局搜索关键词
@@ -399,6 +404,323 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
     openOrganizationEditor(organization)
   }
 }
+
+const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
+
+const AI_GEN_ORG_KEY = 'relation-generate-org'
+const AI_GEN_REL_KEY = 'relation-generate-rel'
+const AI_GEN_MEM_KEY = 'relation-generate-mem'
+const isGeneratingOrg = computed(() => appStore.isAiTaskRunning(AI_GEN_ORG_KEY))
+const isGeneratingRel = computed(() => appStore.isAiTaskRunning(AI_GEN_REL_KEY))
+const isGeneratingMem = computed(() => appStore.isAiTaskRunning(AI_GEN_MEM_KEY))
+
+async function handleGenerateOrganization(): Promise<void> {
+  if (isGeneratingOrg.value) return
+
+  try {
+    const result = await appStore.runTrackedAiTask(
+      { key: AI_GEN_ORG_KEY, kind: 'character', label: 'AI 生成组织', description: '正在根据项目上下文生成新组织', panel: 'relations' },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'relation-enhance',
+          settings: appStore.appSettings,
+          context: {
+            mode: 'organization',
+            currentForm: { name: '', type: '', description: '', motto: '' },
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            characterNames: appStore.characters.map((c) => c.name),
+            worldviewTitles: appStore.worldviewEntries.map((e) => e.title),
+            organizations: appStore.organizations,
+            characterRelationships: appStore.characterRelationships,
+            organizationMemberships: appStore.organizationMemberships,
+            characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
+          }
+        }))
+    )
+
+    if (!result.success || !result.result) throw new Error(result.error ?? 'AI 生成组织失败')
+    const s = result.result as Record<string, unknown>
+
+    appStore.createOrganization({
+      name: String(s.name ?? '新组织'),
+      type: String(s.type ?? ''),
+      description: String(s.description ?? ''),
+      motto: String(s.motto ?? ''),
+      color: ''
+    })
+    message.success('AI 已生成新的组织草稿')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 生成组织失败，请检查模型配置')
+  }
+}
+
+async function handleGenerateRelationship(): Promise<void> {
+  if (isGeneratingRel.value || appStore.characters.length < 2) return
+
+  const chars = appStore.characters
+  const fromChar = chars[Math.floor(Math.random() * chars.length)]
+  const remaining = chars.filter((c) => c.id !== fromChar.id)
+  const toChar = remaining[Math.floor(Math.random() * remaining.length)]
+
+  try {
+    const result = await appStore.runTrackedAiTask(
+      { key: AI_GEN_REL_KEY, kind: 'character', label: 'AI 生成关系', description: `正在为 ${fromChar.name} 和 ${toChar.name} 生成关系`, panel: 'relations' },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'relation-enhance',
+          settings: appStore.appSettings,
+          context: {
+            mode: 'relationship',
+            currentForm: { type: '', description: '', intensity: 50 },
+            fromCharacterName: fromChar.name,
+            fromCharacterDescription: fromChar.description,
+            toCharacterName: toChar.name,
+            toCharacterDescription: toChar.description,
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            organizations: appStore.organizations,
+            characterRelationships: appStore.characterRelationships,
+            organizationMemberships: appStore.organizationMemberships,
+            characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
+          }
+        }))
+    )
+
+    if (!result.success || !result.result) throw new Error(result.error ?? 'AI 生成关系失败')
+    const s = result.result as Record<string, unknown>
+
+    appStore.createCharacterRelationship({
+      fromCharacterId: fromChar.id,
+      toCharacterId: toChar.id,
+      type: String(s.type ?? '待设定'),
+      description: String(s.description ?? ''),
+      intensity: Math.max(0, Math.min(100, Number(s.intensity) || 50))
+    })
+    message.success(`AI 已生成 ${fromChar.name} 与 ${toChar.name} 的关系`)
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 生成关系失败，请检查模型配置')
+  }
+}
+
+async function handleGenerateMembership(): Promise<void> {
+  if (isGeneratingMem.value || appStore.characters.length === 0 || appStore.organizations.length === 0) return
+
+  const chars = appStore.characters
+  const orgs = appStore.organizations
+  const char = chars[Math.floor(Math.random() * chars.length)]
+  const org = orgs[Math.floor(Math.random() * orgs.length)]
+
+  try {
+    const result = await appStore.runTrackedAiTask(
+      { key: AI_GEN_MEM_KEY, kind: 'character', label: 'AI 生成归属', description: `正在为 ${char.name} 生成在 ${org.name} 的归属`, panel: 'relations' },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'relation-enhance',
+          settings: appStore.appSettings,
+          context: {
+            mode: 'membership',
+            currentForm: { role: '', notes: '' },
+            characterName: char.name,
+            characterDescription: char.description,
+            organizationName: org.name,
+            organizationDescription: org.description,
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            organizations: appStore.organizations,
+            organizationMemberships: appStore.organizationMemberships,
+            characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
+          }
+        }))
+    )
+
+    if (!result.success || !result.result) throw new Error(result.error ?? 'AI 生成归属失败')
+    const s = result.result as Record<string, unknown>
+
+    appStore.createOrganizationMembership({
+      characterId: char.id,
+      organizationId: org.id,
+      role: String(s.role ?? '成员'),
+      notes: String(s.notes ?? '')
+    })
+    message.success(`AI 已生成 ${char.name} 在 ${org.name} 的归属`)
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 生成归属失败，请检查模型配置')
+  }
+}
+
+const ENHANCE_ORG_KEY = 'relation-enhance-org'
+const ENHANCE_REL_KEY = 'relation-enhance-rel'
+const ENHANCE_MEM_KEY = 'relation-enhance-mem'
+const enhanceOrgLoading = computed(() => appStore.isAiTaskRunning(ENHANCE_ORG_KEY))
+const enhanceRelLoading = computed(() => appStore.isAiTaskRunning(ENHANCE_REL_KEY))
+const enhanceMemLoading = computed(() => appStore.isAiTaskRunning(ENHANCE_MEM_KEY))
+const enhanceOrgVisible = ref(false)
+const enhanceRelVisible = ref(false)
+const enhanceMemVisible = ref(false)
+const enhanceOrgFields = ref<EnhanceFieldDiff[]>([])
+const enhanceRelFields = ref<EnhanceFieldDiff[]>([])
+const enhanceMemFields = ref<EnhanceFieldDiff[]>([])
+
+async function handleAiEnhanceOrg(): Promise<void> {
+  if (enhanceOrgLoading.value) return
+
+  try {
+    const result = await appStore.runTrackedAiTask(
+      { key: ENHANCE_ORG_KEY, kind: 'character', label: 'AI 补充组织', description: '正在根据上下文补充组织信息', panel: 'relations' },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'relation-enhance',
+          settings: appStore.appSettings,
+          context: {
+            mode: 'organization',
+            currentForm: { name: organizationForm.name, type: organizationForm.type, description: organizationForm.description, motto: organizationForm.motto },
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            characterNames: appStore.characters.map((c) => c.name),
+            worldviewTitles: appStore.worldviewEntries.map((e) => e.title),
+            organizations: appStore.organizations,
+            characterRelationships: appStore.characterRelationships,
+            organizationMemberships: appStore.organizationMemberships,
+            characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
+          }
+        }))
+    )
+
+    if (!result.success || !result.result) throw new Error(result.error ?? 'AI 补充失败')
+    const s = result.result as Record<string, unknown>
+
+    enhanceOrgFields.value = [
+      { key: 'name', label: '组织名称', type: 'text', original: organizationForm.name, suggested: String(s.name ?? ''), changed: String(s.name ?? '') !== organizationForm.name && Boolean(String(s.name ?? '').trim()) },
+      { key: 'type', label: '组织类型', type: 'text', original: organizationForm.type, suggested: String(s.type ?? ''), changed: String(s.type ?? '') !== organizationForm.type && Boolean(String(s.type ?? '').trim()) },
+      { key: 'description', label: '组织说明', type: 'textarea', original: organizationForm.description, suggested: String(s.description ?? ''), changed: String(s.description ?? '') !== organizationForm.description && Boolean(String(s.description ?? '').trim()) },
+      { key: 'motto', label: '口号/精神标识', type: 'text', original: organizationForm.motto, suggested: String(s.motto ?? ''), changed: String(s.motto ?? '') !== organizationForm.motto && Boolean(String(s.motto ?? '').trim()) }
+    ]
+    enhanceOrgVisible.value = true
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 补充失败，请检查模型配置')
+  }
+}
+
+function handleEnhanceOrgApply(accepted: Record<string, string | string[]>): void {
+  if (accepted.name != null) organizationForm.name = accepted.name as string
+  if (accepted.type != null) organizationForm.type = accepted.type as string
+  if (accepted.description != null) organizationForm.description = accepted.description as string
+  if (accepted.motto != null) organizationForm.motto = accepted.motto as string
+  enhanceOrgVisible.value = false
+}
+
+async function handleAiEnhanceRel(): Promise<void> {
+  if (enhanceRelLoading.value) return
+
+  const fromChar = characterMap.value.get(relationshipForm.fromCharacterId)
+  const toChar = characterMap.value.get(relationshipForm.toCharacterId)
+
+  try {
+    const result = await appStore.runTrackedAiTask(
+      { key: ENHANCE_REL_KEY, kind: 'character', label: 'AI 补充关系', description: '正在根据上下文补充角色关系', panel: 'relations' },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'relation-enhance',
+          settings: appStore.appSettings,
+          context: {
+            mode: 'relationship',
+            currentForm: { type: relationshipForm.type, description: relationshipForm.description, intensity: relationshipForm.intensity },
+            fromCharacterName: fromChar?.name ?? '',
+            fromCharacterDescription: fromChar?.description ?? '',
+            toCharacterName: toChar?.name ?? '',
+            toCharacterDescription: toChar?.description ?? '',
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            organizations: appStore.organizations,
+            characterRelationships: appStore.characterRelationships,
+            organizationMemberships: appStore.organizationMemberships,
+            characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
+          }
+        }))
+    )
+
+    if (!result.success || !result.result) throw new Error(result.error ?? 'AI 补充失败')
+    const s = result.result as Record<string, unknown>
+    const suggestedIntensity = String(s.intensity != null ? Math.round(Number(s.intensity)) : relationshipForm.intensity)
+
+    enhanceRelFields.value = [
+      { key: 'type', label: '关系类型', type: 'text', original: relationshipForm.type, suggested: String(s.type ?? ''), changed: String(s.type ?? '') !== relationshipForm.type && Boolean(String(s.type ?? '').trim()) },
+      { key: 'description', label: '关系描述', type: 'textarea', original: relationshipForm.description, suggested: String(s.description ?? ''), changed: String(s.description ?? '') !== relationshipForm.description && Boolean(String(s.description ?? '').trim()) },
+      { key: 'intensity', label: '关系强度', type: 'text', original: String(relationshipForm.intensity), suggested: suggestedIntensity, changed: suggestedIntensity !== String(relationshipForm.intensity) }
+    ]
+    enhanceRelVisible.value = true
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 补充失败，请检查模型配置')
+  }
+}
+
+function handleEnhanceRelApply(accepted: Record<string, string | string[]>): void {
+  if (accepted.type != null) relationshipForm.type = accepted.type as string
+  if (accepted.description != null) relationshipForm.description = accepted.description as string
+  if (accepted.intensity != null) relationshipForm.intensity = Math.max(0, Math.min(100, Number(accepted.intensity) || 50))
+  enhanceRelVisible.value = false
+}
+
+async function handleAiEnhanceMem(): Promise<void> {
+  if (enhanceMemLoading.value) return
+
+  const char = characterMap.value.get(membershipForm.characterId)
+  const org = organizationMap.value.get(membershipForm.organizationId)
+
+  try {
+    const result = await appStore.runTrackedAiTask(
+      { key: ENHANCE_MEM_KEY, kind: 'character', label: 'AI 补充归属', description: '正在根据上下文补充成员归属信息', panel: 'relations' },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'relation-enhance',
+          settings: appStore.appSettings,
+          context: {
+            mode: 'membership',
+            currentForm: { role: membershipForm.role, notes: membershipForm.notes },
+            characterName: char?.name ?? '',
+            characterDescription: char?.description ?? '',
+            organizationName: org?.name ?? '',
+            organizationDescription: org?.description ?? '',
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            organizations: appStore.organizations,
+            organizationMemberships: appStore.organizationMemberships,
+            characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
+          }
+        }))
+    )
+
+    if (!result.success || !result.result) throw new Error(result.error ?? 'AI 补充失败')
+    const s = result.result as Record<string, unknown>
+
+    enhanceMemFields.value = [
+      { key: 'role', label: '组织身份', type: 'text', original: membershipForm.role, suggested: String(s.role ?? ''), changed: String(s.role ?? '') !== membershipForm.role && Boolean(String(s.role ?? '').trim()) },
+      { key: 'notes', label: '归属备注', type: 'textarea', original: membershipForm.notes, suggested: String(s.notes ?? ''), changed: String(s.notes ?? '') !== membershipForm.notes && Boolean(String(s.notes ?? '').trim()) }
+    ]
+    enhanceMemVisible.value = true
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 补充失败，请检查模型配置')
+  }
+}
+
+function handleEnhanceMemApply(accepted: Record<string, string | string[]>): void {
+  if (accepted.role != null) membershipForm.role = accepted.role as string
+  if (accepted.notes != null) membershipForm.notes = accepted.notes as string
+  enhanceMemVisible.value = false
+}
 </script>
 
 <template>
@@ -427,6 +749,24 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
             <span>图谱视图</span>
           </button>
         </div>
+        <n-button strong secondary round :disabled="isGeneratingOrg" @click="handleGenerateOrganization">
+          <template #icon>
+            <Sparkles :size="16" />
+          </template>
+          {{ isGeneratingOrg ? '生成中...' : 'AI 生成组织' }}
+        </n-button>
+        <n-button strong secondary round :disabled="appStore.characters.length < 2 || isGeneratingRel" @click="handleGenerateRelationship">
+          <template #icon>
+            <Sparkles :size="16" />
+          </template>
+          {{ isGeneratingRel ? '生成中...' : 'AI 生成关系' }}
+        </n-button>
+        <n-button strong secondary round :disabled="appStore.characters.length === 0 || appStore.organizations.length === 0 || isGeneratingMem" @click="handleGenerateMembership">
+          <template #icon>
+            <Sparkles :size="16" />
+          </template>
+          {{ isGeneratingMem ? '生成中...' : 'AI 生成归属' }}
+        </n-button>
         <n-button strong secondary round @click="openOrganizationEditor()">
           <template #icon>
             <Building2 :size="16" />
@@ -682,12 +1022,24 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
       <template #footer>
         <div class="arc-modal-actions">
           <n-button round strong @click="organizationEditorVisible = false">取消</n-button>
+          <n-button round strong :loading="enhanceOrgLoading" @click="handleAiEnhanceOrg">
+            <template #icon><Sparkles :size="14" /></template>
+            AI 补充
+          </n-button>
           <n-button type="primary" round strong @click="submitOrganization">
             {{ editingOrganizationId ? '保存修改' : '创建组织' }}
           </n-button>
         </div>
       </template>
     </n-modal>
+
+    <AiEnhancePreview
+      :show="enhanceOrgVisible"
+      :fields="enhanceOrgFields"
+      :loading="enhanceOrgLoading"
+      @apply="handleEnhanceOrgApply"
+      @close="enhanceOrgVisible = false"
+    />
 
     <n-modal
       :show="relationshipEditorVisible"
@@ -728,12 +1080,24 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
       <template #footer>
         <div class="arc-modal-actions">
           <n-button round strong @click="relationshipEditorVisible = false">取消</n-button>
+          <n-button round strong :loading="enhanceRelLoading" @click="handleAiEnhanceRel">
+            <template #icon><Sparkles :size="14" /></template>
+            AI 补充
+          </n-button>
           <n-button type="primary" round strong @click="submitRelationship">
             {{ editingRelationshipId ? '保存修改' : '创建关系' }}
           </n-button>
         </div>
       </template>
     </n-modal>
+
+    <AiEnhancePreview
+      :show="enhanceRelVisible"
+      :fields="enhanceRelFields"
+      :loading="enhanceRelLoading"
+      @apply="handleEnhanceRelApply"
+      @close="enhanceRelVisible = false"
+    />
 
     <n-modal
       :show="membershipEditorVisible"
@@ -768,12 +1132,24 @@ function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; enti
       <template #footer>
         <div class="arc-modal-actions">
           <n-button round strong @click="membershipEditorVisible = false">取消</n-button>
+          <n-button round strong :loading="enhanceMemLoading" @click="handleAiEnhanceMem">
+            <template #icon><Sparkles :size="14" /></template>
+            AI 补充
+          </n-button>
           <n-button type="primary" round strong @click="submitMembership">
             {{ editingMembershipId ? '保存修改' : '创建归属' }}
           </n-button>
         </div>
       </template>
     </n-modal>
+
+    <AiEnhancePreview
+      :show="enhanceMemVisible"
+      :fields="enhanceMemFields"
+      :loading="enhanceMemLoading"
+      @apply="handleEnhanceMemApply"
+      @close="enhanceMemVisible = false"
+    />
   </section>
 </template>
 

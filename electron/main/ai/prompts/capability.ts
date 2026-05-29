@@ -55,7 +55,11 @@ const TASK_DEFAULT_CAPABILITIES: Record<AiTaskName, PromptCapabilityId[]> = {
   'story-deep-audit': ['settings', 'chapters', 'analysis', 'worldview', 'characters', 'relations', 'outline', 'project-skills'],
   'spiral-seed': ['settings', 'worldview', 'writing-style'],
   'spiral-expand': ['settings', 'worldview', 'characters', 'outline', 'writing-style'],
-  'spiral-validate': ['settings', 'worldview', 'characters', 'outline']
+  'spiral-validate': ['settings', 'worldview', 'characters', 'outline'],
+  'character-enhance': ['settings', 'characters', 'relations', 'worldview', 'writing-style'],
+  'worldview-enhance': ['settings', 'worldview', 'characters', 'writing-style'],
+  'outline-enhance': ['settings', 'outline', 'worldview', 'characters', 'writing-style'],
+  'relation-enhance': ['settings', 'characters', 'relations', 'worldview', 'writing-style']
 }
 
 /**

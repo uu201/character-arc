@@ -8,6 +8,8 @@ import { resolveAccentColor, resolveReadableTextColor } from '@/features/relatio
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { CharacterCard } from '@/types/app'
 import type { DropdownOption } from 'naive-ui'
+import AiEnhancePreview from './AiEnhancePreview.vue'
+import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
 
 const appStore = useAppStore()
 const dialog = useDialog()
@@ -187,7 +189,7 @@ function handleMenuSelect(action: string | number, character: CharacterCard): vo
 
   dialog.warning({
     title: '确认删除角色',
-    content: `确定要删除“${character.name}”吗？删除后角色资料将无法恢复。`,
+    content: `确定要删除”${character.name}”吗？删除后角色资料将无法恢复。`,
     positiveText: '确认删除',
     negativeText: '取消',
     autoFocus: false,
@@ -197,6 +199,70 @@ function handleMenuSelect(action: string | number, character: CharacterCard): vo
       message.success('角色已删除')
     }
   })
+}
+
+const ENHANCE_TASK_KEY = 'character-enhance'
+const enhanceLoading = computed(() => appStore.isAiTaskRunning(ENHANCE_TASK_KEY))
+const enhanceVisible = ref(false)
+const enhanceFields = ref<EnhanceFieldDiff[]>([])
+
+async function handleAiEnhance(): Promise<void> {
+  if (enhanceLoading.value) return
+
+  try {
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: ENHANCE_TASK_KEY,
+        kind: 'character',
+        label: 'AI 补充角色',
+        description: '正在根据上下文补充角色信息',
+        panel: 'characters'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'character-enhance',
+          settings: appStore.appSettings,
+          context: {
+            currentForm: { name: form.name, role: form.role, description: form.description, tags: form.tags },
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            characterNames: appStore.characters.map((c) => c.name),
+            worldviewTitles: appStore.worldviewEntries.map((e) => e.title),
+            organizations: appStore.organizations,
+            characterRelationships: appStore.characterRelationships,
+            organizationMemberships: appStore.organizationMemberships,
+            characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
+          }
+        }))
+    )
+
+    if (!result.success || !result.result) {
+      throw new Error(result.error ?? 'AI 补充失败，请检查模型配置')
+    }
+
+    const suggested = result.result as { name?: string; role?: string; description?: string; tags?: string[] }
+    const suggestedTags = Array.isArray(suggested.tags) ? suggested.tags : []
+
+    enhanceFields.value = [
+      { key: 'name', label: '角色名称', type: 'text', original: form.name, suggested: suggested.name ?? '', changed: (suggested.name ?? '') !== form.name && Boolean(suggested.name?.trim()) },
+      { key: 'role', label: '角色定位', type: 'text', original: form.role, suggested: suggested.role ?? '', changed: (suggested.role ?? '') !== form.role && Boolean(suggested.role?.trim()) },
+      { key: 'description', label: '角色简介', type: 'textarea', original: form.description, suggested: suggested.description ?? '', changed: (suggested.description ?? '') !== form.description && Boolean(suggested.description?.trim()) },
+      { key: 'tags', label: '角色标签', type: 'tags', original: form.tags, suggested: suggestedTags, changed: JSON.stringify(suggestedTags) !== JSON.stringify(form.tags) && suggestedTags.length > 0 }
+    ]
+    enhanceVisible.value = true
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 补充失败，请检查模型配置')
+  }
+}
+
+function handleEnhanceApply(accepted: Record<string, string | string[]>): void {
+  if (accepted.name != null) form.name = accepted.name as string
+  if (accepted.role != null) form.role = accepted.role as string
+  if (accepted.description != null) form.description = accepted.description as string
+  if (accepted.tags != null) form.tags = accepted.tags as string[]
+  enhanceVisible.value = false
 }
 </script>
 
@@ -300,12 +366,24 @@ function handleMenuSelect(action: string | number, character: CharacterCard): vo
       <template #footer>
         <div class="arc-modal-actions">
           <n-button round strong @click="editorVisible = false">取消</n-button>
+          <n-button round strong :loading="enhanceLoading" @click="handleAiEnhance">
+            <template #icon><Sparkles :size="14" /></template>
+            AI 补充
+          </n-button>
           <n-button type="primary" round strong @click="submitCharacter">
             {{ editingCharacterId ? '保存修改' : '创建角色' }}
           </n-button>
         </div>
       </template>
     </n-modal>
+
+    <AiEnhancePreview
+      :show="enhanceVisible"
+      :fields="enhanceFields"
+      :loading="enhanceLoading"
+      @apply="handleEnhanceApply"
+      @close="enhanceVisible = false"
+    />
   </section>
 </template>
 

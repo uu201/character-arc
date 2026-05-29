@@ -7,6 +7,8 @@ import { toIpcPayload } from '@/utils/ipcPayload'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import type { DropdownOption } from 'naive-ui'
 import type { WorldviewEntry } from '@/types/app'
+import AiEnhancePreview from './AiEnhancePreview.vue'
+import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
 
 const props = defineProps<{
   searchQuery?: string // 全局搜索关键词，用于过滤世界观词条
@@ -158,7 +160,7 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
 
   dialog.warning({
     title: '确认删除词条',
-    content: `确定要删除“${entry.title}”吗？删除后词条内容将无法恢复。`,
+    content: `确定要删除”${entry.title}”吗？删除后词条内容将无法恢复。`,
     positiveText: '确认删除',
     negativeText: '取消',
     autoFocus: false,
@@ -168,6 +170,63 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
       message.success('世界观词条已删除')
     }
   })
+}
+
+const ENHANCE_TASK_KEY = 'worldview-enhance'
+const enhanceLoading = computed(() => appStore.isAiTaskRunning(ENHANCE_TASK_KEY))
+const enhanceVisible = ref(false)
+const enhanceFields = ref<EnhanceFieldDiff[]>([])
+
+async function handleAiEnhance(): Promise<void> {
+  if (enhanceLoading.value) return
+
+  try {
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: ENHANCE_TASK_KEY,
+        kind: 'worldview',
+        label: 'AI 补充世界观',
+        description: '正在根据上下文补充世界观词条',
+        panel: 'world'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'worldview-enhance',
+          settings: appStore.appSettings,
+          context: {
+            currentForm: { type: form.type, title: form.title, content: form.content },
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            worldviewTitles: appStore.worldviewEntries.map((e) => e.title),
+            characterNames: appStore.characters.map((c) => c.name)
+          }
+        }))
+    )
+
+    if (!result.success || !result.result) {
+      throw new Error(result.error ?? 'AI 补充失败，请检查模型配置')
+    }
+
+    const suggested = result.result as { type?: string; title?: string; content?: string }
+
+    enhanceFields.value = [
+      { key: 'type', label: '词条分类', type: 'select', original: form.type, suggested: suggested.type ?? form.type, changed: (suggested.type ?? form.type) !== form.type && Boolean(suggested.type?.trim()) },
+      { key: 'title', label: '词条标题', type: 'text', original: form.title, suggested: suggested.title ?? '', changed: (suggested.title ?? '') !== form.title && Boolean(suggested.title?.trim()) },
+      { key: 'content', label: '词条内容', type: 'textarea', original: form.content, suggested: suggested.content ?? '', changed: (suggested.content ?? '') !== form.content && Boolean(suggested.content?.trim()) }
+    ]
+    enhanceVisible.value = true
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 补充失败，请检查模型配置')
+  }
+}
+
+function handleEnhanceApply(accepted: Record<string, string | string[]>): void {
+  if (accepted.type != null) form.type = accepted.type as string
+  if (accepted.title != null) form.title = accepted.title as string
+  if (accepted.content != null) form.content = accepted.content as string
+  enhanceVisible.value = false
 }
 </script>
 
@@ -252,12 +311,24 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
       <template #footer>
         <div class="arc-modal-actions">
           <n-button round strong @click="editorVisible = false">取消</n-button>
+          <n-button round strong :loading="enhanceLoading" @click="handleAiEnhance">
+            <template #icon><Sparkles :size="14" /></template>
+            AI 补充
+          </n-button>
           <n-button type="primary" round strong @click="submitEntry">
             {{ isEditing ? '保存修改' : '创建词条' }}
           </n-button>
         </div>
       </template>
     </n-modal>
+
+    <AiEnhancePreview
+      :show="enhanceVisible"
+      :fields="enhanceFields"
+      :loading="enhanceLoading"
+      @apply="handleEnhanceApply"
+      @close="enhanceVisible = false"
+    />
   </section>
 </template>
 

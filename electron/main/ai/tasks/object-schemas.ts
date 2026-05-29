@@ -214,6 +214,28 @@ const taskObjectSchemas: Partial<Record<AiTaskName, z.ZodTypeAny>> = {
       })).optional(),
       worldviewAdditions: z.array(worldviewEntrySchema).optional()
     })
+  }),
+  'character-enhance': z.object({
+    name: stringField,
+    role: stringField,
+    description: stringField,
+    tags: stringList
+  }),
+  'worldview-enhance': worldviewEntrySchema,
+  'outline-enhance': z.object({
+    title: stringField,
+    wordTarget: stringField.optional(),
+    conflict: stringField.optional(),
+    summary: stringField
+  }),
+  'relation-enhance': z.object({
+    name: stringField.optional(),
+    type: stringField.optional(),
+    description: stringField.optional(),
+    motto: stringField.optional(),
+    role: stringField.optional(),
+    notes: stringField.optional(),
+    intensity: z.number().optional()
   })
 }
 

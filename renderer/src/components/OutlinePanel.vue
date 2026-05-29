@@ -10,6 +10,8 @@ import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { DropdownOption, SelectOption } from 'naive-ui'
 import type { OutlineItem, OutlineItemStatus, OutlineVolume } from '@/types/app'
+import AiEnhancePreview from './AiEnhancePreview.vue'
+import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
 
 const props = defineProps<{
   searchQuery?: string // 全局搜索关键词
@@ -480,6 +482,132 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
     }
   })
 }
+
+const ENHANCE_ITEM_KEY = 'outline-enhance-item'
+const ENHANCE_VOLUME_KEY = 'outline-enhance-volume'
+const enhanceItemLoading = computed(() => appStore.isAiTaskRunning(ENHANCE_ITEM_KEY))
+const enhanceVolumeLoading = computed(() => appStore.isAiTaskRunning(ENHANCE_VOLUME_KEY))
+const enhanceItemVisible = ref(false)
+const enhanceVolumeVisible = ref(false)
+const enhanceItemFields = ref<EnhanceFieldDiff[]>([])
+const enhanceVolumeFields = ref<EnhanceFieldDiff[]>([])
+
+async function handleAiEnhanceItem(): Promise<void> {
+  if (enhanceItemLoading.value) return
+
+  const volume = appStore.outlineVolumes.find((v) => v.id === form.volumeId)
+
+  try {
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: ENHANCE_ITEM_KEY,
+        kind: 'outline',
+        label: 'AI 补充大纲节点',
+        description: '正在根据上下文补充大纲节点信息',
+        panel: 'outline'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'outline-enhance',
+          settings: appStore.appSettings,
+          context: {
+            mode: 'item',
+            currentForm: { title: form.title, wordTarget: form.wordTarget, conflict: form.conflict, summary: form.summary },
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            volumeTitle: volume?.title ?? '',
+            volumeSummary: volume?.summary ?? '',
+            outlineTitles: appStore.outlineItems.map((i) => i.title),
+            currentVolumeOutlineItems: appStore.outlineItems
+              .filter((i) => i.volumeId === form.volumeId)
+              .map((i) => ({ title: i.title, conflict: i.conflict, summary: i.summary })),
+            worldviewTitles: appStore.worldviewEntries.map((e) => e.title),
+            characterNames: appStore.characters.map((c) => c.name)
+          }
+        }))
+    )
+
+    if (!result.success || !result.result) {
+      throw new Error(result.error ?? 'AI 补充失败，请检查模型配置')
+    }
+
+    const suggested = result.result as { title?: string; wordTarget?: string; conflict?: string; summary?: string }
+
+    enhanceItemFields.value = [
+      { key: 'title', label: '节点标题', type: 'text', original: form.title, suggested: suggested.title ?? '', changed: (suggested.title ?? '') !== form.title && Boolean(suggested.title?.trim()) },
+      { key: 'wordTarget', label: '预估字数', type: 'text', original: form.wordTarget, suggested: suggested.wordTarget ?? '', changed: (suggested.wordTarget ?? '') !== form.wordTarget && Boolean(suggested.wordTarget?.trim()) },
+      { key: 'conflict', label: '核心冲突', type: 'text', original: form.conflict, suggested: suggested.conflict ?? '', changed: (suggested.conflict ?? '') !== form.conflict && Boolean(suggested.conflict?.trim()) },
+      { key: 'summary', label: '剧情描述', type: 'textarea', original: form.summary, suggested: suggested.summary ?? '', changed: (suggested.summary ?? '') !== form.summary && Boolean(suggested.summary?.trim()) }
+    ]
+    enhanceItemVisible.value = true
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 补充失败，请检查模型配置')
+  }
+}
+
+function handleEnhanceItemApply(accepted: Record<string, string | string[]>): void {
+  if (accepted.title != null) form.title = accepted.title as string
+  if (accepted.wordTarget != null) form.wordTarget = accepted.wordTarget as string
+  if (accepted.conflict != null) form.conflict = accepted.conflict as string
+  if (accepted.summary != null) form.summary = accepted.summary as string
+  enhanceItemVisible.value = false
+}
+
+async function handleAiEnhanceVolume(): Promise<void> {
+  if (enhanceVolumeLoading.value) return
+
+  try {
+    const result = await appStore.runTrackedAiTask(
+      {
+        key: ENHANCE_VOLUME_KEY,
+        kind: 'outline',
+        label: 'AI 补充分卷',
+        description: '正在根据上下文补充分卷信息',
+        panel: 'outline'
+      },
+      () =>
+        window.characterArc.generateAi(toIpcPayload({
+          task: 'outline-enhance',
+          settings: appStore.appSettings,
+          context: {
+            mode: 'volume',
+            currentForm: { title: volumeForm.title, wordTarget: volumeForm.wordTarget, summary: volumeForm.summary },
+            projectTitle: appStore.currentProject?.title,
+            projectGenre: appStore.currentProject?.genre,
+            writingStyleLabel: writingStyle.value.label,
+            writingStylePrompt: writingStyle.value.prompt,
+            volumeTitles: appStore.outlineVolumes.map((v) => v.title),
+            worldviewTitles: appStore.worldviewEntries.map((e) => e.title),
+            characterNames: appStore.characters.map((c) => c.name)
+          }
+        }))
+    )
+
+    if (!result.success || !result.result) {
+      throw new Error(result.error ?? 'AI 补充失败，请检查模型配置')
+    }
+
+    const suggested = result.result as { title?: string; wordTarget?: string; summary?: string }
+
+    enhanceVolumeFields.value = [
+      { key: 'title', label: '分卷标题', type: 'text', original: volumeForm.title, suggested: suggested.title ?? '', changed: (suggested.title ?? '') !== volumeForm.title && Boolean(suggested.title?.trim()) },
+      { key: 'wordTarget', label: '目标字数', type: 'text', original: volumeForm.wordTarget, suggested: suggested.wordTarget ?? '', changed: (suggested.wordTarget ?? '') !== volumeForm.wordTarget && Boolean(suggested.wordTarget?.trim()) },
+      { key: 'summary', label: '分卷摘要', type: 'textarea', original: volumeForm.summary, suggested: suggested.summary ?? '', changed: (suggested.summary ?? '') !== volumeForm.summary && Boolean(suggested.summary?.trim()) }
+    ]
+    enhanceVolumeVisible.value = true
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : 'AI 补充失败，请检查模型配置')
+  }
+}
+
+function handleEnhanceVolumeApply(accepted: Record<string, string | string[]>): void {
+  if (accepted.title != null) volumeForm.title = accepted.title as string
+  if (accepted.wordTarget != null) volumeForm.wordTarget = accepted.wordTarget as string
+  if (accepted.summary != null) volumeForm.summary = accepted.summary as string
+  enhanceVolumeVisible.value = false
+}
 </script>
 
 <template>
@@ -643,12 +771,24 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
       <template #footer>
         <div class="arc-modal-actions">
           <n-button round strong @click="editorVisible = false">取消</n-button>
+          <n-button round strong :loading="enhanceItemLoading" @click="handleAiEnhanceItem">
+            <template #icon><Sparkles :size="14" /></template>
+            AI 补充
+          </n-button>
           <n-button type="primary" round strong @click="submitOutline">
             {{ editingOutlineId ? '保存修改' : '创建节点' }}
           </n-button>
         </div>
       </template>
     </n-modal>
+
+    <AiEnhancePreview
+      :show="enhanceItemVisible"
+      :fields="enhanceItemFields"
+      :loading="enhanceItemLoading"
+      @apply="handleEnhanceItemApply"
+      @close="enhanceItemVisible = false"
+    />
 
     <n-modal
       :show="volumeEditorVisible"
@@ -677,12 +817,24 @@ function handleMenuSelect(action: string | number, item: OutlineItem): void {
       <template #footer>
         <div class="arc-modal-actions">
           <n-button round strong @click="volumeEditorVisible = false">取消</n-button>
+          <n-button round strong :loading="enhanceVolumeLoading" @click="handleAiEnhanceVolume">
+            <template #icon><Sparkles :size="14" /></template>
+            AI 补充
+          </n-button>
           <n-button type="primary" round strong @click="submitVolume">
             {{ editingVolumeId ? '保存修改' : '创建分卷' }}
           </n-button>
         </div>
       </template>
     </n-modal>
+
+    <AiEnhancePreview
+      :show="enhanceVolumeVisible"
+      :fields="enhanceVolumeFields"
+      :loading="enhanceVolumeLoading"
+      @apply="handleEnhanceVolumeApply"
+      @close="enhanceVolumeVisible = false"
+    />
   </section>
 </template>
 

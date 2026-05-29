@@ -28,6 +28,10 @@ import chapterRepair from './chapter-repair'
 import spiralSeed from './spiral-seed'
 import spiralExpand from './spiral-expand'
 import spiralValidate from './spiral-validate'
+import characterEnhance from './character-enhance'
+import worldviewEnhance from './worldview-enhance'
+import outlineEnhance from './outline-enhance'
+import relationEnhance from './relation-enhance'
 
 /** 任务处理器注册表，按任务名称映射 */
 const TASK_REGISTRY = new Map<AiTaskName, TaskHandler>()
@@ -67,6 +71,10 @@ register(chapterRepair)
 register(spiralSeed)
 register(spiralExpand)
 register(spiralValidate)
+register(characterEnhance)
+register(worldviewEnhance)
+register(outlineEnhance)
+register(relationEnhance)
 
 /**
  * 根据任务名称获取对应的任务处理器

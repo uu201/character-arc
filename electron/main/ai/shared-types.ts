@@ -69,6 +69,10 @@ export type AiTaskName =
   | 'chapter-repair'
   | 'inspiration-pack'
   | 'story-deep-audit'
+  | 'character-enhance'
+  | 'worldview-enhance'
+  | 'outline-enhance'
+  | 'relation-enhance'
 
 /**
  * AI 运行时注入 prompt 的知识条目。
