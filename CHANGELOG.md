@@ -4,6 +4,16 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.6.0] - 2026-05-29
+
+### Added
+
+- **AI 辅助编辑**：角色、世界观、大纲（节点+分卷）、关系组织（组织+关系+归属）编辑弹窗新增"AI 补充"按钮，可基于当前内容和项目上下文智能补充或扩写各字段
+- **AI 补充预览对比**：新增可复用的 AiEnhancePreview 组件，AI 生成结果以弹窗形式逐字段对比展示，支持全部采纳、选择性采纳或放弃
+- **关系组织 AI 生成**：关系组织面板顶部新增"AI 生成组织""AI 生成关系""AI 生成归属"按钮，可一键从零生成新的组织、角色关系或成员归属
+
+[1.6.0]: https://github.com/uu201/character-arc/releases/tag/v1.6.0
+
 ## [1.5.1] - 2026-05-28
 
 ### Fixed
