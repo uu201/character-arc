@@ -9,11 +9,13 @@ import HomepageProjectCollection from '@/components/home/HomepageProjectCollecti
 import HomepageSettingsModal from '@/components/home/HomepageSettingsModal.vue'
 import ProjectEditorModal from '@/components/home/ProjectEditorModal.vue'
 import { useAppStore } from '@/stores/app'
+import { useStartupCheck } from '@/composables/useStartupCheck'
 import type { ProjectSummary } from '@/types/app'
 
 const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
+const { announcementStatus, updateStatus, markAnnouncementRead, markUpdateRead } = useStartupCheck()
 
 const settingsVisible = ref(false)
 const editorVisible = ref(false)
@@ -146,13 +148,15 @@ function requestDeleteProject(projectId: string): void {
   <section class="project-center">
     <div class="project-shell">
       <HomepageHero
+        :announcement-status="announcementStatus"
+        :update-status="updateStatus"
         @create="appStore.openWizard()"
         @open-deconstruction="openDeconstructionLibrary"
         @open-cover-workbench="openCoverWorkbenchPage"
         @open-skills="openSkillsPage"
         @open-settings="settingsVisible = true"
-        @open-announcement="announcementVisible = true"
-        @check-update="updateVisible = true"
+        @open-announcement="markAnnouncementRead(); announcementVisible = true"
+        @check-update="markUpdateRead(); updateVisible = true"
       />
 
       <HomepageProjectCollection

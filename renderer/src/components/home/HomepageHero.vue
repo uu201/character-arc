@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { Bell, ImagePlus, LibraryBig, Plus, RefreshCw, Settings2, Wrench } from 'lucide-vue-next'
 import { NButton } from 'naive-ui'
+import type { StatusIndicator } from '@/composables/useStartupCheck'
+
+defineProps<{
+  announcementStatus?: StatusIndicator
+  updateStatus?: StatusIndicator
+}>()
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -23,9 +29,11 @@ const emit = defineEmits<{
     <div class="hero-actions">
       <button class="hero-icon-btn" title="公告" @click="emit('openAnnouncement')">
         <Bell :size="18" />
+        <span v-if="announcementStatus && announcementStatus !== 'none'" class="status-dot" :class="`status-dot--${announcementStatus}`" />
       </button>
       <button class="hero-icon-btn" title="检查更新" @click="emit('checkUpdate')">
         <RefreshCw :size="18" />
+        <span v-if="updateStatus && updateStatus !== 'none'" class="status-dot" :class="`status-dot--${updateStatus}`" />
       </button>
 
       <div class="action-group secondary-actions">
@@ -89,6 +97,7 @@ const emit = defineEmits<{
 }
 
 .hero-icon-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -154,5 +163,25 @@ const emit = defineEmits<{
     flex: 1;
     justify-content: center;
   }
+}
+
+.status-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.status-dot--new {
+  background: #f43f5e;
+  box-shadow: 0 0 0 2px var(--arc-bg-surface);
+}
+
+.status-dot--error {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px var(--arc-bg-surface);
 }
 </style>
