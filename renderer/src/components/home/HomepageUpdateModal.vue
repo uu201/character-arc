@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { marked } from 'marked'
 import { ArrowUpCircle, Download, ExternalLink } from 'lucide-vue-next'
 import { NButton, NModal, NResult, NSpin, NTag } from 'naive-ui'
 
@@ -57,6 +58,12 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
+const renderedNotes = computed(() => {
+  const notes = updateInfo.value?.releaseNotes
+  if (!notes) return ''
+  return marked.parse(notes, { async: false }) as string
+})
+
 function handleAfterEnter(): void {
   if (!updateInfo.value && !loading.value && !error.value) {
     check()
@@ -105,7 +112,7 @@ function handleAfterEnter(): void {
 
         <div v-if="updateInfo.releaseNotes" class="update-notes">
           <h4>更新说明</h4>
-          <pre>{{ updateInfo.releaseNotes }}</pre>
+          <div class="update-notes-content" v-html="renderedNotes" />
         </div>
 
         <div v-if="updateInfo.assets.length" class="update-assets">
@@ -198,20 +205,47 @@ function handleAfterEnter(): void {
   color: var(--arc-text-secondary);
 }
 
-.update-notes pre {
+.update-notes-content {
   margin: 0;
   padding: 12px;
   border: 1px solid var(--arc-border);
   border-radius: 8px;
   background: var(--arc-bg-weak);
-  font-family: inherit;
   font-size: 13px;
   line-height: 1.65;
-  white-space: pre-wrap;
-  word-break: break-word;
   max-height: 200px;
   overflow-y: auto;
   color: var(--arc-text-secondary);
+}
+
+.update-notes-content :deep(h1),
+.update-notes-content :deep(h2),
+.update-notes-content :deep(h3) {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--arc-text-primary);
+}
+
+.update-notes-content :deep(ul),
+.update-notes-content :deep(ol) {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.update-notes-content :deep(li) {
+  margin-bottom: 2px;
+}
+
+.update-notes-content :deep(p) {
+  margin: 4px 0;
+}
+
+.update-notes-content :deep(code) {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--arc-bg-surface);
+  font-size: 12px;
 }
 
 .asset-item {
