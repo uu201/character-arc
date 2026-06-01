@@ -4,6 +4,25 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.6.2] - 2026-06-01
+
+### Added
+
+- **AI 对话多轮推理显示**：新增 ChapterAiTurn 数据结构，支持按轮次组织 AI 推理过程，每轮推理独立显示文本气泡、工具调用卡片和编辑事件，层次更清晰
+- **AI 面板宽度调节**：AI 侧边栏左侧新增拖动分隔条，支持 280px-600px 范围调整，双击恢复默认宽度，用户偏好持久化保存
+
+### Changed
+
+- **工具调用标签细化**：read_project_data 根据 entity_type 显示具体内容（角色设定、世界观、章节大纲、剧情线索），skill_load 显示技能 ID，提升可读性
+- **AI 推理步数提升**：chapter-assistant 最大推理步数从 8 提升到 20，确保复杂任务有足够余量完成多轮推理
+- **对话窗口样式优化**：多轮推理容器间距 12px，单轮内部间距 6px，工具调用卡片左缩进 12px，气泡圆角优化，拖动手柄默认隐藏 hover 显示
+
+### Fixed
+
+- **AI 停止与报错状态展示**：修复章节 AI 助手停止响应和报错时的状态显示异常，确保用户能正确感知 AI 任务状态
+
+[1.6.2]: https://github.com/zhouyeshan/character-arc/releases/tag/v1.6.2
+
 ## [1.6.1] - 2026-05-30
 
 ### Added
