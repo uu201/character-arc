@@ -198,7 +198,7 @@ export function formatOutlineChapterSplit(source: unknown): string {
 }
 
 /**
- * 将关联章节数据格式化为可读文本，最多取前 2 条。
+ * 将关联章节数据格式化为可读文本，最多取前 4 条。
  *
  * @param source 关联章节数组数据
  * @returns 格式化后的关联章节信息字符串，无数据时返回空串
@@ -206,7 +206,7 @@ export function formatOutlineChapterSplit(source: unknown): string {
 export function formatRelatedChapters(source: unknown): string {
   return Array.isArray(source)
     ? source
-        .slice(0, 2)
+        .slice(0, 4)
         .map((item, index) => {
           const record = item as Record<string, unknown>
           return `关联章节${index + 1}：${String(record.title ?? '')}\n摘要：${String(record.summary ?? '')}\n正文预览：${String(record.preview ?? '')}`

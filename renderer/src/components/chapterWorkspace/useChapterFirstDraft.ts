@@ -296,7 +296,8 @@ export function useChapterFirstDraft(): {
             .slice(-4)
             .map((item) => ({
               title: item.title,
-              summary: item.summary
+              summary: item.summary,
+              preview: getChapterPreviewText(item.content ?? '').slice(0, 800)
             }))
           const relatedTitles = new Set(relatedChapters.map((r) => r.title))
           const volumeChapterSummaries = precedingChapters

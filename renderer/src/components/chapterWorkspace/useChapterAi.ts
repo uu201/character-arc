@@ -4,6 +4,7 @@ import { buildChapterAssistantContext } from '@/features/ai/chapterAssistantCont
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { ChapterInsertionMode } from '@/types/app'
+import { getChapterPreviewText } from '@/features/chapters/editorContent'
 
 export type ChapterAiRole = 'user' | 'assistant'
 
@@ -509,24 +510,43 @@ export function useChapterAi(): {
           timeoutMs: 0
         },
         async () => {
+          const currentChapterIndex = appStore.chapters.findIndex((item) => item.id === chapter.id)
+          const precedingChapters = appStore.chapters.slice(0, currentChapterIndex)
+          const relatedChapters = precedingChapters
+            .slice(-4)
+            .map((item) => ({
+              title: item.title,
+              summary: item.summary,
+              preview: getChapterPreviewText(item.content ?? '').slice(0, 800)
+            }))
+          const relatedTitles = new Set(relatedChapters.map((r) => r.title))
+          const volumeChapterSummaries = precedingChapters
+            .filter((c) => c.volumeId === chapter.volumeId && !relatedTitles.has(c.title))
+            .map((c) => ({ title: c.title, summary: c.summary }))
+          const firstChapter = appStore.chapters[0]
+          const novelOpenerSummary =
+            firstChapter && firstChapter.id !== chapter.id && !relatedTitles.has(firstChapter.title)
+              ? { title: firstChapter.title, summary: firstChapter.summary }
+              : undefined
+
           const context = buildChapterAssistantContext({
             project: appStore.currentProject,
             chapter: chapter,
             chapterVolume: appStore.selectedChapterVolume,
-            relatedChapters: [],
-            volumeChapterSummaries: [],
-            novelOpenerSummary: undefined,
+            relatedChapters,
+            volumeChapterSummaries,
+            novelOpenerSummary,
             recentMessages: messages.value
               .slice(-8, -2)
               .map((item) => ({ role: item.role, content: item.content })),
-            worldviewEntries: [],
-            characters: [],
-            organizations: [],
-            characterRelationships: [],
-            organizationMemberships: [],
-            inspirationEntries: [],
-            outlineItems: [],
-            plotThreads: [],
+            worldviewEntries: appStore.worldviewEntries,
+            characters: appStore.characters,
+            organizations: appStore.organizations,
+            characterRelationships: appStore.characterRelationships,
+            organizationMemberships: appStore.organizationMemberships,
+            inspirationEntries: appStore.inspirationEntries,
+            outlineItems: appStore.outlineItems.filter((item) => item.volumeId === chapter.volumeId).slice(0, 6),
+            plotThreads: appStore.plotThreads,
             workflowDocuments: [],
             knowledgeDocuments: [],
             selectedText: selectedText.value,
