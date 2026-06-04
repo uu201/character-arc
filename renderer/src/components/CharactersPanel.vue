@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { MoreVertical, Network, Plus, Search, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NTag, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
@@ -40,6 +40,7 @@ const AI_TASK_KEY = 'character-card'
 const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY)) // AI 生成角色时的加载状态（走全局注册表）
 const editorVisible = ref(false) // 控制角色编辑弹窗的显示
 const editingCharacterId = ref<string | null>(null) // 当前正在编辑的角色 ID，null 表示新建模式
+const focusedCharacterId = ref<string>('')
 // 角色编辑表单数据
 const form = reactive({
   name: '',
@@ -264,6 +265,27 @@ function handleEnhanceApply(accepted: Record<string, string | string[]>): void {
   if (accepted.tags != null) form.tags = accepted.tags as string[]
   enhanceVisible.value = false
 }
+
+watch(
+  () => appStore.assistantFocusTarget,
+  async (target) => {
+    if (!target || target.panel !== 'characters') {
+      return
+    }
+
+    focusedCharacterId.value = target.entityId
+    await nextTick()
+    document.querySelector<HTMLElement>(`[data-assistant-focus-id="${target.entityId}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.setTimeout(() => {
+      appStore.clearAssistantFocusTarget('characters', target.entityId)
+      if (focusedCharacterId.value === target.entityId) {
+        focusedCharacterId.value = ''
+      }
+    }, 2200)
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -302,7 +324,14 @@ function handleEnhanceApply(accepted: Record<string, string | string[]>): void {
 
     <div class="character-grid">
       <!-- Direct card click keeps high-frequency editing faster than routing every change through the overflow menu. -->
-      <article v-for="character in filteredCharacters" :key="character.id" class="character-card" @click="openEditor(character)">
+      <article
+        v-for="character in filteredCharacters"
+        :key="character.id"
+        class="character-card"
+        :class="{ 'assistant-focused': focusedCharacterId === character.id }"
+        :data-assistant-focus-id="character.id"
+        @click="openEditor(character)"
+      >
         <div class="avatar" :style="avatarStyle(character.avatar, character.name)">
           <span>{{ character.name.slice(0, 1) }}</span>
         </div>
@@ -501,6 +530,11 @@ function handleEnhanceApply(accepted: Record<string, string | string[]>): void {
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease;
+}
+
+.character-card.assistant-focused {
+  border-color: color-mix(in srgb, var(--arc-accent) 78%, white 22%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arc-accent) 16%, transparent), 0 24px 54px rgba(15, 23, 42, 0.18);
 }
 
 .character-card:hover {

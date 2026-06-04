@@ -36,6 +36,10 @@ function resolveStreamingAgentMaxSteps(taskName: AiTaskPayload['task'], optional
     return 20
   }
 
+  if (taskName === 'global-assistant') {
+    return 12
+  }
+
   return undefined
 }
 
@@ -98,9 +102,14 @@ export async function runStreamingAgentTask(
     outline: '章节大纲（使用 read_project_data entity_type=outline）',
     characters: '角色设定卡（使用 read_project_data entity_type=characters）',
     worldview: '世界观设定（使用 read_project_data entity_type=worldview）',
+    organizations: '组织设定（使用 read_project_data entity_type=organizations）',
+    relationships: '角色关系（使用 read_project_data entity_type=relationships）',
     plotThreads: '剧情线索（使用 read_project_data entity_type=plot_threads）',
+    inspiration: '灵感记录（使用 read_project_data entity_type=inspiration）',
     knowledge: '项目知识库（使用 read_project_data entity_type=knowledge）',
-    deconstructionLibrary: '拆书知识库（使用 read_project_data entity_type=deconstruction_library）'
+    deconstructionLibrary: '拆书知识库（使用 read_project_data entity_type=deconstruction_library）',
+    workflowDocuments: '工作流文档（使用 read_project_data entity_type=workflow_documents）',
+    projectConstraints: '项目约束（使用 read_project_data entity_type=project_constraints）'
   }
   const enabledModulesList = enabledModules
     .filter((m) => moduleLabels[m])
@@ -119,25 +128,54 @@ export async function runStreamingAgentTask(
       ].join('\n')
     : ''
 
+  const globalAssistantRules = task.task === 'global-assistant' || task.task === 'global-assistant-proposal'
+    ? [
+        '',
+        '## Global Assistant Agent Rules',
+        '',
+        '- Decide which project modules to inspect before answering. Do not rely only on short summaries when the request depends on concrete project facts.',
+        '- Prefer `read_project_data` without `entity_type` to get a quick index, then read only the modules that matter.',
+        '- Use narrow reads whenever possible: `summary_only=true` for reconnaissance, `limit` to avoid over-reading, `entity_id` for exact entities, and `doc_key` for workflow documents.',
+        '- Do not rely on the static skill list alone. When the task may benefit from project skills, you must decide which skills are relevant and explicitly call `skill_load` yourself before concluding.',
+        '- Use `search_project` first when the user mentions a specific concept, role, event, clue, workflow artifact, or rule and you are not sure where it lives.',
+        '- Treat `project_constraints` as hard boundaries and `workflow_documents` as live planning artifacts. If they may affect the answer, inspect them before concluding.',
+        '- Prefer targeted reads over loading every module. Read just enough context to answer well.',
+        '- After using tools, produce a direct answer for the user instead of stopping at notes or partial findings.'
+      ].join('\n')
+    : ''
+
+  const chapterToolRules = task.task === 'chapter-assistant' || task.task === 'chapter-first-draft'
+    ? [
+        '- 每次对话开始时，先用 `read_chapter` 读取当前章节内容，了解正文现状。',
+        '- 涉及创作、改写、续写时，先用 `read_project_data` 或 `search_project` 读取相关设定，优先小范围读取，确保内容一致性。',
+        '- 当你不确定资料在哪个模块时，先用 `search_project`；当你只需要目录或概览时，先用 `read_project_data({ summary_only: true, limit: ... })`。',
+        '- 知识文档、工作流文档、项目约束都可能影响创作判断；如果请求涉及风格、流程、边界、硬性规则，应主动检查这些模块。',
+        '- 【重要】当用户要求修改、改写、应用建议、执行修改时（如"改一下"、"修改吧"、"按建议改"、"应用到正文"等），你必须使用 `edit_chapter` 工具直接修改正文，而不是只输出建议文本。用户说"改"就意味着要你动手改，不是再给建议。',
+        '- 修改前先用 `read_chapter` 读取当前内容，确认要修改的位置，然后用 `edit_chapter` 执行替换。',
+        '- 如果用户的意图不明确（比如只是问"怎么改比较好"），可以先给建议；但一旦用户确认或要求执行，立即使用工具修改。'
+      ]
+    : [
+        '- 只有在用户明确提到某一章、当前章节，或任务确实依赖章节正文时，才使用 `read_chapter`。',
+        '- 如果没有活动章节，就不要盲目调用 `read_chapter`；先用 `list_chapters`、`search_project` 或 `read_project_data` 找到目标章节或改读别的项目资料。',
+        '- 只有在用户明确要求修改章节正文，且已有活动章节或明确章节目标时，才使用 `edit_chapter`。',
+        '- 当你不确定资料在哪个模块时，先用 `search_project`；当你只需要目录或概览时，先用 `read_project_data({ summary_only: true, limit: ... })`。',
+        '- 知识文档、工作流文档、项目约束都可能影响判断；如果请求涉及风格、流程、边界、硬性规则，应主动检查这些模块。'
+      ]
+
   const chapterToolsBlock = [
     '',
     '## 可用工具',
     '',
     '你可以使用以下工具访问项目数据和操作章节：',
-    '- `read_project_data`: 读取项目完整设定（世界观、角色、组织、关系、大纲、剧情线索、灵感、知识文档/拆书知识库）',
+    '- `read_project_data`: 读取项目设定与资料，支持先取索引，再按 `entity_id` / `summary_only` / `limit` / `doc_key` 精读世界观、角色、组织、关系、大纲、剧情线索、灵感、知识文档、拆书知识库、工作流文档、项目约束',
     '- `read_chapter`: 读取章节内容和元数据',
     '- `edit_chapter`: 直接编辑章节正文（替换/插入/追加）',
-    '- `search_project`: 搜索项目中的世界观、角色、大纲等资料',
+    '- `search_project`: 搜索项目中的世界观、角色、组织、关系、大纲、章节、剧情线索、灵感、工作流文档、项目约束等资料，并返回 `entity_type` / `entity_id`',
     '- `list_chapters`: 获取所有章节列表',
     '',
     '## 工具使用规则',
     '',
-    '- 每次对话开始时，先用 `read_chapter` 读取当前章节内容，了解正文现状。',
-    '- 涉及创作、改写、续写时，先用 `read_project_data` 读取相关设定（角色、世界观、大纲、知识文档等），确保内容一致性。',
-    '- 知识文档（拆书知识库）包含写作技法、风格参考等重要资料，创作和改写时应主动查阅：先调用 `read_project_data({ entity_type: "knowledge" })` 获取列表，再按需读取具体文档。',
-    '- 【重要】当用户要求修改、改写、应用建议、执行修改时（如"改一下"、"修改吧"、"按建议改"、"应用到正文"等），你必须使用 `edit_chapter` 工具直接修改正文，而不是只输出建议文本。用户说"改"就意味着要你动手改，不是再给建议。',
-    '- 修改前先用 `read_chapter` 读取当前内容，确认要修改的位置，然后用 `edit_chapter` 执行替换。',
-    '- 如果用户的意图不明确（比如只是问"怎么改比较好"），可以先给建议；但一旦用户确认或要求执行，立即使用工具修改。'
+    ...chapterToolRules
   ].join('\n')
 
   const chapterDraftRules = task.task === 'chapter-first-draft'
@@ -153,7 +191,7 @@ export async function runStreamingAgentTask(
       ].join('\n')
     : ''
 
-  const systemPrompt = `${prompt.system}${requiredSkillBlock}${chapterToolsBlock}${contextModulesBlock}\n${buildSkillIndex(optionalSkillDefs)}\n${buildAgentBehaviorRules()}${chapterDraftRules}${skillUsageHints}`
+  const systemPrompt = `${prompt.system}${requiredSkillBlock}${chapterToolsBlock}${contextModulesBlock}\n${buildSkillIndex(optionalSkillDefs)}\n${buildAgentBehaviorRules()}${globalAssistantRules}${chapterDraftRules}${skillUsageHints}`
 
   const skillTools = createSkillTools({
     resolveSkill: (id) => getSkillById(id, projectId || undefined),

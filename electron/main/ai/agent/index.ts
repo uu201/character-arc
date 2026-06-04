@@ -18,6 +18,8 @@ import { buildRepairPrompt } from '../prompts/repair'
 import { runAgent } from './run-agent'
 import { createSkillTools } from './tools/skill-tools'
 import { createKnowledgeTools } from './tools/knowledge-tools'
+import { createChapterTools } from './tools/chapter-tools'
+import { createProjectDataTools } from './tools/project-data-tools'
 import { buildAgentBehaviorRules, buildSkillIndex } from './system-prompt'
 
 function stripSkillFrontmatter(content: string): string {
@@ -66,7 +68,23 @@ export async function runAgentTask(
       }).join('\n\n')}`
     : ''
 
-  const systemPrompt = `${prompt.system}${requiredSkillBlock}\n${buildSkillIndex(optionalSkillDefs)}\n${buildAgentBehaviorRules()}`
+  const globalAssistantRules = task.task === 'global-assistant' || task.task === 'global-assistant-proposal'
+    ? [
+        '',
+        '## Global Assistant Agent Rules',
+        '',
+        '- Decide which project modules to inspect before answering. Do not rely only on short summaries when the request depends on concrete project facts.',
+        '- Prefer `read_project_data` without `entity_type` to get a quick index, then read only the modules that matter.',
+        '- Use narrow reads whenever possible: `summary_only=true` for reconnaissance, `limit` to avoid over-reading, `entity_id` for exact entities, and `doc_key` for workflow documents.',
+        '- Do not rely on the static skill list alone. When the task may benefit from project skills, you must decide which skills are relevant and explicitly call `skill_load` yourself before concluding.',
+        '- Use `search_project` first when the user mentions a specific concept, role, event, clue, workflow artifact, or rule and you are not sure where it lives.',
+        '- Treat `project_constraints` as hard boundaries and `workflow_documents` as live planning artifacts. If they may affect the answer, inspect them before concluding.',
+        '- Prefer targeted reads over loading every module. Read just enough context to answer well.',
+        '- After using tools, produce a direct answer for the user instead of stopping at notes or partial findings.'
+      ].join('\n')
+    : ''
+
+  const systemPrompt = `${prompt.system}${requiredSkillBlock}\n${buildSkillIndex(optionalSkillDefs)}\n${buildAgentBehaviorRules()}${globalAssistantRules}`
 
   const skillTools = createSkillTools({
     resolveSkill: (id) => getSkillById(id, projectId || undefined),
@@ -80,7 +98,14 @@ export async function runAgentTask(
     defaultSourceLabel: referenceTitle || 'agent'
   })
 
-  const tools = [...skillTools, ...knowledgeTools]
+  const chapterTools = createChapterTools({
+    currentChapterId: chapterId || '',
+    onEditApplied: NOOP_AGENT_HANDLERS.onEditApplied
+  })
+
+  const projectDataTools = createProjectDataTools()
+
+  const tools = [...skillTools, ...knowledgeTools, ...chapterTools, ...projectDataTools]
   const controller = new AbortController()
 
   logPrompt('AGENT_REQUEST', settings, { system: systemPrompt, user: prompt.user }, task.task, usedSkillIds)

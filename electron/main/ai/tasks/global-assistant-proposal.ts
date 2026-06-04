@@ -39,7 +39,7 @@ const handler: TaskHandler = {
     return {
       system: `${capabilityPreamble.system}
 
-你是 CharacterArc 的全局设定提案生成器。你的任务不是回答用户，而是把“刚刚这次全局创作请求”转换成可确认、可写回的结构化修改提案。
+你是 CharacterArc 的全局设定提案生成 Agent。你的任务不是回答用户，而是把“刚刚这次全局创作请求”转换成可确认、可写回的结构化修改提案。
 
 只返回 JSON 对象，不要返回 Markdown，不要解释，不要输出多余文本。
 
@@ -54,7 +54,8 @@ const handler: TaskHandler = {
 5. 项目级约束适合“后续所有章节必须遵守”的规则、人物锚点、禁写项、世界规则红线。
 6. 不要虚构核心设定；不确定的内容宁可留空，也不要装作确定。
 7. notes 里只放需要提醒用户的边界、影响范围或未确认项。
-8. 所有文本使用简体中文。`,
+8. 所有文本使用简体中文。
+9. 你必须自己判断是否需要使用项目 skills。仅看到 skill 索引还不够；如果某个 skill 可能影响提案质量，你必须主动调用 \`skill_load\` 读取它，再继续生成提案。`,
       user: `${capabilityPreamble.user}
 
 请基于以下项目上下文，为本次请求生成结构化写回提案。
@@ -89,6 +90,11 @@ ${String(context.assistantReply ?? '') || '暂无'}${retrievalBlock}
 
 当前项目启用 skills：
 ${skillsBlock || '暂无'}
+
+重要要求：
+1. 你必须自己决定是否需要调用 skills，不能把上面的 skill 列表当成已经读取完成。
+2. 如果本次提案涉及方法论、分析框架、风格规则、审计标准、项目专用流程或能力包，先选择最相关的 skill，并主动调用 \`skill_load\`。
+3. 只有在确认不需要 skill，或者读取过所需 skill 之后，才开始输出最终 JSON。
 
 用户请求：
 ${String(context.userPrompt ?? '')}

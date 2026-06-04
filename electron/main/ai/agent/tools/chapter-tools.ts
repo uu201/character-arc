@@ -1,4 +1,4 @@
-import type { Tool, ToolContext } from './types'
+import type { Tool } from './types'
 import {
   applyChapterEdit,
   listProjectChapters,
@@ -6,54 +6,71 @@ import {
   searchProjectData
 } from './chapter-data-access'
 
-/** 章节工具所需的上下文和回调 */
 export type ChapterToolCallbacks = {
   currentChapterId: string
   onEditApplied?: (chapterId: string, editType: string, preview: string, versionId: string) => void
 }
 
-/**
- * 创建章节相关的一组工具（读取、编辑、搜索、列表）
- * @param callbacks - 章节上下文与回调
- * @returns 工具数组
- */
 export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
   const { currentChapterId, onEditApplied } = callbacks
 
   const readChapter: Tool = {
     definition: {
       name: 'read_chapter',
-      description: '读取当前项目中某个章节的内容和元数据。不传 chapter_id 时读取当前正在编辑的章节。',
+      description: 'Read a chapter in the current project. If chapter_id is omitted, read the currently active chapter.',
       inputSchema: {
         type: 'object',
         properties: {
-          chapter_id: { type: 'string', description: '章节 ID。省略则读取当前章节。' },
-          include_content: { type: 'boolean', description: '是否包含正文内容（默认 true）。设为 false 只返回标题/摘要/状态等元数据。' }
+          chapter_id: {
+            type: 'string',
+            description: 'Optional chapter ID. Omit to read the current chapter.'
+          },
+          include_content: {
+            type: 'boolean',
+            description: 'Whether to include full chapter content. Defaults to true.'
+          }
         }
       }
     },
     handler: async (input, ctx) => {
       const chapterId = String(input.chapter_id || currentChapterId).trim()
-      if (!chapterId) return { content: '错误：未指定章节 ID，且当前没有正在编辑的章节。', isError: true }
+      if (!chapterId) {
+        return {
+          content: 'No chapter_id was provided and there is no active chapter. Use list_chapters first or ask the user which chapter to inspect.',
+          isError: true
+        }
+      }
 
       const chapter = await readChapterFromDb(ctx.projectId, chapterId)
-      if (!chapter) return { content: `错误：未找到章节 ${chapterId}`, isError: true }
+      if (!chapter) {
+        return { content: `Chapter not found: ${chapterId}`, isError: true }
+      }
 
       const includeContent = input.include_content !== false
       const plainContent = includeContent
-        ? chapter.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim()
+        ? chapter.content
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .trim()
         : null
 
       const lines = [
-        `标题: ${chapter.title}`,
-        `状态: ${chapter.status}`,
-        `目标字数: ${chapter.wordTarget}`,
-        `摘要: ${chapter.summary || '(无)'}`,
+        `Title: ${chapter.title}`,
+        `Status: ${chapter.status}`,
+        `Word target: ${chapter.wordTarget}`,
+        `Summary: ${chapter.summary || '(none)'}`
       ]
+
       if (plainContent) {
-        const truncated = plainContent.length > 15000 ? plainContent.slice(0, 15000) + '\n...(内容过长已截断)' : plainContent
-        lines.push(`\n正文内容:\n${truncated}`)
+        const truncated = plainContent.length > 15000
+          ? `${plainContent.slice(0, 15000)}\n...(truncated)`
+          : plainContent
+        lines.push(`\nContent:\n${truncated}`)
       }
+
       return { content: lines.join('\n') }
     }
   }
@@ -61,28 +78,48 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
   const editChapter: Tool = {
     definition: {
       name: 'edit_chapter',
-      description: '编辑当前章节的正文内容。支持三种操作：replace（替换匹配的文本段）、insert（在指定位置插入）、append（追加到末尾）。编辑会立即生效，系统会自动创建版本快照供撤销。',
+      description: 'Edit the current chapter content. Supports replace, insert, and append.',
       inputSchema: {
         type: 'object',
         properties: {
-          operation: { type: 'string', enum: ['replace', 'insert', 'append'], description: '编辑操作类型' },
-          search: { type: 'string', description: 'replace 操作时必填：要被替换的原文片段（精确匹配）' },
-          content: { type: 'string', description: '新内容。replace 时为替换后的文本；insert/append 时为要插入的文本。' },
-          position: { type: 'string', enum: ['before', 'after', 'start', 'end'], description: 'insert 操作时的插入位置（相对于 search 文本）' }
+          operation: {
+            type: 'string',
+            enum: ['replace', 'insert', 'append'],
+            description: 'Edit operation.'
+          },
+          search: {
+            type: 'string',
+            description: 'Required for replace. Optional anchor text for insert.'
+          },
+          content: {
+            type: 'string',
+            description: 'New content to write.'
+          },
+          position: {
+            type: 'string',
+            enum: ['before', 'after', 'start', 'end'],
+            description: 'Insert position.'
+          }
         },
         required: ['operation', 'content']
       }
     },
     handler: async (input, ctx) => {
-      if (!currentChapterId) return { content: '错误：当前没有选中的章节，无法执行编辑操作。请先让用户选择一个章节。', isError: true }
+      if (!currentChapterId) {
+        return { content: 'No active chapter is selected, so edit_chapter cannot run.', isError: true }
+      }
 
       const operation = String(input.operation) as 'replace' | 'insert' | 'append'
       const content = String(input.content || '')
       const search = input.search ? String(input.search) : undefined
       const position = input.position ? String(input.position) as 'before' | 'after' | 'start' | 'end' : undefined
 
-      if (!content.trim()) return { content: '错误：content 不能为空', isError: true }
-      if (operation === 'replace' && !search) return { content: '错误：replace 操作需要 search 参数', isError: true }
+      if (!content.trim()) {
+        return { content: 'content cannot be empty.', isError: true }
+      }
+      if (operation === 'replace' && !search) {
+        return { content: 'replace requires search.', isError: true }
+      }
 
       try {
         const result = await applyChapterEdit(ctx.projectId, currentChapterId, {
@@ -92,9 +129,9 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
           position
         })
         onEditApplied?.(currentChapterId, operation, result.preview, result.versionId)
-        return { content: `编辑成功：${result.preview}（版本快照已保存，可撤销）` }
+        return { content: `Edit applied: ${result.preview}. Snapshot version saved: ${result.versionId}` }
       } catch (error) {
-        return { content: `编辑失败：${error instanceof Error ? error.message : String(error)}`, isError: true }
+        return { content: error instanceof Error ? error.message : String(error), isError: true }
       }
     }
   }
@@ -102,41 +139,75 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
   const searchProject: Tool = {
     definition: {
       name: 'search_project',
-      description: '在当前项目的世界观、角色、大纲、知识文档、章节摘要、剧情线索中搜索信息。返回匹配的条目摘要。',
+      description: 'Search project data and return hits with entity_type and entity_id so the agent can follow up with read_project_data.',
       inputSchema: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: '搜索关键词或短语' },
+          query: {
+            type: 'string',
+            description: 'Search query.'
+          },
           scope: {
             type: 'array',
-            items: { type: 'string', enum: ['worldview', 'characters', 'outline', 'knowledge', 'chapters', 'plot_threads'] },
-            description: '搜索范围。省略则搜索全部。'
+            items: {
+              type: 'string',
+              enum: [
+                'worldview',
+                'characters',
+                'organizations',
+                'relationships',
+                'outline',
+                'knowledge',
+                'chapters',
+                'plot_threads',
+                'inspiration',
+                'workflow_documents',
+                'project_constraints'
+              ]
+            },
+            description: 'Optional scope filter.'
           },
-          max_results: { type: 'integer', description: '最多返回条目数（默认 10）' }
+          max_results: {
+            type: 'integer',
+            description: 'Maximum number of results. Defaults to 10.'
+          }
         },
         required: ['query']
       }
     },
     handler: async (input, ctx) => {
       const query = String(input.query || '').trim()
-      if (!query) return { content: '错误：query 不能为空', isError: true }
+      if (!query) {
+        return { content: 'query cannot be empty.', isError: true }
+      }
 
       const scope = Array.isArray(input.scope) ? input.scope.map(String) : undefined
       const maxResults = typeof input.max_results === 'number' ? input.max_results : 10
 
       const results = await searchProjectData(ctx.projectId, query, scope, maxResults)
-      if (results.length === 0) return { content: `未找到与"${query}"相关的内容。` }
+      if (results.length === 0) {
+        return { content: `No project data matched "${query}".` }
+      }
 
-      const formatted = results.map((r) => `[${r.type}] ${r.title}\n${r.content}`).join('\n\n---\n\n')
-      const output = `找到 ${results.length} 条结果：\n\n${formatted}`
-      return { content: output.slice(0, 8000) }
+      const formatted = results
+        .map((result, index) => [
+          `${index + 1}. [${result.type}] ${result.title}`,
+          `entity_type: ${result.entityType}`,
+          `entity_id: ${result.entityId}`,
+          `snippet: ${result.content}`
+        ].join('\n'))
+        .join('\n\n---\n\n')
+
+      return {
+        content: `Found ${results.length} result(s).\n\n${formatted}`.slice(0, 12000)
+      }
     }
   }
 
   const listChapters: Tool = {
     definition: {
       name: 'list_chapters',
-      description: '获取当前项目的所有章节列表，包含标题、摘要、状态和字数。',
+      description: 'List all chapters in the current project.',
       inputSchema: {
         type: 'object',
         properties: {}
@@ -144,12 +215,14 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
     },
     handler: async (_input, ctx) => {
       const chapters = await listProjectChapters(ctx.projectId)
-      if (chapters.length === 0) return { content: '当前项目没有章节。' }
+      if (chapters.length === 0) {
+        return { content: 'No chapters exist in the current project.' }
+      }
 
-      const lines = chapters.map((c, i) =>
-        `${i + 1}. [${c.id}] ${c.title} (${c.status}, ${c.wordCount}字)${c.summary ? ` — ${c.summary}` : ''}`
+      const lines = chapters.map((chapter, index) =>
+        `${index + 1}. [${chapter.id}] ${chapter.title} (${chapter.status}, ${chapter.wordCount} chars)${chapter.summary ? ` - ${chapter.summary}` : ''}`
       )
-      return { content: `共 ${chapters.length} 章：\n${lines.join('\n')}` }
+      return { content: `Total chapters: ${chapters.length}\n${lines.join('\n')}` }
     }
   }
 

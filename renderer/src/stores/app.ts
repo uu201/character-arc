@@ -33,6 +33,9 @@ import {
 } from '@/features/workspace/storeHelpers'
 import { AI_TASK_RETENTION_MS, type AiTaskRun, type AiTaskRunInput } from '@/features/ai/taskRegistry'
 import type {
+  AssistantEditEvent,
+  AssistantToolCall,
+  AssistantTurn,
   AppSettings,
   ChapterDraft,
   ChapterInsertionMode,
@@ -63,6 +66,14 @@ import type {
   ThemeName,
   WorldviewEntry
 } from '@/types/app'
+
+type AssistantFocusPanel = 'world' | 'characters' | 'outline'
+
+interface AssistantFocusTarget {
+  panel: AssistantFocusPanel
+  entityId: string
+  nonce: number
+}
 
 /** 创建项目向导的载荷结构，包含项目基础信息和可选的各类业务数据 */
 interface ProjectWorkspacePayload {
@@ -186,6 +197,8 @@ export const useAppStore = defineStore('app', () => {
   const selectedChapterId = ref(stored.workspaces[stored.selectedProjectId]?.chapters[0]?.id ?? '')
   /** 流程面板当前激活的分卷 ID，空字符串时回退到第一个分卷 */
   const activeWorkflowVolumeId = ref<string>('')
+  /** 全局助手最近一次写回后的聚焦目标，仅用于当前界面反馈 */
+  const assistantFocusTarget = ref<AssistantFocusTarget | null>(null)
 
   const {
     scheduledPersistAt,
@@ -1281,7 +1294,8 @@ export const useAppStore = defineStore('app', () => {
 
   // ── 世界观 CRUD ──
   /** 创建世界观设定条目，插入到列表头部 */
-  function createWorldviewEntry(payload?: Partial<WorldviewEntry>): void {
+  function createWorldviewEntry(payload?: Partial<WorldviewEntry>): string {
+    const entryId = uniqueId('world')
     const createdAt = toIsoTimestamp(payload?.createdAt)
     const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
 
@@ -1289,7 +1303,7 @@ export const useAppStore = defineStore('app', () => {
       ...workspace,
       worldviewEntries: reindexWorldviewEntries([
         {
-          id: uniqueId('world'),
+          id: entryId,
           type: payload?.type?.trim() || '地理',
           title: payload?.title?.trim() || `新设定条目 ${workspace.worldviewEntries.length + 1}`,
           content:
@@ -1303,6 +1317,7 @@ export const useAppStore = defineStore('app', () => {
       ])
     }))
     schedulePersist('fast')
+    return entryId
   }
 
   function updateWorldviewEntry(entryId: string, payload: Partial<WorldviewEntry>): void {
@@ -1335,12 +1350,13 @@ export const useAppStore = defineStore('app', () => {
 
   // ── 角色 CRUD ──
   /** 创建新角色卡，插入到列表头部 */
-  function createCharacter(payload?: Partial<CharacterCard>): void {
+  function createCharacter(payload?: Partial<CharacterCard>): string {
+    const characterId = uniqueId('char')
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
       characters: [
         {
-          id: uniqueId('char'),
+          id: characterId,
           name: payload?.name?.trim() || `新角色 ${workspace.characters.length + 1}`,
           role: payload?.role?.trim() || '待设定',
           avatar: payload?.avatar || 'linear-gradient(135deg, #9be15d 0%, #00e3ae 100%)',
@@ -1356,6 +1372,7 @@ export const useAppStore = defineStore('app', () => {
       ]
     }))
     schedulePersist('fast')
+    return characterId
   }
 
   function updateCharacter(characterId: string, payload: Partial<CharacterCard>): void {
@@ -1753,6 +1770,31 @@ export const useAppStore = defineStore('app', () => {
     currentView.value = 'workbench'
   }
 
+  function setAssistantFocusTarget(panel: AssistantFocusPanel, entityId: string): void {
+    assistantFocusTarget.value = {
+      panel,
+      entityId,
+      nonce: Date.now()
+    }
+  }
+
+  function clearAssistantFocusTarget(panel?: AssistantFocusPanel, entityId?: string): void {
+    const current = assistantFocusTarget.value
+    if (!current) {
+      return
+    }
+
+    if (panel && current.panel !== panel) {
+      return
+    }
+
+    if (entityId && current.entityId !== entityId) {
+      return
+    }
+
+    assistantFocusTarget.value = null
+  }
+
   /** 选中章节并进入章节写作模式 */
   function selectChapter(chapterId: string): void {
     selectedChapterId.value = chapterId
@@ -1848,7 +1890,8 @@ export const useAppStore = defineStore('app', () => {
 
   // ── 大纲节点 CRUD ──
   /** 创建大纲节点，插入到当前分卷末尾 */
-  function createOutlineItem(payload?: Partial<OutlineItem>): void {
+  function createOutlineItem(payload?: Partial<OutlineItem>): string {
+    const outlineId = uniqueId('outline')
     updateCurrentWorkspace((workspace) => {
       const requestedVolumeId = payload?.volumeId?.trim()
       const targetVolumeId = requestedVolumeId && workspace.outlineVolumes.some((volume) => volume.id === requestedVolumeId)
@@ -1858,7 +1901,7 @@ export const useAppStore = defineStore('app', () => {
             : getWorkspacePrimaryVolumeId(workspace))
       const nextIndex = getOutlineSequenceInVolume(workspace.outlineItems, targetVolumeId)
       const nextItem: OutlineItem = {
-        id: uniqueId('outline'),
+        id: outlineId,
         volumeId: targetVolumeId,
         title: payload?.title?.trim() || `第${nextIndex}章：新剧情节点`,
         wordTarget: payload?.wordTarget?.trim() || '预估 3000字',
@@ -1876,6 +1919,7 @@ export const useAppStore = defineStore('app', () => {
       }
     })
     schedulePersist('fast')
+    return outlineId
   }
 
   function createOutlineItemsAfter(anchorOutlineId: string, payloads: Array<Partial<OutlineItem>>): void {
@@ -2375,6 +2419,115 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  function updateAssistantMessageMeta(
+    messageId: string,
+    updater: (message: ChatMessage) => ChatMessage
+  ): void {
+    updateCurrentWorkspace((workspace) => syncActiveGlobalAssistantSession(workspace, (session) => {
+      const now = new Date().toISOString()
+      const nextMessages = session.messages.map((item) => (
+        item.id === messageId ? updater(item) : item
+      ))
+
+      return {
+        ...session,
+        title: resolveSessionTitle(nextMessages),
+        messages: nextMessages,
+        updatedAt: now
+      }
+    }))
+    schedulePersist('fast')
+  }
+
+  function appendAssistantToolCall(messageId: string, toolCall: AssistantToolCall): void {
+    updateAssistantMessageMeta(messageId, (message) => {
+      const nextToolCalls = [...(message.toolCalls ?? []), toolCall]
+      const turns = [...(message.turns ?? [])]
+      const currentTurn = turns[turns.length - 1]
+      const targetTurn: AssistantTurn = currentTurn && !currentTurn.text.trim()
+        ? currentTurn
+        : { text: '', toolCalls: [], editEvents: [] }
+
+      if (!currentTurn || currentTurn !== targetTurn) {
+        turns.push(targetTurn)
+      }
+
+      targetTurn.toolCalls = [...targetTurn.toolCalls, toolCall]
+
+      return {
+        ...message,
+        toolCalls: nextToolCalls,
+        turns
+      }
+    })
+  }
+
+  function updateAssistantToolCall(
+    messageId: string,
+    toolUseId: string,
+    updater: (toolCall: AssistantToolCall) => AssistantToolCall
+  ): void {
+    updateAssistantMessageMeta(messageId, (message) => {
+      const nextToolCalls = (message.toolCalls ?? []).map((item) => (
+        item.toolUseId === toolUseId ? updater(item) : item
+      ))
+      const nextTurns = (message.turns ?? []).map((turn) => ({
+        ...turn,
+        toolCalls: turn.toolCalls.map((item) => (
+          item.toolUseId === toolUseId ? updater(item) : item
+        ))
+      }))
+
+      return {
+        ...message,
+        toolCalls: nextToolCalls,
+        turns: nextTurns
+      }
+    })
+  }
+
+  function appendAssistantEditEvent(messageId: string, event: AssistantEditEvent): void {
+    updateAssistantMessageMeta(messageId, (message) => {
+      const nextEditEvents = [...(message.editEvents ?? []), event]
+      const turns = [...(message.turns ?? [])]
+      if (turns.length === 0) {
+        turns.push({ text: '', toolCalls: [], editEvents: [] })
+      }
+      const currentTurn = turns[turns.length - 1]
+      currentTurn.editEvents = [...currentTurn.editEvents, event]
+
+      return {
+        ...message,
+        editEvents: nextEditEvents,
+        turns
+      }
+    })
+  }
+
+  function finalizeAssistantStreamingMessage(messageId: string, payload?: {
+    isError?: boolean
+    isCanceled?: boolean
+  }): void {
+    updateAssistantMessageMeta(messageId, (message) => ({
+      ...message,
+      isError: payload?.isError ?? false,
+      isCanceled: payload?.isCanceled ?? false,
+      toolCalls: (message.toolCalls ?? []).map((item) => (
+        item.status === 'running'
+          ? { ...item, status: 'error', isError: true, result: item.result || '（连接中断）' }
+          : item
+      )),
+      turns: (message.turns ?? []).map((turn) => ({
+        ...turn,
+        toolCalls: turn.toolCalls.map((item) => (
+          item.status === 'running'
+            ? { ...item, status: 'error', isError: true, result: item.result || '（连接中断）' }
+            : item
+        ))
+      }))
+    }))
+  }
+
   function updateAssistantSessionProposal(payload: {
     proposal?: GlobalAssistantProposal | null
     lastProposalPrompt?: string
@@ -2685,6 +2838,7 @@ export const useAppStore = defineStore('app', () => {
     aiRuns,
     appSettings,
     activeGlobalAssistantSessionId,
+    assistantFocusTarget,
     coverWorkbenchHistory,
     backToProjects,
     backToWorkbench,
@@ -2765,6 +2919,7 @@ export const useAppStore = defineStore('app', () => {
     selectedChapterVolume,
     selectedProjectId,
     setPanel,
+    setAssistantFocusTarget,
     switchAssistantSession,
     setTheme,
     theme,
@@ -2775,6 +2930,11 @@ export const useAppStore = defineStore('app', () => {
     deleteAiProfile,
     updateAiProfile,
     updateAssistantMessageContent,
+    updateAssistantMessageMeta,
+    appendAssistantToolCall,
+    updateAssistantToolCall,
+    appendAssistantEditEvent,
+    finalizeAssistantStreamingMessage,
     updateAssistantSessionProposal,
     updateCoverWorkbenchHistory,
     updateProject,
@@ -2813,6 +2973,7 @@ export const useAppStore = defineStore('app', () => {
     updateWorldviewEntry,
     worldviewEntries,
     persistenceError,
+    clearAssistantFocusTarget,
     // ── AI 任务注册表 ──
     runningAiTasks,
     recentAiTasks,

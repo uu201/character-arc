@@ -102,7 +102,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       activeAiStreams.set(streamId, controller)
 
       const settings = payload.settings as AppSettings
-      const useAgentPath = payload.task === 'chapter-first-draft' && providerSupportsTools(settings)
+      const useAgentPath = (payload.task === 'chapter-first-draft' || payload.task === 'global-assistant') && providerSupportsTools(settings)
 
       let streamedContent = ''
       void (async () => {

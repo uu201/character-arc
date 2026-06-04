@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { ensureWorkspaceDb } from '../../../workspace-store'
 
-/** 章节完整数据 */
 export type ChapterData = {
   id: string
   projectId: string
@@ -14,7 +13,6 @@ export type ChapterData = {
   sortOrder: number
 }
 
-/** 章节摘要条目（列表展示用） */
 export type ChapterSummaryItem = {
   id: string
   title: string
@@ -23,7 +21,6 @@ export type ChapterSummaryItem = {
   wordCount: number
 }
 
-/** 章节编辑操作描述 */
 export type ChapterEdit = {
   operation: 'replace' | 'insert' | 'append'
   search?: string
@@ -31,275 +28,45 @@ export type ChapterEdit = {
   position?: 'before' | 'after' | 'start' | 'end'
 }
 
-/** 全局搜索结果条目 */
 export type SearchResult = {
+  entityType: string
+  entityId: string
   type: string
   title: string
   content: string
 }
 
-/**
- * 去除 HTML 标签并解码常见 HTML 实体
- * @param html - HTML 字符串
- * @returns 纯文本
- */
 function stripHtmlTags(html: string): string {
-  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim()
+  return html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .trim()
 }
 
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
-/**
- * 统计 HTML 正文的纯文本字数（不含空白）
- * @param html - HTML 字符串
- * @returns 字数
- */
 function countChars(html: string): number {
   return stripHtmlTags(html).replace(/\s/g, '').length
 }
 
-/**
- * 从数据库读取单个章节的完整数据
- * @param projectId - 项目 ID
- * @param chapterId - 章节 ID
- * @returns 章节数据，不存在时返回 null
- */
-export async function readChapterFromDb(projectId: string, chapterId: string): Promise<ChapterData | null> {
-  const db = await ensureWorkspaceDb()
-  const row = db.prepare(
-    'SELECT id, project_id, volume_id, title, summary, status, word_target, content, sort_order FROM chapters WHERE id = ? AND project_id = ?'
-  ).get(chapterId, projectId) as Record<string, unknown> | undefined
-
-  if (!row) return null
-  return {
-    id: String(row.id),
-    projectId: String(row.project_id),
-    volumeId: String(row.volume_id),
-    title: String(row.title),
-    summary: String(row.summary),
-    status: String(row.status),
-    wordTarget: String(row.word_target),
-    content: String(row.content),
-    sortOrder: Number(row.sort_order)
-  }
-}
-
-/**
- * 列出项目下所有章节的摘要信息
- * @param projectId - 项目 ID
- * @returns 章节摘要数组，按 sortOrder 排序
- */
-export async function listProjectChapters(projectId: string): Promise<ChapterSummaryItem[]> {
-  const db = await ensureWorkspaceDb()
-  const rows = db.prepare(
-    'SELECT id, title, summary, status, content FROM chapters WHERE project_id = ? ORDER BY sort_order'
-  ).all(projectId) as Record<string, unknown>[]
-
-  return rows.map((row) => ({
-    id: String(row.id),
-    title: String(row.title),
-    summary: String(row.summary),
-    status: String(row.status),
-    wordCount: countChars(String(row.content))
-  }))
-}
-
-/**
- * 对章节正文执行编辑操作（replace/insert/append），并自动保存版本快照
- * @param projectId - 项目 ID
- * @param chapterId - 章节 ID
- * @param edit - 编辑操作描述
- * @returns 版本 ID 和操作预览文本
- */
-export async function applyChapterEdit(
-  projectId: string,
-  chapterId: string,
-  edit: ChapterEdit
-): Promise<{ versionId: string; preview: string }> {
-  const db = await ensureWorkspaceDb()
-
-  const row = db.prepare(
-    'SELECT id, title, summary, status, word_target, content FROM chapters WHERE id = ? AND project_id = ?'
-  ).get(chapterId, projectId) as Record<string, unknown> | undefined
-
-  if (!row) throw new Error(`章节不存在: ${chapterId}`)
-
-  const oldContent = String(row.content)
-  const plainOld = stripHtmlTags(oldContent)
-
-  const versionId = randomUUID()
-  db.prepare(`
-    INSERT INTO chapter_versions (id, project_id, chapter_id, title, summary, status, word_target, content, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    versionId, projectId, chapterId,
-    String(row.title), String(row.summary), String(row.status), String(row.word_target),
-    oldContent, new Date().toISOString()
-  )
-
-  let newContent: string
-  let preview: string
-
-  if (edit.operation === 'append') {
-    const htmlToAppend = textToHtmlParagraphs(edit.content)
-    newContent = oldContent + htmlToAppend
-    preview = `追加了 ${edit.content.length} 字`
-  } else if (edit.operation === 'replace') {
-    if (!edit.search) throw new Error('replace 操作需要 search 参数')
-    const searchText = edit.search.trim()
-    if (!plainOld.includes(searchText)) {
-      throw new Error(`未找到要替换的文本片段: "${searchText.slice(0, 50)}..."`)
-    }
-    newContent = replaceInHtml(oldContent, searchText, edit.content)
-    preview = `替换了 "${searchText.slice(0, 30)}..." → "${edit.content.slice(0, 30)}..."`
-  } else if (edit.operation === 'insert') {
-    if (!edit.search && edit.position !== 'start' && edit.position !== 'end') {
-      throw new Error('insert 操作需要 search 或 position 参数')
-    }
-    const htmlToInsert = textToHtmlParagraphs(edit.content)
-    if (edit.position === 'start') {
-      newContent = htmlToInsert + oldContent
-    } else if (edit.position === 'end' || !edit.search) {
-      newContent = oldContent + htmlToInsert
-    } else {
-      newContent = insertInHtml(oldContent, edit.search, htmlToInsert, edit.position ?? 'after')
-    }
-    preview = `插入了 ${edit.content.length} 字`
-  } else {
-    throw new Error(`不支持的操作: ${edit.operation}`)
-  }
-
-  db.prepare('UPDATE chapters SET content = ? WHERE id = ? AND project_id = ?')
-    .run(newContent, chapterId, projectId)
-
-  return { versionId, preview }
-}
-
-/**
- * 在项目数据中全文搜索（世界观、角色、大纲、章节、知识文档、剧情线索）
- * @param projectId - 项目 ID
- * @param query - 搜索关键词
- * @param scope - 可选的搜索范围过滤
- * @param maxResults - 最大返回条数，默认 10
- * @returns 匹配的搜索结果数组
- */
-export async function searchProjectData(
-  projectId: string,
-  query: string,
-  scope?: string[],
-  maxResults = 10
-): Promise<SearchResult[]> {
-  const db = await ensureWorkspaceDb()
-  const results: SearchResult[] = []
-  const q = query.toLowerCase()
-  const shouldSearch = (s: string) => !scope || scope.includes(s)
-
-  if (shouldSearch('worldview') && results.length < maxResults) {
-    const rows = db.prepare(
-      'SELECT title, content FROM worldview_entries WHERE project_id = ?'
-    ).all(projectId) as Record<string, unknown>[]
-    for (const row of rows) {
-      if (results.length >= maxResults) break
-      const title = String(row.title)
-      const content = String(row.content)
-      if (title.toLowerCase().includes(q) || content.toLowerCase().includes(q)) {
-        results.push({ type: '世界观', title, content: content.slice(0, 500) })
-      }
-    }
-  }
-
-  if (shouldSearch('characters') && results.length < maxResults) {
-    const rows = db.prepare(
-      'SELECT name, role, description FROM characters WHERE project_id = ?'
-    ).all(projectId) as Record<string, unknown>[]
-    for (const row of rows) {
-      if (results.length >= maxResults) break
-      const name = String(row.name)
-      const role = String(row.role)
-      const desc = String(row.description)
-      if (name.toLowerCase().includes(q) || role.toLowerCase().includes(q) || desc.toLowerCase().includes(q)) {
-        results.push({ type: '角色', title: `${name}（${role}）`, content: desc.slice(0, 500) })
-      }
-    }
-  }
-
-  if (shouldSearch('outline') && results.length < maxResults) {
-    const rows = db.prepare(
-      'SELECT title, summary, conflict FROM outline_items WHERE project_id = ?'
-    ).all(projectId) as Record<string, unknown>[]
-    for (const row of rows) {
-      if (results.length >= maxResults) break
-      const title = String(row.title)
-      const summary = String(row.summary)
-      const conflict = String(row.conflict ?? '')
-      if (title.toLowerCase().includes(q) || summary.toLowerCase().includes(q) || conflict.toLowerCase().includes(q)) {
-        results.push({ type: '大纲', title, content: [summary, conflict].filter(Boolean).join(' | ').slice(0, 500) })
-      }
-    }
-  }
-
-  if (shouldSearch('chapters') && results.length < maxResults) {
-    const rows = db.prepare(
-      'SELECT title, summary FROM chapters WHERE project_id = ?'
-    ).all(projectId) as Record<string, unknown>[]
-    for (const row of rows) {
-      if (results.length >= maxResults) break
-      const title = String(row.title)
-      const summary = String(row.summary)
-      if (title.toLowerCase().includes(q) || summary.toLowerCase().includes(q)) {
-        results.push({ type: '章节', title, content: summary.slice(0, 300) })
-      }
-    }
-  }
-
-  if (shouldSearch('knowledge') && results.length < maxResults) {
-    const rows = db.prepare(
-      'SELECT title, content FROM knowledge_documents WHERE project_id = ?'
-    ).all(projectId) as Record<string, unknown>[]
-    for (const row of rows) {
-      if (results.length >= maxResults) break
-      const title = String(row.title)
-      const content = String(row.content)
-      if (title.toLowerCase().includes(q) || content.toLowerCase().includes(q)) {
-        results.push({ type: '知识文档', title, content: content.slice(0, 500) })
-      }
-    }
-  }
-
-  if (shouldSearch('plot_threads') && results.length < maxResults) {
-    const rows = db.prepare(
-      'SELECT title, description FROM plot_threads WHERE project_id = ?'
-    ).all(projectId) as Record<string, unknown>[]
-    for (const row of rows) {
-      if (results.length >= maxResults) break
-      const title = String(row.title)
-      const desc = String(row.description)
-      if (title.toLowerCase().includes(q) || desc.toLowerCase().includes(q)) {
-        results.push({ type: '剧情线索', title, content: desc.slice(0, 500) })
-      }
-    }
-  }
-
-  return results
-}
-
-/**
- * 将纯文本按换行分割并包装为 HTML 段落
- * @param text - 纯文本
- * @returns HTML 字符串
- */
 function textToHtmlParagraphs(text: string): string {
-  return text.split(/\n{2,}|\n/).filter(Boolean).map((p) => `<p>${p.trim()}</p>`).join('')
+  return text
+    .split(/\n{2,}|\n/)
+    .filter(Boolean)
+    .map((paragraph) => `<p>${escapeHtml(paragraph.trim())}</p>`)
+    .join('')
 }
 
-/**
- * 将纯文本中的字符索引映射到包含 HTML 标签的原始字符串中的位置
- * @param html - 包含标签的 HTML 字符串
- * @param plainIdx - 纯文本中的字符索引
- * @returns HTML 字符串中对应的字节位置
- */
 function mapPlainIndexToHtml(html: string, plainIdx: number): number {
   let charCount = 0
   let i = 0
@@ -322,42 +89,394 @@ function mapPlainIndexToHtml(html: string, plainIdx: number): number {
     charCount++
     i++
   }
-  return i
+  return html.length
 }
 
-/**
- * 在 HTML 字符串中查找纯文本文本段并替换为新内容
- * @param html - 原始 HTML 字符串
- * @param searchPlain - 要查找的纯文本片段
- * @param replacePlain - 替换用的纯文本
- * @returns 替换后的 HTML 字符串
- */
-function replaceInHtml(html: string, searchPlain: string, replacePlain: string): string {
+function replaceInHtml(html: string, search: string, replacement: string): string {
   const plain = stripHtmlTags(html)
-  const idx = plain.indexOf(searchPlain)
-  if (idx === -1) return html
-
-  const startPos = mapPlainIndexToHtml(html, idx)
-  const endPos = mapPlainIndexToHtml(html, idx + searchPlain.length)
-  const hasNewlines = /\n/.test(replacePlain.trim())
-  const replaceHtml = hasNewlines ? textToHtmlParagraphs(replacePlain) : escapeHtml(replacePlain)
-  return html.slice(0, startPos) + replaceHtml + html.slice(endPos)
+  const plainStart = plain.indexOf(search)
+  if (plainStart === -1) {
+    throw new Error(`Could not find target text: "${search.slice(0, 50)}..."`)
+  }
+  const htmlStart = mapPlainIndexToHtml(html, plainStart)
+  const htmlEnd = mapPlainIndexToHtml(html, plainStart + search.length)
+  return html.slice(0, htmlStart) + textToHtmlParagraphs(replacement) + html.slice(htmlEnd)
 }
 
-/**
- * 在 HTML 字符串中搜索纯文本文本段，然后在其前/后插入新内容
- * @param html - 原始 HTML 字符串
- * @param searchPlain - 定位用的纯文本片段
- * @param insertHtml - 要插入的 HTML 字符串
- * @param position - 插入位置：before 或 after
- * @returns 插入后的 HTML 字符串
- */
-function insertInHtml(html: string, searchPlain: string, insertHtml: string, position: 'before' | 'after'): string {
+function insertInHtml(html: string, search: string, insertionHtml: string, position: 'before' | 'after'): string {
   const plain = stripHtmlTags(html)
-  const idx = plain.indexOf(searchPlain)
-  if (idx === -1) return html + insertHtml
+  const plainStart = plain.indexOf(search)
+  if (plainStart === -1) {
+    throw new Error(`Could not find anchor text: "${search.slice(0, 50)}..."`)
+  }
+  const anchorIdx = position === 'before'
+    ? mapPlainIndexToHtml(html, plainStart)
+    : mapPlainIndexToHtml(html, plainStart + search.length)
+  return html.slice(0, anchorIdx) + insertionHtml + html.slice(anchorIdx)
+}
 
-  const targetCharIdx = position === 'before' ? idx : idx + searchPlain.length
-  const pos = mapPlainIndexToHtml(html, targetCharIdx)
-  return html.slice(0, pos) + insertHtml + html.slice(pos)
+function normalizeSearchScope(scope?: string[]): Set<string> | null {
+  if (!scope?.length) {
+    return null
+  }
+  return new Set(scope.map((item) => String(item).trim()).filter(Boolean))
+}
+
+function truncateSnippet(value: string, maxLength = 500): string {
+  const normalized = value.trim()
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized
+}
+
+function matchesQuery(query: string, ...fields: string[]): boolean {
+  return fields.some((field) => field.toLowerCase().includes(query))
+}
+
+export async function readChapterFromDb(projectId: string, chapterId: string): Promise<ChapterData | null> {
+  const db = await ensureWorkspaceDb()
+  const row = db.prepare(
+    'SELECT id, project_id, volume_id, title, summary, status, word_target, content, sort_order FROM chapters WHERE id = ? AND project_id = ?'
+  ).get(chapterId, projectId) as Record<string, unknown> | undefined
+
+  if (!row) return null
+
+  return {
+    id: String(row.id),
+    projectId: String(row.project_id),
+    volumeId: String(row.volume_id),
+    title: String(row.title),
+    summary: String(row.summary),
+    status: String(row.status),
+    wordTarget: String(row.word_target),
+    content: String(row.content),
+    sortOrder: Number(row.sort_order)
+  }
+}
+
+export async function listProjectChapters(projectId: string): Promise<ChapterSummaryItem[]> {
+  const db = await ensureWorkspaceDb()
+  const rows = db.prepare(
+    'SELECT id, title, summary, status, content FROM chapters WHERE project_id = ? ORDER BY sort_order'
+  ).all(projectId) as Record<string, unknown>[]
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    title: String(row.title),
+    summary: String(row.summary),
+    status: String(row.status),
+    wordCount: countChars(String(row.content))
+  }))
+}
+
+export async function applyChapterEdit(
+  projectId: string,
+  chapterId: string,
+  edit: ChapterEdit
+): Promise<{ versionId: string; preview: string }> {
+  const db = await ensureWorkspaceDb()
+
+  const row = db.prepare(
+    'SELECT id, title, summary, status, word_target, content FROM chapters WHERE id = ? AND project_id = ?'
+  ).get(chapterId, projectId) as Record<string, unknown> | undefined
+
+  if (!row) {
+    throw new Error(`Chapter not found: ${chapterId}`)
+  }
+
+  const oldContent = String(row.content)
+  const plainOld = stripHtmlTags(oldContent)
+
+  const versionId = randomUUID()
+  db.prepare(`
+    INSERT INTO chapter_versions (id, project_id, chapter_id, title, summary, status, word_target, content, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    versionId,
+    projectId,
+    chapterId,
+    String(row.title),
+    String(row.summary),
+    String(row.status),
+    String(row.word_target),
+    oldContent,
+    new Date().toISOString()
+  )
+
+  let newContent: string
+  let preview: string
+
+  if (edit.operation === 'append') {
+    const htmlToAppend = textToHtmlParagraphs(edit.content)
+    newContent = oldContent + htmlToAppend
+    preview = `Appended ${edit.content.length} chars`
+  } else if (edit.operation === 'replace') {
+    if (!edit.search) {
+      throw new Error('replace requires search')
+    }
+    const searchText = edit.search.trim()
+    if (!plainOld.includes(searchText)) {
+      throw new Error(`Could not find target text: "${searchText.slice(0, 50)}..."`)
+    }
+    newContent = replaceInHtml(oldContent, searchText, edit.content)
+    preview = `Replaced "${searchText.slice(0, 30)}..." -> "${edit.content.slice(0, 30)}..."`
+  } else if (edit.operation === 'insert') {
+    if (!edit.search && edit.position !== 'start' && edit.position !== 'end') {
+      throw new Error('insert requires search or start/end position')
+    }
+    const htmlToInsert = textToHtmlParagraphs(edit.content)
+    if (edit.position === 'start') {
+      newContent = htmlToInsert + oldContent
+    } else if (edit.position === 'end' || !edit.search) {
+      newContent = oldContent + htmlToInsert
+    } else {
+      newContent = insertInHtml(oldContent, edit.search, htmlToInsert, edit.position ?? 'after')
+    }
+    preview = `Inserted ${edit.content.length} chars`
+  } else {
+    throw new Error(`Unsupported operation: ${edit.operation}`)
+  }
+
+  db.prepare('UPDATE chapters SET content = ? WHERE id = ? AND project_id = ?')
+    .run(newContent, chapterId, projectId)
+
+  return { versionId, preview }
+}
+
+export async function searchProjectData(
+  projectId: string,
+  query: string,
+  scope?: string[],
+  maxResults = 10
+): Promise<SearchResult[]> {
+  const db = await ensureWorkspaceDb()
+  const results: SearchResult[] = []
+  const normalizedQuery = query.trim().toLowerCase()
+  const scopeSet = normalizeSearchScope(scope)
+  const shouldSearch = (name: string) => !scopeSet || scopeSet.has(name)
+
+  const push = (result: SearchResult): void => {
+    if (results.length < maxResults) {
+      results.push(result)
+    }
+  }
+
+  if (shouldSearch('worldview')) {
+    const rows = db.prepare('SELECT id, title, content FROM worldview_entries WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const content = String(row.content)
+      if (matchesQuery(normalizedQuery, title, content)) {
+        push({ entityType: 'worldview', entityId: id, type: 'worldview', title, content: truncateSnippet(content) })
+      }
+    }
+  }
+
+  if (shouldSearch('characters')) {
+    const rows = db.prepare('SELECT id, name, role, description FROM characters WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const name = String(row.name)
+      const role = String(row.role ?? '')
+      const description = String(row.description ?? '')
+      if (matchesQuery(normalizedQuery, name, role, description)) {
+        push({
+          entityType: 'characters',
+          entityId: id,
+          type: 'characters',
+          title: role ? `${name} (${role})` : name,
+          content: truncateSnippet(description)
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('organizations')) {
+    const rows = db.prepare('SELECT id, name, type, description, motto FROM organizations WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const name = String(row.name)
+      const type = String(row.type ?? '')
+      const description = String(row.description ?? '')
+      const motto = String(row.motto ?? '')
+      if (matchesQuery(normalizedQuery, name, type, description, motto)) {
+        push({
+          entityType: 'organizations',
+          entityId: id,
+          type: 'organizations',
+          title: type ? `${name} (${type})` : name,
+          content: truncateSnippet([description, motto ? `Motto: ${motto}` : ''].filter(Boolean).join(' | '))
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('relationships')) {
+    const rows = db.prepare('SELECT id, from_character_id, to_character_id, type, description FROM character_relationships WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const from = String(row.from_character_id)
+      const to = String(row.to_character_id)
+      const type = String(row.type ?? '')
+      const description = String(row.description ?? '')
+      const title = `${from} -> ${to}${type ? ` (${type})` : ''}`
+      if (matchesQuery(normalizedQuery, title, description, type)) {
+        push({
+          entityType: 'relationships',
+          entityId: id,
+          type: 'relationships',
+          title,
+          content: truncateSnippet(description)
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('outline')) {
+    const rows = db.prepare('SELECT id, title, summary, conflict FROM outline_items WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const summary = String(row.summary ?? '')
+      const conflict = String(row.conflict ?? '')
+      if (matchesQuery(normalizedQuery, title, summary, conflict)) {
+        push({
+          entityType: 'outline',
+          entityId: id,
+          type: 'outline',
+          title,
+          content: truncateSnippet([summary, conflict].filter(Boolean).join(' | '))
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('chapters')) {
+    const rows = db.prepare('SELECT id, title, summary FROM chapters WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const summary = String(row.summary ?? '')
+      if (matchesQuery(normalizedQuery, title, summary)) {
+        push({
+          entityType: 'chapters',
+          entityId: id,
+          type: 'chapters',
+          title,
+          content: truncateSnippet(summary, 300)
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('knowledge')) {
+    const rows = db.prepare('SELECT id, title, content, summary FROM knowledge_documents WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const summary = String(row.summary ?? '')
+      const content = String(row.content ?? '')
+      if (matchesQuery(normalizedQuery, title, summary, content)) {
+        push({
+          entityType: 'knowledge',
+          entityId: id,
+          type: 'knowledge',
+          title,
+          content: truncateSnippet(summary || content)
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('inspiration')) {
+    const rows = db.prepare('SELECT id, title, content, source FROM inspiration_entries WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const content = String(row.content ?? '')
+      const source = String(row.source ?? '')
+      if (matchesQuery(normalizedQuery, title, content, source)) {
+        push({
+          entityType: 'inspiration',
+          entityId: id,
+          type: 'inspiration',
+          title,
+          content: truncateSnippet(content)
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('plot_threads')) {
+    const rows = db.prepare('SELECT id, title, description FROM plot_threads WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const description = String(row.description ?? '')
+      if (matchesQuery(normalizedQuery, title, description)) {
+        push({
+          entityType: 'plot_threads',
+          entityId: id,
+          type: 'plot_threads',
+          title,
+          content: truncateSnippet(description)
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('workflow_documents')) {
+    const rows = db.prepare('SELECT id, title, doc_key, content FROM workflow_documents WHERE project_id = ? ORDER BY sort_order').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const docKey = String(row.doc_key ?? '')
+      const content = String(row.content ?? '')
+      if (matchesQuery(normalizedQuery, title, docKey, content)) {
+        push({
+          entityType: 'workflow_documents',
+          entityId: id,
+          type: 'workflow_documents',
+          title: docKey ? `${title} (${docKey})` : title,
+          content: truncateSnippet(content)
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('project_constraints')) {
+    const rows = db.prepare(`
+      SELECT id, title, content, summary
+      FROM knowledge_documents
+      WHERE project_id = ? AND source_type = 'canon-fact' AND source_label = 'global-constraint'
+      ORDER BY updated_at DESC
+    `).all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const summary = String(row.summary ?? '')
+      const content = String(row.content ?? '')
+      if (matchesQuery(normalizedQuery, title, summary, content)) {
+        push({
+          entityType: 'project_constraints',
+          entityId: id,
+          type: 'project_constraints',
+          title,
+          content: truncateSnippet(summary || content)
+        })
+      }
+    }
+  }
+
+  return results
 }

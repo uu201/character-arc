@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { MoreVertical, Plus, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
@@ -24,6 +24,7 @@ const AI_TASK_KEY = 'worldview-entry'
 const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY))
 const editorVisible = ref(false) // 控制词条编辑弹窗的显示
 const editingEntryId = ref<string | null>(null) // 当前正在编辑的词条 ID，null 表示新建模式
+const focusedEntryId = ref<string>('')
 // 词条编辑表单数据
 const form = reactive({
   type: '地理',
@@ -228,6 +229,27 @@ function handleEnhanceApply(accepted: Record<string, string | string[]>): void {
   if (accepted.content != null) form.content = accepted.content as string
   enhanceVisible.value = false
 }
+
+watch(
+  () => appStore.assistantFocusTarget,
+  async (target) => {
+    if (!target || target.panel !== 'world') {
+      return
+    }
+
+    focusedEntryId.value = target.entityId
+    await nextTick()
+    document.querySelector<HTMLElement>(`[data-assistant-focus-id="${target.entityId}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.setTimeout(() => {
+      appStore.clearAssistantFocusTarget('world', target.entityId)
+      if (focusedEntryId.value === target.entityId) {
+        focusedEntryId.value = ''
+      }
+    }, 2200)
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -254,6 +276,8 @@ function handleEnhanceApply(accepted: Record<string, string | string[]>): void {
         v-for="(entry, index) in filteredEntries"
         :key="entry.id"
         class="world-card"
+        :class="{ 'assistant-focused': focusedEntryId === entry.id }"
+        :data-assistant-focus-id="entry.id"
         :style="{ animationDelay: `${index * 70}ms` }"
         @click="openEditor(entry)"
       >
@@ -430,6 +454,11 @@ function handleEnhanceApply(accepted: Record<string, string | string[]>): void {
   transition:
     transform 0.24s ease,
     box-shadow 0.24s ease;
+}
+
+.world-card.assistant-focused {
+  border-color: color-mix(in srgb, var(--arc-accent) 78%, white 22%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arc-accent) 16%, transparent), 0 24px 54px rgba(15, 23, 42, 0.18);
 }
 
 .world-card:hover {

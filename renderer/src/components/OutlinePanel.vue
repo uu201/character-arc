@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ChevronDown, FilePlus2, GripVertical, MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
@@ -41,6 +41,7 @@ const editingOutlineId = ref<string | null>(null) // 当前编辑的大纲节点
 const editingVolumeId = ref<string | null>(null) // 当前编辑的分卷 ID
 const draggingOutlineId = ref<string | null>(null) // 正在拖拽的大纲节点 ID
 const dragTargetOutlineId = ref<string | null>(null) // 拖拽目标位置的大纲节点 ID
+const focusedOutlineId = ref<string>('')
 // 大纲节点编辑表单
 const form = reactive({
   volumeId: '',
@@ -608,6 +609,27 @@ function handleEnhanceVolumeApply(accepted: Record<string, string | string[]>): 
   if (accepted.summary != null) volumeForm.summary = accepted.summary as string
   enhanceVolumeVisible.value = false
 }
+
+watch(
+  () => appStore.assistantFocusTarget,
+  async (target) => {
+    if (!target || target.panel !== 'outline') {
+      return
+    }
+
+    focusedOutlineId.value = target.entityId
+    await nextTick()
+    document.querySelector<HTMLElement>(`[data-assistant-focus-id="${target.entityId}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.setTimeout(() => {
+      appStore.clearAssistantFocusTarget('outline', target.entityId)
+      if (focusedOutlineId.value === target.entityId) {
+        focusedOutlineId.value = ''
+      }
+    }, 2200)
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -680,8 +702,10 @@ function handleEnhanceVolumeApply(accepted: Record<string, string | string[]>): 
               left: idx % 2 === 0,
               right: idx % 2 === 1,
               dragging: draggingOutlineId === item.id,
-              'drop-target': dragTargetOutlineId === item.id && draggingOutlineId !== item.id
+              'drop-target': dragTargetOutlineId === item.id && draggingOutlineId !== item.id,
+              'assistant-focused': focusedOutlineId === item.id
             }"
+            :data-assistant-focus-id="item.id"
             draggable="true"
             @dragstart="handleDragStart(item.id, $event)"
             @dragover="handleDragOver(item.id, $event)"
@@ -1169,6 +1193,11 @@ function handleEnhanceVolumeApply(accepted: Record<string, string | string[]>): 
 .timeline-node.drop-target .timeline-card {
   border-color: var(--arc-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 15%, transparent);
+}
+
+.timeline-node.assistant-focused .timeline-card {
+  border-color: color-mix(in srgb, var(--arc-accent) 78%, white 22%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arc-accent) 16%, transparent), 0 24px 54px rgba(15, 23, 42, 0.18);
 }
 
 .card-header {

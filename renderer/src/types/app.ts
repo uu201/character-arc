@@ -498,6 +498,29 @@ export interface OutlineItem {
 }
 
 /** AI 助手聊天消息 */
+export interface AssistantToolCall {
+  toolUseId: string
+  toolName: string
+  args: Record<string, unknown>
+  status: 'running' | 'done' | 'error'
+  result?: string
+  isError?: boolean
+  durationMs?: number
+}
+
+export interface AssistantEditEvent {
+  chapterId: string
+  editType: string
+  preview: string
+  versionId: string
+}
+
+export interface AssistantTurn {
+  text: string
+  toolCalls: AssistantToolCall[]
+  editEvents: AssistantEditEvent[]
+}
+
 export interface ChatMessage {
   /** 消息唯一标识 */
   id: string
@@ -505,6 +528,11 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   /** 消息正文内容 */
   content: string
+  toolCalls?: AssistantToolCall[]
+  editEvents?: AssistantEditEvent[]
+  turns?: AssistantTurn[]
+  isError?: boolean
+  isCanceled?: boolean
 }
 
 /** 项目知识文档来源类型 */
