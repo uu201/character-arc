@@ -2566,7 +2566,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function createAssistantSession(): void {
-    const nextSession = createGlobalAssistantSession()
+    const nextSession = createGlobalAssistantSession([])
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
       messages: nextSession.messages,
@@ -2597,7 +2597,7 @@ export const useAppStore = defineStore('app', () => {
       const nextSessions = workspace.globalAssistantSessions.filter((session) => session.id !== sessionId)
       const fallbackSession = nextSessions.find((session) => session.id === workspace.activeGlobalAssistantSessionId)
         ?? nextSessions[0]
-        ?? createGlobalAssistantSession()
+        ?? createGlobalAssistantSession([])
 
       return {
         ...workspace,

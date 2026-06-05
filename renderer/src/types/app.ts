@@ -5,7 +5,7 @@ export type ThemeName = 'ocean' | 'jade' | 'amber' | 'rose'
 export type DarkModeStyle = 'nord'
 
 /** 工作台面板名称 */
-export type PanelName = 'workflow' | 'overview' | 'deconstruction' | 'project-knowledge' | 'world' | 'characters' | 'relations' | 'inspiration' | 'outline' | 'threads' | 'chapters' | 'settings'
+export type PanelName = 'workflow' | 'overview' | 'deconstruction' | 'project-knowledge' | 'world' | 'characters' | 'relations' | 'inspiration' | 'outline' | 'threads' | 'chapters' | 'settings' | 'global-assistant'
 
 /** 小说流程阶段标识 */
 export type NovelWorkflowStageId = 'reference' | 'premise' | 'setting' | 'outline' | 'draft'

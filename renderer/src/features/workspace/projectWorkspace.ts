@@ -126,20 +126,14 @@ function normalizeOrganizationMemberships(memberships?: OrganizationMembership[]
 
 // ==================== 工厂函数与工具函数 ====================
 
-// 创建聊天窗口的初始欢迎消息，AI 助理自我介绍并提示可用功能
+// 创建聊天窗口的初始消息（保持为空，新会话直接进入空状态欢迎页）
 export function createInitialMessages(): ChatMessage[] {
-  return [
-    {
-      id: `msg-${Date.now()}-welcome`,
-      role: 'assistant',
-      content: '我是你的项目级创作助理。我会围绕当前项目的世界观、人物卡、大纲和知识沉淀，协助你录入、补完和修正全局设定。'
-    }
-  ]
+  return []
 }
 
-// 浅拷贝消息列表，空列表时回退到初始欢迎消息
+// 浅拷贝消息列表（新会话保持为空，由界面渲染空状态）
 function cloneMessages(messages?: ChatMessage[]): ChatMessage[] {
-  return messages?.length ? messages.map((message) => ({ ...message })) : createInitialMessages()
+  return messages?.length ? messages.map((message) => ({ ...message })) : []
 }
 
 function normalizeGlobalAssistantProposal(proposal?: GlobalAssistantProposal | null): GlobalAssistantProposal | null {

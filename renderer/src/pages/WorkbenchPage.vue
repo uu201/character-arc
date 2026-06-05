@@ -14,6 +14,7 @@ import {
   PanelLeftOpen,
   Search,
   Settings,
+  Sparkles,
   Users,
   GitMerge
 } from 'lucide-vue-next'
@@ -23,6 +24,7 @@ import { useAppStore } from '@/stores/app'
 import NovelWorkflowPanel from '@/components/NovelWorkflowPanel.vue'
 import OverviewPanel from '@/components/OverviewPanel.vue'
 import GlobalAssistantPanel from '@/components/GlobalAssistantPanel.vue'
+import GlobalAssistantPage from '@/components/GlobalAssistantPage.vue'
 import ProjectKnowledgePanel from '@/components/ProjectKnowledgePanel.vue'
 import WorldviewPanel from '@/components/WorldviewPanel.vue'
 import CharactersPanel from '@/components/CharactersPanel.vue'
@@ -78,7 +80,8 @@ const sidebarItems = [
   { id: 'inspiration', label: '灵感模块', description: '收集标题、桥段、转折与人物动机', icon: Lightbulb, color: '#f59e0b' },
   { id: 'workflow', label: '小说流程', description: '维护固定流程文件并驱动写作阶段', icon: BookOpenText, color: '#3b82f6' },
   { id: 'chapters', label: '章节创作', description: '进入正文草稿与章节推进流程', icon: FileText, color: '#3b82f6' },
-  { id: 'project-knowledge', label: '项目知识库', description: '一致性审计与从已有章节补录状态', icon: FileCheck2, color: '#14b8a6' }
+  { id: 'project-knowledge', label: '项目知识库', description: '一致性审计与从已有章节补录状态', icon: FileCheck2, color: '#14b8a6' },
+  { id: 'global-assistant', label: '全局AI助手', description: '审计、录入与跨设定修正的全局助理', icon: Sparkles, color: '#0066cc' }
 ] as const
 
 const hiddenPanelLabels: Partial<Record<PanelName, string>> = {
@@ -89,6 +92,9 @@ const hiddenPanelLabels: Partial<Record<PanelName, string>> = {
 const normalizedSearch = computed(() => searchKeyword.value.trim())
 // 是否处于搜索模式（关键词非空时显示搜索结果面板）
 const isSearchMode = computed(() => normalizedSearch.value.length > 0)
+
+// 全局AI助手为整页助手，自带搜索/会话能力，隐藏工作台 header 的搜索与 AI助手 入口
+const isGlobalAssistantPanel = computed(() => appStore.activePanel === 'global-assistant')
 
 // 顶部面包屑中显示的当前视图标签
 const activeViewLabel = computed(() => {
@@ -355,7 +361,7 @@ watch(searchKeyword, (value) => {
           <span class="active-crumb">{{ activeViewLabel }}</span>
         </div>
 
-        <div class="header-tools">
+        <div v-if="!isGlobalAssistantPanel" class="header-tools">
           <n-input
             v-model:value="searchKeyword"
             class="search-input"
@@ -379,9 +385,9 @@ watch(searchKeyword, (value) => {
         </div>
       </header>
 
-      <div class="workspace-body">
+      <div class="workspace-body" :class="{ 'workspace-body--flush': isGlobalAssistantPanel }">
         <div class="workspace-body-shell">
-          <div class="workspace-body-main arc-scrollbar">
+          <div class="workspace-body-main arc-scrollbar" :class="{ 'workspace-body-main--flush': isGlobalAssistantPanel }">
             <Transition name="panel-switch" mode="out-in">
               <!-- 搜索模式下显示全局搜索结果面板 -->
               <SearchResultsPanel
@@ -400,6 +406,7 @@ watch(searchKeyword, (value) => {
               <InspirationPanel v-else-if="appStore.activePanel === 'inspiration'" key="inspiration" :search-query="normalizedSearch" />
               <OutlinePanel v-else-if="appStore.activePanel === 'outline'" key="outline" :search-query="normalizedSearch" />
               <PlotThreadsPanel v-else-if="appStore.activePanel === 'threads'" key="threads" :search-query="normalizedSearch" />
+              <GlobalAssistantPage v-else-if="appStore.activePanel === 'global-assistant'" key="global-assistant" />
               <SettingsPanel v-else key="settings" />
             </Transition>
           </div>
@@ -794,6 +801,10 @@ watch(searchKeyword, (value) => {
   padding: 24px;
 }
 
+.workspace-body--flush {
+  padding: 0;
+}
+
 .workspace-body-shell {
   position: relative;
   display: flex;
@@ -809,6 +820,11 @@ watch(searchKeyword, (value) => {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+}
+
+.workspace-body-main--flush {
+  display: flex;
+  overflow: hidden;
 }
 
 .assistant-backdrop {
