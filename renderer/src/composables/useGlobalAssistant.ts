@@ -259,9 +259,9 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
   const quickActions = computed<Record<AssistantMode, QuickAction[]>>(() => ({
     ingest: [
-      { label: '录入大纲', prompt: '我有一份粗糙大纲草稿，请帮我整理成结构化章节节点，并标出关键高潮和转折。' },
-      { label: '录入角色', prompt: '我有几名主要角色的草稿设定，请帮我整理成角色卡，并保留待确认的部分。' },
-      { label: '录入历史', prompt: '我有一份长篇历史时间线，请帮我拆成结构化历史词条和时间线节点。' }
+      { label: '录入大纲', prompt: '我有一份粗糙大纲草稿，请帮我整理成结构化章节节点，并标出关键高潮和转折。\n\n草稿内容：\n' },
+      { label: '录入角色', prompt: '我有几名主要角色的草稿设定，请帮我整理成角色卡，并保留待确认的部分。\n\n角色草稿：\n' },
+      { label: '录入历史', prompt: '我有一份长篇历史时间线，请帮我拆成结构化历史词条和时间线节点。\n\n历史草稿：\n' }
     ],
     correct: [
       { label: '修正人设', prompt: '纠正：请先复述你理解到的修正点，再指出需要更新的人物卡、世界观或大纲内容。' },
