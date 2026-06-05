@@ -9,6 +9,8 @@ import {
   FileText,
   GitCompare,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   Search,
@@ -28,6 +30,7 @@ const a = useGlobalAssistant({ activeViewLabel: () => '全局AI助手' })
 const conversationRef = ref<HTMLElement | null>(null)
 const composerRef = ref<HTMLTextAreaElement | null>(null)
 const showModeMenu = ref(false)
+const railCollapsed = ref(false)
 const collapsedGroups = reactive<Record<string, boolean>>({})
 
 const hasThread = computed(() => Boolean(a.messages.value.length || a.isSending.value || a.isRunningAudit.value))
@@ -107,29 +110,50 @@ watch(
 <template>
   <section class="ga-page">
     <!-- 会话（任务）历史栏 -->
-    <aside class="ga-rail">
-      <div class="ga-rail__head">
-        <strong>会话</strong>
-        <button class="ga-rail__new" type="button" :disabled="a.isSending.value || a.isRunningAudit.value || a.isProposalLoading.value" @click="a.handleNewSession()">
-          <Plus :size="13" />新建
+    <aside class="ga-rail" :class="{ 'ga-rail--collapsed': railCollapsed }">
+      <template v-if="!railCollapsed">
+        <div class="ga-rail__head">
+          <strong>会话</strong>
+          <div class="ga-rail__head-actions">
+            <button class="ga-rail__new" type="button" :disabled="a.isSending.value || a.isRunningAudit.value || a.isProposalLoading.value" @click="a.handleNewSession()">
+              <Plus :size="13" />新建
+            </button>
+            <button class="ga-rail__toggle" type="button" title="收起会话栏" @click="railCollapsed = true">
+              <PanelLeftClose :size="16" />
+            </button>
+          </div>
+        </div>
+        <div class="ga-rail__list arc-scrollbar">
+          <p v-if="!a.sessions.value.length" class="ga-rail__empty">暂无历史会话</p>
+          <button
+            v-for="session in a.sessions.value"
+            :key="session.id"
+            type="button"
+            class="ga-session"
+            :class="{ active: a.activeSessionId.value === session.id }"
+            @click="a.switchConversation(session.id)"
+          >
+            <span class="ga-session__title">
+              <span class="ga-dot correct" />
+              <span class="ga-session__text">{{ session.title || '未命名会话' }}</span>
+              <span class="ga-session__del" title="删除" @click.stop="a.deleteConversation(session.id)"><Trash2 :size="12" /></span>
+            </span>
+            <span class="ga-session__meta">{{ session.messages.length }} 条消息</span>
+          </button>
+        </div>
+      </template>
+      <div v-else class="ga-rail__collapsed">
+        <button class="ga-rail__toggle" type="button" title="展开会话栏" @click="railCollapsed = false">
+          <PanelLeftOpen :size="16" />
         </button>
-      </div>
-      <div class="ga-rail__list arc-scrollbar">
-        <p v-if="!a.sessions.value.length" class="ga-rail__empty">暂无历史会话</p>
         <button
-          v-for="session in a.sessions.value"
-          :key="session.id"
+          class="ga-rail__toggle"
           type="button"
-          class="ga-session"
-          :class="{ active: a.activeSessionId.value === session.id }"
-          @click="a.switchConversation(session.id)"
+          title="新建会话"
+          :disabled="a.isSending.value || a.isRunningAudit.value || a.isProposalLoading.value"
+          @click="a.handleNewSession()"
         >
-          <span class="ga-session__title">
-            <span class="ga-dot correct" />
-            <span class="ga-session__text">{{ session.title || '未命名会话' }}</span>
-            <span class="ga-session__del" title="删除" @click.stop="a.deleteConversation(session.id)"><Trash2 :size="12" /></span>
-          </span>
-          <span class="ga-session__meta">{{ session.messages.length }} 条消息</span>
+          <Plus :size="16" />
         </button>
       </div>
     </aside>
@@ -476,6 +500,17 @@ watch(
   flex-direction: column;
   border-right: 1px solid var(--arc-border, #e5e7eb);
   background: var(--arc-bg-weak, #f9fafb);
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.ga-rail--collapsed {
+  width: 48px;
+}
+.ga-rail__collapsed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 0;
 }
 .ga-rail__head {
   display: flex;
@@ -483,6 +518,32 @@ watch(
   justify-content: space-between;
   gap: 8px;
   padding: 16px 16px 10px;
+}
+.ga-rail__head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ga-rail__toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--arc-radius-md, 6px);
+  background: transparent;
+  color: var(--arc-text-secondary, #4b5563);
+  cursor: pointer;
+  transition: border-color 0.18s, color 0.18s, background 0.18s;
+}
+.ga-rail__toggle:hover:not(:disabled) {
+  border-color: var(--arc-primary, #2563eb);
+  color: var(--arc-primary, #2563eb);
+  background: color-mix(in srgb, var(--arc-primary, #2563eb) 4%, var(--arc-bg-surface, #ffffff));
+}
+.ga-rail__toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .ga-rail__head strong {
   font-size: 13px;
