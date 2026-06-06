@@ -1,4 +1,5 @@
 import { ref, onMounted } from 'vue'
+import { LOCAL_ANNOUNCEMENTS, normalizeAnnouncements, resolveLatestAnnouncementDate } from '@/features/announcements/announcements'
 
 export type StatusIndicator = 'none' | 'new' | 'error'
 
@@ -12,15 +13,17 @@ let checked = false
 async function checkAnnouncements(): Promise<void> {
   try {
     const res = await window.characterArc.fetchAnnouncements()
-    if (!res.success || !res.data?.length) {
+    const announcements = res.success ? normalizeAnnouncements(res.data) : []
+    if (!announcements.length) {
+      latestAnnouncementDate = resolveLatestAnnouncementDate(LOCAL_ANNOUNCEMENTS)
       announcementStatus.value = 'error'
       return
     }
-    const dates = res.data.map((item) => item.date).sort()
-    latestAnnouncementDate = dates[dates.length - 1]
+    latestAnnouncementDate = resolveLatestAnnouncementDate(announcements)
     const lastViewed = localStorage.getItem(STORAGE_KEY) ?? ''
     announcementStatus.value = latestAnnouncementDate > lastViewed ? 'new' : 'none'
   } catch {
+    latestAnnouncementDate = resolveLatestAnnouncementDate(LOCAL_ANNOUNCEMENTS)
     announcementStatus.value = 'error'
   }
 }
@@ -38,9 +41,11 @@ async function checkUpdate(): Promise<void> {
   }
 }
 
-function markAnnouncementRead(): void {
-  if (latestAnnouncementDate) {
-    localStorage.setItem(STORAGE_KEY, latestAnnouncementDate)
+function markAnnouncementRead(date?: string): void {
+  const viewedDate = date || latestAnnouncementDate
+  if (viewedDate) {
+    latestAnnouncementDate = viewedDate > latestAnnouncementDate ? viewedDate : latestAnnouncementDate
+    localStorage.setItem(STORAGE_KEY, viewedDate)
   }
   announcementStatus.value = 'none'
 }

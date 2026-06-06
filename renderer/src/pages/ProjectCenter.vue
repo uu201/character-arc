@@ -155,7 +155,7 @@ function requestDeleteProject(projectId: string): void {
         @open-cover-workbench="openCoverWorkbenchPage"
         @open-skills="openSkillsPage"
         @open-settings="settingsVisible = true"
-        @open-announcement="markAnnouncementRead(); announcementVisible = true"
+        @open-announcement="announcementVisible = true"
         @check-update="markUpdateRead(); updateVisible = true"
       />
 
@@ -175,7 +175,7 @@ function requestDeleteProject(projectId: string): void {
     />
 
     <HomepageSettingsModal v-model:show="settingsVisible" />
-    <HomepageAnnouncementModal v-model:show="announcementVisible" />
+    <HomepageAnnouncementModal v-model:show="announcementVisible" @loaded="markAnnouncementRead" />
     <HomepageUpdateModal v-model:show="updateVisible" />
   </section>
 </template>
