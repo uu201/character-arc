@@ -417,9 +417,13 @@ export function applyStateDelta(
   db: DatabaseSync,
   projectId: string,
   chapterIndex: number,
-  delta: StateDelta
+  delta: StateDelta,
+  options: { useTransaction?: boolean } = {}
 ): void {
-  db.exec('BEGIN')
+  const useTransaction = options.useTransaction !== false
+  if (useTransaction) {
+    db.exec('BEGIN')
+  }
   try {
   const timestamp = now()
 
@@ -573,9 +577,13 @@ export function applyStateDelta(
     )
   }
 
-  db.exec('COMMIT')
+  if (useTransaction) {
+    db.exec('COMMIT')
+  }
   } catch (error) {
-    db.exec('ROLLBACK')
+    if (useTransaction) {
+      db.exec('ROLLBACK')
+    }
     throw error
   }
 }

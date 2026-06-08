@@ -221,6 +221,27 @@ declare global {
         versionId?: string
         error?: string
       }>
+      applyChapterFinalization: (payload: {
+        projectId: string
+        chapterId: string
+        chapterIndex?: number
+        preview: {
+          chapterSummary: string
+          stateDelta: unknown | null
+          nextChapterBridge: string
+          warnings: string[]
+        }
+      }) => Promise<{
+        success: boolean
+        result?: {
+          chapter: { id: string; title: string; summary: string; status: string; wordTarget: string; content: string }
+          version: { id: string; chapterId: string; title: string; summary: string; status: string; wordTarget: string; content: string; createdAt: string }
+          versionId: string
+          nextChapterBridge: string
+          appliedStateDelta: boolean
+        }
+        error?: string
+      }>
       onAiStreamEvent: (callback: (payload: CharacterArcAiStreamEvent) => void) => () => void
       onAiRunEvent: (callback: (payload: CharacterArcAiRunEventPayload) => void) => () => void
       onChapterStateWarnings: (callback: (payload: CharacterArcChapterStateWarningsPayload) => void) => () => void

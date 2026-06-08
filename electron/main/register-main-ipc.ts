@@ -5,6 +5,7 @@ import { basename, join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 
 import type { AiTaskPayload, ReferenceStyleAnalysisResult, ReferenceStyleChunkResult } from './ai/shared-types'
+import { applyChapterFinalization, normalizeApplyChapterFinalizationRequest } from './ai/chapter-finalization-apply'
 import { runAiTask } from './ai/runtime'
 import { indexReferenceNovel } from './ai/knowledge-retrieval'
 import { refreshRegistry as refreshSkillRegistry, toScanEntries as skillScanEntries, toContextEntries as skillContextEntries } from './ai/skills'
@@ -1125,6 +1126,18 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
       return { success: true, versionId: result.versionId }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : '写回失败' }
+    }
+  })
+
+  // ── 章节确认归档 ──
+  ipcMain.handle('characterarc:ai-apply-chapter-finalization', async (_event, payload: unknown) => {
+    try {
+      const db = await deps.ensureWorkspaceDb()
+      const request = normalizeApplyChapterFinalizationRequest(payload)
+      const result = applyChapterFinalization(db, request)
+      return { success: true, result }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '章节归档失败' }
     }
   })
 

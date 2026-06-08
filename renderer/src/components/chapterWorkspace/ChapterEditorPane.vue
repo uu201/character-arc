@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ChevronRight, Folder, FocusIcon, History, Maximize2, Menu, MessageSquareQuote, Minus, Minimize2, Plus, RefreshCw, Sparkles, Wand2 } from 'lucide-vue-next'
+import { Archive, ChevronRight, Folder, FocusIcon, History, Maximize2, Menu, MessageSquareQuote, Minus, Minimize2, Plus, RefreshCw, Sparkles, Wand2 } from 'lucide-vue-next'
 import { NAlert, NTag, NTooltip } from 'naive-ui'
 import SimpleChapterEditor from './SimpleChapterEditor.vue'
 import ChapterVersionDialog from './ChapterVersionDialog.vue'
@@ -21,6 +21,7 @@ const emit = defineEmits<{
   toggleSidebar: []
   selectionAction: [action: string, text: string]
   generateDraft: []
+  finalizeChapter: []
 }>()
 
 const appStore = useAppStore()
@@ -187,6 +188,10 @@ onBeforeUnmount(() => {
         <button class="toolbtn" :disabled="!currentChapter" @click="emit('generateDraft')">
           <Wand2 :size="13" />
           <span>生成初稿</span>
+        </button>
+        <button class="toolbtn" :disabled="!currentChapter" @click="emit('finalizeChapter')">
+          <Archive :size="13" />
+          <span>确认归档</span>
         </button>
         <button class="toolbtn" :class="{ primary: !aiOpen, active: aiOpen }" @click="emit('toggleAi')">
           <Sparkles :size="13" />

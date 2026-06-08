@@ -19,6 +19,7 @@ import chapterSummarize from './chapter-summarize'
 import chapterScenePlan from './chapter-scene-plan'
 import chapterMemo from './chapter-memo'
 import chapterAudit from './chapter-audit'
+import chapterFinalize from './chapter-finalize'
 import plotThreadDetect from './plot-thread-detect'
 import workflowDocuments from './workflow-documents'
 import referenceStyleChunk from './reference-style-chunk'
@@ -64,6 +65,7 @@ register(chapterSummarize)
 register(chapterScenePlan)
 register(chapterMemo)
 register(chapterAudit)
+register(chapterFinalize)
 register(plotThreadDetect)
 register(workflowDocuments)
 register(referenceStyleChunk)

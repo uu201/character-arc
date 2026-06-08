@@ -52,6 +52,7 @@ const TASK_DEFAULT_CAPABILITIES: Record<AiTaskName, PromptCapabilityId[]> = {
   'chapter-scene-plan': ['settings', 'chapters', 'outline'],
   'chapter-memo': ['settings', 'chapters', 'outline', 'characters', 'relations', 'worldview'],
   'chapter-audit': ['settings', 'chapters', 'analysis'],
+  'chapter-finalize': ['settings', 'chapters', 'analysis', 'worldview', 'characters', 'relations', 'outline', 'project-skills'],
   'plot-thread-detect': ['settings', 'chapters', 'analysis'],
   'chapter-repair': ['settings', 'chapters', 'worldview', 'characters', 'relations', 'outline', 'writing-style', 'project-skills'],
   'story-deep-audit': ['settings', 'chapters', 'analysis', 'worldview', 'characters', 'relations', 'outline', 'project-skills'],
