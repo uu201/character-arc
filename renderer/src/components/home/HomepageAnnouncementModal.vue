@@ -4,7 +4,8 @@ import { NButton, NModal, NSpin, NTimeline, NTimelineItem } from 'naive-ui'
 import {
   LOCAL_ANNOUNCEMENTS as SHARED_LOCAL_ANNOUNCEMENTS,
   normalizeAnnouncements,
-  resolveLatestAnnouncementDate
+  resolveLatestAnnouncementDate,
+  type AnnouncementItem
 } from '@/features/announcements/announcements'
 
 const props = defineProps<{
@@ -15,99 +16,6 @@ const emit = defineEmits<{
   (e: 'update:show', value: boolean): void
   (e: 'loaded', latestDate: string): void
 }>()
-
-type AnnouncementItem = {
-  title: string
-  date: string
-  type: 'success' | 'info' | 'warning' | 'error'
-  items: string[]
-}
-
-const LOCAL_ANNOUNCEMENTS: AnnouncementItem[] = [
-  {
-    title: '弧光 v1.8.0 发布',
-    date: '2026-06-05',
-    type: 'success',
-    items: [
-      '【新功能】全局 AI 助理新增独立整页入口，拥有完整的会话列表、对话流与提案写回区，适合长设定、粗大纲和项目草稿的集中整理',
-      '【新功能】整页助理左侧会话历史栏支持一键收起与展开，给对话区让出更多空间',
-      '【新功能】悬浮形态的全局助理面板支持拖拽调整宽度并记忆尺寸',
-      '【优化】录入大纲 / 角色 / 历史等快捷操作改为仅填充输入框，由你补全草稿后再发送，避免没有草稿时直接套用已有内容',
-      '【优化】整页助理输入框随内容自适应高度并设有上限，同时移除了暂未启用的添加上下文按钮',
-      '【优化】新建会话不再插入固定欢迎语，直接进入空状态欢迎页，界面更干净',
-      '【修复】修复 AI 调用日志数据库迁移时可能重复添加列导致的报错'
-    ]
-  },
-  {
-    title: '弧光 v1.7.0 发布',
-    date: '2026-06-04',
-    type: 'success',
-    items: [
-      '【新功能】新增项目级全局 AI 助理，可跨世界观、角色、大纲、章节与工作流资料统一提问、检索和整理提案',
-      '【新功能】全局助理提案支持 AI 自主选择并调用 skills，并可按需读取项目资料后生成更贴上下文的写回方案',
-      '【新功能】标题栏新增 AI 调用日志入口，可查看当前项目的 AI 运行记录、模型、耗时、工具读取次数与资料命中情况',
-      '【优化】全局助理改为按需检索模式，搜索结果支持返回 entity_type / entity_id，减少无效上下文灌入',
-      '【优化】全局助理工具调用过程可视化，前端会分组展示搜索、读取、产出动作，让 AI 的决策路径更可观察',
-      '【优化】世界观 / 人物 / 大纲提案写回后会自动跳转到对应面板，并聚焦刚写回的条目，反馈更直接',
-      '【优化】提案流程与章节工具联动更加稳妥：普通提问不会误入提案流程，没有活动章节时也会优先改走项目资料检索'
-    ]
-  },
-  {
-    title: '弧光 v1.5.1 发布',
-    date: '2026-05-28',
-    type: 'success',
-    items: [
-      '【修复】检查更新始终显示"已是最新版本"，原因是 GitHub Release tag 格式解析异常',
-      '【修复】公告远程拉取被 CSP 拦截，已迁移至主进程 IPC 请求',
-      '【修复】公告弹窗内容过多时溢出窗口，现已限制高度并支持滚动',
-      '【修复】v1.5.0 公告内容不完整，补充全部新功能与优化条目'
-    ]
-  },
-  {
-    title: '弧光 v1.5.0 发布',
-    date: '2026-05-28',
-    type: 'success',
-    items: [
-      '【新功能】AI 助手支持历史会话保存、加载、删除与继续对话',
-      '【新功能】设置页改为 Tab 式多接口配置管理，支持维护多套 AI 接口并切换',
-      '【新功能】标题栏新增全局模型切换器，快速切换当前启用的接口配置',
-      '【新功能】知识中心支持批量导入参考小说，多选并发处理、进度展示与单本取消',
-      '【新功能】首页新增公告弹窗与 GitHub Release 检查更新',
-      '【新功能】设置页新增 AI 请求超时时间配置',
-      '【新功能】内置 Distilled-Novel-Toolbox 技能包，skills 按来源分组整理',
-      '【优化】AI 助手改为”索引摘要 + 按需检索”模式，减少无效上下文灌入',
-      '【优化】章节助手支持按模块开关大纲、角色、世界观、剧情线等上下文来源',
-      '【优化】设置弹窗改为左侧导航布局，分区更清晰',
-      '【优化】Skills 页面改为按分组折叠展示',
-      '【优化】主页、大纲、世界观、灵感等模块卡片样式与信息层次优化',
-      '【修复】AI 助手历史会话保存后重启丢失的问题',
-      '【修复】多套 AI 接口配置重启后只剩一个的问题',
-      '【修复】修改”配置名称”后保存按钮无法点击的问题',
-      '【修复】macOS 平台标题栏兼容性问题'
-    ]
-  },
-  {
-    title: '弧光 v1.0.1 发布',
-    date: '2026-05-25',
-    type: 'success',
-    items: [
-      '修复 Anthropic 中转站兼容性问题',
-      '简化 AI 接口配置流程',
-      '修复 macOS 标题栏兼容性'
-    ]
-  },
-  {
-    title: '弧光 v1.0.0 正式发布',
-    date: '2026-05-24',
-    type: 'info',
-    items: [
-      'AI 辅助小说创作工作台',
-      '世界观 / 人物 / 大纲 / 章节全流程管理',
-      '拆书知识库与风格仿写',
-      '封面生成工作台'
-    ]
-  }
-]
 
 const currentVersion = computed(() => window.characterArc.version)
 const announcements = ref<AnnouncementItem[]>(SHARED_LOCAL_ANNOUNCEMENTS)
