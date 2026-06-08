@@ -1,4 +1,5 @@
 import { pickRelevantInspirationEntries } from '@/features/inspiration/relevance'
+import { buildChapterExecutionPacket } from '@/features/ai/chapterExecutionPacket'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import type {
   ChapterDraft,
@@ -252,6 +253,16 @@ export function buildChapterFirstDraftContext(input: ChapterFirstDraftContextInp
     },
     6
   )
+  const chapterExecutionPacket = buildChapterExecutionPacket({
+    chapterTitle: input.chapter?.title,
+    chapterSummary: input.chapter?.summary,
+    targetWordCount: input.targetWordCount,
+    currentOutlineItem: input.currentOutlineItem,
+    outlineChapterSplit: input.outlineChapterSplit,
+    relatedChapters: input.relatedChapters,
+    recentEndingsTrail: input.recentEndingsTrail,
+    chapterMemo: input.chapterMemo
+  })
 
   return {
     projectId: input.project?.id,
@@ -336,6 +347,7 @@ export function buildChapterFirstDraftContext(input: ChapterFirstDraftContextInp
     projectSkills: input.projectSkills ?? [],
     userPrompt: input.userPrompt,
     chapterMemo: input.chapterMemo ?? null,
-    recentEndingsTrail: input.recentEndingsTrail ?? []
+    recentEndingsTrail: input.recentEndingsTrail ?? [],
+    chapterExecutionPacket
   }
 }
