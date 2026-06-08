@@ -59,11 +59,27 @@
       "out/**",
       "dist-electron/**",
       "node_modules/@node-rs/**",
-      "resources/**/*"
+      "resources/**/*",
+      "!node_modules/**/src/**",
+      "!node_modules/**/docs/**",
+      "!node_modules/**/doc/**",
+      "!node_modules/**/test/**",
+      "!node_modules/**/tests/**",
+      "!node_modules/**/__tests__/**",
+      "!node_modules/**/example/**",
+      "!node_modules/**/examples/**",
+      "!node_modules/**/*.map",
+      "!node_modules/**/*.ts",
+      "!node_modules/**/*.d.ts",
+      "!node_modules/**/*.d.mts",
+      "!node_modules/**/*.d.cts",
+      "!node_modules/**/README*",
+      "!node_modules/**/CHANGELOG*"
     ],
     "asarUnpack": [
       "node_modules/@node-rs/**"
     ],
+    "afterPack": "build/afterPack.cjs",
     "win": {
       "icon": "resources/icon.ico",
       "target": [
