@@ -4,6 +4,8 @@ import { Minimize } from 'lucide-vue-next'
 import ChapterTreeSidebar from './ChapterTreeSidebar.vue'
 import ChapterEditorPane from './ChapterEditorPane.vue'
 import ChapterAiPanel from './ChapterAiPanel.vue'
+import ChapterFirstDraftConfigDialog from './ChapterFirstDraftConfigDialog.vue'
+import type { FirstDraftConfig } from './useChapterFirstDraft'
 
 const COMPACT_BREAKPOINT = 1180
 const COMPACT_BREAKPOINT_AI_OPEN = 1440
@@ -17,6 +19,7 @@ const sidebarDrawerVisible = ref(false)
 const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
 const aiPanelWidth = ref(DEFAULT_AI_WIDTH)
 const isDraggingPanel = ref(false)
+const draftConfigVisible = ref(false)
 
 const isCompact = computed(() => {
   const threshold = aiOpen.value ? COMPACT_BREAKPOINT_AI_OPEN : COMPACT_BREAKPOINT
@@ -62,9 +65,14 @@ function handleSelectionAction(action: string, text: string): void {
 }
 
 function handleGenerateDraft(): void {
+  draftConfigVisible.value = true
+}
+
+function handleDraftConfigConfirm(config: FirstDraftConfig): void {
+  draftConfigVisible.value = false
   aiOpen.value = true
   nextTick(() => {
-    aiPanelRef.value?.triggerDraft()
+    aiPanelRef.value?.triggerDraft(config)
   })
 }
 
@@ -173,6 +181,12 @@ onBeforeUnmount(() => {
       </div>
     </Transition>
   </section>
+
+  <ChapterFirstDraftConfigDialog
+    :show="draftConfigVisible"
+    @confirm="handleDraftConfigConfirm"
+    @cancel="draftConfigVisible = false"
+  />
 </template>
 
 <style scoped>

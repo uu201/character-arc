@@ -18,7 +18,7 @@ import type { SpiralBootstrapInput } from './spiral'
  */
 type AiIpcDeps = {
   /** 获取最新工作区快照（知识文档、AI 运行记录等） */
-  getLatestWorkspaceSnapshot: () => { workspaces?: Record<string, { knowledgeDocuments?: unknown[]; aiRuns?: unknown[] }> } | null
+  getLatestWorkspaceSnapshot: () => { knowledgeDocuments?: unknown[]; workspaces?: Record<string, { aiRuns?: unknown[] }> } | null
   /** 向 renderer 广播 AI 运行事件 */
   emitAiRunEvent: (payload: { projectId: string; meta: Record<string, unknown> }) => void
   /** 向 renderer 广播章节状态告警事件 */

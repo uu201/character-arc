@@ -133,19 +133,20 @@ function buildKnowledgeSnippet(document: WorkspaceKnowledgeDocument): string {
  */
 export function retrieveKnowledgeContext(
   task: AiTaskPayload,
-  latestWorkspaceSnapshot: { workspaces?: Record<string, { knowledgeDocuments?: WorkspaceKnowledgeDocument[] }> } | null
+  latestWorkspaceSnapshot: { knowledgeDocuments?: WorkspaceKnowledgeDocument[]; workspaces?: Record<string, unknown> } | null
 ): { usedKnowledge: WorkspaceAiRunKnowledgeItem[] } {
   if (!KNOWLEDGE_RETRIEVAL_TASKS.has(task.task)) {
     return { usedKnowledge: [] }
   }
 
   const projectId = String(task.context.projectId ?? '').trim()
-  if (!projectId || !latestWorkspaceSnapshot?.workspaces?.[projectId]) {
+  if (!projectId || !latestWorkspaceSnapshot) {
     return { usedKnowledge: [] }
   }
 
-  const workspace = latestWorkspaceSnapshot.workspaces[projectId]
-  const documents = Array.isArray(workspace.knowledgeDocuments) ? workspace.knowledgeDocuments : []
+  const allDocuments = Array.isArray(latestWorkspaceSnapshot.knowledgeDocuments) ? latestWorkspaceSnapshot.knowledgeDocuments : []
+  // 排除拆书库文档（reference-summary / reference-chunk）——这些只在用户显式选择参考书时注入
+  const documents = allDocuments.filter((d) => d.sourceType !== 'reference-summary' && d.sourceType !== 'reference-chunk')
   if (!documents.length) {
     return { usedKnowledge: [] }
   }

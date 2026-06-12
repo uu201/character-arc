@@ -13,6 +13,13 @@ import { toIpcPayload } from '@/utils/ipcPayload'
 
 const TASK_KEY = 'chapter-first-draft'
 
+export type FirstDraftConfig = {
+  targetWordCount: number
+  selectedReferenceWorkIds: string[]
+  enabledSkillIds: string[]
+  userPrompt: string
+}
+
 function formatMemoForRepair(memo: Record<string, unknown>): string {
   const parts: string[] = []
   if (memo.currentTask) parts.push(`任务：${memo.currentTask}`)
@@ -20,6 +27,25 @@ function formatMemoForRepair(memo: Record<string, unknown>): string {
   if (Array.isArray(memo.payoffs) && memo.payoffs.length > 0) parts.push(`兑现：${memo.payoffs.join('；')}`)
   if (Array.isArray(memo.doNotDo) && memo.doNotDo.length > 0) parts.push(`红线：${memo.doNotDo.join('；')}`)
   return parts.join('\n')
+}
+
+function buildReferenceStyleContext(selectedRefIds: string[]): string {
+  if (!selectedRefIds.length) return ''
+  const { referenceWorks, knowledgeDocuments } = useAppStore()
+  const selectedTitles = new Set(
+    referenceWorks.filter((w) => selectedRefIds.includes(w.id)).map((w) => w.title)
+  )
+  if (!selectedTitles.size) return ''
+  const refDocs = knowledgeDocuments
+    .filter((d) =>
+      (d.sourceType === 'reference-summary' || d.sourceType === 'reference-chunk')
+      && selectedTitles.has(String(d.metadata?.sourceTitle ?? ''))
+    )
+    .slice(0, 4)
+  if (!refDocs.length) return ''
+  return refDocs
+    .map((d) => `【${d.metadata?.sourceTitle ?? d.title}】${d.summary || d.content.slice(0, 400)}`)
+    .join('\n\n')
 }
 
 export type ChapterAuditPayload = {
@@ -55,7 +81,7 @@ export function useChapterFirstDraft(): {
   isAuditing: Ref<boolean>
   elapsedSeconds: Ref<number>
   isStreaming: Ref<boolean>
-  start: () => Promise<void>
+  start: (config: FirstDraftConfig) => Promise<void>
   stop: () => Promise<void>
   closeModal: () => void
   registerStreamListener: () => void
@@ -271,7 +297,7 @@ export function useChapterFirstDraft(): {
     })
   }
 
-  async function start(): Promise<void> {
+  async function start(config: FirstDraftConfig): Promise<void> {
     const chapter = appStore.selectedChapter
     const project = appStore.currentProject
     const chapterVolume = appStore.selectedChapterVolume
@@ -304,7 +330,7 @@ export function useChapterFirstDraft(): {
           onCancel: () => { void stop() }
         },
         async () => {
-          const targetWordCount = parseChapterWordTarget(chapter.wordTarget)
+          const targetWordCount = config.targetWordCount || parseChapterWordTarget(chapter.wordTarget)
           const currentChapterIndex = appStore.chapters.findIndex((item) => item.id === chapter.id)
           const precedingChapters = appStore.chapters.slice(0, currentChapterIndex)
           const relatedChapters = precedingChapters
@@ -457,10 +483,12 @@ export function useChapterFirstDraft(): {
             knowledgeDocuments: appStore.projectConstraints,
             chapterContent: '',
             targetWordCount,
-            userPrompt: `请生成这一章的完整初稿，目标字数约 ${targetWordCount} 字（参考值，优先保证情节自然完整）。如果当前正文为空，就从零起稿；如果当前正文不为空，也按整章重写处理，而不是续写。`,
-            projectSkills: await loadEnabledProjectSkillsContext(project, 'draft'),
+            userPrompt: `请生成这一章的完整初稿，目标字数约 ${targetWordCount} 字（参考值，优先保证情节自然完整）。如果当前正文为空，就从零起稿；如果当前正文不为空，也按整章重写处理，而不是续写。${config.userPrompt ? `\n\n补充要求：${config.userPrompt}` : ''}`,
+            projectSkills: (await loadEnabledProjectSkillsContext(project, 'draft'))
+              .filter((s) => config.enabledSkillIds.includes(s.id)),
             chapterMemo,
-            recentEndingsTrail
+            recentEndingsTrail,
+            referenceStyleContext: buildReferenceStyleContext(config.selectedReferenceWorkIds)
           })
 
           executionLabel.value = '构建写作提示词…'
