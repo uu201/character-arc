@@ -111,18 +111,25 @@ function main() {
   console.log("\n→ 采集 刺猬猫排行榜...");
   console.log(`  URL: ${RANK_URL}`);
 
-  ab(PORT, "open", RANK_URL);
-  sleep(4000);
-  scrollLoad(PORT, 3);
-  sleep(1000);
+  let sections, urls;
+  try {
+    ab(PORT, "open", RANK_URL);
+    sleep(4000);
+    scrollLoad(PORT, 3);
+    sleep(1000);
 
-  const sections = extractAllRanks(PORT);
-  if (!sections.length) {
-    console.log("  ⚠ 未提取到榜单数据");
+    sections = extractAllRanks(PORT);
+    if (!sections.length) {
+      console.error("[ciweimao] 采集失败：页面结构可能已变（选择器没匹配到数据），请检查榜单URL或更新选择器");
+      return;
+    }
+
+    urls = extractBookUrls(PORT);
+  } catch (err) {
+    console.error(`[ciweimao] 采集失败（页面加载或提取阶段）: ${err.message}`);
     return;
   }
 
-  const urls = extractBookUrls(PORT);
   console.log(`  ✓ 提取 ${sections.length} 个榜单，${urls.length} 个书籍链接`);
 
   // 筛选需要的榜单类型
@@ -132,48 +139,63 @@ function main() {
       : RANK_TYPES.filter((r) => r.id === RANKTYPE);
 
   for (const rt of targetTypes) {
-    const section = sections.find((s) => s.name === rt.header);
-    if (!section || !section.entries.length) {
-      console.log(`  ⚠ ${rt.label} 无数据，跳过`);
-      continue;
-    }
-
-    const now = new Date().toISOString();
-    const lines = [
-      `# 刺猬猫 · ${rt.label}`,
-      "",
-      `- 来源：${RANK_URL}`,
-      `- 抓取时间：${now}`,
-      `- 条目数：${section.entries.length}`,
-      "",
-      "---",
-      "",
-    ];
-
-    for (const entry of section.entries) {
-      lines.push(`### #${entry.rank} ${entry.title}`);
-      const meta = [
-        entry.author,
-        entry.genre,
-        entry.metric || "",
-      ].filter(Boolean).join(" · ");
-      if (meta) lines.push(`*${meta}*`);
-
-      // 按标题匹配书籍链接
-      const matched = urls.find((u) => u.title === entry.title);
-      if (matched) {
-        lines.push(`[作品页](${matched.url})`);
+    try {
+      const section = sections.find((s) => s.name === rt.header);
+      if (!section || !section.entries.length) {
+        console.log(`  ⚠ ${rt.label} 无数据，跳过`);
+        continue;
       }
 
-      lines.push("", "---", "");
-    }
+      const now = new Date().toISOString();
+      const lines = [
+        `# 刺猬猫 · ${rt.label}`,
+        "",
+        `- 来源：${RANK_URL}`,
+        `- 抓取时间：${now}`,
+        `- 条目数：${section.entries.length}`,
+        "",
+        "---",
+        "",
+      ];
 
-    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const filename = `刺猬猫${rt.label}_${date}.md`;
-    const filepath = path.join(OUTDIR, filename);
-    fs.writeFileSync(filepath, lines.join("\n"), "utf-8");
-    console.log(`  ✓ ${rt.label}：${section.entries.length} 条 → ${filepath}`);
+      for (const entry of section.entries) {
+        try {
+          lines.push(`### #${entry.rank} ${entry.title}`);
+          const meta = [
+            entry.author,
+            entry.genre,
+            entry.metric || "",
+          ].filter(Boolean).join(" · ");
+          if (meta) lines.push(`*${meta}*`);
+
+          // 按标题匹配书籍链接
+          const matched = urls.find((u) => u.title === entry.title);
+          if (matched) {
+            lines.push(`[作品页](${matched.url})`);
+          }
+
+          lines.push("", "---", "");
+        } catch (entryErr) {
+          console.error(`[ciweimao] ${rt.label} 条目处理出错（#${entry.rank} ${entry.title}）: ${entryErr.message}`);
+          lines.push("", "---", "");
+        }
+      }
+
+      const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const filename = `刺猬猫${rt.label}_${date}.md`;
+      fs.mkdirSync(OUTDIR, { recursive: true });
+      const filepath = path.join(OUTDIR, filename);
+      fs.writeFileSync(filepath, lines.join("\n"), "utf-8");
+      console.log(`  ✓ ${rt.label}：${section.entries.length} 条 → ${filepath}`);
+    } catch (rankErr) {
+      console.error(`[ciweimao] ${rt.label} 处理出错，跳过: ${rankErr.message}`);
+    }
   }
 }
 
-main();
+try {
+  main();
+} catch (e) {
+  console.error(`刺猬猫采集失败: ${e && e.message ? e.message : e}`);
+  process.exit(1);
+}

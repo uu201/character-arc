@@ -13,6 +13,15 @@ import { toIpcPayload } from '@/utils/ipcPayload'
 
 const TASK_KEY = 'chapter-first-draft'
 
+function formatMemoForRepair(memo: Record<string, unknown>): string {
+  const parts: string[] = []
+  if (memo.currentTask) parts.push(`任务：${memo.currentTask}`)
+  if (memo.emotionArc) parts.push(`情绪轨迹：${memo.emotionArc}`)
+  if (Array.isArray(memo.payoffs) && memo.payoffs.length > 0) parts.push(`兑现：${memo.payoffs.join('；')}`)
+  if (Array.isArray(memo.doNotDo) && memo.doNotDo.length > 0) parts.push(`红线：${memo.doNotDo.join('；')}`)
+  return parts.join('\n')
+}
+
 export type ChapterAuditPayload = {
   pass: boolean
   wordCount: number
@@ -24,7 +33,7 @@ export type ChapterAuditPayload = {
   }>
 }
 
-type StreamTaskName = 'chapter-first-draft' | 'chapter-memo' | 'chapter-audit'
+type StreamTaskName = 'chapter-first-draft' | 'chapter-memo' | 'chapter-audit' | 'chapter-repair'
 
 type StreamTaskResult = {
   text: string
@@ -102,8 +111,13 @@ export function useChapterFirstDraft(): {
       return
     }
     if (currentStreamTask.value === 'chapter-audit') {
-      progressPercent.value = previewContent.value.trim() ? 98 : 96
+      progressPercent.value = previewContent.value.trim() ? 92 : 90
       progressText.value = '正在流式审计本章质量...'
+      return
+    }
+    if (currentStreamTask.value === 'chapter-repair') {
+      progressPercent.value = previewContent.value.trim() ? 98 : 96
+      progressText.value = '正在自动修复审计问题...'
       return
     }
     if (!words) {
@@ -151,12 +165,13 @@ export function useChapterFirstDraft(): {
   }
 
   function shouldRenderStreamPreview(task: StreamTaskName | null): boolean {
-    return task === 'chapter-first-draft' || task === 'chapter-memo'
+    return task === 'chapter-first-draft' || task === 'chapter-memo' || task === 'chapter-repair'
   }
 
   function getActiveTaskErrorMessage(): string {
     if (currentStreamTask.value === 'chapter-memo') return 'AI 写作备忘生成失败'
     if (currentStreamTask.value === 'chapter-audit') return 'AI 章节审计失败'
+    if (currentStreamTask.value === 'chapter-repair') return 'AI 章节修复失败'
     return 'AI 初稿生成失败'
   }
 
@@ -464,6 +479,34 @@ export function useChapterFirstDraft(): {
                 const auditResp = auditStream.result as { audit?: ChapterAuditPayload } | undefined
                 if (auditResp?.audit) {
                   auditResult.value = auditResp.audit
+
+                  const criticalIssues = auditResp.audit.issues.filter((i) => i.severity === 'critical')
+                  if (!auditResp.audit.pass && criticalIssues.length > 0) {
+                    executionLabel.value = `审计发现 ${criticalIssues.length} 个关键问题，正在自动修复...`
+                    previewTitle.value = '自动修复实时输出'
+                    previewContent.value = ''
+                    try {
+                      const repairStream = await streamTask('chapter-repair', {
+                        projectId: project.id,
+                        chapterTitle: chapter.title,
+                        chapterSummary: chapter.summary,
+                        chapterContent: fullText,
+                        projectTitle: project.title,
+                        projectGenre: project.genre,
+                        writingStyleLabel: project.writingStylePresetId,
+                        writingStylePrompt: project.writingStylePrompt,
+                        auditIssues: criticalIssues,
+                        chapterMemoText: formatMemoForRepair(chapterMemo)
+                      })
+                      const repairedText = repairStream.text
+                      if (repairedText && repairedText.length > fullText.length * 0.5) {
+                        appStore.updateChapterContent(ensureEditorHtmlContent(repairedText))
+                        executionLabel.value = `已自动修复 ${criticalIssues.length} 个问题`
+                      }
+                    } catch {
+                      // repair 失败不影响已生成的章节
+                    }
+                  }
                 }
               } catch {
                 // audit 步骤失败不影响章节落盘

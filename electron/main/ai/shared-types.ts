@@ -381,6 +381,7 @@ export type ChapterMemoResult = {
     decisionChecks: string[]
     endingChanges: string[]
     doNotDo: string[]
+    emotionArc: string
   }
 }
 
@@ -468,7 +469,7 @@ export const AI_REQUEST_TIMEOUT_MS = 180_000
 /** Agent loop 单次任务最多允许的工具循环轮数。超过即抛错，避免死循环吃 token。 */
 export const AGENT_MAX_TOOL_ITERATIONS = 8
 
-export const AGENT_STREAM_MAX_ITERATIONS = 12
+export const AGENT_STREAM_MAX_ITERATIONS = 16
 
 /**
  * 章节轻检告警事件 payload。章节生成后的异步后处理流水线产出，

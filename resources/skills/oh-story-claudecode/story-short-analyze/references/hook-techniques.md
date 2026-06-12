@@ -1,1 +1,0 @@
-../../story-long-write/references/hook-techniques.md

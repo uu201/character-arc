@@ -24,9 +24,8 @@ function stripSkillFrontmatter(content: string): string {
 
 function resolveStreamingAgentMaxSteps(taskName: AiTaskPayload['task'], optionalSkillCount: number): number | undefined {
   if (taskName === 'chapter-first-draft') {
-    const normalizedOptionalSkills = Math.max(0, Math.min(optionalSkillCount, 3))
-    // 预算预留给：1 次项目数据读取 + 2-3 次 skill_load + 1-2 轮正文收束/修正。
-    return Math.min(6 + normalizedOptionalSkills, AGENT_STREAM_MAX_ITERATIONS)
+    // 预算：2-4 次 skill 参考加载 + 1-2 次项目数据读取 + 正文生成 + 收束修正
+    return 14
   }
 
   if (taskName === 'chapter-assistant') {
@@ -183,10 +182,10 @@ export async function runStreamingAgentTask(
         '',
         '## 章节初稿 Agent 行为约束',
         '',
-        '- 你的主要任务是生成完整章节正文，工具调用只是辅助准备。',
-        '- 最多加载 2-3 个最相关的 skill，不要贪多。',
-        '- 加载 skill 后立即开始写正文，不要再做额外的工具调用。',
-        '- 如果 skill index 中没有明显相关的 skill，直接开始写作，不要调用任何工具。',
+        '- 你的主要任务是生成完整章节正文。',
+        '- 写作前，主动加载与本章情节最相关的 skill 参考资料（技法、节奏、类型公式等）。好的参考能显著提升写作质量，不要跳过这一步。',
+        '- 优先加载 skill_read_reference 读取具体参考文件（如 hook-techniques、dialogue-mastery、emotional-arc-design），而不只是 skill_load 读 SKILL.md 概述。',
+        '- 加载完参考后开始写正文。写作过程中如遇到不确定的设定，可以用 read_project_data 确认。',
         '- 最终输出必须是纯正文，不要包含任何工具调用的痕迹或解释。'
       ].join('\n')
     : ''

@@ -214,8 +214,9 @@ export async function streamAiTask(
     && task.task !== 'chapter-first-draft'
     && task.task !== 'chapter-memo'
     && task.task !== 'chapter-audit'
+    && task.task !== 'chapter-repair'
   ) {
-    throw new Error('当前流式输出仅支持章节创作助理、章节初稿、章节备忘和章节审计。')
+    throw new Error('当前流式输出仅支持章节创作助理、章节初稿、章节备忘、章节审计和章节修复。')
   }
 
   const settings = normalizeSettings(task.settings)

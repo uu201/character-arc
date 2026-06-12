@@ -30,7 +30,7 @@ function formatProjectConstraints(source: unknown): string {
 
 const TOKEN_PER_CHAR_GENEROUS = 0.8
 const MAX_TOKENS_FLOOR = 4000
-const MAX_TOKENS_CEIL = 8000
+const MAX_TOKENS_CEIL = 12000
 
 function resolveTargetWords(context: Record<string, unknown>): number {
   const raw = Number(context.targetWordCount ?? context.chapterWordTarget ?? 0)
@@ -46,6 +46,7 @@ type ChapterMemoShape = {
   decisionChecks?: string[]
   endingChanges?: string[]
   doNotDo?: string[]
+  emotionArc?: string
 }
 
 /** 把 chapter-memo 任务产出的 7 段备忘格式化成 Writer 必须落实的硬契约文本。 */
@@ -59,6 +60,7 @@ function formatChapterMemo(memo: unknown): string {
     '== 本章写作备忘（硬契约，每条都必须在正文里有可定位的兑现） ==',
     `当前任务：${m.currentTask || '未指定'}`,
     `读者此刻在等什么：${m.readerExpectation || '未指定'}`,
+    `情绪轨迹：${m.emotionArc || '未指定'}`,
     '该兑现的：',
     list(m.payoffs),
     '暂不掀的（必须压住的底牌）：',
@@ -132,6 +134,15 @@ const handler: TaskHandler = {
 - 句式长短交替；避免高疲劳词（冷笑 / 瞳孔骤缩 / 轰然炸裂 / 倒吸一口凉气 / 蝼蚁等）。
 - 禁止使用破折号（——）。
 - 与相邻章节、章节摘要、角色立场无缝衔接。
+
+【正面写作技法——必须主动运用】
+- 对白潜台词：每句有效对白至少同时服务两个目的（推进剧情 + 暴露性格 / 传递信息 + 制造张力）。纯传递信息的对话必须裹上情绪或肢体动作。
+- 张力递进：每 400-600 字出现一次压力升级、新信息揭露或小反转。连续 600 字以上没有变化 = 节奏塌陷。
+- 场景情绪绑定：每个场景有明确的情绪起点和终点，且两者必须不同（如不安→绝望、得意→警觉）。情绪不能"平进平出"。
+- 感官锚定：场景切换或重要时刻必须有至少一个非视觉感官细节（声音、气味、触感、温度、味道）。避免纯"看到"描写。
+- 信息释放节奏：每 300-500 字释放一个新信息点（设定、人物动机、关系变化、线索）。禁止信息倾泻（连续 3 个新信息无间隔释放）。
+- 角色差异化：不同角色的用词、句式、思维方式必须可区分。配角说话不能是"主角换了个名字"。
+- 具象化原则：抽象情绪必须外化为可观测的身体反应或行为。"他很紧张"→"他无意识地把水杯转了三圈"。
 
 【输出格式】
 - 直接输出正文，不要标题前缀，不要 markdown 标记，不要小结，不要任何非正文内容。
