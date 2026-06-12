@@ -8,6 +8,7 @@ import {
   formatOutlineChapterSplit, formatOutlineItems, formatRelatedChapters,
   formatVolumeChapterSummaries, formatNovelOpenerSummary, formatOpenPlotThreads
 } from '../prompts/format-helpers'
+import { formatChapterExecutionPacket } from './chapter-execution-packet'
 
 function formatProjectConstraints(source: unknown): string {
   if (!Array.isArray(source)) return ''
@@ -111,11 +112,12 @@ const handler: TaskHandler = {
     const semanticBlock = String(context.semanticSegmentsBlock ?? '').trim()
     const semanticSegmentBlock = semanticBlock ? `\n\n${semanticBlock}` : ''
     const storyStateBlock = String(context.storyStateBlock ?? '').trim()
+    const executionPacketBlock = formatChapterExecutionPacket(context.chapterExecutionPacket)
     const memoBlock = formatChapterMemo(context.chapterMemo)
     const endingsTrailBlock = formatRecentEndingsTrail(context.recentEndingsTrail)
 
     return {
-      system: `${capabilityPreamble.system}\n\n你是 CharacterArc 的章节初稿生成器。任务：基于项目设定、章节信息和上方已经规划好的写作备忘，一次性流式输出本章完整正文。\n\n【全局设定最高优先级】\n项目级约束、locked 约束、weight=core 约束、用户标记 [锁定] 的设定，优先级高于本章灵感、临时补写和常规套路。不得覆盖、反转、弱化或绕开这些设定；人物锚点、世界规则红线和禁写项必须在生成时主动避让。
+      system: `${capabilityPreamble.system}\n\n你是 CharacterArc 的章节初稿生成器。任务：基于项目设定、章节信息、章节执行包和上方已经规划好的写作备忘，一次性流式输出本章完整正文。\n\n【全局设定最高优先级】\n项目级约束、locked 约束、weight=core 约束、用户标记 [锁定] 的设定，优先级高于本章灵感、临时补写和常规套路。不得覆盖、反转、弱化或绕开这些设定；人物锚点、世界规则红线和禁写项必须在生成时主动避让。
 
 【任务边界】
 - 这是"章节初稿生成"，不是润色，不是续写建议，不是分析。
@@ -136,7 +138,7 @@ const handler: TaskHandler = {
 【输出格式】
 - 直接输出正文，不要标题前缀，不要 markdown 标记，不要小结，不要任何非正文内容。
 - 直接以正文第一句开始（不要 "好的，以下是..."、"# 第X章" 之类的前导）。`,
-      user: `${capabilityPreamble.user}\n\n请为当前小说项目生成本章完整初稿。${memoBlock ? `\n\n${memoBlock}` : ''}\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n目标字数（硬约束）：${targetWordCount} 字（±20%）\n当前章节现有正文：\n${chapterContent || '【空】'}${storyStateBlock ? `\n\n== 当前世界状态（精确数据，必须遵守） ==\n${storyStateBlock}` : ''}\n\n当前绑定大纲：\n${formatCurrentOutlineItem(context.currentOutlineItem) || '暂无'}\n\n同一大纲拆章情况：\n${formatOutlineChapterSplit(context.outlineChapterSplit) || '未拆分或暂无前置同纲章节'}\n\n相邻章节参考：\n${formatRelatedChapters(context.relatedChapters) || '暂无'}${endingsTrailBlock ? `\n\n${endingsTrailBlock}` : ''}\n\n本卷章节概览：\n${formatVolumeChapterSummaries(context.volumeChapterSummaries) || '暂无'}\n\n全书开篇：\n${formatNovelOpenerSummary(context.novelOpenerSummary) || '暂无'}${memoBlock ? '' : `\n\n未收伏笔 / 活跃剧情线：\n${formatOpenPlotThreads(context.plotThreads) || '暂无'}`}\n\n相关世界观：\n${formatWorldviewEntries(context.worldviewEntries) || '暂无'}\n\n相关角色：\n${formatCharacters(context.characters) || '暂无'}\n\n相关组织：\n${formatOrganizations(context.organizations) || '暂无'}\n\n角色关系：\n${formatCharacterRelationships(context.characterRelationships, context.characters) || '暂无'}\n\n成员归属：\n${formatOrganizationMemberships(context.organizationMemberships, context.organizations, context.characters) || '暂无'}\n\n项目级约束：\n${formatProjectConstraints(context.knowledgeDocuments) || '暂无'}\n\n可用灵感：\n${formatInspirationEntries(context.inspirationEntries) || '暂无'}\n\n相关大纲：\n${formatOutlineItems(context.outlineItems) || '暂无'}${retrievalBlock}${semanticSegmentBlock}\n\n当前项目启用 skills：\n${skillsBlock || '暂无'}\n\n补充要求：\n${String(context.userPrompt ?? '')}\n\n现在开始：${memoBlock ? '严格按本章写作备忘的硬契约执行——每条 payoff、ending change、do-not-do 都要在正文里有可定位的兑现。' : ''}直接一次性输出整章正文。`
+      user: `${capabilityPreamble.user}\n\n请为当前小说项目生成本章完整初稿。${executionPacketBlock ? `\n\n${executionPacketBlock}` : ''}${memoBlock ? `\n\n${memoBlock}` : ''}\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n目标字数（硬约束）：${targetWordCount} 字（±20%）\n当前章节现有正文：\n${chapterContent || '【空】'}${storyStateBlock ? `\n\n== 当前世界状态（精确数据，必须遵守） ==\n${storyStateBlock}` : ''}\n\n当前绑定大纲：\n${formatCurrentOutlineItem(context.currentOutlineItem) || '暂无'}\n\n同一大纲拆章情况：\n${formatOutlineChapterSplit(context.outlineChapterSplit) || '未拆分或暂无前置同纲章节'}\n\n相邻章节参考：\n${formatRelatedChapters(context.relatedChapters) || '暂无'}${endingsTrailBlock ? `\n\n${endingsTrailBlock}` : ''}\n\n本卷章节概览：\n${formatVolumeChapterSummaries(context.volumeChapterSummaries) || '暂无'}\n\n全书开篇：\n${formatNovelOpenerSummary(context.novelOpenerSummary) || '暂无'}${memoBlock ? '' : `\n\n未收伏笔 / 活跃剧情线：\n${formatOpenPlotThreads(context.plotThreads) || '暂无'}`}\n\n相关世界观：\n${formatWorldviewEntries(context.worldviewEntries) || '暂无'}\n\n相关角色：\n${formatCharacters(context.characters) || '暂无'}\n\n相关组织：\n${formatOrganizations(context.organizations) || '暂无'}\n\n角色关系：\n${formatCharacterRelationships(context.characterRelationships, context.characters) || '暂无'}\n\n成员归属：\n${formatOrganizationMemberships(context.organizationMemberships, context.organizations, context.characters) || '暂无'}\n\n项目级约束：\n${formatProjectConstraints(context.knowledgeDocuments) || '暂无'}\n\n可用灵感：\n${formatInspirationEntries(context.inspirationEntries) || '暂无'}\n\n相关大纲：\n${formatOutlineItems(context.outlineItems) || '暂无'}${retrievalBlock}${semanticSegmentBlock}\n\n当前项目启用 skills：\n${skillsBlock || '暂无'}\n\n补充要求：\n${String(context.userPrompt ?? '')}\n\n现在开始：${executionPacketBlock ? '严格按章节执行包执行。' : ''}${memoBlock ? '严格按本章写作备忘的硬契约执行——每条 payoff、ending change、do-not-do 都要在正文里有可定位的兑现。' : ''}直接一次性输出整章正文。`
     }
   },
   normalize(raw: string): AiTaskResult {

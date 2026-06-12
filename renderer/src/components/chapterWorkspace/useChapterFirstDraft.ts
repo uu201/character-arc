@@ -459,7 +459,8 @@ export function useChapterFirstDraft(): {
                   chapterTitle: chapter.title,
                   targetWordCount,
                   draftText: fullText,
-                  chapterMemo
+                  chapterMemo,
+                  chapterExecutionPacket: context.chapterExecutionPacket
                 })
                 const auditResp = auditStream.result as { audit?: ChapterAuditPayload } | undefined
                 if (auditResp?.audit) {
