@@ -36,16 +36,24 @@ function buildReferenceStyleContext(selectedRefIds: string[]): string {
     referenceWorks.filter((w) => selectedRefIds.includes(w.id)).map((w) => w.title)
   )
   if (!selectedTitles.size) return ''
+  // 只取 reference-summary（每本书 1 条整体风格摘要），不取碎片 chunk
   const refDocs = knowledgeDocuments
     .filter((d) =>
-      (d.sourceType === 'reference-summary' || d.sourceType === 'reference-chunk')
+      d.sourceType === 'reference-summary'
       && selectedTitles.has(String(d.metadata?.sourceTitle ?? ''))
     )
-    .slice(0, 4)
+    .slice(0, 3)
   if (!refDocs.length) return ''
-  return refDocs
-    .map((d) => `【${d.metadata?.sourceTitle ?? d.title}】${d.summary || d.content.slice(0, 400)}`)
-    .join('\n\n')
+  const MAX_TOTAL_CHARS = 1500
+  let totalChars = 0
+  const parts: string[] = []
+  for (const d of refDocs) {
+    const snippet = d.summary || d.content.slice(0, 500)
+    if (totalChars + snippet.length > MAX_TOTAL_CHARS) break
+    parts.push(`【${d.metadata?.sourceTitle ?? d.title}】${snippet}`)
+    totalChars += snippet.length
+  }
+  return parts.join('\n\n')
 }
 
 export type ChapterAuditPayload = {
@@ -453,14 +461,23 @@ export function useChapterFirstDraft(): {
 
           executionLabel.value = '正在流式生成写作备忘...'
           let chapterMemo: ChapterFirstDraftContextInput['chapterMemo'] | undefined
+
+          const memoHintTimer = setTimeout(() => {
+            if (currentStreamTask.value === 'chapter-memo' && !previewContent.value) {
+              executionLabel.value = 'AI 正在规划写作备忘，请稍候...'
+            }
+          }, 8000)
+
           try {
             const memoStream = await streamTask('chapter-memo', memoBaseContext)
+            clearTimeout(memoHintTimer)
             const memoResult = memoStream.result as { memo?: ChapterFirstDraftContextInput['chapterMemo'] } | undefined
             if (memoResult?.memo) {
               chapterMemo = memoResult.memo
             }
           } catch {
-            // memo 步骤失败不阻塞主流程，回退到无 memo 的写作
+            clearTimeout(memoHintTimer)
+            executionLabel.value = '写作备忘生成失败，跳过直接写作...'
           }
 
           const context = buildChapterFirstDraftContext({
@@ -498,7 +515,16 @@ export function useChapterFirstDraft(): {
           executionLabel.value = `正在生成本章初稿（目标约 ${targetWordCount} 字）…`
           isStreaming.value = true
           recompute()
+
+          // 模型可能不支持流式输出（如 mimo 系列），10 秒后提示用户耐心等待
+          const waitHintTimer = setTimeout(() => {
+            if (currentStreamTask.value === 'chapter-first-draft' && !streamingContent.value) {
+              executionLabel.value = `AI 正在创作中，请耐心等待（目标约 ${targetWordCount} 字）…`
+            }
+          }, 10000)
+
           const draftStream = await streamTask('chapter-first-draft', context)
+          clearTimeout(waitHintTimer)
           const fullText = draftStream.text
           if (fullText) {
             executionLabel.value = '正在覆盖当前章节'

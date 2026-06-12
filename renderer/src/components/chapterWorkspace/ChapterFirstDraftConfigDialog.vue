@@ -24,7 +24,6 @@ const project = computed(() => appStore.currentProject)
 
 const targetWordCount = ref(3000)
 const selectedRefIds = ref<string[]>([])
-const selectedSkillIds = ref<string[]>([])
 const userPrompt = ref('')
 
 const referenceWorks = computed(() => appStore.referenceWorks)
@@ -36,7 +35,6 @@ watch(() => props.show, (visible) => {
   if (!visible) return
   targetWordCount.value = parseChapterWordTarget(chapter.value?.wordTarget) || 3000
   selectedRefIds.value = [...(project.value?.selectedReferenceWorkIds ?? [])]
-  selectedSkillIds.value = projectSkills.value.map((s) => s.id)
   userPrompt.value = ''
 })
 
@@ -44,7 +42,7 @@ function handleConfirm(): void {
   emit('confirm', {
     targetWordCount: targetWordCount.value,
     selectedReferenceWorkIds: selectedRefIds.value,
-    enabledSkillIds: selectedSkillIds.value,
+    enabledSkillIds: projectSkills.value.map((s) => s.id),
     userPrompt: userPrompt.value.trim()
   })
 }
@@ -80,15 +78,6 @@ function handleConfirm(): void {
         <n-checkbox-group v-model:value="selectedRefIds">
           <div class="checkbox-list">
             <n-checkbox v-for="work in referenceWorks" :key="work.id" :value="work.id" :label="work.title" />
-          </div>
-        </n-checkbox-group>
-      </section>
-
-      <section v-if="projectSkills.length > 0" class="config-section">
-        <label class="section-label">写作 Skills</label>
-        <n-checkbox-group v-model:value="selectedSkillIds">
-          <div class="checkbox-list">
-            <n-checkbox v-for="skill in projectSkills" :key="skill.id" :value="skill.id" :label="skill.name" />
           </div>
         </n-checkbox-group>
       </section>

@@ -26,8 +26,8 @@ function stripSkillFrontmatter(content: string): string {
 
 function resolveStreamingAgentMaxSteps(taskName: AiTaskPayload['task'], optionalSkillCount: number): number | undefined {
   if (taskName === 'chapter-first-draft') {
-    // 预算：2-4 次 skill 参考加载 + 1-2 次项目数据读取 + 正文生成 + 收束修正
-    return 14
+    // skills 已直接注入 prompt，无需工具加载；仅保留少量步数用于偶尔确认设定
+    return 4
   }
 
   if (taskName === 'chapter-assistant') {
@@ -76,7 +76,10 @@ export async function runStreamingAgentTask(
   }
   const prompt = handler.buildPrompt(input)
   const baseMaxTokens = handler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task) ?? 4096
-  const maxTokens = Math.max(baseMaxTokens, 4096)
+  // 推理模型（如 mimo、deepseek-r1）的 reasoning tokens 也计入 maxOutputTokens，
+  // 需要预留充足空间避免正文被截断。初稿任务按 3 倍放大确保正文可以完整输出。
+  const reasoningMultiplier = task.task === 'chapter-first-draft' ? 3 : 1
+  const maxTokens = Math.max(baseMaxTokens * reasoningMultiplier, 8192)
 
   const candidateSkillDefs = candidateSkills
     .map((sel) => getSkillById(sel.id, projectId || undefined))
@@ -93,25 +96,28 @@ export async function runStreamingAgentTask(
       }).join('\n\n')}`
     : ''
 
-  // 章节初稿：预加载得分最高的 2 个可选 skill 的核心参考文件，免去 AI 的工具调用
+  // 章节初稿：所有可选 skill 的核心参考文件直接注入 prompt，不再依赖 agent 工具调用
   let preloadedSkillRefsBlock = ''
   if (task.task === 'chapter-first-draft' && optionalSkillDefs.length > 0) {
-    const topSkills = optionalSkillDefs.slice(0, 2)
     const refParts: string[] = []
-    for (const s of topSkills) {
+    for (const s of optionalSkillDefs) {
+      const body = stripSkillFrontmatter(s.content).trim().slice(0, 1500)
+      if (body) {
+        refParts.push(`### ${s.name}\n${body}`)
+      }
       if (s.referenceFiles.length === 0) continue
       const firstRef = s.referenceFiles[0]
       const refPath = join(s.rootDir, firstRef)
       try {
         if (!existsSync(refPath)) continue
-        const refContent = readFileSync(refPath, 'utf-8').slice(0, 3000)
+        const refContent = readFileSync(refPath, 'utf-8').slice(0, 2500)
         refParts.push(`### ${s.name} — ${firstRef}\n${refContent}`)
       } catch {
         // skip
       }
     }
     if (refParts.length > 0) {
-      preloadedSkillRefsBlock = `\n\n## 预加载的写作技法参考\n\n${refParts.join('\n\n')}`
+      preloadedSkillRefsBlock = `\n\n## 写作技法参考（已全部注入，无需工具加载）\n\n${refParts.join('\n\n')}`
     }
   }
 
@@ -206,15 +212,14 @@ export async function runStreamingAgentTask(
         '',
         '## 章节初稿 Agent 行为约束',
         '',
-        '- 你的主要任务是生成完整章节正文。',
-        '- 写作前，主动加载与本章情节最相关的 skill 参考资料（技法、节奏、类型公式等）。好的参考能显著提升写作质量，不要跳过这一步。',
-        '- 优先加载 skill_read_reference 读取具体参考文件（如 hook-techniques、dialogue-mastery、emotional-arc-design），而不只是 skill_load 读 SKILL.md 概述。',
-        '- 加载完参考后开始写正文。写作过程中如遇到不确定的设定，可以用 read_project_data 确认。',
+        '- 你的主要任务是生成完整章节正文。所有写作技法参考已直接注入上方，无需再使用工具加载 skill。',
+        '- 直接开始写正文。写作过程中如遇到不确定的设定，可以用 read_project_data 确认，但尽量减少工具调用。',
         '- 最终输出必须是纯正文，不要包含任何工具调用的痕迹或解释。'
       ].join('\n')
     : ''
 
-  const systemPrompt = `${prompt.system}${requiredSkillBlock}${preloadedSkillRefsBlock}${chapterToolsBlock}${contextModulesBlock}\n${buildSkillIndex(optionalSkillDefs)}\n${buildAgentBehaviorRules()}${globalAssistantRules}${chapterDraftRules}${skillUsageHints}`
+  const skillIndexBlock = task.task === 'chapter-first-draft' ? '' : buildSkillIndex(optionalSkillDefs)
+  const systemPrompt = `${prompt.system}${requiredSkillBlock}${preloadedSkillRefsBlock}${chapterToolsBlock}${contextModulesBlock}\n${skillIndexBlock}\n${buildAgentBehaviorRules()}${globalAssistantRules}${chapterDraftRules}${skillUsageHints}`
 
   const skillTools = createSkillTools({
     resolveSkill: (id) => getSkillById(id, projectId || undefined),
@@ -250,7 +255,8 @@ export async function runStreamingAgentTask(
       ctx: { signal, projectId },
       handlers,
       maxTokens,
-      maxSteps
+      maxSteps,
+      disableTools: task.task === 'chapter-first-draft'
     })
 
     logResponse('AGENT_STREAM', settings, task.task, loopResult.finalText, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })

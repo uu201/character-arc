@@ -141,6 +141,9 @@ export async function aiGenerateTextWithUsage(
     for await (const chunk of result.textStream) {
       full += chunk
     }
+    if (!full) {
+      full = await result.text
+    }
     return {
       text: full,
       usage: toAiRunUsage(await result.totalUsage)
@@ -192,6 +195,13 @@ export async function aiStreamTextWithUsage(
   for await (const chunk of result.textStream) {
     full += chunk
     handlers.onTextDelta(chunk)
+  }
+  if (!full) {
+    const fallbackText = await result.text
+    if (fallbackText) {
+      full = fallbackText
+      handlers.onTextDelta(fallbackText)
+    }
   }
   return {
     text: full,

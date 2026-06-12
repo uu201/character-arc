@@ -14,7 +14,7 @@ import { getTaskHandler } from '../tasks'
 import { getStructuredTaskSchema } from '../tasks/object-schemas'
 import { resolveTaskSkills } from '../skills'
 import { addAiRunUsage, aiGenerateText, aiGenerateTextWithUsage, aiStreamObjectWithUsage, aiStreamTextWithUsage } from '../generate'
-import { providerSupportsTools } from '../provider'
+import { isToolUseNotSupportedError } from '../provider'
 import { buildPromptInput } from './context-builder'
 import { enrichTaskContextForGeneration } from './task-context'
 import { buildRunMeta, buildResponsePreview } from './run-meta'
@@ -42,15 +42,21 @@ export async function runAiTask(
   signal?: AbortSignal
 ): Promise<AiTaskResponse> {
   const handler = getTaskHandler(task.task)
-  // 灰度分流：白名单内 + provider 支持 tool_use → 走 agent loop（progressive skill disclosure）。
-  // 任意一个不满足 → 走原单次调用路径。renderer 完全无感。
+  // 白名单内的任务直接尝试走 agent loop，不预判 provider 能力。
+  // 如果模型不支持 tool_use，运行时会抛错，在 catch 中降级或提示用户。
   const settingsForRouting = normalizeSettings(task.settings)
   if (AGENT_TASK_WHITELIST.has(task.task)) {
-    if (providerSupportsTools(settingsForRouting)) {
-      return runAgentTask(task, knowledgeContext)
-    }
-    if (task.task === 'reference-deep-analyze') {
-      throw new Error('深度拆书需要模型支持 tool_use（工具调用）。当前供应商不支持此功能，请切换到通义千问、OpenAI 或 Anthropic 等支持工具调用的供应商后重试。')
+    try {
+      return await runAgentTask(task, knowledgeContext)
+    } catch (error) {
+      if (isToolUseNotSupportedError(error)) {
+        if (task.task === 'reference-deep-analyze') {
+          throw new Error('深度拆书需要模型支持 tool_use（工具调用）。当前模型不支持此功能，请切换到支持工具调用的模型后重试。')
+        }
+        // 其余白名单任务：降级到单次调用路径
+      } else {
+        throw error
+      }
     }
   }
 

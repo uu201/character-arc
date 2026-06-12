@@ -82,7 +82,7 @@ const handler: TaskHandler = {
     )
   },
   resolveMaxTokens(): number {
-    return 1500
+    return 4000
   }
 }
 export default handler

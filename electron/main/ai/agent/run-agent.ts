@@ -12,6 +12,7 @@ export type RunAgentParams = {
   handlers: AiAgentStreamHandlers
   maxTokens?: number
   maxSteps?: number
+  disableTools?: boolean
 }
 
 export type RunAgentResult = {
@@ -48,8 +49,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     model: createModel(params.settings),
     system: buildSystemPrompt(params.settings, params.systemPrompt),
     prompt: params.userPrompt,
-    tools: sdkTools,
-    stopWhen: stepCountIs(maxSteps),
+    ...(params.disableTools ? {} : { tools: sdkTools, stopWhen: stepCountIs(maxSteps) }),
     maxOutputTokens: params.maxTokens,
     abortSignal: params.ctx.signal,
     experimental_onToolCallStart: ({ toolCall }) => {
@@ -83,9 +83,27 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   })
 
   let fullText = ''
-  for await (const chunk of result.textStream) {
-    fullText += chunk
-    params.handlers.onTextDelta(chunk)
+  if (params.disableTools) {
+    for await (const chunk of result.textStream) {
+      fullText += chunk
+      params.handlers.onTextDelta(chunk)
+    }
+    // 某些中转站对非 Claude 模型会把文本放在 reasoning/thinking blocks 里，
+    // textStream 拿不到。如果 textStream 为空但有 output tokens，从 fullStream 兜底。
+    if (!fullText) {
+      const finalText = await result.text
+      if (finalText) {
+        fullText = finalText
+        params.handlers.onTextDelta(finalText)
+      }
+    }
+  } else {
+    for await (const part of result.fullStream) {
+      if (part.type === 'text-delta') {
+        fullText += part.text
+        params.handlers.onTextDelta(part.text)
+      }
+    }
   }
 
   const totalUsage = await result.totalUsage

@@ -12,10 +12,6 @@ function isOfficialOpenAIProvider(settings: AppSettings): boolean {
   return settings.provider === 'openai'
 }
 
-function isDeepSeekProvider(settings: AppSettings): boolean {
-  return settings.provider === 'deepseek'
-}
-
 function isClaudeModel(settings: AppSettings): boolean {
   const model = settings.model?.trim().toLowerCase() || ''
   return model.startsWith('claude')
@@ -73,9 +69,21 @@ export function buildSystemPrompt(settings: AppSettings, systemPrompt: string) {
   }
 }
 
-export function providerSupportsTools(settings: AppSettings): boolean {
-  if (settings.provider === 'anthropic') return isClaudeModel(settings)
-  if (isDeepSeekProvider(settings)) return false
-  if (isOllamaProvider(settings)) return false
-  return true
+export function isToolUseNotSupportedError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const msg = error.message.toLowerCase()
+  const patterns = [
+    'tools are not supported',
+    'tool use is not supported',
+    'does not support tools',
+    'does not support function',
+    'function calling is not supported',
+    'tool_use is not supported',
+    'tooluse is not supported',
+    'unrecognized request argument.*tools',
+    'invalid parameter.*tools',
+    '不支持.*工具',
+    '不支持.*tool'
+  ]
+  return patterns.some((p) => new RegExp(p, 'i').test(msg))
 }
