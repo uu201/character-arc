@@ -11,7 +11,7 @@ import {
   createOutlineVolume as createWorkspaceVolume
 } from '@/features/workspace/outlineVolumes'
 import { getThemePreset } from '@/theme/presets'
-import { createEmptyWorkspace } from '@/features/workspace/projectWorkspace'
+import { createEmptyWorkspace, normalizeGlobalAssistantProposal, mergeGlobalAssistantProposals } from '@/features/workspace/projectWorkspace'
 import { createWorkspacePersistence } from '@/features/workspace/persistence'
 import {
   buildStarterChapter,
@@ -356,6 +356,20 @@ export const useAppStore = defineStore('app', () => {
         }))
       if (documents.length > 0) {
         mergeKnowledgeDocuments(documents)
+      }
+    }
+
+    // global-assistant agent loop 通过 propose_* 工具产生的结构化写回提案：合并进当前会话的 proposal，
+    // 复用既有的 Diff 审阅弹窗与写回逻辑，用户确认后才真正写入图鉴/设定。
+    const settingMeta = payload.meta as {
+      task?: string
+      producedSettingProposal?: Partial<GlobalAssistantProposal> | null
+    }
+    if (settingMeta.task === 'global-assistant' && settingMeta.producedSettingProposal) {
+      const incoming = normalizeGlobalAssistantProposal(settingMeta.producedSettingProposal as GlobalAssistantProposal)
+      const merged = mergeGlobalAssistantProposals(activeGlobalAssistantSession.value?.proposal ?? null, incoming)
+      if (merged) {
+        updateAssistantSessionProposal({ proposal: merged })
       }
     }
   }

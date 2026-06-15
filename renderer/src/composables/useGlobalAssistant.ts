@@ -1408,14 +1408,8 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       })
       const normalizedAssistantText = assistantText.trim() || '我暂时没有整理出可靠结论，建议你补充更多上下文后重试。'
       appStore.updateAssistantMessageContent(assistantMessageId, () => normalizedAssistantText, { persistMode: 'final' })
-      if (!isAuditMode.value) {
-        const shouldCreateProposal = await shouldGenerateProposal(prompt, normalizedAssistantText)
-        if (shouldCreateProposal) {
-          void generateProposal(prompt, normalizedAssistantText, sessionId)
-        } else if (proposal.value) {
-          clearProposal()
-        }
-      }
+      // 写回提案现在由 agent loop 内的 propose_* 工具直接产出（经 ai-run-event 合并进 session.proposal），
+      // 不再在此处另起一次意图猜测 + 提案生成调用。手动「重新生成提案」按钮(regenerateProposal)与审计流仍可用。
     } catch (error) {
       const isCanceled = error instanceof Error && error.message === 'canceled'
       if (isCanceled) {
@@ -1434,10 +1428,12 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault()
-      void sendPrompt()
-    }
+    // Enter 发送，Shift+Enter（及 Ctrl/Cmd+Enter）换行；输入法组字时的 Enter 不触发发送。
+    if (event.key !== 'Enter') return
+    if (event.isComposing || (event as KeyboardEvent & { keyCode?: number }).keyCode === 229) return
+    if (event.shiftKey || event.metaKey || event.ctrlKey) return
+    event.preventDefault()
+    void sendPrompt()
   }
 
   async function stopStreaming(): Promise<void> {

@@ -12,6 +12,7 @@ import { createSkillTools } from './tools/skill-tools'
 import { createKnowledgeTools } from './tools/knowledge-tools'
 import { createChapterTools } from './tools/chapter-tools'
 import { createProjectDataTools } from './tools/project-data-tools'
+import { createSettingProposalTools, createEmptySettingProposalDraft, settingProposalHasContent } from './tools/setting-proposal-tools'
 import { buildAgentBehaviorRules, buildSkillIndex } from './system-prompt'
 import { getRecentSkillUsage, formatSkillUsageHint, recordSkillUsage } from './skill-usage-memory'
 
@@ -147,6 +148,20 @@ export async function runStreamingAgentTask(
       ].join('\n')
     : ''
 
+  const settingProposalRules = task.task === 'global-assistant'
+    ? [
+        '',
+        '## 结构化写回提案规则',
+        '',
+        '- 你有 `propose_constraint` / `propose_worldview` / `propose_character` / `propose_outline` 四个工具，可把讨论中确立的设定提议写入「项目约束 / 世界观设定 / 角色图鉴 / 大纲剧情」。',
+        '- 这些工具只产出**提案**，用户会在 Diff 审阅弹窗里逐条确认后才真正写入，你无需担心改坏数据，但也不要滥用。',
+        '- 仅当用户明确表达录入 / 确立 / 纠正 / 沉淀设定的意图，或讨论已收敛出具体、可落库的设定时才调用；纯问答、头脑风暴、还在发散讨论时不要调用。',
+        '- 要修改已有条目时，先用 `read_project_data` 或 `search_project` 取到精确的标题 / 姓名，再填入 `match_title` / `match_name`；匹配不准就不要瞎填（否则用户侧无法写回），改用自然语言说明需人工确认。',
+        '- 一个独立设定调用一次对应工具，不要为凑数刷工具，同一条不要重复提交。',
+        '- 调用提案工具后，仍要给用户一段正常的自然语言回复，说明你提议了哪些改动。'
+      ].join('\n')
+    : ''
+
   const chapterToolRules = task.task === 'chapter-assistant' || task.task === 'chapter-first-draft'
     ? [
         '- 每次对话开始时，先用 `read_chapter` 读取当前章节内容，了解正文现状。',
@@ -194,7 +209,7 @@ export async function runStreamingAgentTask(
       ].join('\n')
     : ''
 
-  const systemPrompt = `${prompt.system}${requiredSkillBlock}${chapterToolsBlock}${contextModulesBlock}\n${buildSkillIndex(optionalSkillDefs)}\n${buildAgentBehaviorRules()}${globalAssistantRules}${chapterDraftRules}${skillUsageHints}`
+  const systemPrompt = `${prompt.system}${requiredSkillBlock}${chapterToolsBlock}${contextModulesBlock}\n${buildSkillIndex(optionalSkillDefs)}\n${buildAgentBehaviorRules()}${globalAssistantRules}${settingProposalRules}${chapterDraftRules}${skillUsageHints}`
 
   const skillTools = createSkillTools({
     resolveSkill: (id) => getSkillById(id, projectId || undefined),
@@ -216,7 +231,13 @@ export async function runStreamingAgentTask(
 
   const projectDataTools = createProjectDataTools()
 
-  const registry = [...skillTools, ...knowledgeTools, ...chapterTools, ...projectDataTools]
+  // 仅全局助手注册结构化写回提案工具（global-assistant-proposal 走非 agent 的单次 JSON 任务，不经此路径）。
+  const settingProposalDraft = createEmptySettingProposalDraft()
+  const settingProposalTools = task.task === 'global-assistant'
+    ? createSettingProposalTools({ draft: settingProposalDraft })
+    : []
+
+  const registry = [...skillTools, ...knowledgeTools, ...chapterTools, ...projectDataTools, ...settingProposalTools]
 
   logPrompt('AGENT_STREAM', settings, { system: systemPrompt, user: prompt.user }, task.task, usedSkillIds)
   const requestStartedAt = Date.now()
@@ -248,6 +269,9 @@ export async function runStreamingAgentTask(
     meta.agentIterations = loopResult.iterations
     if (producedKnowledgeDocuments.length > 0) {
       meta.producedKnowledgeDocuments = producedKnowledgeDocuments
+    }
+    if (task.task === 'global-assistant' && settingProposalHasContent(settingProposalDraft)) {
+      meta.producedSettingProposal = settingProposalDraft
     }
 
     void recordSkillUsage(projectId, task.task, loopResult.toolCalls).catch(() => {})

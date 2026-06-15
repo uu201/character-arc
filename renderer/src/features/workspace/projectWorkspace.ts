@@ -136,7 +136,7 @@ function cloneMessages(messages?: ChatMessage[]): ChatMessage[] {
   return messages?.length ? messages.map((message) => ({ ...message })) : []
 }
 
-function normalizeGlobalAssistantProposal(proposal?: GlobalAssistantProposal | null): GlobalAssistantProposal | null {
+export function normalizeGlobalAssistantProposal(proposal?: GlobalAssistantProposal | null): GlobalAssistantProposal | null {
   if (!proposal || typeof proposal !== 'object') {
     return null
   }
@@ -152,6 +152,55 @@ function normalizeGlobalAssistantProposal(proposal?: GlobalAssistantProposal | n
     outlineUpdates: Array.isArray(proposal.outlineUpdates) ? proposal.outlineUpdates : [],
     notes: Array.isArray(proposal.notes) ? proposal.notes : []
   }
+}
+
+/**
+ * 合并两份写回提案：把 incoming 的各数组拼接到 existing 之后（而非覆盖），按关键字段去重，
+ * summary 取 incoming 非空优先，全空则返回 null（等价 useGlobalAssistant 的 trimProposal）。
+ */
+export function mergeGlobalAssistantProposals(
+  existing: GlobalAssistantProposal | null,
+  incoming: Partial<GlobalAssistantProposal> | null
+): GlobalAssistantProposal | null {
+  const base = normalizeGlobalAssistantProposal(existing as GlobalAssistantProposal | null)
+  const add = normalizeGlobalAssistantProposal(incoming as GlobalAssistantProposal | null)
+  if (!base && !add) return null
+
+  const dedupe = <T>(items: T[], keyOf: (item: T) => string): T[] => {
+    const seen = new Set<string>()
+    const result: T[] = []
+    for (const item of items) {
+      const key = keyOf(item).trim().toLowerCase()
+      if (key && seen.has(key)) continue
+      if (key) seen.add(key)
+      result.push(item)
+    }
+    return result
+  }
+
+  const merged: GlobalAssistantProposal = {
+    summary: (add?.summary || base?.summary || '').trim(),
+    constraintCreates: dedupe([...(base?.constraintCreates ?? []), ...(add?.constraintCreates ?? [])], (item) => item.title),
+    worldviewCreates: dedupe([...(base?.worldviewCreates ?? []), ...(add?.worldviewCreates ?? [])], (item) => item.title),
+    worldviewUpdates: dedupe([...(base?.worldviewUpdates ?? []), ...(add?.worldviewUpdates ?? [])], (item) => item.matchTitle),
+    characterCreates: dedupe([...(base?.characterCreates ?? []), ...(add?.characterCreates ?? [])], (item) => item.name),
+    characterUpdates: dedupe([...(base?.characterUpdates ?? []), ...(add?.characterUpdates ?? [])], (item) => item.matchName),
+    outlineCreates: dedupe([...(base?.outlineCreates ?? []), ...(add?.outlineCreates ?? [])], (item) => item.title),
+    outlineUpdates: dedupe([...(base?.outlineUpdates ?? []), ...(add?.outlineUpdates ?? [])], (item) => item.matchTitle),
+    notes: dedupe([...(base?.notes ?? []), ...(add?.notes ?? [])].filter((note) => String(note).trim()), (note) => String(note))
+  }
+
+  const hasContent = Boolean(
+    merged.constraintCreates.length ||
+    merged.worldviewCreates.length ||
+    merged.worldviewUpdates.length ||
+    merged.characterCreates.length ||
+    merged.characterUpdates.length ||
+    merged.outlineCreates.length ||
+    merged.outlineUpdates.length ||
+    merged.notes.length
+  )
+  return hasContent ? merged : null
 }
 
 function createGlobalAssistantSession(messages?: ChatMessage[]): GlobalAssistantSession {

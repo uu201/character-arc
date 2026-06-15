@@ -133,10 +133,21 @@ watch(
     if (request.mode === 'append') {
       const endPos = e.state.doc.content.size - 1
       e.chain().insertContentAt(endPos, request.content).run()
-    } else if (request.mode === 'replace-selection' && savedSelection) {
-      const { from, to } = savedSelection
-      e.chain().deleteRange({ from, to }).insertContentAt(from, request.content).run()
+    } else if (request.mode === 'replace-selection') {
+      // 优先用编辑器当前实时选区：点击 AI 面板按钮不会改变 ProseMirror 选区，
+      // 故 apply 时它仍是用户选中的那段，比单次失效的 savedSelection 可靠。
+      const live = e.state.selection
+      const range = live.from !== live.to
+        ? { from: live.from, to: live.to }
+        : savedSelection
       savedSelection = null
+      if (range) {
+        // 一步区间替换，避免 delete + insert 两步间的位置漂移与块级节点错位。
+        e.chain().insertContentAt(range, request.content).run()
+      } else {
+        // 没有有效选区时退化为光标处插入——绝不追加到文末（那会产生重复段落）。
+        e.commands.insertContent(request.content)
+      }
     } else if (request.mode === 'cursor') {
       e.commands.insertContent(request.content)
     } else {
