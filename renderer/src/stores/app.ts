@@ -2122,6 +2122,67 @@ export const useAppStore = defineStore('app', () => {
     })
   }
 
+  function normalizeChapterStatus(value: unknown, fallback: ChapterDraft['status']): ChapterDraft['status'] {
+    return value === 'draft' || value === 'review' || value === 'polish' || value === 'final'
+      ? value
+      : fallback
+  }
+
+  function applyChapterFinalizationResult(payload: {
+    chapter: {
+      id: string
+      title: string
+      summary: string
+      status: string
+      wordTarget: string
+      content: string
+    }
+    version?: {
+      id: string
+      chapterId: string
+      title: string
+      summary: string
+      status: string
+      wordTarget: string
+      content: string
+      createdAt: string
+    }
+  }): void {
+    const nextStatus = normalizeChapterStatus(payload.chapter.status, 'final')
+    const version = payload.version
+      ? normalizeChapterVersion({
+          ...payload.version,
+          status: normalizeChapterStatus(payload.version.status, 'draft')
+        })
+      : null
+
+    updateCurrentWorkspace((workspace) => {
+      const hasVersion = version
+        ? workspace.chapterVersions.some((item) => item.id === version.id)
+        : true
+
+      return {
+        ...workspace,
+        chapters: workspace.chapters.map((chapter) =>
+          chapter.id === payload.chapter.id
+            ? normalizeChapterDraft({
+                ...chapter,
+                title: payload.chapter.title.trim() || chapter.title,
+                summary: payload.chapter.summary.trim() || chapter.summary,
+                status: nextStatus,
+                wordTarget: payload.chapter.wordTarget,
+                content: payload.chapter.content
+              })
+            : chapter
+        ),
+        chapterVersions: version && !hasVersion
+          ? [version, ...workspace.chapterVersions]
+          : workspace.chapterVersions
+      }
+    })
+    schedulePersist('fast')
+  }
+
   function updateChapterSummary(value: string): void {
     const chapter = selectedChapter.value
     if (!chapter) {
@@ -3012,6 +3073,7 @@ export const useAppStore = defineStore('app', () => {
     flushWorkspaceSync,
     persistWorkspace,
     updateChapter,
+    applyChapterFinalizationResult,
     updateChapterContent,
     reloadChapterFromDb,
     updateChapterSelection,

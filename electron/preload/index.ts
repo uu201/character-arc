@@ -76,6 +76,7 @@ contextBridge.exposeInMainWorld('characterArc', {
   readChapterVersionFromDb: (projectId: string, versionId: string) => ipcRenderer.invoke('characterarc:ai-read-chapter-version', { projectId, versionId }),
   /** 提交章节编辑提案（diff review 确认写回） */
   commitChapterEdit: (projectId: string, chapterId: string, oldContent: string, newContent: string) => ipcRenderer.invoke('characterarc:commit-chapter-edit', { projectId, chapterId, oldContent, newContent }),
+  applyChapterFinalization: (payload: unknown) => ipcRenderer.invoke('characterarc:ai-apply-chapter-finalization', toIpcPayload(payload)),
   /** 监听流式 AI 的增量文本事件，返回取消监听的清理函数 */
   onAiStreamEvent: (callback: (payload: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)

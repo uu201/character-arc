@@ -62,6 +62,7 @@ export type AiTaskName =
   | 'chapter-scene-plan'
   | 'chapter-memo'
   | 'chapter-audit'
+  | 'chapter-finalize'
   | 'plot-thread-detect'
   | 'project-bootstrap'
   | 'spiral-seed'
@@ -399,6 +400,13 @@ export type ChapterAuditResult = {
   }
 }
 
+export type ChapterFinalizationResult = {
+  chapterSummary: string
+  stateDelta: import('../story-state-store').StateDelta | null
+  nextChapterBridge: string
+  warnings: string[]
+}
+
 /** 单条情节线索检测结果 */
 export type PlotThreadDetectEntry = {
   title: string
@@ -433,6 +441,7 @@ export type AiTaskResult =
   | ChapterScenePlanResult
   | ChapterMemoResult
   | ChapterAuditResult
+  | ChapterFinalizationResult
   | SpiralSeedResult
   | SpiralExpandResult
   | SpiralValidateResult

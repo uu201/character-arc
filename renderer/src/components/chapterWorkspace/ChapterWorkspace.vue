@@ -4,6 +4,8 @@ import { Minimize } from 'lucide-vue-next'
 import ChapterTreeSidebar from './ChapterTreeSidebar.vue'
 import ChapterEditorPane from './ChapterEditorPane.vue'
 import ChapterAiPanel from './ChapterAiPanel.vue'
+import ChapterFinalizeDialog from './ChapterFinalizeDialog.vue'
+import { useAppStore } from '@/stores/app'
 
 const COMPACT_BREAKPOINT = 1180
 const COMPACT_BREAKPOINT_AI_OPEN = 1440
@@ -17,6 +19,8 @@ const sidebarDrawerVisible = ref(false)
 const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
 const aiPanelWidth = ref(DEFAULT_AI_WIDTH)
 const isDraggingPanel = ref(false)
+const finalizeDialogVisible = ref(false)
+const appStore = useAppStore()
 
 const isCompact = computed(() => {
   const threshold = aiOpen.value ? COMPACT_BREAKPOINT_AI_OPEN : COMPACT_BREAKPOINT
@@ -66,6 +70,10 @@ function handleGenerateDraft(): void {
   nextTick(() => {
     aiPanelRef.value?.triggerDraft()
   })
+}
+
+function handleFinalizeChapter(): void {
+  finalizeDialogVisible.value = true
 }
 
 function startPanelDrag(e: MouseEvent): void {
@@ -149,6 +157,7 @@ onBeforeUnmount(() => {
       @toggle-sidebar="toggleSidebar"
       @selection-action="handleSelectionAction"
       @generate-draft="handleGenerateDraft"
+      @finalize-chapter="handleFinalizeChapter"
     />
     <!-- Panel resize handle -->
     <div
@@ -172,6 +181,10 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </Transition>
+    <ChapterFinalizeDialog
+      v-model:show="finalizeDialogVisible"
+      :chapter="appStore.selectedChapter ?? null"
+    />
   </section>
 </template>
 
