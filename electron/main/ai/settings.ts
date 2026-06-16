@@ -174,6 +174,19 @@ export function resolveMaxTokens(task?: AiTaskPayload): number | undefined {
 }
 
 /**
+ * 推理模型（mimo、deepseek-r1、gpt-5 系列等）的 reasoning token 与可见输出共享 maxOutputTokens 预算。
+ * 单次任务的小预算（如 character-card 的 700）会被推理 token 吃光，导致可见 JSON 为空、解析失败。
+ * max_tokens 是上限而非目标，抬高它对非推理模型零成本（产出完即停），却能让推理模型留足输出空间。
+ *
+ * @param baseMaxTokens - 任务原始 max_tokens（可能为 undefined）
+ * @returns 兜底后的 max_tokens
+ */
+export function applyReasoningSafeFloor(baseMaxTokens: number | undefined): number {
+  const SINGLE_SHOT_MIN_OUTPUT_TOKENS = 8000
+  return Math.max(baseMaxTokens ?? SINGLE_SHOT_MIN_OUTPUT_TOKENS, SINGLE_SHOT_MIN_OUTPUT_TOKENS)
+}
+
+/**
  * 走 agent loop（progressive skill disclosure + tool calling）的 task 白名单。
  * 不在表里的 task 走原有单次调用链路，行为零变更。
  *

@@ -9,7 +9,7 @@ import type {
   ChapterPostGenerationIssuesPayload,
   ChapterStateWarningsPayload
 } from '../shared-types'
-import { normalizeSettings, validateSettings, resolveMaxTokens, AGENT_TASK_WHITELIST } from '../settings'
+import { normalizeSettings, validateSettings, resolveMaxTokens, applyReasoningSafeFloor, AGENT_TASK_WHITELIST } from '../settings'
 import { getTaskHandler } from '../tasks'
 import { getStructuredTaskSchema } from '../tasks/object-schemas'
 import { resolveTaskSkills } from '../skills'
@@ -71,7 +71,7 @@ export async function runAiTask(
 
   const input = buildPromptInput(task, skills, knowledgeContext)
   const prompt = handler.buildPrompt(input)
-  const maxTokens = handler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task)
+  const maxTokens = applyReasoningSafeFloor(handler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task))
   const structuredSchema = handler.outputType === 'json' ? getStructuredTaskSchema(handler.name) : undefined
 
   if (handler.outputType === 'json' && !structuredSchema) {
@@ -238,7 +238,7 @@ export async function streamAiTask(
 
   const input = buildPromptInput(task, skills, knowledgeContext)
   const prompt = taskHandler.buildPrompt(input)
-  const maxTokens = taskHandler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task)
+  const maxTokens = applyReasoningSafeFloor(taskHandler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task))
   const structuredSchema = taskHandler.outputType === 'json' ? getStructuredTaskSchema(taskHandler.name) : undefined
 
   if (taskHandler.outputType === 'json' && !structuredSchema) {
