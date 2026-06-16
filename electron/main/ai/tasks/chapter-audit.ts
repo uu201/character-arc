@@ -3,6 +3,7 @@ import { extractJsonObject } from './base'
 import type { AiTaskResult, ChapterAuditResult } from '../shared-types'
 
 const VALID_SEVERITIES = new Set(['critical', 'warning', 'hint'])
+const CHAPTER_AUDIT_MAX_TOKENS = 26000
 
 function normalizeChinesePunctuation(value: string): string {
   return value
@@ -85,7 +86,7 @@ pass 判定：所有 critical issue 数 == 0 且 warning issue 数 <= 2 即 pass
     return Boolean((result as ChapterAuditResult).audit)
   },
   resolveMaxTokens(): number {
-    return 2000
+    return CHAPTER_AUDIT_MAX_TOKENS
   }
 }
 

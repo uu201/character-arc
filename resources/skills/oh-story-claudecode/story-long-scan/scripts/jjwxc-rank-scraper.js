@@ -122,12 +122,18 @@ function scrapeRank(port, rankTypeId, channelId) {
   console.log(`\n→ 采集 晋江${rt.label}（${chLabel}）...`);
   console.log(`  URL: ${url}`);
 
-  ab(port, "open", url);
-  sleep(4000);
+  let data;
+  try {
+    ab(port, "open", url);
+    sleep(4000);
 
-  const data = extractRankData(port);
-  if (!data?.channels?.length) {
-    console.log("  ⚠ 未提取到数据");
+    data = extractRankData(port);
+    if (!data?.channels?.length) {
+      console.error(`[jjwxc] 采集失败：页面结构可能已变（选择器没匹配到数据），请检查榜单URL或更新选择器 (${url})`);
+      return null;
+    }
+  } catch (err) {
+    console.error(`[jjwxc] ${rt.label} 页面加载或提取出错: ${err.message}`);
     return null;
   }
 
@@ -159,14 +165,23 @@ function scrapeRank(port, rankTypeId, channelId) {
   ];
 
   for (const ch of data.channels) {
-    lines.push(`## ${ch.name} — ${ch.books.length} 本`, "");
-    for (let i = 0; i < ch.books.length; i++) {
-      const b = ch.books[i];
-      lines.push(`### #${i + 1} ${b.title}`);
-      if (b.author) lines.push(`*${b.author}*`);
-      lines.push("");
+    try {
+      lines.push(`## ${ch.name} — ${ch.books.length} 本`, "");
+      for (let i = 0; i < ch.books.length; i++) {
+        try {
+          const b = ch.books[i];
+          lines.push(`### #${i + 1} ${b.title}`);
+          if (b.author) lines.push(`*${b.author}*`);
+          lines.push("");
+        } catch (bookErr) {
+          console.error(`[jjwxc] ${rt.label} ${ch.name} 第${i + 1}条处理出错: ${bookErr.message}`);
+          lines.push("");
+        }
+      }
+      lines.push("---", "");
+    } catch (chErr) {
+      console.error(`[jjwxc] ${rt.label} 频道「${ch.name}」处理出错，跳过: ${chErr.message}`);
     }
-    lines.push("---", "");
   }
 
   return lines.join("\n");
@@ -186,6 +201,7 @@ function main() {
       const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
       const chLabel = ch === "0" ? "全站" : `频道${ch}`;
       const filename = `晋江${rtInfo.label}_${chLabel}_${date}.md`;
+      fs.mkdirSync(OUTDIR, { recursive: true });
       const filepath = path.join(OUTDIR, filename);
       fs.writeFileSync(filepath, content, "utf-8");
       console.log(`  ✓ 已保存: ${filepath}`);
@@ -193,4 +209,9 @@ function main() {
   }
 }
 
-main();
+try {
+  main();
+} catch (e) {
+  console.error(`晋江采集失败: ${e && e.message ? e.message : e}`);
+  process.exit(1);
+}

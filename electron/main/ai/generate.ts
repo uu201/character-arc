@@ -95,6 +95,9 @@ export async function aiGenerateTextWithUsage(
 
   if (options?.schema && canUseNativeStructuredOutput) {
     if (useStreamFallback(settings)) {
+      // AI SDK v6 的 streamObject/streamText 默认不在流错误时抛异常：textStream 会静默结束，
+      // 错误只通过 onError 回调暴露。必须捕获并重抛，否则中转站 503 等错误会被吞掉、UI 无提示。
+      let streamError: unknown = null
       const result = streamObject({
         model: createModel(settings),
         system,
@@ -102,12 +105,14 @@ export async function aiGenerateTextWithUsage(
         schema: options.schema,
         maxOutputTokens: maxTokens,
         providerOptions,
-        abortSignal: signal
+        abortSignal: signal,
+        onError: ({ error }) => { streamError = error }
       })
       let full = ''
       for await (const chunk of result.textStream) {
         full += chunk
       }
+      if (streamError) throw streamError
       return {
         text: full || JSON.stringify(await result.object),
         usage: toAiRunUsage(await result.usage)
@@ -129,17 +134,23 @@ export async function aiGenerateTextWithUsage(
   }
 
   if (useStreamFallback(settings)) {
+    let streamError: unknown = null
     const result = streamText({
       model: createModel(settings),
       system,
       prompt: prompt.user,
       maxOutputTokens: maxTokens,
       providerOptions,
-      abortSignal: signal
+      abortSignal: signal,
+      onError: ({ error }) => { streamError = error }
     })
     let full = ''
     for await (const chunk of result.textStream) {
       full += chunk
+    }
+    if (streamError) throw streamError
+    if (!full) {
+      full = await result.text
     }
     return {
       text: full,
@@ -180,18 +191,41 @@ export async function aiStreamTextWithUsage(
   maxTokens?: number
 ): Promise<AiTextGenerationResult> {
   const providerOptions = resolveProviderOptions(settings)
+  let streamError: unknown = null
+  // 推理模型（mimo / deepseek-r1 / 智谱 GLM-Z1 等）通过非标准 reasoning_content 字段
+  // 返回思考内容，AI SDK 不解析。这里把回调注入到自定义 fetch，由其在 SSE 流中拦截。
   const result = streamText({
-    model: createModel(settings),
+    model: createModel(settings, handlers.onReasoningDelta),
     system: buildSystemPrompt(settings, prompt.system),
     prompt: prompt.user,
     maxOutputTokens: maxTokens,
     providerOptions,
-    abortSignal: signal
+    abortSignal: signal,
+    onError: ({ error }) => { streamError = error }
   })
   let full = ''
-  for await (const chunk of result.textStream) {
-    full += chunk
-    handlers.onTextDelta(chunk)
+  // 推理模型（如 mimo、deepseek-r1）会先输出 reasoning，再输出正文。
+  // 走 fullStream 才能拿到 reasoning-delta，让思考过程实时可见，否则首字前界面长时间无反馈。
+  for await (const part of result.fullStream) {
+    if (part.type === 'reasoning-delta') {
+      handlers.onReasoningDelta?.(part.text)
+    } else if (part.type === 'text-delta') {
+      full += part.text
+      handlers.onTextDelta(part.text)
+    } else if (part.type === 'error') {
+      // fullStream 把流式错误作为 error part 发出而不抛异常，必须显式抛出
+      throw part.error
+    }
+  }
+  if (streamError) throw streamError
+  // 某些中转站对非 Claude 模型会把文本放在 reasoning/thinking blocks 里，
+  // textStream 拿不到。如果流式正文为空但有 output tokens，从最终结果兜底。
+  if (!full) {
+    const fallbackText = await result.text
+    if (fallbackText) {
+      full = fallbackText
+      handlers.onTextDelta(fallbackText)
+    }
   }
   return {
     text: full,
@@ -211,14 +245,16 @@ export async function aiStreamObjectWithUsage(
     return aiStreamTextWithUsage(settings, prompt, handlers, signal, maxTokens)
   }
 
+  let streamError: unknown = null
   const result = streamObject({
-    model: createModel(settings),
+    model: createModel(settings, handlers.onReasoningDelta),
     system: buildSystemPrompt(settings, prompt.system),
     prompt: prompt.user,
     schema,
     maxOutputTokens: maxTokens,
     providerOptions: resolveProviderOptions(settings),
-    abortSignal: signal
+    abortSignal: signal,
+    onError: ({ error }) => { streamError = error }
   })
 
   let full = ''
@@ -226,9 +262,16 @@ export async function aiStreamObjectWithUsage(
     full += chunk
     handlers.onTextDelta(chunk)
   }
+  if (streamError) throw streamError
+  let objectText = ''
+  try {
+    objectText = JSON.stringify(await result.object)
+  } catch {
+    objectText = ''
+  }
 
   return {
-    text: full,
+    text: objectText || full,
     usage: toAiRunUsage(await result.usage)
   }
 }

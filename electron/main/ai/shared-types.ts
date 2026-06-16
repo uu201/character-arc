@@ -69,6 +69,7 @@ export type AiTaskName =
   | 'spiral-validate'
   | 'chapter-analysis'
   | 'chapter-repair'
+  | 'chapter-session-note'
   | 'inspiration-pack'
   | 'story-deep-audit'
   | 'character-enhance'
@@ -384,6 +385,7 @@ export type ChapterMemoResult = {
     decisionChecks: string[]
     endingChanges: string[]
     doNotDo: string[]
+    emotionArc: string
   }
 }
 
@@ -454,11 +456,15 @@ export type PromptPair = {
 /** 流式 AI 生成的回调处理器 */
 export type AiStreamHandlers = {
   onTextDelta: (delta: string) => void
+  /** 推理模型的思考过程增量。可选——只有支持 reasoning 的模型会触发。 */
+  onReasoningDelta?: (delta: string) => void
 }
 
 /** Agent 流式生成的回调处理器（含工具调用和编辑事件） */
 export type AiAgentStreamHandlers = {
   onTextDelta: (delta: string) => void
+  /** 推理模型的思考过程增量。可选——只有支持 reasoning 的模型会触发。 */
+  onReasoningDelta?: (delta: string) => void
   onToolUseStart: (toolUseId: string, toolName: string, args: Record<string, unknown>) => void
   onToolResult: (toolUseId: string, toolName: string, content: string, isError: boolean, durationMs: number) => void
   onAgentStatus: (message: string, iteration: number, maxIterations: number) => void
@@ -471,7 +477,7 @@ export const AI_REQUEST_TIMEOUT_MS = 180_000
 /** Agent loop 单次任务最多允许的工具循环轮数。超过即抛错，避免死循环吃 token。 */
 export const AGENT_MAX_TOOL_ITERATIONS = 8
 
-export const AGENT_STREAM_MAX_ITERATIONS = 12
+export const AGENT_STREAM_MAX_ITERATIONS = 16
 
 /**
  * 章节轻检告警事件 payload。章节生成后的异步后处理流水线产出，

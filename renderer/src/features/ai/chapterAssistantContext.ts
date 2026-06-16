@@ -129,8 +129,10 @@ export type ChapterFirstDraftContextInput = {
     decisionChecks: string[]
     endingChanges: string[]
     doNotDo: string[]
+    emotionArc: string
   }
   recentEndingsTrail?: Array<{ chapterTitle: string; endingLine: string }>
+  referenceStyleContext?: string
 }
 
 // 构建发送给 AI 的章节助理上下文对象：
@@ -336,6 +338,7 @@ export function buildChapterFirstDraftContext(input: ChapterFirstDraftContextInp
     projectSkills: input.projectSkills ?? [],
     userPrompt: input.userPrompt,
     chapterMemo: input.chapterMemo ?? null,
-    recentEndingsTrail: input.recentEndingsTrail ?? []
+    recentEndingsTrail: input.recentEndingsTrail ?? [],
+    referenceStyleContext: input.referenceStyleContext ?? ''
   }
 }

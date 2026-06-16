@@ -9,12 +9,12 @@ import type {
   ChapterPostGenerationIssuesPayload,
   ChapterStateWarningsPayload
 } from '../shared-types'
-import { normalizeSettings, validateSettings, resolveMaxTokens, AGENT_TASK_WHITELIST } from '../settings'
+import { normalizeSettings, validateSettings, resolveMaxTokens, applyReasoningSafeFloor, AGENT_TASK_WHITELIST } from '../settings'
 import { getTaskHandler } from '../tasks'
 import { getStructuredTaskSchema } from '../tasks/object-schemas'
 import { resolveTaskSkills } from '../skills'
 import { addAiRunUsage, aiGenerateText, aiGenerateTextWithUsage, aiStreamObjectWithUsage, aiStreamTextWithUsage } from '../generate'
-import { providerSupportsTools } from '../provider'
+import { isToolUseNotSupportedError } from '../provider'
 import { buildPromptInput } from './context-builder'
 import { enrichTaskContextForGeneration } from './task-context'
 import { buildRunMeta, buildResponsePreview } from './run-meta'
@@ -42,15 +42,21 @@ export async function runAiTask(
   signal?: AbortSignal
 ): Promise<AiTaskResponse> {
   const handler = getTaskHandler(task.task)
-  // 灰度分流：白名单内 + provider 支持 tool_use → 走 agent loop（progressive skill disclosure）。
-  // 任意一个不满足 → 走原单次调用路径。renderer 完全无感。
+  // 白名单内的任务直接尝试走 agent loop，不预判 provider 能力。
+  // 如果模型不支持 tool_use，运行时会抛错，在 catch 中降级或提示用户。
   const settingsForRouting = normalizeSettings(task.settings)
   if (AGENT_TASK_WHITELIST.has(task.task)) {
-    if (providerSupportsTools(settingsForRouting)) {
-      return runAgentTask(task, knowledgeContext)
-    }
-    if (task.task === 'reference-deep-analyze') {
-      throw new Error('深度拆书需要模型支持 tool_use（工具调用）。当前供应商不支持此功能，请切换到通义千问、OpenAI 或 Anthropic 等支持工具调用的供应商后重试。')
+    try {
+      return await runAgentTask(task, knowledgeContext)
+    } catch (error) {
+      if (isToolUseNotSupportedError(error)) {
+        if (task.task === 'reference-deep-analyze') {
+          throw new Error('深度拆书需要模型支持 tool_use（工具调用）。当前模型不支持此功能，请切换到支持工具调用的模型后重试。')
+        }
+        // 其余白名单任务：降级到单次调用路径
+      } else {
+        throw error
+      }
     }
   }
 
@@ -65,7 +71,7 @@ export async function runAiTask(
 
   const input = buildPromptInput(task, skills, knowledgeContext)
   const prompt = handler.buildPrompt(input)
-  const maxTokens = handler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task)
+  const maxTokens = applyReasoningSafeFloor(handler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task))
   const structuredSchema = handler.outputType === 'json' ? getStructuredTaskSchema(handler.name) : undefined
 
   if (handler.outputType === 'json' && !structuredSchema) {
@@ -214,8 +220,10 @@ export async function streamAiTask(
     && task.task !== 'chapter-first-draft'
     && task.task !== 'chapter-memo'
     && task.task !== 'chapter-audit'
+    && task.task !== 'chapter-repair'
+    && task.task !== 'chapter-session-note'
   ) {
-    throw new Error('当前流式输出仅支持章节创作助理、章节初稿、章节备忘和章节审计。')
+    throw new Error('当前流式输出仅支持章节创作助理、章节初稿、章节备忘、章节审计和章节修复。')
   }
 
   const settings = normalizeSettings(task.settings)
@@ -230,7 +238,7 @@ export async function streamAiTask(
 
   const input = buildPromptInput(task, skills, knowledgeContext)
   const prompt = taskHandler.buildPrompt(input)
-  const maxTokens = taskHandler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task)
+  const maxTokens = applyReasoningSafeFloor(taskHandler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task))
   const structuredSchema = taskHandler.outputType === 'json' ? getStructuredTaskSchema(taskHandler.name) : undefined
 
   if (taskHandler.outputType === 'json' && !structuredSchema) {
@@ -242,13 +250,46 @@ export async function streamAiTask(
   let totalUsage: AiRunUsage | undefined
 
   try {
-    const generation = structuredSchema
+    let generation = structuredSchema
       ? await aiStreamObjectWithUsage(settings, prompt, handlers, signal, structuredSchema, maxTokens)
       : await aiStreamTextWithUsage(settings, prompt, handlers, signal, maxTokens)
     totalUsage = addAiRunUsage(totalUsage, generation.usage)
-    const rawText = generation.text
+    let rawText = generation.text
     logResponse('STREAM', settings, task.task, rawText, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
-    const result = taskHandler.normalize(rawText)
+    let result: AiTaskResult
+    let normalizeFailed = false
+    try {
+      result = taskHandler.normalize(rawText)
+    } catch {
+      result = {} as AiTaskResult
+      normalizeFailed = true
+    }
+    let repairTriggered = false
+
+    if (taskHandler.outputType === 'json' && (normalizeFailed || !taskHandler.validate(result))) {
+      const validationErrors = (!normalizeFailed && taskHandler.describeValidationErrors)
+        ? taskHandler.describeValidationErrors(result)
+        : ['JSON 解析失败或结构不完整']
+      const repairPromptPair = buildRepairPrompt(prompt.system, prompt.user, rawText, validationErrors)
+      logPrompt('STREAM_REPAIR', settings, repairPromptPair, task.task, usedSkillIds)
+      const repairStartedAt = Date.now()
+      generation = await aiGenerateTextWithUsage(
+        settings,
+        repairPromptPair,
+        maxTokens,
+        signal,
+        structuredSchema ? { schema: structuredSchema } : undefined
+      )
+      totalUsage = addAiRunUsage(totalUsage, generation.usage)
+      rawText = generation.text
+      logResponse('STREAM_REPAIR', settings, task.task, rawText, Date.now() - repairStartedAt, { usedSkills: usedSkillIds })
+      result = taskHandler.normalize(rawText)
+      repairTriggered = true
+
+      if (!taskHandler.validate(result)) {
+        throw new Error('AI 返回的结构化结果不完整，请稍后重试或调整提示词。')
+      }
+    }
     const finishedAt = new Date().toISOString()
     const status = signal.aborted ? 'canceled' : 'success'
 
@@ -275,7 +316,7 @@ export async function streamAiTask(
         totalUsage,
         knowledgeContext?.usedKnowledge ?? [],
         usedSkillIds,
-        false,
+        repairTriggered,
         buildResponsePreview(result),
         '',
         clientKey

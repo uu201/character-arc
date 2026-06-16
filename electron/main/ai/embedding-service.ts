@@ -4,6 +4,8 @@ import { ensureWorkspaceDb } from '../workspace-store'
 
 /** 每次向 Embedding API 发送的最大文本条数 */
 const MAX_BATCH_SIZE = 16
+/** 单批 Embedding 请求超时（毫秒）。检索在生成前同步执行，超时即放弃向量召回，避免卡住首字。 */
+const EMBEDDING_REQUEST_TIMEOUT_MS = 20_000
 /** 无法从聊天模型推断 embedding 模型时的兜底候选列表 */
 const EMBEDDING_MODEL_FALLBACKS = ['text-embedding-3-small', 'text-embedding-ada-002', 'embedding-2']
 
@@ -158,18 +160,33 @@ async function requestEmbeddings(
 ): Promise<Float32Array[]> {
   const url = `${baseUrl}/embeddings`
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: embeddingModel,
-      input: inputs,
-      encoding_format: 'float'
+  // embedding 检索发生在生成请求之前并被同步 await，无超时会让慢/挂起的接口直接卡死首字输出。
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), EMBEDDING_REQUEST_TIMEOUT_MS)
+
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: embeddingModel,
+        input: inputs,
+        encoding_format: 'float'
+      }),
+      signal: controller.signal
     })
-  })
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Embedding API 请求超时（>${EMBEDDING_REQUEST_TIMEOUT_MS / 1000}s）`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')

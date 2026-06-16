@@ -4,35 +4,6 @@ version: 1.0.0
 description: |
   短篇网文写作。辅助短篇小说创作，从构思到成稿，聚焦情绪拉扯与节奏把控。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
-manifest:
-  category: writing
-  stages:
-    - premise
-    - setting
-    - outline
-    - draft
-  tasks:
-    - chapter-assistant
-    - chapter-first-draft
-    - outline-batch
-    - outline-chain
-    - chapter-analysis
-    - inspiration-pack
-    - project-bootstrap
-    - worldview-entry
-    - character-card
-    - outline-item
-    - spiral-seed
-    - spiral-expand
-    - spiral-validate
-  triggers:
-    - 写短篇
-    - 短篇
-    - 创作
-  priority: 6
-  enabled: true
-  compatibility: native
-  compatibilityNote: 适合短篇小说的立项和写作阶段。
 metadata:
   openclaw:
     source: https://github.com/worldwonderer/oh-story-claudecode
@@ -42,7 +13,7 @@ metadata:
 
 你是短篇网文写作执行器。从构思到成稿，完成一篇完整的短篇小说。
 
-**执行铁律：短篇写的是情绪，不是故事。读者记住的永远是情绪，不是剧情。**
+**执行规则：短篇以情绪为目标函数，所有内容为情绪服务。**
 
 ---
 
@@ -58,27 +29,17 @@ metadata:
 
 ## 格式规范（最高优先级）
 
-详细规则见 `references/format-and-structure.md`，写作前必须加载。
+详细规则见 `references/format-and-structure.md`，写作前必须加载。**主会话与 narrative-writer 子代理使用同一套正文格式**：正文只允许保存在 `正文.md`，正文段落之间不加空行，对话引号风格按项目/平台约定统一（默认半角双引号，盐言可用「」），短篇小节标记全文统一（默认 `###1.`/`###2.`）。如果子代理输出与主会话格式不一致，按本格式规范重排后再写入文件。
 
-### 段落规则
-- 一句一段，不超 60 字，段间无空行，无缩进
-- 一段只做一个动作：叙事/对话/心理/动作，不混合
+---
 
-### 对话规则
-- 对话独立成行，不写「他说」「她道」，用动作代替
-- 默认 `""` | 知乎盐言 `【】` | 部分古言 `「」`
+## 核心方法
 
-### 小节结构
-- 数字编号分割（`1` `2` `3` 或 `###1.`），每小节 800-1500 字（爽文可压缩至 500-800 字/节，见 genre-writing-formulas.md）
-- 每小节必须有：1个主事件 + 3-5个子事件 + 1个情绪变化 + 1个读者新获知的信息
-- 全文 8-15 个小节（按目标字数和节长反推；8000字÷1000字/节≈8节，12000字÷800字/节≈15节）
+除了上面的执行规则，构思和写作时遵循：
 
-### 5 条绝对禁止
-1. 禁止大段落（>60 字必须拆）
-2. 禁止段间空行
-3. 禁止「他说/她道」（用动作代替）
-4. 禁止缩进
-5. 禁止 Markdown 渲染正文
+- **从验证过的模式出发**：有对标书就先拆解，没有就从题材框架（genre-catalog.md）找对应的剧情模式
+- **用模块组装**：铺垫段、升级段、反转段各有成熟写法，不要重新发明。参考 genre-writing-formulas.md 对应题材
+- **只加载必需信息**：写每节前明确目标情绪和要用的技法，答不出就先回读参考
 
 ---
 
@@ -105,7 +66,47 @@ metadata:
 
 ### Phase 2：构思核心框架
 
-> 如果用户有参考小说，先用 `/story-short-analyze` 拆解，输出存入 `拆文库/{书名}/`（或用户指定的 对标/ 目录）。写作时参考其结构/情绪/反转设计。
+> 如果用户有参考小说，先用 `/story-short-analyze` 拆解。默认输出存入项目根目录 `拆文库/{书名}/`；如用户指定当前短篇引用目录，则可输出/同步到 `{短篇标题}/对标/{书名}/`。写作时会自动查找并读取这些拆文结果，不需要用户手动复制到 prompt。
+
+#### 对标上下文加载
+
+> **拆文库/对标关系**：`拆文库/` = analyze skill 的原始产出（数据源），位于项目根目录。`对标/` = 当前短篇的引用视图，位于 `{短篇标题}/对标/`。短篇写作优先读取 `{短篇标题}/对标/{书名}/`，不存在则回退项目根 `拆文库/{书名}/`，再回退 `{短篇标题}/拆文库/{书名}/`（兼容旧结构）。
+
+推荐目录结构：
+
+```
+项目根/
+├── 拆文库/
+│   └── {书名}/
+│       ├── 拆文报告.md
+│       ├── 情节节点.md
+│       └── 写作手法.md
+└── {短篇标题}/
+    ├── 设定.md
+    ├── 小节大纲.md
+    ├── 正文.md
+    └── 对标/
+        └── {书名}/
+            ├── 拆文报告.md
+            ├── 情节节点.md
+            └── 写作手法.md
+```
+
+如果工作目录下存在 `对标/` 或项目根存在 `拆文库/`，或用户提到参考小说：
+
+1. 按上述顺序查找 `拆文报告.md`、`情节节点.md`、`写作手法.md`
+2. 读取核心发现：结构段落、情绪曲线、反转位置、铺垫方式、句式节奏、可借鉴技法
+3. 写入本篇 `设定.md` 的“对标摘要”区，写作时每个场景从中召回 1-2 个相关技法
+4. 如只找到原文、未找到拆文报告，提示用户先运行 `/story-short-analyze`；如用户要求继续，也可只按原文做弱参考
+
+> **拆文产出格式**：analyze 落盘的完整文件树、`_meta.json` schema、Stage→文件映射，以及「story-short-write 怎么读这些产出」的下游消费规范，见 [references/output-contract.md](references/output-contract.md)。
+
+<!-- cross-book-recall:trigger:structure-positioning -->
+> **多对标书时**：参 `references/cross-book-recall.md`，副对标 anchor 入「对标摘要」区
+
+#### Agent 调用：story-architect
+
+构思阶段，如果项目已部署 story-architect agent（检查 `.claude/agents/story-architect.md` 是否存在），可 spawn `Agent(subagent_type: "story-architect", prompt: "项目目录：{dir}\n任务类型：短篇构思\n查询参数：{情绪目标+题材方向}")` 辅助框架设计。如 agent 不可用，由主线程直接执行。
 
 帮用户确定短篇的核心框架：
 
@@ -141,135 +142,98 @@ metadata:
 
 框架确定后，完成设计任务，然后在工作目录下创建文件。
 
-#### 设计任务（框架确定后，写作前完成）
+#### 设计任务（框架确定后执行）
 
-**开始前先加载 references**（逐项检查，不能跳过）：
-- 写结构物件 → 加载 `writing-craft.md` ✅/❌
-- 写反派/揭露方式 → 加载 `villain-and-reveal.md` ✅/❌
-- 写大纲 → 已有 genre-writing-formulas.md 的题材速查表即可 ✅/❌
-- 反转信息差验证 → 需加载 `reversal-toolkit.md` 或 `writing-craft.md` ✅/❌
-- 伏笔回查 → 需加载 `writing-craft.md` ✅/❌
-- 如某项不适用（如无反派），标注原因后可跳过
+详细步骤和模板见 `references/writing-workflow.md`。构思时从目标情绪反推剧情，不是从灵感正向构建。按顺序完成：
 
-1. **设计结构物件**（1-2 个）：用 writing-craft.md「结构物件系统」模板
-   - 填写：`- 第1现（第X节）：{场景}（{含义}）` 重复三次，含节号定位
-2. **设计反派**（如有）：用 villain-and-reveal.md 反派模板
-   - 填写：`{身份} + {动机} + {作恶方式} + {致命弱点} + {报应}`
-3. **确定揭露方式**：从 villain-and-reveal.md 4 种真相揭露机制中选一种
-4. **编写 小节大纲.md**：每节 1 行，格式如下：
-   `主事件 | 子事件×3-5 | 情绪 | 读者新获知什么 | 钩子 | 伏笔/物件 | 动静 | 对话密度 | 目标字数`
-   - 子事件必须功能明确（推动剧情/铺垫反转/升级情绪），禁止装饰性子事件
-   - 子事件不足 3 个时用扩展规则（见 writing-craft.md 第 7 节「子事件不够时怎么扩」）
-   - 子事件用 `->` 连接，每个子事件标注功能标签：
-     `对话` / `冲突` / `伏笔` / `回忆` / `发现` / `递进`
-   - 动静标记：`动` 或 `静` 或 `动静`，相邻两节尽量交替；如因题材需要连续同标记，需确保节内有情绪变化（如：两节都是"静"，但第一节"疑惑→心酸"、第二节"心碎→崩溃"，情绪曲线仍在上升）
-   - 对话密度：`高`（3+轮）/ `中`（1-2轮）/ `零`（全节无对话），尽量不连续 2 节标 `零`；翻阅日记、独自发现等场景允许例外，但连续零对话段落的情绪必须靠感知层+反应层推进
-5. **反转信息差验证**（outline 写完后、写作前必须验证）：
-   - 回答：读者在第几节知道真相？如果 < 全文 60%，这不是反转，是"延迟揭露"（50-60% 为灰区，需审视反转力度是否足够）
-   - 检查：至少有 1 条读者被成功误导的假线索（不是读者猜到后等角色追上来）
-   - 检查：反转前是否铺垫了 ≥3 条指向真相的线索（线索要隐蔽，不是明示）
-   - 验证：找一个人（或自我模拟）只看 outline，能否在反转前猜到真相？猜到 = 失败
-6. **伏笔回查清单**（outline 写完后、写作前检查）：
-   - 列出结尾所有关键元素（物件/信息/角色/关系变化）
-   - 每个结尾元素在前文有 ≥1 次铺垫？没有 = 天降，必须补铺垫
-   - 结构物件三现完整？（第 1 现在铺垫段，第 2 现在反转段，第 3 现在结尾段）
-   - 铺垫节号与揭穿节号的间距 ≥ 3 节（间距太短铺垫无效）
+1. 设计结构物件（1-2 个）→ 加载 `writing-craft.md`
+2. 设计反派（如有）→ 加载 `villain-and-reveal.md`
+3. 确定揭露方式 → 同上
+4. 编写 小节大纲.md（格式见 writing-workflow.md）
+5. 反转信息差验证（公式见 writing-workflow.md）
+6. 伏笔回查清单（标准见 writing-workflow.md）
 
-#### 写作前加载（按需，同时 ≤ 3 个）
+#### Agent 调用：character-designer
 
-- 必读：`format-and-structure.md`
-- 必读：`anti-ai-writing.md`（写作时自检 AI 腔）
-- 按题材加载 1 个：`genre-writing-formulas.md` 中对应题材速查表
-- 按需加载：`writing-craft.md` / `villain-and-reveal.md` / `emotional-methods.md`
-
-#### 工作目录结构
-
-```
-{标题}/
-├── 设定.md          # 核心框架 + 人设 + 反转铺垫 + 结构物件（含三现追踪表）+ 反派设计
-├── 小节大纲.md  # 小节大纲：每节 1 行（主事件|子事件×3-5|情绪|读者新获知什么|钩子|伏笔/物件|动静|对话密度）
-├── 正文.md          # 完整正文
-└── 对标/            # 可选：用户手动指定的参考目录
-    └── {参考小说}/拆文报告.md
-```
-
-**操作原则：**
-- 正文直接写入文件，不要只输出在对话里
-- 精修时读取文件再改写，修改记录直接体现在设定.md的结构物件追踪中
-- 设定.md 维护结构物件追踪表：
-  `| 物件 | 第1现(节号/含义) | 第2现(节号/含义) | 第3现(节号/含义) |`
+设计任务完成后，如果项目已部署 character-designer agent（检查 `.claude/agents/character-designer.md` 是否存在），可 spawn `Agent(subagent_type: "character-designer", prompt: "项目目录：{dir}\n任务类型：角色设定\n查询参数：{人设速写+关系}")` 辅助角色设定和语言风格档案。如 agent 不可用，由主线程直接执行。
 
 ---
 
 ### Phase 3：逐场景写作
 
+**项目文件结构**：
+
+```
+{短篇标题}/
+├── 设定.md              ← Phase 2 产出（含对标摘要）
+├── 小节大纲.md          ← Phase 2 产出
+├── 正文.md              ← Phase 3 产出
+└── 对标/                ← 当前短篇引用视图（可选）
+    └── {书名}/
+        ├── 拆文报告.md
+        ├── 情节节点.md
+        └── 写作手法.md
+```
+
+**拆文结果自动使用规则**：执行写作前必须按“对标上下文加载”顺序扫描 `{短篇标题}/对标/{书名}/`、项目根 `拆文库/{书名}/`、`{短篇标题}/拆文库/{书名}/`。找到拆文报告时，把“结构/情绪/反转/写作手法”作为技法参考；找到结构化子目录时，按当前小节目标检索最相关模块。
+
 > 术语说明：Phase 3 按「段」划分叙事结构（开头段/铺垫段/升级段/反转段/结尾段），每段包含若干「小节」（数字编号的 beat）。「场景」指写作时的具体画面。
 
-**写作心法：你不是在翻译大纲，你在构建场景。读者要和主角一起经历。**
+**准备层**（每个场景写前执行 2 步，是核心方法的落地：确认情绪目标 → 召回技法模块）：
+- **步骤 1：记忆+召回**：① 本场景目标情绪词？② 借鉴哪个参考文件的哪个技法？③ 具体用在哪个段落？答不出 → 先回读参考再动笔。如有 `对标/` 或 `拆文库/` 结构化产出，按“对标上下文加载”规则检索与当前场景最相关的结构/情绪/反转/写作手法模块作为参考，并写入“拆文召回摘要”
+  <!-- cross-book-recall:trigger:tempo-section -->
+  - **多对标书时**：参 `references/cross-book-recall.md`，副对标 anchor 入"拆文召回摘要"
+- **步骤 2：指令确认**：用一句话概括本场景写作意图（情绪+技法+适配段落），确认后开始写作
 
-⚠️ **硬约束：每节 ≥ 800 字 / 50-65 行**（爽文等特殊题材见 genre-writing-formulas.md）。写完每节后必须统计字数和行数。不足 800 字的节不得跳过，必须用三层展开法补足后再写下一节。整篇完成后总字数必须 ≥ 8000 字。
+**写作指令：按三维度织入逐场景写作，不是翻译大纲。每个场景让读者和主角一起经历。三个维度（发生、感知、反应）同时织入同一段连续正文——不按维度分段，不用"先写发生再补感知"的方式写作。织入后仍必须按镜头断段：一段只承载一个动作/信息变化，优先一段一句，避免一段到底。输出前做密度重排：段落 >60 字按句号/动作转折拆开，单句 >45 字拆短。**
+
+#### Agent 调用：narrative-writer
+
+正文写作阶段默认由主会话按 2-3 节/批分批写正文，主会话输出是短篇正文的标准形态。不要要求单次 agent spawn 完成 8000+ 字全文。每批写完后先更新“已写小节摘要”（3-5 条：已揭示信息、情绪位置、未回收伏笔、下一批衔接句），下一批必须先读取该摘要和 `正文.md` 尾部 300-500 字再续写。只有在用户明确要求子代理、主会话上下文不足，或需要隔离一段试写时，才检查 `.claude/agents/narrative-writer.md` 并 spawn `Agent(subagent_type: "narrative-writer", prompt: "项目目录：{dir}\n任务描述：写正文\n输出文件：正文.md\n情绪目标：{从核心框架读取}\n小节大纲：小节大纲.md\n涉及角色：{从核心框架读取}\n对标/拆文路径：{本次查找到的 对标/{书名}/ 或 拆文库/{书名}/，没有则写 无}\n拆文召回摘要：{本场景最相关的结构/情绪/反转/写作手法模块，最多5条；没有则写 无}\n格式硬约束：必须完全遵守 story-short-write/references/format-and-structure.md；全文小节标记统一，默认 ###1.、###2.；段落之间不加空行；对话独立成行，引号风格按项目/平台约定统一（默认半角双引号，盐言可用「」）；禁止使用 --- 分隔正文片段；禁止把自检/说明/审查报告写入正文.md。\n写作硬约束：按三维度织入写场景，但仍必须按镜头断段；一段只承载一个动作/信息变化，优先一段一句，避免一段到底。输出前做密度重排：段落 >60 字按句号/动作转折拆开，单句 >45 字拆短。")`。无论由谁写作，最终写入 `正文.md` 前都必须按同一格式规范重排一次，保证主会话与子代理输出格式一致。
+
+⚠️ **硬约束：每节 ≥ 800 字 / 50-65 行**。
+题材例外：爽文、打脸、系统流等高信息密度题材可降至 ≥ 500 字/节（见 genre-writing-formulas.md 各题材速查表），但不得低于 500 字。
+写完每节后必须统计字数和行数。不足 800 字（高信息密度题材不足 500 字）的节不得跳过，必须补充更多子事件/对话来补足后再写下一节。整篇完成后总字数必须 ≥ 8000 字。
+**字数统计必须跨平台可执行：优先使用 Python 字符统计**：`for PYBIN in python3 python py; do "$PYBIN" -c "" 2>/dev/null && break; done; "$PYBIN" -c "from pathlib import Path; print(len(Path('文件路径').read_text(encoding='utf-8')))"`。**不要直接调 `python3`**——Windows 上 `python3` 会落到 Microsoft Store 占位程序、以 exit 49 静默失败；上面的探测会按 `python3→python→py` 选出真正可用的解释器。Windows / DeepSeek / Claude Code 组合下不要让模型自行估算字数；`wc -m` 仅作为 macOS/Linux 备选，禁止使用 `wc -c`（字节数）。如果当前 agent/工具环境没有 Bash/Python 权限，必须明确声明“未完成机器字数验证”，并按行数速算作为临时估计，不得声称已通过字数硬验证。
+**⚠️ 字数不足 = 章节未完成。禁止在字数未达标时结束章节。必须继续展开场景直到达标。**
 
 **节数守恒**：正文节数必须等于小节大纲规划节数。不得合并多节为一节。如果写作中发现某节不需要独立存在，应回到大纲阶段调整，而非在写作时偷减。
 
-**节长达标流程（两步法）**：
-1. **初稿**：按场景展开法写出完整初稿，每节尽量展开
-2. **扩充检查**（初稿完成后必做）：逐节统计字数，不足 800 字的节用以下方法补足：
-   - 加感知层（2-3 句感官细节，至少 2 个不同感官）
-   - 加反应层（1-3 句身体动作/状态）
+**节长达标流程**：
+1. **写作时**：按三维度织入写每个子事件——发生、感知、反应织入同一段连续正文，不按维度分段写
+2. **字数不足时**（逐节统计后）：用以下方法补足（优先级从高到低）：
+   - 补充更多子事件（回到小节大纲补充）
+   - 加一轮对话（参考 writing-craft.md 对话权力模式）
    - 加回忆闪回（1-2 句关联记忆）
    - 加环境物件（通过动作带出，不独立成句）
-   - 加一轮对话（参考 writing-craft.md 对话权力模式）
-   - **禁止凑字**：每个添加必须推动情绪/铺垫/代入感，不得灌水
+   - **禁止凑字**：每个添加必须推动情绪/铺垫/代入感，不得灌水。禁止用"加感知层""加反应层"的方式在已有动作上叠加描写
 
-**逐节验证（每节写完后立即执行）**：
-写完一节后，立即统计本节字数（不含空白）。
-如果 < 800 字 → 停下来，用三层展开法补足后再写下一节。
-如果 ≥ 800 字 → 继续写下一节。
-⚠️ 禁止「写完全部再统一检查」模式。实际验证表明，一次性写完所有节再检查会导致初稿普遍只有 5000-6000 字，需要 7+ 轮扩充验证，效率极低。
+**节长验证（分批写作，每批写完后执行）**：
+分批写作：每次输出 2-3 节（2-3 节约为 Claude 单次输出的最佳叙事窗口，过少浪费上下文，过多降低单节质量），写完后统一检查本批所有节的字数。
+如果任何一节 < 800 字（高信息密度题材 < 500 字）→ 补充更多子事件/对话来补足后再写下一批。
+禁止跳过未达标的小节。
 
-> **节长速算**：平均每行 15 字 × 55 行 ≈ 825 字。写到第 30 行时如果还不到 500 字，说明子事件展开不够，必须加感知层和反应层。
+> 批量验证更高效：一次性输出多节能让 AI 保持叙事连贯性，
+> 批后统计比逐节暂停更符合 AI 的文本生成特性。
 
-每个小节按「场景展开法」写作（详见 writing-craft.md 第 8 节）：
+> **节长速算**：平均每行 15 字 × 55 行 ≈ 825 字。写到第 30 行时如果还不到 500 字，说明子事件数量不够，需要补充更多子事件或对话。
 
-1. **进入场景**：主角此刻在哪、在做什么（1-2 句切入）
-2. **展开子事件**：每个子事件三层展开，三层总字数 ≥150 字
-   - 发生层：这件事出现了（1-2 句叙事，含一个具体细节，~30-40 字）
-   - 感知层：主角注意到什么细节（2-3 句感官/物件，至少 2 个不同感官，~60-80 字）
-   - 反应层：身体如何回应（1-3 句身体动作，~40-60 字）
-   - 子事件之间用身体动作连接（~20 字），不用叙述过渡
+每个小节按「三维度织入」写作（详见 writing-craft.md 第 8 节）：每个子事件将发生、感知、反应三个维度织入同一段连续正文，子事件合计 ≥150 字。维度织入不等于按维度分段——禁止"先写发生再补感知再补反应"的堆叠写法；也不等于一段到底——按新动作/新物件/新信息/新对话断段，单段超过 60 字优先拆开。
 
-   **子事件展开示例**（163 字，三层完整）：
-   ```
-   发生层：他把车停在路边，熄了灯。
-   感知层：引擎关掉之后，车里一下子安静了。
-   只剩下我急促的呼吸声和窗外不知道哪里传来的一声狗叫。
-   仪表盘上的时钟亮着，绿色的数字跳了一下：23:47。
-   反应层：我把额头抵在方向盘上，凉了一下。
-   试着松手，十根指头都僵了，一根一根掰开才松掉。
-   ```
-   如果你写的子事件只有 3-4 行（≤60 字），说明缺少感知层和反应层。
-3. **收尾**：钩子或情绪定格（1-2 句）
-
-**写完后对照 小节大纲.md 检查：**
-1. 每个子事件三层都展开了？（不只是提到，要有感知+反应，三层合计 ≥150 字）
-2. 本节情绪到位？
-3. 读者新获知的信息已传达？
-4. 伏笔/物件已植入？
-5. **节长验证**：统计本节字数（不含空格/换行）。如果 <800 字，必须回查哪个子事件的感知层或反应层太薄，补足后再写下一节。不足 800 的常见原因：(a) 感知层只有 1 句（需要 2-3 句、至少 2 个感官）(b) 子事件之间缺连接动作 (c) 对话只有 1 轮（应 ≥2 轮并穿插身体细节）
-6. 三层展开后仍偏短 → 加一轮对话（参考 writing-craft.md 第 3 节对话权力模式）或简短回忆（第 7 节扩展规则）
+**写完后对照 小节大纲.md 检查**：每个子事件三个维度都织入了？本节情绪到位？伏笔/物件已植入？节长 <800 字 → 补充更多子事件/对话后再写下一节。
 
 按以下结构分段写：
 
 #### 第一段：开头（前 300-500 字）
 
-**目标**：3 句话内抓住读者。**必须包含一个开篇钩子**（从 hook-techniques.md 选择类型）。
+**目标**：3 句话内抓住读者。**必须包含一个开篇钩子**（从 hooks-chapter.md 选择类型）。
 
 **技法指令**：前 100 字事件密度 ≥ 3，不做背景铺垫，直接上事件链。
 
-**开头零环境规则**：
-- 前 3 句禁止出现任何环境描写（灯光、天气、气味、温度、装修）
+**开头零环境规则**（默认适用；悬疑、惊悚、灾难、强氛围题材可例外）：
+- 前 3 句禁止出现无事件承载的环境描写（灯光、天气、气味、温度、装修）
 - 前 3 句必须是：事件 / 对话 / 动作 / 信息炸弹，四种之一
-- 环境细节只能通过感知层（三层展开法的第二层）自然带出，不能独立成句
+- 环境细节只能织入角色的动作和感知中自然带出，不能独立成句；例外题材中，环境也必须携带威胁、异常或信息差
 - 检查方法：标出前 3 句的主语，如果主语是环境物件（灯光/走廊/房间/天气），重写
 
 开头技巧：
@@ -290,7 +254,7 @@ metadata:
 
 - 用物件/数字/习惯建立羁绊（详见 emotional-methods.md「羁绊铺设」）
 - 埋入至少 3 个反转线索，分散在不同小节
-- 每 2-3 个小节埋一个钩子（类型从 hook-techniques.md 选择）
+- 每 2-3 个小节埋一个钩子（类型从 hooks-paragraph.md 选择）
 - 小节用数字分割，每小节推进一个情节点
 - 情绪强度逐节递增，不允许连续 2 节无情绪变化
 - **结构物件第 1 现必须在此段完成**
@@ -334,11 +298,18 @@ metadata:
 
 ### Phase 3 完成门槛（进入 Phase 4 前必须通过）
 
-- [ ] 总字数 ≥ 8000（`wc -m` 验证）
-- [ ] 每节 ≥ 800 字（逐节统计）
+- [ ] 总字数 ≥ 8000（优先用 Python 字符统计验证，兼容 Windows 和中文字符计数）
+- [ ] 每节 ≥ 800 字（爽文等高信息密度题材 ≥ 500 字，见 genre-writing-formulas.md）
 - [ ] 节数 = 小节大纲规划节数（不得合并/省略）
 - [ ] 身体部位同一词全文 ≤ 5 次
 - [ ] 「像」≤ 10 处
+
+**中文文本统计注意事项**：
+- `wc -c` 统计的是字节数，中文每字符 3 字节（UTF-8），不等于字数
+- 字数统计必须优先使用跨平台 Python 字符统计：`for PYBIN in python3 python py; do "$PYBIN" -c "" 2>/dev/null && break; done; "$PYBIN" -c "from pathlib import Path; print(len(Path('文件路径').read_text(encoding='utf-8')))"`（**勿直接用 `python3`**：Windows 上它会触发 Microsoft Store 占位程序、exit 49 失败）
+- `wc -m` 仅作为 macOS/Linux 备选；Windows 环境或模型兼容性不确定时不要依赖 `wc`
+- 禁止用 `wc -c` 或模型估算字数
+- 行数统计使用 `wc -l` 是安全的
 
 **不通过 → 回退补足，不得进入精修。**
 
@@ -346,78 +317,23 @@ metadata:
 
 ### Phase 4：精修打磨
 
-#### 精修检查清单
+加载 `references/writing-workflow.md` 中的精修清单完成检查。
+重点：开头钩子、情绪曲线、反转铺垫、每句话价值、格式规范、AI 腔排查。
 
-```
-## 精修清单
+#### Agent 调用：narrative-writer（去AI味）+ consistency-checker
 
-### 开头
-- [ ] 前 3 句话能抓住人？
-- [ ] 没有无意义的背景介绍？
-- [ ] 包含一个开篇钩子？
+精修阶段，如果项目已部署对应 agent，可 spawn：
+- `Agent(subagent_type: "narrative-writer", prompt: "项目目录：{dir}\n任务描述：去AI味+格式检查\n检查范围：{正文文件}")` — 执行去AI味（6 Gate）和格式合规检查
+- `Agent(subagent_type: "consistency-checker", prompt: "项目目录：{dir}\n检查范围：{正文文件}\n检查类型：事实冲突+伏笔断线+角色属性不一致")` — 执行一致性检查
 
-### 情绪
-- [ ] 情绪曲线是否有明确走向？
-- [ ] 反转前的情绪铺垫够不够？
-- [ ] 反转后的冲击够不够？
+如 agent 不可用，由主线程直接执行。
 
-### 反转
-- [ ] 反转是否出乎意料？
-- [ ] 反转是否合情合理（回看有铺垫）？
-- [ ] 反转时机是否合适？
+**正文洁净规则**：
+- 自检（字数统计、禁用词扫描、格式检查）是过程动作，结果直接在对话里说明，不落盘成文件
+- **绝对不能**把自检记录附加到正文文件末尾
+- 正文中不得出现任何 `<!-- 自检 -->` 或类似的检查标记注释
 
-### 节奏
-- [ ] 有没有拖沓的部分？
-- [ ] 每句话是否都有存在价值？
-- [ ] 字数是否在目标范围内？
-
-### 格式
-- [ ] 段落不超 60 字？无大段落？
-- [ ] 段间无空行？
-- [ ] 对话独立成行、用正确引号？
-- [ ] 无「他说/她道」？
-
-### 钩子
-- [ ] 每 2-3 小节有钩子？
-- [ ] 章末有钩子（悬念或余韵）？
-
-### AI 腔
-- [ ] 无禁止比喻：「命运的齿轮」「如潮水般」「仿佛春风」「心猛地一沉」「眼眶泛红」
-- [ ] 同一身体部位/情绪描写不超 5 次（统计：手指/心/膝盖/眼睛，超限必须替换）
-- [ ] 「像」使用频率：全文不超 10 处（含「像是」「不像」）
-- [ ] 完整 AI 腔黑名单见 anti-ai-writing.md
-
-### 技法
-- [ ] 身体细节：有无情绪词可替换为身体状态？
-- [ ] 结构物件：三现是否完整？（查设定.md追踪表）
-- [ ] 一动一静：每节是否有动有静？
-- [ ] 开头密度：前 100 字事件 ≥ 3？
-
-### 结尾
-- [ ] 结尾是否有余韵？
-- [ ] 读者会不会想转发？
-```
-
-#### 删减原则
-
-1. 不推动剧情的对话 → 删
-2. 不铺垫反转的描写 → 删
-3. 不推高情绪的心理活动 → 删
-4. 读者能猜到的内容 → 缩短
-5. 重复表达的情绪 → 合并
-
----
-
-## 常见问题与解决方案
-
-| 问题 | 原因 | 解决方案 |
-|------|------|----------|
-| 开头不抓人 | 在做背景铺垫 | 直接从冲突开始 |
-| 中间拖沓 | 信息密度太低 | 删减或合并场景 |
-| 反转没力度 | 铺垫不够或太明显 | 增加误导线索 |
-| 结尾无力 | 反转后拖太长 | 反转后 500 字内收尾 |
-| 全篇平淡 | 情绪曲线太平 | 加大情绪落差 |
-| 感觉像流水账 | 缺乏情绪描写 | 加入人物内心感受 |
+不通过 → 回退补足。
 
 ---
 
@@ -428,9 +344,9 @@ metadata:
 
 | 时机 | 跳转到 | 命令 |
 |---|---|---|
-| 有参考小说想对标 | story-short-analyze | `/story-short-analyze`（拆文模式） → 输出存入 `拆文库/{书名}/` |
+| 有参考小说想对标 | story-short-analyze | `/story-short-analyze` → 输出存入 `拆文库/{书名}/` |
 | 写完，去 AI 味 | story-deslop | `/story-deslop` |
-| 想自检 | story-short-analyze | `/story-short-analyze`（自检模式） |
+| 想自检 | 本 skill 质量自检 | 用 Phase 4 自检流程 + `references/quality-checklist.md` 逐项核对 |
 | 需要市场方向 | story-short-scan | `/story-short-scan` |
 | 设定太大，适合长篇 | story-long-write | `/story-long-write` |
 
@@ -442,25 +358,54 @@ metadata:
 
 | 文件 | 何时加载 |
 |------|----------|
-| [references/format-and-structure.md](references/format-and-structure.md) | **写作前必读**：格式规范+小节结构+对话规则+平台覆盖表+绝对禁止 |
-| [references/emotional-methods.md](references/emotional-methods.md) | **设计情感时**：三板斧+拉扯节奏+按题材策略+失败模式 |
-| [references/genre-writing-formulas.md](references/genre-writing-formulas.md) | **核心参考**：题材写作公式 + 短篇题材创作要点速查表 + 钩子密度分级表 + 三翻四震技法 + 女频读者心理 + 情绪操控 + 反派嘲讽 + 爽点本质 + 核心梗驱动法 |
-| [references/hook-techniques.md](references/hook-techniques.md) | **写作全程**：钩子类型+密度规则+悬念编排+期待感理论 |
-| [references/female-audience-writing.md](references/female-audience-writing.md) | 女频写作技巧+女读者偏好+情感描写+对标拆书方法+感情线模式 |
-| [references/emotional-arc-design.md](references/emotional-arc-design.md) | 设计情绪曲线时，弧形模板+期待感管理+题材赛道策略 |
-| [references/reversal-toolkit.md](references/reversal-toolkit.md) | 设计反转时，反转类型+时机+误导底层路径 |
-| [references/quality-checklist.md](references/quality-checklist.md) | 精修检查+毒点排查 |
-| [references/anti-ai-writing.md](references/anti-ai-writing.md) | **去AI味时必读**：完整 AI 腔黑名单+禁用比喻+重复表达限制 |
-| [references/writing-craft.md](references/writing-craft.md) | **写作全程参考**：身体细节+结构物件三现+对话权力+数字叙事+一动一静+开头密度+小节密度配方 |
-| [references/villain-and-reveal.md](references/villain-and-reveal.md) | **Phase 2 设计反派时**：反派模板+4种揭露机制+报应设计 |
-| [references/character-design.md](references/character-design.md) | 设定人物时 |
+| [references/format-and-structure.md](references/format-and-structure.md) | 写作前必读 |
+| [references/writing-workflow.md](references/writing-workflow.md) | Phase 2 设计任务 + Phase 4 精修 |
+| [references/writing-craft.md](references/writing-craft.md) | 写作全程参考 |
+| [references/anti-ai-writing.md](references/anti-ai-writing.md) | 去AI味时必读 |
+| [references/genre-writing-formulas.md](references/genre-writing-formulas.md) | 核心参考，按题材加载 |
+| [references/genre-writing-techniques.md](references/genre-writing-techniques.md) | 通用写作技法+情绪操控+感情线法则 |
+| [references/emotional-methods.md](references/emotional-methods.md) | 设计情感时 |
+| [references/hooks-chapter.md](references/hooks-chapter.md) | 章节钩子设计 |
+| [references/hooks-suspense.md](references/hooks-suspense.md) | 悬念设计 |
+| [references/hooks-paragraph.md](references/hooks-paragraph.md) | 段落钩子技巧 |
+| [references/villain-and-reveal.md](references/villain-and-reveal.md) | Phase 2 设计反派时 |
+| [references/reversal-toolkit.md](references/reversal-toolkit.md) | 设计反转时 |
+| [references/emotional-arc-design.md](references/emotional-arc-design.md) | 设计情绪曲线时 |
+| [references/quality-checklist.md](references/quality-checklist.md) | 精修检查时 |
+| [references/banned-words.md](references/banned-words.md) | 禁用词表 |
+| [references/female-audience-writing.md](references/female-audience-writing.md) | 女频写作时 |
+| [references/character-basics.md](references/character-basics.md) | 人物基础设定 |
+| [references/character-design-methods.md](references/character-design-methods.md) | 人设方法 |
+| [references/character-relations.md](references/character-relations.md) | 人物关系设计 |
 | [references/dialogue-mastery.md](references/dialogue-mastery.md) | 写对话时 |
-| [references/opening-design.md](references/opening-design.md) | 设计开头+黄金一章+开头模板 |
-| [references/genre-frameworks-unified.md](references/genre-frameworks-unified.md) | 题材框架+核心梗+事业线/爱情线 |
+| [references/opening-design.md](references/opening-design.md) | 设计开头时（短篇用法：「前3章」读作开篇首节~前1/3，七步法按目标字数等比缩放） |
+| [references/genre-catalog.md](references/genre-catalog.md) | 题材框架 |
+| [references/genre-core-mechanics.md](references/genre-core-mechanics.md) | 核心梗设计 |
+| [references/genre-readers.md](references/genre-readers.md) | 读者心理 |
+| [references/state-tracking.md](references/state-tracking.md) | 状态追踪协议（Phase 3 准备层参考） |
+| [references/output-contract.md](references/output-contract.md) | Phase 2 对标上下文加载时（理解 analyze 产出格式与消费规范） |
+
+### 按主题快速定位（横切主题）
+
+有些主题散在多个文件里。下表给每个主题一个**权威文件**（先读它，通常够用），配套文件只在需要那个角度时再加载。括号是该文件里对应的小节。
+
+| 主题 | 权威文件（先读） | 配套文件（按角度补充） |
+|------|-----------------|----------------------|
+| 情绪设计 | **`references/emotional-methods.md`**（情感三板斧 + 拉扯节奏 + 失败模式） | `references/emotional-arc-design.md`（六种弧线 / 前反应-复现-后反应结构）· `references/genre-writing-techniques.md`（情绪操控核心法则） |
+| 反转 | **`references/reversal-toolkit.md`**（反转类型 / 铺垫 / 有效性自检） | `references/villain-and-reveal.md`（真相揭露机制 / 反转有效性自检） |
+| 反派揭露 | **`references/villain-and-reveal.md`**（反派模板 / 揭露机制 / 报应设计） | `references/reversal-toolkit.md` |
+| 人物 | **`references/character-basics.md`**（主角/配角/反派/动机模板速填） | `references/character-design-methods.md`（三层标签反差/深化）· `references/character-relations.md`（关系/感情线） |
+| 钩子 | **`references/hooks-chapter.md`**（章节/开篇钩子类型） | `references/hooks-paragraph.md`（段落钩子）· `references/hooks-suspense.md`（悬念设计） |
+| 女频写作 | **`references/female-audience-writing.md`**（核心原则 / 文案结构体系 / 感情线写法深化） | `references/genre-writing-techniques.md`（女频读者心理与写作技法 / 感情线四阶段推进法）· `references/genre-readers.md`（读者心理） |
+| 题材公式 | **`references/genre-writing-formulas.md`**（各题材创作公式速查） | `references/genre-catalog.md`（题材框架）· `references/genre-core-mechanics.md`（核心梗设计） |
+| 开头 | **`references/opening-design.md`**（黄金一章 / 三大基点 / 题材开头模板；短篇：「前3章」读作开篇首节~前1/3、七步法按目标字数等比缩放） | `references/hooks-chapter.md`（开篇钩子类型） |
+| 格式与节奏 | **`references/format-and-structure.md`**（正文格式硬规范） | `references/writing-craft.md`（三维度织入）· `references/writing-workflow.md`（设计/精修工作流） |
+| 对话 | **`references/dialogue-mastery.md`**（对话技法主文件：差异化/潜台词/对话节奏） | `references/writing-craft.md`（对话权力博弈的结构化用法） |
+| 去AI味 | **`references/anti-ai-writing.md`**（AI指纹/核心规则/Show Don't Tell） | `references/banned-words.md`（禁用词扫描）· `references/quality-checklist.md`（成稿检查） |
 
 ---
 
 ## 语言
 
-- 用户用中文就用中文回复，用英文就用英文回复
+- 跟随用户的语言回复，用户用什么语言就用什么语言回复
 - 中文回复遵循《中文文案排版指北》

@@ -9,9 +9,76 @@ import {
 import { formatChapterWordTargetLabel, parseChapterWordTarget } from '@/features/chapters/wordTarget'
 import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
 import { useAppStore } from '@/stores/app'
+import type { ReferenceStyleAnalysis } from '@/types/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 
 const TASK_KEY = 'chapter-first-draft'
+
+export type FirstDraftConfig = {
+  targetWordCount: number
+  selectedReferenceWorkIds: string[]
+  enabledSkillIds: string[]
+  userPrompt: string
+}
+
+function formatMemoForRepair(memo: Record<string, unknown>): string {
+  const parts: string[] = []
+  if (memo.currentTask) parts.push(`任务：${memo.currentTask}`)
+  if (memo.emotionArc) parts.push(`情绪轨迹：${memo.emotionArc}`)
+  if (Array.isArray(memo.payoffs) && memo.payoffs.length > 0) parts.push(`兑现：${memo.payoffs.join('；')}`)
+  if (Array.isArray(memo.doNotDo) && memo.doNotDo.length > 0) parts.push(`红线：${memo.doNotDo.join('；')}`)
+  return parts.join('\n')
+}
+
+/** 把单个参考作品的拆书分析整理成一段风格提示文本。优先用作品自带的 analysis，兜底用拆书总纲文档。 */
+function formatReferenceWorkStyle(
+  work: { title: string; analysis?: ReferenceStyleAnalysis },
+  summaryDoc?: { summary?: string; content: string }
+): string {
+  const a = work.analysis
+  const lines: string[] = []
+  if (a?.overview) lines.push(`风格总述：${a.overview}`)
+  if (a?.sentenceStyle) lines.push(`句式特征：${a.sentenceStyle}`)
+  if (a?.dialogueRatio) lines.push(`对白策略：${a.dialogueRatio}`)
+  if (a?.pacingControl) lines.push(`节奏控制：${a.pacingControl}`)
+  if (a?.emotionExpression) lines.push(`情绪表达：${a.emotionExpression}`)
+  if (a?.narrativePerspective) lines.push(`叙事视角：${a.narrativePerspective}`)
+  if (a?.styleRules?.length) lines.push(`风格规则：${a.styleRules.join('；')}`)
+  if (a?.reusableStylePrompt) lines.push(`仿写模板：${a.reusableStylePrompt}`)
+  if (a?.avoidRules?.length) lines.push(`避免照搬：${a.avoidRules.join('；')}`)
+  // analysis 为空时兜底用拆书总纲文档的摘要 / 正文
+  if (!lines.length && summaryDoc) {
+    const snippet = (summaryDoc.summary || summaryDoc.content || '').slice(0, 600).trim()
+    if (snippet) lines.push(snippet)
+  }
+  if (!lines.length) return ''
+  return `【${work.title}】\n${lines.join('\n')}`
+}
+
+function buildReferenceStyleContext(selectedRefIds: string[]): string {
+  if (!selectedRefIds.length) return ''
+  const { referenceWorks, knowledgeDocuments } = useAppStore()
+  const selectedWorks = referenceWorks.filter((w) => selectedRefIds.includes(w.id))
+  if (!selectedWorks.length) return ''
+  // 拆书总纲文档按 sourceTitle 建索引，仅作为 analysis 缺失时的兜底数据源
+  const summaryByTitle = new Map<string, { summary?: string; content: string }>()
+  for (const d of knowledgeDocuments) {
+    if (d.sourceType !== 'reference-summary') continue
+    const title = String(d.metadata?.sourceTitle ?? '').trim()
+    if (title && !summaryByTitle.has(title)) summaryByTitle.set(title, d)
+  }
+  const MAX_TOTAL_CHARS = 1800
+  let totalChars = 0
+  const parts: string[] = []
+  for (const work of selectedWorks.slice(0, 3)) {
+    const block = formatReferenceWorkStyle(work, summaryByTitle.get(work.title))
+    if (!block) continue
+    if (totalChars + block.length > MAX_TOTAL_CHARS) break
+    parts.push(block)
+    totalChars += block.length
+  }
+  return parts.join('\n\n')
+}
 
 export type ChapterAuditPayload = {
   pass: boolean
@@ -24,7 +91,7 @@ export type ChapterAuditPayload = {
   }>
 }
 
-type StreamTaskName = 'chapter-first-draft' | 'chapter-memo' | 'chapter-audit'
+type StreamTaskName = 'chapter-first-draft' | 'chapter-memo' | 'chapter-audit' | 'chapter-repair' | 'chapter-session-note'
 
 type StreamTaskResult = {
   text: string
@@ -37,6 +104,7 @@ export function useChapterFirstDraft(): {
   modalVisible: Ref<boolean>
   streamingContent: Ref<string>
   streamingCharCount: Ref<number>
+  reasoningContent: Ref<string>
   executionLabel: Ref<string>
   previewTitle: Ref<string>
   previewContent: Ref<string>
@@ -46,7 +114,7 @@ export function useChapterFirstDraft(): {
   isAuditing: Ref<boolean>
   elapsedSeconds: Ref<number>
   isStreaming: Ref<boolean>
-  start: () => Promise<void>
+  start: (config: FirstDraftConfig) => Promise<void>
   stop: () => Promise<void>
   closeModal: () => void
   registerStreamListener: () => void
@@ -59,6 +127,7 @@ export function useChapterFirstDraft(): {
   const modalVisible = ref(false)
   const streamingContent = ref('')
   const streamingCharCount = ref(0)
+  const reasoningContent = ref('')
   const executionLabel = ref('')
   const previewTitle = ref('')
   const previewContent = ref('')
@@ -98,15 +167,25 @@ export function useChapterFirstDraft(): {
     }
     if (currentStreamTask.value === 'chapter-memo') {
       progressPercent.value = previewContent.value.trim() ? 14 : 10
-      progressText.value = '正在流式生成本章写作备忘...'
+      progressText.value = '正在生成本章写作备忘...'
       return
     }
     if (currentStreamTask.value === 'chapter-audit') {
+      progressPercent.value = previewContent.value.trim() ? 92 : 90
+      progressText.value = '正在审计本章质量...'
+      return
+    }
+    if (currentStreamTask.value === 'chapter-repair') {
       progressPercent.value = previewContent.value.trim() ? 98 : 96
-      progressText.value = '正在流式审计本章质量...'
+      progressText.value = '正在自动修复审计问题...'
       return
     }
     if (!words) {
+      if (reasoningContent.value) {
+        progressPercent.value = 15
+        progressText.value = '模型正在构思本章（思考中）...'
+        return
+      }
       progressPercent.value = 12
       progressText.value = '正在整理大纲、文风和角色关系上下文...'
       return
@@ -151,12 +230,13 @@ export function useChapterFirstDraft(): {
   }
 
   function shouldRenderStreamPreview(task: StreamTaskName | null): boolean {
-    return task === 'chapter-first-draft' || task === 'chapter-memo'
+    return task === 'chapter-first-draft' || task === 'chapter-memo' || task === 'chapter-repair'
   }
 
   function getActiveTaskErrorMessage(): string {
     if (currentStreamTask.value === 'chapter-memo') return 'AI 写作备忘生成失败'
     if (currentStreamTask.value === 'chapter-audit') return 'AI 章节审计失败'
+    if (currentStreamTask.value === 'chapter-repair') return 'AI 章节修复失败'
     return 'AI 初稿生成失败'
   }
 
@@ -178,6 +258,14 @@ export function useChapterFirstDraft(): {
     }
     if (payload.type === 'tool_result') {
       executionLabel.value = '技巧就绪，准备写作...'
+      return
+    }
+
+    if (payload.type === 'reasoning') {
+      isStreaming.value = true
+      reasoningContent.value += payload.delta
+      executionLabel.value = '正在构思本章（思考中）...'
+      recompute()
       return
     }
 
@@ -225,6 +313,7 @@ export function useChapterFirstDraft(): {
 
   async function streamTask(task: StreamTaskName, context: Record<string, unknown>): Promise<StreamTaskResult> {
     currentStreamTask.value = task
+    reasoningContent.value = ''
     if (task === 'chapter-first-draft') {
       streamingContent.value = ''
       streamingCharCount.value = 0
@@ -237,6 +326,8 @@ export function useChapterFirstDraft(): {
       previewTitle.value = '章节审计进行中'
       previewContent.value = ''
     }
+    // 任务切换后立即刷新进度文案，避免 progressText 停留在上一个任务（如写作备忘）。
+    recompute()
 
     const result = await window.characterArc.startAiStream(toIpcPayload({
       task,
@@ -256,7 +347,7 @@ export function useChapterFirstDraft(): {
     })
   }
 
-  async function start(): Promise<void> {
+  async function start(config: FirstDraftConfig): Promise<void> {
     const chapter = appStore.selectedChapter
     const project = appStore.currentProject
     const chapterVolume = appStore.selectedChapterVolume
@@ -289,7 +380,7 @@ export function useChapterFirstDraft(): {
           onCancel: () => { void stop() }
         },
         async () => {
-          const targetWordCount = parseChapterWordTarget(chapter.wordTarget)
+          const targetWordCount = config.targetWordCount || parseChapterWordTarget(chapter.wordTarget)
           const currentChapterIndex = appStore.chapters.findIndex((item) => item.id === chapter.id)
           const precedingChapters = appStore.chapters.slice(0, currentChapterIndex)
           const relatedChapters = precedingChapters
@@ -398,16 +489,37 @@ export function useChapterFirstDraft(): {
           executionLabel.value = '检索相关章节与情节线索'
           recompute()
           await new Promise((r) => setTimeout(r, 0))
+
+          const recentJournals = appStore.knowledgeDocuments
+            .filter((d) => d.sourceLabel === 'writing-journal')
+            .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+            .slice(0, 3)
+          if (recentJournals.length > 0) {
+            memoBaseContext.recentWritingJournals = recentJournals.map((j) => ({
+              title: j.title,
+              content: j.content
+            }))
+          }
+
           executionLabel.value = '正在流式生成写作备忘...'
           let chapterMemo: ChapterFirstDraftContextInput['chapterMemo'] | undefined
+
+          const memoHintTimer = setTimeout(() => {
+            if (currentStreamTask.value === 'chapter-memo' && !previewContent.value) {
+              executionLabel.value = 'AI 正在规划写作备忘，请稍候...'
+            }
+          }, 8000)
+
           try {
             const memoStream = await streamTask('chapter-memo', memoBaseContext)
+            clearTimeout(memoHintTimer)
             const memoResult = memoStream.result as { memo?: ChapterFirstDraftContextInput['chapterMemo'] } | undefined
             if (memoResult?.memo) {
               chapterMemo = memoResult.memo
             }
           } catch {
-            // memo 步骤失败不阻塞主流程，回退到无 memo 的写作
+            clearTimeout(memoHintTimer)
+            executionLabel.value = '写作备忘生成失败，跳过直接写作...'
           }
 
           const context = buildChapterFirstDraftContext({
@@ -430,10 +542,12 @@ export function useChapterFirstDraft(): {
             knowledgeDocuments: appStore.projectConstraints,
             chapterContent: '',
             targetWordCount,
-            userPrompt: `请生成这一章的完整初稿，目标字数约 ${targetWordCount} 字（参考值，优先保证情节自然完整）。如果当前正文为空，就从零起稿；如果当前正文不为空，也按整章重写处理，而不是续写。`,
-            projectSkills: await loadEnabledProjectSkillsContext(project, 'draft'),
+            userPrompt: `请生成这一章的完整初稿，目标字数约 ${targetWordCount} 字（参考值，优先保证情节自然完整）。如果当前正文为空，就从零起稿；如果当前正文不为空，也按整章重写处理，而不是续写。${config.userPrompt ? `\n\n补充要求：${config.userPrompt}` : ''}`,
+            projectSkills: (await loadEnabledProjectSkillsContext(project, 'draft'))
+              .filter((s) => config.enabledSkillIds.includes(s.id)),
             chapterMemo,
-            recentEndingsTrail
+            recentEndingsTrail,
+            referenceStyleContext: buildReferenceStyleContext(config.selectedReferenceWorkIds)
           })
 
           executionLabel.value = '构建写作提示词…'
@@ -443,7 +557,16 @@ export function useChapterFirstDraft(): {
           executionLabel.value = `正在生成本章初稿（目标约 ${targetWordCount} 字）…`
           isStreaming.value = true
           recompute()
+
+          // 模型可能不支持流式输出（如 mimo 系列），10 秒后提示用户耐心等待
+          const waitHintTimer = setTimeout(() => {
+            if (currentStreamTask.value === 'chapter-first-draft' && !streamingContent.value) {
+              executionLabel.value = `AI 正在创作中，请耐心等待（目标约 ${targetWordCount} 字）…`
+            }
+          }, 10000)
+
           const draftStream = await streamTask('chapter-first-draft', context)
+          clearTimeout(waitHintTimer)
           const fullText = draftStream.text
           if (fullText) {
             executionLabel.value = '正在覆盖当前章节'
@@ -464,12 +587,75 @@ export function useChapterFirstDraft(): {
                 const auditResp = auditStream.result as { audit?: ChapterAuditPayload } | undefined
                 if (auditResp?.audit) {
                   auditResult.value = auditResp.audit
+
+                  const criticalIssues = auditResp.audit.issues.filter((i) => i.severity === 'critical')
+                  if (!auditResp.audit.pass && criticalIssues.length > 0) {
+                    executionLabel.value = `审计发现 ${criticalIssues.length} 个关键问题，正在自动修复...`
+                    previewTitle.value = '自动修复实时输出'
+                    previewContent.value = ''
+                    try {
+                      const repairStream = await streamTask('chapter-repair', {
+                        projectId: project.id,
+                        chapterTitle: chapter.title,
+                        chapterSummary: chapter.summary,
+                        chapterContent: fullText,
+                        projectTitle: project.title,
+                        projectGenre: project.genre,
+                        writingStyleLabel: project.writingStylePresetId,
+                        writingStylePrompt: project.writingStylePrompt,
+                        auditIssues: criticalIssues,
+                        chapterMemoText: formatMemoForRepair(chapterMemo)
+                      })
+                      const repairedText = repairStream.text
+                      if (repairedText && repairedText.length > fullText.length * 0.5) {
+                        appStore.updateChapterContent(ensureEditorHtmlContent(repairedText))
+                        executionLabel.value = `已自动修复 ${criticalIssues.length} 个问题`
+                      }
+                    } catch {
+                      // repair 失败不影响已生成的章节
+                    }
+                  }
                 }
               } catch {
                 // audit 步骤失败不影响章节落盘
               } finally {
                 isAuditing.value = false
               }
+            }
+
+            // 生成写作日志（跨章节记忆）
+            try {
+              const endingSnippet = fullText.slice(-200)
+              const auditSummary = auditResult.value
+                ? (auditResult.value.pass ? '通过' : `未通过，${auditResult.value.issues.length} 个问题`)
+                : '未审计'
+              const noteStream = await streamTask('chapter-session-note', {
+                projectId: project.id,
+                chapterTitle: chapter.title,
+                chapterSummary: chapter.summary,
+                emotionArc: chapterMemo?.emotionArc ?? '',
+                endingSnippet,
+                auditSummary
+              })
+              const noteResult = noteStream.result as { sessionNote?: { craftDecisions: string; effectiveReferences: string; nextChapterAdvice: string } } | undefined
+              if (noteResult?.sessionNote) {
+                const note = noteResult.sessionNote
+                const now = new Date().toISOString()
+                appStore.mergeKnowledgeDocuments([{
+                  id: `journal-${Date.now()}`,
+                  title: `写作日志｜${chapter.title}`,
+                  sourceType: 'chapter-summary',
+                  sourceLabel: 'writing-journal',
+                  content: `技法：${note.craftDecisions}\n参考：${note.effectiveReferences}\n下章建议：${note.nextChapterAdvice}`,
+                  summary: note.nextChapterAdvice,
+                  keywords: [chapter.title, 'writing-journal'],
+                  metadata: { chapterId: chapter.id, journalType: 'writing-journal' },
+                  createdAt: now,
+                  updatedAt: now
+                }])
+              }
+            } catch {
+              // session note 失败不阻塞流程
             }
           }
         }
@@ -515,6 +701,7 @@ export function useChapterFirstDraft(): {
     modalVisible,
     streamingContent,
     streamingCharCount,
+    reasoningContent,
     executionLabel,
     previewTitle,
     previewContent,

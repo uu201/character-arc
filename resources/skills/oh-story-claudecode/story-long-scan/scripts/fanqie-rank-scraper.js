@@ -121,43 +121,48 @@ function scrapeChannel(ch, type) {
     const cat = categories[ci];
     console.log(`  [${ci + 1}/${categories.length}] ${cat.name}`);
 
-    ab(PORT, "open", `https://fanqienovel.com${cat.href}`);
-    sleep(2500);
-    scrollLoad(PORT, 2);
+    try {
+      ab(PORT, "open", `https://fanqienovel.com${cat.href}`);
+      sleep(2500);
+      scrollLoad(PORT, 2);
 
-    const books = extractBookList(PORT);
-    if (!Array.isArray(books) || !books.length) {
-      lines.push(`## ${cat.name} — 0 本`, "", "---", "");
-      continue;
-    }
-
-    // 批量获取真实标题
-    const bookIds = books.map((b) => String(b.bookId));
-    const titles = fetchRealTitles(PORT, bookIds);
-
-    lines.push(`## ${cat.name} — ${books.length} 本`, "");
-
-    for (let i = 0; i < books.length; i++) {
-      const b = books[i];
-      const info = titles[String(b.bookId)] || {};
-      const title = info.title || `bookId:${b.bookId}`;
-      const author = info.author || "未知";
-      lines.push(`### #${i + 1} ${title}`);
-      lines.push(
-        `*${author} · ${fmtStatus(b.creationStatus)} · ${fmtReads(b.read_count)} 在读 · ${fmtWords(b.wordNumber)}字*`
-      );
-      lines.push(`**最新更新：** ${b.lastChapterTitle || "未知"}`);
-      lines.push(`[作品页](https://fanqienovel.com/page/${b.bookId})`);
-      if (info.desc) {
-        lines.push("");
-        lines.push("**简介**");
-        lines.push("");
-        lines.push(info.desc);
+      const books = extractBookList(PORT);
+      if (!Array.isArray(books) || !books.length) {
+        lines.push(`## ${cat.name} — 0 本`, "", "---", "");
+        continue;
       }
-      lines.push("");
-    }
 
-    lines.push("---", "");
+      // 批量获取真实标题
+      const bookIds = books.map((b) => String(b.bookId));
+      const titles = fetchRealTitles(PORT, bookIds);
+
+      lines.push(`## ${cat.name} — ${books.length} 本`, "");
+
+      for (let i = 0; i < books.length; i++) {
+        const b = books[i];
+        const info = titles[String(b.bookId)] || {};
+        const title = info.title || `bookId:${b.bookId}`;
+        const author = info.author || "未知";
+        lines.push(`### #${i + 1} ${title}`);
+        lines.push(
+          `*${author} · ${fmtStatus(b.creationStatus)} · ${fmtReads(b.read_count)} 在读 · ${fmtWords(b.wordNumber)}字*`
+        );
+        lines.push(`**最新更新：** ${b.lastChapterTitle || "未知"}`);
+        lines.push(`[作品页](https://fanqienovel.com/page/${b.bookId})`);
+        if (info.desc) {
+          lines.push("");
+          lines.push("**简介**");
+          lines.push("");
+          lines.push(info.desc);
+        }
+        lines.push("");
+      }
+
+      lines.push("---", "");
+    } catch (catErr) {
+      console.error(`  [fanqie] 品类 ${cat.name} 处理出错，跳过: ${catErr && catErr.message ? catErr.message : catErr}`);
+      lines.push(`## ${cat.name} — 采集失败`, "", "---", "");
+    }
   }
 
   return lines.join("\n");
@@ -169,16 +174,26 @@ function main() {
 
   for (const ch of channels) {
     for (const ty of types) {
-      const content = scrapeChannel(ch, ty);
-      if (!content) continue;
+      try {
+        const content = scrapeChannel(ch, ty);
+        if (!content) continue;
 
-      const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      const filename = `番茄${channelLabel(ch)}${typeLabel(ty)}_全题材_${date}.md`;
-      const filepath = path.join(OUTDIR, filename);
-      fs.writeFileSync(filepath, content, "utf-8");
-      console.log(`  ✓ 已保存: ${filepath}`);
+        const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        const filename = `番茄${channelLabel(ch)}${typeLabel(ty)}_全题材_${date}.md`;
+        fs.mkdirSync(OUTDIR, { recursive: true });
+        const filepath = path.join(OUTDIR, filename);
+        fs.writeFileSync(filepath, content, "utf-8");
+        console.log(`  ✓ 已保存: ${filepath}`);
+      } catch (chErr) {
+        console.error(`[fanqie] ${channelLabel(ch)}${typeLabel(ty)} 采集失败，跳过: ${chErr && chErr.message ? chErr.message : chErr}`);
+      }
     }
   }
 }
 
-main();
+try {
+  main();
+} catch (e) {
+  console.error(`番茄采集失败: ${e && e.message ? e.message : e}`);
+  process.exit(1);
+}

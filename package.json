@@ -1,6 +1,6 @@
 {
   "name": "characterarc",
-  "version": "1.9.2",
+  "version": "1.10.0",
   "description": "CharacterArc desktop writing studio",
   "packageManager": "pnpm@10.33.2",
   "main": "./dist-electron/main/index.js",

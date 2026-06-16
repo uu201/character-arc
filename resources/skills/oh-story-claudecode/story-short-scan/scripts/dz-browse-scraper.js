@@ -152,47 +152,57 @@ function scrapeChannel(port, channelId) {
 
   console.log(`\n→ 采集 点众${ch.label}短篇...`);
 
-  ab(port, "open", ch.url);
-  sleep(3000);
+  let stories;
+  try {
+    ab(port, "open", ch.url);
+    sleep(3000);
 
-  // 切换频道
-  if (clickTab(port, ch.tab)) {
-    console.log(`  ✓ 切换到${ch.tab}`);
-    sleep(2000);
-  }
-
-  // 滚动加载更多
-  scrollLoad(port, 8);
-  sleep(1000);
-
-  // 优先使用文本解析（返回完整字段），DOM 仅作兜底
-  let stories = extractStoriesFromText(port);
-  if (!stories.length) {
-    const domStories = extractStories(port);
-    if (domStories) {
-      // DOM 返回 {rank, raw}，解析 raw 文本提取字段
-      stories = domStories.map((d) => {
-        const raw = d.raw || "";
-        const scoreM = raw.match(/([\d.]+)分/);
-        const metaM = raw.match(/(.+?)·(.+?)·(完结|连载)·([\d]+字)/);
-        const updateM = raw.match(/最新章节[:\s]*(.+)/);
-        const parts = raw.split(/[\s·]+/).filter(Boolean);
-        return {
-          title: parts[0] || "",
-          score: scoreM ? scoreM[1] + "分" : "",
-          author: metaM ? metaM[1].trim() : "",
-          tag: metaM ? metaM[2].trim() : "",
-          status: metaM ? metaM[3] : "",
-          words: metaM ? metaM[4] : "",
-          update: updateM ? updateM[1] : "",
-          desc: "",
-        };
-      });
+    // 切换频道
+    try {
+      if (clickTab(port, ch.tab)) {
+        console.log(`  ✓ 切换到${ch.tab}`);
+        sleep(2000);
+      }
+    } catch (tabErr) {
+      console.error(`[dz] ${ch.label} tab切换出错，继续尝试采集: ${tabErr.message}`);
     }
+
+    // 滚动加载更多
+    scrollLoad(port, 8);
+    sleep(1000);
+
+    // 优先使用文本解析（返回完整字段），DOM 仅作兜底
+    stories = extractStoriesFromText(port);
+    if (!stories.length) {
+      const domStories = extractStories(port);
+      if (domStories) {
+        // DOM 返回 {rank, raw}，解析 raw 文本提取字段
+        stories = domStories.map((d) => {
+          const raw = d.raw || "";
+          const scoreM = raw.match(/([\d.]+)分/);
+          const metaM = raw.match(/(.+?)·(.+?)·(完结|连载)·([\d]+字)/);
+          const updateM = raw.match(/最新章节[:\s]*(.+)/);
+          const parts = raw.split(/[\s·]+/).filter(Boolean);
+          return {
+            title: parts[0] || "",
+            score: scoreM ? scoreM[1] + "分" : "",
+            author: metaM ? metaM[1].trim() : "",
+            tag: metaM ? metaM[2].trim() : "",
+            status: metaM ? metaM[3] : "",
+            words: metaM ? metaM[4] : "",
+            update: updateM ? updateM[1] : "",
+            desc: "",
+          };
+        });
+      }
+    }
+  } catch (err) {
+    console.error(`[dz] ${ch.label} 页面加载或提取出错: ${err.message}`);
+    return null;
   }
 
   if (!stories.length) {
-    console.log("  ⚠ 未提取到故事");
+    console.error(`[dz] 采集失败：页面结构可能已变（选择器没匹配到数据），请检查榜单URL或更新选择器 (${ch.url})`);
     return null;
   }
   console.log(`  ✓ 提取 ${stories.length} 条`);
@@ -210,15 +220,20 @@ function scrapeChannel(port, channelId) {
   ];
 
   stories.forEach((s, i) => {
-    lines.push(`### #${i + 1} ${s.title || "未命名"}`);
-    const meta = [s.author, s.tag, s.status, s.words, s.score].filter(Boolean).join(" · ");
-    if (meta) lines.push(`*${meta}*`);
-    if (s.update) lines.push(`**最新：** ${s.update}`);
-    if (s.desc) {
-      lines.push("");
-      lines.push(`> ${s.desc.substring(0, 150)}${s.desc.length > 150 ? "..." : ""}`);
+    try {
+      lines.push(`### #${i + 1} ${s.title || "未命名"}`);
+      const meta = [s.author, s.tag, s.status, s.words, s.score].filter(Boolean).join(" · ");
+      if (meta) lines.push(`*${meta}*`);
+      if (s.update) lines.push(`**最新：** ${s.update}`);
+      if (s.desc) {
+        lines.push("");
+        lines.push(`> ${s.desc.substring(0, 150)}${s.desc.length > 150 ? "..." : ""}`);
+      }
+      lines.push("", "---", "");
+    } catch (storyErr) {
+      console.error(`[dz] ${ch.label} 第${i + 1}条处理出错: ${storyErr.message}`);
+      lines.push("", "---", "");
     }
-    lines.push("", "---", "");
   });
 
   return lines.join("\n");
@@ -234,10 +249,16 @@ function main() {
     const chInfo = CHANNELS.find((c) => c.id === ch);
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const filename = `点众${chInfo.label}短篇_${date}.md`;
+    fs.mkdirSync(OUTDIR, { recursive: true });
     const filepath = path.join(OUTDIR, filename);
     fs.writeFileSync(filepath, content, "utf-8");
     console.log(`  ✓ 已保存: ${filepath}`);
   }
 }
 
-main();
+try {
+  main();
+} catch (e) {
+  console.error(`点众采集失败: ${e && e.message ? e.message : e}`);
+  process.exit(1);
+}

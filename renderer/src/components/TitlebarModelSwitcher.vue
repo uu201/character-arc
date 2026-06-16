@@ -34,8 +34,17 @@ const activeModel = computed({
 })
 
 const hasProfiles = computed(() => appStore.appSettings.aiProfiles.length > 0)
-const aiRunLogs = computed(() => [...appStore.aiRuns].slice().reverse())
-const currentProjectTitle = computed(() => appStore.currentProject?.title?.trim() || '当前项目')
+const aiRunLogs = computed(() => appStore.allAiRuns)
+const projectTitleById = computed(() => {
+  const map = new Map<string, string>()
+  for (const project of appStore.projects) {
+    map.set(project.id, project.title?.trim() || '未命名项目')
+  }
+  return map
+})
+function projectTitleFor(run: AiRunRecord): string {
+  return projectTitleById.value.get(run.projectId) || '未知项目'
+}
 
 const statusMeta: Record<AiRunRecord['status'], { label: string; type: 'default' | 'info' | 'success' | 'error' | 'warning' }> = {
   running: { label: '运行中', type: 'info' },
@@ -49,16 +58,36 @@ const taskLabelMap: Record<string, string> = {
   'global-assistant-proposal': '写回提案',
   'chapter-assistant': '章节助理',
   'chapter-first-draft': '章节初稿',
+  'chapter-memo': '写作备忘',
+  'chapter-audit': '章节审计',
+  'chapter-repair': '章节修复',
+  'chapter-summarize': '章节摘要',
+  'chapter-scene-plan': '场景规划',
+  'chapter-analysis': '章节分析',
+  'chapter-session-note': '写作日志',
   'story-deep-audit': '全书审计',
   'assistant-intent': '意图判断',
+  'assistant-action-proposal': '操作建议',
   'worldview-entry': '世界观生成',
   'worldview-enhance': '世界观补充',
   'character-card': '角色生成',
   'character-enhance': '角色补充',
+  'relation-enhance': '关系补充',
   'outline-item': '大纲扩写',
   'outline-batch': '分卷补全',
+  'outline-chain': '大纲链编',
   'outline-enhance': '大纲补充',
   'reference-deep-analyze': '深度拆书',
+  'reference-style-chunk': '风格拆解',
+  'reference-style-analysis': '风格分析',
+  'style-fingerprint-extract': '风格指纹提取',
+  'workflow-documents': '设定导出',
+  'plot-thread-detect': '伏笔检测',
+  'project-bootstrap': '项目初始化',
+  'spiral-seed': '旋种生成',
+  'spiral-expand': '旋种扩写',
+  'spiral-validate': '旋种验证',
+  'inspiration-pack': '灵感整理',
   'cover-generate': '封面生成'
 }
 
@@ -206,11 +235,11 @@ function toolReadStats(run: AiRunRecord): { reads: number; hits: number } {
   >
     <div class="ai-log-modal__summary">
       <strong>AI 调用日志</strong>
-      <span>{{ currentProjectTitle }} · {{ aiRunLogs.length }} 条记录</span>
+      <span>全部项目 · {{ aiRunLogs.length }} 条记录</span>
     </div>
 
     <div v-if="!aiRunLogs.length" class="ai-log-empty">
-      当前项目还没有 AI 调用日志。
+      还没有任何 AI 调用日志。
     </div>
 
     <div v-else class="ai-log-list arc-scrollbar">
@@ -234,6 +263,7 @@ function toolReadStats(run: AiRunRecord): { reads: number; hits: number } {
         </div>
 
         <div class="ai-log-card__meta">
+          <span>项目：{{ projectTitleFor(run) }}</span>
           <span>开始：{{ formatTime(run.startedAt) }}</span>
           <span>耗时：{{ formatDuration(run.durationMs) }}</span>
           <span>{{ formatTokenUsage(run) }}</span>

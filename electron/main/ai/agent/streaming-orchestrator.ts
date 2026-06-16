@@ -15,6 +15,8 @@ import { createProjectDataTools } from './tools/project-data-tools'
 import { createSettingProposalTools, createEmptySettingProposalDraft, settingProposalHasContent } from './tools/setting-proposal-tools'
 import { buildAgentBehaviorRules, buildSkillIndex } from './system-prompt'
 import { getRecentSkillUsage, formatSkillUsageHint, recordSkillUsage } from './skill-usage-memory'
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 
 /** 去掉 SKILL.md 开头的 YAML frontmatter 块（--- ... ---）。 */
 function stripSkillFrontmatter(content: string): string {
@@ -25,9 +27,8 @@ function stripSkillFrontmatter(content: string): string {
 
 function resolveStreamingAgentMaxSteps(taskName: AiTaskPayload['task'], optionalSkillCount: number): number | undefined {
   if (taskName === 'chapter-first-draft') {
-    const normalizedOptionalSkills = Math.max(0, Math.min(optionalSkillCount, 3))
-    // 预算预留给：1 次项目数据读取 + 2-3 次 skill_load + 1-2 轮正文收束/修正。
-    return Math.min(6 + normalizedOptionalSkills, AGENT_STREAM_MAX_ITERATIONS)
+    // skills 已直接注入 prompt，无需工具加载；仅保留少量步数用于偶尔确认设定
+    return 4
   }
 
   if (taskName === 'chapter-assistant') {
@@ -76,10 +77,12 @@ export async function runStreamingAgentTask(
   }
   const prompt = handler.buildPrompt(input)
   const baseMaxTokens = handler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task) ?? 4096
-  // Agent 路径常与推理模型（如 gpt-5 系列）搭配，推理 token 与可见输出共享同一预算。
-  // 4096 的下限会被推理 token 吃光，导致 finish_reason=length、可见输出为 0。抬高下限留足空间。
+  // 推理模型（如 mimo、deepseek-r1、gpt-5 系列）的 reasoning tokens 也计入 maxOutputTokens，
+  // 与可见输出共享同一预算；4096 的下限会被推理 token 吃光，导致 finish_reason=length、可见输出为 0。
+  // 初稿任务按 3 倍放大确保正文可以完整输出，并对所有 Agent 路径抬高下限留足空间。
   const AGENT_MIN_OUTPUT_TOKENS = 16000
-  const maxTokens = Math.max(baseMaxTokens, AGENT_MIN_OUTPUT_TOKENS)
+  const reasoningMultiplier = task.task === 'chapter-first-draft' ? 3 : 1
+  const maxTokens = Math.max(baseMaxTokens * reasoningMultiplier, AGENT_MIN_OUTPUT_TOKENS)
 
   const candidateSkillDefs = candidateSkills
     .map((sel) => getSkillById(sel.id, projectId || undefined))
@@ -95,6 +98,31 @@ export async function runStreamingAgentTask(
         return `### ${s.name}\n${body}`
       }).join('\n\n')}`
     : ''
+
+  // 章节初稿：所有可选 skill 的核心参考文件直接注入 prompt，不再依赖 agent 工具调用
+  let preloadedSkillRefsBlock = ''
+  if (task.task === 'chapter-first-draft' && optionalSkillDefs.length > 0) {
+    const refParts: string[] = []
+    for (const s of optionalSkillDefs) {
+      const body = stripSkillFrontmatter(s.content).trim().slice(0, 1500)
+      if (body) {
+        refParts.push(`### ${s.name}\n${body}`)
+      }
+      if (s.referenceFiles.length === 0) continue
+      const firstRef = s.referenceFiles[0]
+      const refPath = join(s.rootDir, firstRef)
+      try {
+        if (!existsSync(refPath)) continue
+        const refContent = readFileSync(refPath, 'utf-8').slice(0, 2500)
+        refParts.push(`### ${s.name} — ${firstRef}\n${refContent}`)
+      } catch {
+        // skip
+      }
+    }
+    if (refParts.length > 0) {
+      preloadedSkillRefsBlock = `\n\n## 写作技法参考（已全部注入，无需工具加载）\n\n${refParts.join('\n\n')}`
+    }
+  }
 
   const skillUsageHints = task.task === 'chapter-first-draft'
     ? await getRecentSkillUsage(projectId).then(formatSkillUsageHint).catch(() => '')
@@ -201,15 +229,14 @@ export async function runStreamingAgentTask(
         '',
         '## 章节初稿 Agent 行为约束',
         '',
-        '- 你的主要任务是生成完整章节正文，工具调用只是辅助准备。',
-        '- 最多加载 2-3 个最相关的 skill，不要贪多。',
-        '- 加载 skill 后立即开始写正文，不要再做额外的工具调用。',
-        '- 如果 skill index 中没有明显相关的 skill，直接开始写作，不要调用任何工具。',
+        '- 你的主要任务是生成完整章节正文。所有写作技法参考已直接注入上方，无需再使用工具加载 skill。',
+        '- 直接开始写正文。写作过程中如遇到不确定的设定，可以用 read_project_data 确认，但尽量减少工具调用。',
         '- 最终输出必须是纯正文，不要包含任何工具调用的痕迹或解释。'
       ].join('\n')
     : ''
 
-  const systemPrompt = `${prompt.system}${requiredSkillBlock}${chapterToolsBlock}${contextModulesBlock}\n${buildSkillIndex(optionalSkillDefs)}\n${buildAgentBehaviorRules()}${globalAssistantRules}${settingProposalRules}${chapterDraftRules}${skillUsageHints}`
+  const skillIndexBlock = task.task === 'chapter-first-draft' ? '' : buildSkillIndex(optionalSkillDefs)
+  const systemPrompt = `${prompt.system}${requiredSkillBlock}${preloadedSkillRefsBlock}${chapterToolsBlock}${contextModulesBlock}\n${skillIndexBlock}\n${buildAgentBehaviorRules()}${globalAssistantRules}${settingProposalRules}${chapterDraftRules}${skillUsageHints}`
 
   const skillTools = createSkillTools({
     resolveSkill: (id) => getSkillById(id, projectId || undefined),
@@ -251,7 +278,8 @@ export async function runStreamingAgentTask(
       ctx: { signal, projectId },
       handlers,
       maxTokens,
-      maxSteps
+      maxSteps,
+      disableTools: task.task === 'chapter-first-draft'
     })
 
     logResponse('AGENT_STREAM', settings, task.task, loopResult.finalText, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })

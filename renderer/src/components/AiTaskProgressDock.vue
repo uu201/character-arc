@@ -30,7 +30,7 @@ let tickTimer: number | null = null
  *  chapter-assistant 类型任务已在 AI 对话面板中有 typing 指示，不重复展示。 */
 const visibleRuns = computed<AiTaskRun[]>(() => {
   return [...appStore.runningAiTasks, ...appStore.recentAiTasks]
-    .filter((run) => run.kind !== 'chapter-assistant')
+    .filter((run) => run.kind !== 'chapter-assistant' && run.kind !== 'chapter-draft')
 })
 
 const hasVisibleRuns = computed(() => visibleRuns.value.length > 0)

@@ -3,6 +3,7 @@ import type { SkillDefinition, SkillSelection } from './types'
 import { getEnabledSkills } from './registry'
 import { loadSkillReferences } from './loader'
 import { getTaskHandler } from '../tasks'
+import { matchNarrativeFunction } from './narrative-function-map'
 
 /** 默认最大匹配 skill 数量 */
 const DEFAULT_MAX_SKILLS = 4
@@ -109,6 +110,24 @@ function computeScore(
   // required skill 兜底，保证不被 score=0 过滤掉
   if (manifest.required) {
     score = Math.max(score, 1)
+  }
+
+  // 叙事功能匹配：根据章节摘要/大纲冲突推断叙事类型，匹配相关 skill
+  const narrativeText = [
+    String(context.chapterSummary ?? ''),
+    String(context.currentOutlineConflict ?? ''),
+    String(context.currentOutlineSummary ?? '')
+  ].join(' ')
+  if (narrativeText.trim()) {
+    const narrativePatterns = matchNarrativeFunction(narrativeText)
+    const skillIdLower = skill.id.toLowerCase()
+    const skillDescLower = (skill.description ?? '').toLowerCase()
+    for (const pattern of narrativePatterns) {
+      if (skillIdLower.includes(pattern) || skillDescLower.includes(pattern)) {
+        score += 3
+        break
+      }
+    }
   }
 
   // 篇幅亲和：长篇项目优先 long skill，短篇项目优先 short skill

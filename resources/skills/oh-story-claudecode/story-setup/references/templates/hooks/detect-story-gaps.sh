@@ -1,0 +1,95 @@
+#!/bin/bash
+# detect-story-gaps.sh — 检测写作项目中的 5 项缺口
+# 设计原则：无缺口时完全静默，不输出任何内容，避免污染 context
+set -euo pipefail
+
+# 加载公共函数库（project_root + discover_all_books）
+source "$(dirname "$0")/lib/common.sh"
+
+ROOT=$(project_root)
+OUTPUT=""
+HAS_WARNINGS=false
+
+# 1. 新项目检测：没有书名目录（同时支持长篇和短篇项目）
+# bash 3.2 兼容：不用关联数组，由 discover_all_books 内部按顺序去重。
+declare -a BOOK_DIRS=()
+while IFS= read -r dir; do
+  [ -n "$dir" ] && BOOK_DIRS+=("$dir")
+done < <(discover_all_books)
+
+if [ "${#BOOK_DIRS[@]}" -eq 0 ]; then
+  # 完全新项目，没有任何目录结构 — 静默退出
+  exit 0
+fi
+
+for BOOK_DIR in "${BOOK_DIRS[@]}"; do
+  BOOK_NAME=$(basename "$BOOK_DIR")
+  BOOK_OUTPUT=""
+
+  # 2. 正文多但设定少
+  CHAPTER_COUNT=0
+  SETTING_COUNT=0
+  if [ -d "$BOOK_DIR/正文" ]; then
+    CHAPTER_COUNT=$(find "$BOOK_DIR/正文" -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+  elif [ -f "$BOOK_DIR/正文.md" ]; then
+    CHAPTER_COUNT=1
+  fi
+  if [ -d "$BOOK_DIR/设定" ]; then
+    SETTING_COUNT=$(find "$BOOK_DIR/设定" -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  if [ "$CHAPTER_COUNT" -gt 10 ] && [ "$SETTING_COUNT" -lt 3 ]; then
+    BOOK_OUTPUT+="[WARN] ${BOOK_NAME}：正文 ${CHAPTER_COUNT} 章，但设定文件只有 ${SETTING_COUNT} 个，建议补充设定。\n"
+  fi
+
+  # 4. 过期或异常伏笔线索
+  if [ -f "$BOOK_DIR/追踪/伏笔.md" ]; then
+    # 仅检查表格数据行中的状态列。正常开放状态（未埋/已埋）不报警，
+    # 避免长篇项目每次 SessionStart 都触发全量伏笔审计。
+    # 行为回归脚本：scripts/check-hook-regex-sync.sh
+    ABNORMAL_FORESHADOW=$(awk -F'|' '
+      function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+      /^\|/ && $0 !~ /^\|[-[:space:]|]+$/ {
+        status=trim($6)
+        if (status == "" || status == "状态" || status ~ /^状态\{/) next
+        if (status == "已过期" || (status != "未埋" && status != "已埋" && status != "已回收")) print
+      }
+    ' "$BOOK_DIR/追踪/伏笔.md" 2>/dev/null || true)
+    if [ -n "$ABNORMAL_FORESHADOW" ]; then
+      BOOK_OUTPUT+="[WARN] ${BOOK_NAME}：伏笔.md 中检测到过期或异常的伏笔条目，建议跑 /story-review lean 或做一次伏笔审计。\n"
+    fi
+  fi
+
+  # 5. 大纲缺失（按项目类型区分判定）
+  if [ -d "$BOOK_DIR/正文" ] || [ -f "$BOOK_DIR/正文.md" ]; then
+    # 长篇判定：有 追踪/ 视为长篇，要求 大纲/ 目录
+    if [ -d "$BOOK_DIR/追踪" ] && [ ! -d "$BOOK_DIR/大纲" ]; then
+      BOOK_OUTPUT+="[WARN] ${BOOK_NAME}：已有 正文/ 但缺少 大纲/，建议先搭大纲。\n"
+    # 短篇判定：无 追踪/ 视为短篇，要求 小节大纲.md 单文件
+    elif [ ! -d "$BOOK_DIR/追踪" ] && [ ! -f "$BOOK_DIR/小节大纲.md" ]; then
+      BOOK_OUTPUT+="[WARN] ${BOOK_NAME}：已有正文但缺少 小节大纲.md，建议先搭大纲。\n"
+    fi
+  fi
+
+  # 仅在有问题时输出该书目的信息
+  if [ -n "$BOOK_OUTPUT" ]; then
+    OUTPUT+="检查：$BOOK_NAME\n$BOOK_OUTPUT"
+    HAS_WARNINGS=true
+  fi
+done
+
+# 3. 全局拆文未完成检测（项目级，非书目级）
+GLOBAL_PROGRESS_OUTPUT=""
+if [ -d "$ROOT/拆文库" ]; then
+  while IFS= read -r -d '' progress_file; do
+    GLOBAL_PROGRESS_OUTPUT+="[WARN] 拆文未完成：${progress_file#$ROOT/}，运行 /story-long-analyze 继续。\n"
+  done < <(find "$ROOT/拆文库" -name "_progress.md" -print0 2>/dev/null || true)
+fi
+if [ -n "$GLOBAL_PROGRESS_OUTPUT" ]; then
+  OUTPUT+="$GLOBAL_PROGRESS_OUTPUT"
+  HAS_WARNINGS=true
+fi
+
+# 仅在有警告时输出
+if [ "$HAS_WARNINGS" = true ]; then
+  printf '%b' "=== 写作缺口检测 ===\n$OUTPUT\n"
+fi

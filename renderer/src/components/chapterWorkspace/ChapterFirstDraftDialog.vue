@@ -10,6 +10,7 @@ const props = defineProps<{
   isAuditing: boolean
   isStreaming: boolean
   executionLabel: string
+  reasoningContent?: string
   previewTitle: string
   previewContent: string
   progressPercent: number
@@ -87,8 +88,15 @@ const auditSummary = computed(() => {
       </p>
       <div class="preview arc-scrollbar">
         <div v-if="previewTitle" class="preview-head">{{ previewTitle }}</div>
+        <div v-if="reasoningContent" class="reasoning-block">
+          <div class="reasoning-head">
+            <span class="reasoning-dot" />
+            模型思考过程
+          </div>
+          <pre class="reasoning-body">{{ reasoningContent }}</pre>
+        </div>
         <pre v-if="previewContent">{{ previewContent }}</pre>
-        <div v-else class="preview-placeholder">
+        <div v-else-if="!reasoningContent" class="preview-placeholder">
           <span class="placeholder-text">{{ executionLabel || 'AI 正在准备本章初稿内容' }}</span>
           <span class="blink-cursor" />
         </div>
@@ -255,6 +263,49 @@ const auditSummary = computed(() => {
   word-break: break-word;
   font-family: inherit;
   color: var(--arc-text-primary);
+  user-select: text;
+}
+
+.reasoning-block {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--arc-fill-subtle, rgba(125, 125, 125, 0.08));
+  border-left: 2px solid var(--arc-accent, #7c9cf0);
+}
+
+.reasoning-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--arc-text-hint);
+  letter-spacing: 0.04em;
+}
+
+.reasoning-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--arc-accent, #7c9cf0);
+  animation: reasoning-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes reasoning-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.reasoning-body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  color: var(--arc-text-secondary);
   user-select: text;
 }
 

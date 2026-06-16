@@ -140,14 +140,14 @@ export function retrieveKnowledgeContext(
   }
 
   const projectId = String(task.context.projectId ?? '').trim()
-  if (!projectId) {
+  if (!projectId || !latestWorkspaceSnapshot) {
     return { usedKnowledge: [] }
   }
 
   // 知识文档（含跨项目拆书库）统一存放在快照顶层，而非 workspaces[projectId] 下。
-  const documents = Array.isArray(latestWorkspaceSnapshot?.knowledgeDocuments)
-    ? latestWorkspaceSnapshot.knowledgeDocuments
-    : []
+  const allDocuments = Array.isArray(latestWorkspaceSnapshot.knowledgeDocuments) ? latestWorkspaceSnapshot.knowledgeDocuments : []
+  // 排除拆书库文档（reference-summary / reference-chunk）——这些只在用户显式选择参考书时注入
+  const documents = allDocuments.filter((d) => d.sourceType !== 'reference-summary' && d.sourceType !== 'reference-chunk')
   if (!documents.length) {
     return { usedKnowledge: [] }
   }

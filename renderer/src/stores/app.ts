@@ -268,6 +268,19 @@ export const useAppStore = defineStore('app', () => {
   /** 当前项目的 AI 运行记录列表 */
   const aiRuns = computed(() => currentWorkspace.value.aiRuns)
   /**
+   * 跨项目聚合的全部 AI 运行记录，按开始时间降序。
+   * AI 调用日志面板用它展示所有项目（含单次任务）的历史，而非仅当前项目。
+   */
+  const allAiRuns = computed(() => {
+    const runs: AiRunRecord[] = []
+    for (const [projectId, workspace] of Object.entries(projectWorkspaces.value)) {
+      if (Array.isArray(workspace.aiRuns)) {
+        runs.push(...workspace.aiRuns.map(run => ({ ...run, projectId: run.projectId || projectId })))
+      }
+    }
+    return runs.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''))
+  })
+  /**
    * 全局 AI 任务注册表（按 key 去重，响应式）。
    *
    * 用途：
@@ -328,10 +341,11 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
-    // 项目级 AI 历史只在 projectId 存在时落地；全局任务（如风格指纹提取）跳过这一步，
-    // 但下面的 producedKnowledgeDocuments 仍要合并到全局拆书库。
-    if (payload.projectId) {
-      appendAiRun(payload.projectId, payload.meta)
+    // 项目级 AI 历史：单次任务（如角色生成、大纲扩写）的 context 常不带 projectId，
+    // 导致 meta.projectId 为空。这里用当前选中项目兜底，确保所有任务都能落进日志。
+    const runProjectId = payload.projectId || selectedProjectId.value
+    if (runProjectId) {
+      appendAiRun(runProjectId, payload.meta)
     }
 
     // agent loop 通过 knowledge_save_document 工具落库的文档：随 ai-run-event 一起回灌
@@ -2905,6 +2919,7 @@ export const useAppStore = defineStore('app', () => {
     activePanel,
     autoSaveIntervalLabel,
     aiRuns,
+    allAiRuns,
     appSettings,
     activeGlobalAssistantSessionId,
     assistantFocusTarget,

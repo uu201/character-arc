@@ -30,7 +30,7 @@ function formatProjectConstraints(source: unknown): string {
 
 const TOKEN_PER_CHAR_GENEROUS = 0.8
 const MAX_TOKENS_FLOOR = 4000
-const MAX_TOKENS_CEIL = 8000
+const MAX_TOKENS_CEIL = 12000
 
 function resolveTargetWords(context: Record<string, unknown>): number {
   const raw = Number(context.targetWordCount ?? context.chapterWordTarget ?? 0)
@@ -46,6 +46,7 @@ type ChapterMemoShape = {
   decisionChecks?: string[]
   endingChanges?: string[]
   doNotDo?: string[]
+  emotionArc?: string
 }
 
 /** 把 chapter-memo 任务产出的 7 段备忘格式化成 Writer 必须落实的硬契约文本。 */
@@ -59,6 +60,7 @@ function formatChapterMemo(memo: unknown): string {
     '== 本章写作备忘（硬契约，每条都必须在正文里有可定位的兑现） ==',
     `当前任务：${m.currentTask || '未指定'}`,
     `读者此刻在等什么：${m.readerExpectation || '未指定'}`,
+    `情绪轨迹：${m.emotionArc || '未指定'}`,
     '该兑现的：',
     list(m.payoffs),
     '暂不掀的（必须压住的底牌）：',
@@ -112,6 +114,8 @@ const handler: TaskHandler = {
     const semanticSegmentBlock = semanticBlock ? `\n\n${semanticBlock}` : ''
     const storyStateBlock = String(context.storyStateBlock ?? '').trim()
     const memoBlock = formatChapterMemo(context.chapterMemo)
+    const refStyleBlock = String(context.referenceStyleContext ?? '').trim()
+    const referenceStyleBlock = refStyleBlock ? `\n\n== 参考作品风格（模仿其文笔、节奏与对白处理） ==\n${refStyleBlock}` : ''
     const endingsTrailBlock = formatRecentEndingsTrail(context.recentEndingsTrail)
 
     return {
@@ -133,10 +137,19 @@ const handler: TaskHandler = {
 - 禁止使用破折号（——）。
 - 与相邻章节、章节摘要、角色立场无缝衔接。
 
+【正面写作技法——必须主动运用】
+- 对白潜台词：每句有效对白至少同时服务两个目的（推进剧情 + 暴露性格 / 传递信息 + 制造张力）。纯传递信息的对话必须裹上情绪或肢体动作。
+- 张力递进：每 400-600 字出现一次压力升级、新信息揭露或小反转。连续 600 字以上没有变化 = 节奏塌陷。
+- 场景情绪绑定：每个场景有明确的情绪起点和终点，且两者必须不同（如不安→绝望、得意→警觉）。情绪不能"平进平出"。
+- 感官锚定：场景切换或重要时刻必须有至少一个非视觉感官细节（声音、气味、触感、温度、味道）。避免纯"看到"描写。
+- 信息释放节奏：每 300-500 字释放一个新信息点（设定、人物动机、关系变化、线索）。禁止信息倾泻（连续 3 个新信息无间隔释放）。
+- 角色差异化：不同角色的用词、句式、思维方式必须可区分。配角说话不能是"主角换了个名字"。
+- 具象化原则：抽象情绪必须外化为可观测的身体反应或行为。"他很紧张"→"他无意识地把水杯转了三圈"。
+
 【输出格式】
 - 直接输出正文，不要标题前缀，不要 markdown 标记，不要小结，不要任何非正文内容。
 - 直接以正文第一句开始（不要 "好的，以下是..."、"# 第X章" 之类的前导）。`,
-      user: `${capabilityPreamble.user}\n\n请为当前小说项目生成本章完整初稿。${memoBlock ? `\n\n${memoBlock}` : ''}\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n目标字数（硬约束）：${targetWordCount} 字（±20%）\n当前章节现有正文：\n${chapterContent || '【空】'}${storyStateBlock ? `\n\n== 当前世界状态（精确数据，必须遵守） ==\n${storyStateBlock}` : ''}\n\n当前绑定大纲：\n${formatCurrentOutlineItem(context.currentOutlineItem) || '暂无'}\n\n同一大纲拆章情况：\n${formatOutlineChapterSplit(context.outlineChapterSplit) || '未拆分或暂无前置同纲章节'}\n\n相邻章节参考：\n${formatRelatedChapters(context.relatedChapters) || '暂无'}${endingsTrailBlock ? `\n\n${endingsTrailBlock}` : ''}\n\n本卷章节概览：\n${formatVolumeChapterSummaries(context.volumeChapterSummaries) || '暂无'}\n\n全书开篇：\n${formatNovelOpenerSummary(context.novelOpenerSummary) || '暂无'}${memoBlock ? '' : `\n\n未收伏笔 / 活跃剧情线：\n${formatOpenPlotThreads(context.plotThreads) || '暂无'}`}\n\n相关世界观：\n${formatWorldviewEntries(context.worldviewEntries) || '暂无'}\n\n相关角色：\n${formatCharacters(context.characters) || '暂无'}\n\n相关组织：\n${formatOrganizations(context.organizations) || '暂无'}\n\n角色关系：\n${formatCharacterRelationships(context.characterRelationships, context.characters) || '暂无'}\n\n成员归属：\n${formatOrganizationMemberships(context.organizationMemberships, context.organizations, context.characters) || '暂无'}\n\n项目级约束：\n${formatProjectConstraints(context.knowledgeDocuments) || '暂无'}\n\n可用灵感：\n${formatInspirationEntries(context.inspirationEntries) || '暂无'}\n\n相关大纲：\n${formatOutlineItems(context.outlineItems) || '暂无'}${retrievalBlock}${semanticSegmentBlock}\n\n当前项目启用 skills：\n${skillsBlock || '暂无'}\n\n补充要求：\n${String(context.userPrompt ?? '')}\n\n现在开始：${memoBlock ? '严格按本章写作备忘的硬契约执行——每条 payoff、ending change、do-not-do 都要在正文里有可定位的兑现。' : ''}直接一次性输出整章正文。`
+      user: `${capabilityPreamble.user}\n\n请为当前小说项目生成本章完整初稿。${memoBlock ? `\n\n${memoBlock}` : ''}\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n目标字数（硬约束）：${targetWordCount} 字（±20%）\n当前章节现有正文：\n${chapterContent || '【空】'}${storyStateBlock ? `\n\n== 当前世界状态（精确数据，必须遵守） ==\n${storyStateBlock}` : ''}\n\n当前绑定大纲：\n${formatCurrentOutlineItem(context.currentOutlineItem) || '暂无'}\n\n同一大纲拆章情况：\n${formatOutlineChapterSplit(context.outlineChapterSplit) || '未拆分或暂无前置同纲章节'}\n\n相邻章节参考：\n${formatRelatedChapters(context.relatedChapters) || '暂无'}${endingsTrailBlock ? `\n\n${endingsTrailBlock}` : ''}\n\n本卷章节概览：\n${formatVolumeChapterSummaries(context.volumeChapterSummaries) || '暂无'}\n\n全书开篇：\n${formatNovelOpenerSummary(context.novelOpenerSummary) || '暂无'}${memoBlock ? '' : `\n\n未收伏笔 / 活跃剧情线：\n${formatOpenPlotThreads(context.plotThreads) || '暂无'}`}\n\n相关世界观：\n${formatWorldviewEntries(context.worldviewEntries) || '暂无'}\n\n相关角色：\n${formatCharacters(context.characters) || '暂无'}\n\n相关组织：\n${formatOrganizations(context.organizations) || '暂无'}\n\n角色关系：\n${formatCharacterRelationships(context.characterRelationships, context.characters) || '暂无'}\n\n成员归属：\n${formatOrganizationMemberships(context.organizationMemberships, context.organizations, context.characters) || '暂无'}\n\n项目级约束：\n${formatProjectConstraints(context.knowledgeDocuments) || '暂无'}\n\n可用灵感：\n${formatInspirationEntries(context.inspirationEntries) || '暂无'}\n\n相关大纲：\n${formatOutlineItems(context.outlineItems) || '暂无'}${retrievalBlock}${semanticSegmentBlock}${referenceStyleBlock}\n\n当前项目启用 skills：\n${skillsBlock || '暂无'}\n\n补充要求：\n${String(context.userPrompt ?? '')}\n\n现在开始：${memoBlock ? '严格按本章写作备忘的硬契约执行——每条 payoff、ending change、do-not-do 都要在正文里有可定位的兑现。' : ''}直接一次性输出整章正文。`
     }
   },
   normalize(raw: string): AiTaskResult {

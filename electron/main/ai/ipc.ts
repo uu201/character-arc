@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { AiTaskPayload, AppSettings, ChapterPostGenerationIssuesPayload, ChapterStateWarningsPayload } from './shared-types'
 import { runAiTask, streamAiTask, testAiConnection, fetchModels, fetchImageModels, generateImage } from './runtime'
 import { runStreamingAgentTask } from './agent/streaming-orchestrator'
-import { providerSupportsTools } from './provider'
+import { isToolUseNotSupportedError } from './provider'
 import { setChapterPostGenerationIssuesEmitter, setChapterWarningsEmitter } from './runtime/orchestrator'
 import { retrieveKnowledgeContext } from './knowledge-retrieval'
 import { buildRunMeta } from './runtime/run-meta'
@@ -19,7 +19,7 @@ import type { SpiralBootstrapInput } from './spiral'
  */
 type AiIpcDeps = {
   /** 获取最新工作区快照（知识文档、AI 运行记录等） */
-  getLatestWorkspaceSnapshot: () => { workspaces?: Record<string, { knowledgeDocuments?: unknown[]; aiRuns?: unknown[] }> } | null
+  getLatestWorkspaceSnapshot: () => { knowledgeDocuments?: unknown[]; workspaces?: Record<string, { aiRuns?: unknown[] }> } | null
   /** 向 renderer 广播 AI 运行事件 */
   emitAiRunEvent: (payload: { projectId: string; meta: Record<string, unknown> }) => void
   /** 向 renderer 广播章节状态告警事件 */
@@ -102,87 +102,102 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       const knowledgeContext = retrieveKnowledgeContext(payload, deps!.getLatestWorkspaceSnapshot() as Parameters<typeof retrieveKnowledgeContext>[1])
       activeAiStreams.set(streamId, controller)
 
-      const settings = payload.settings as AppSettings
-      const useAgentPath = (payload.task === 'chapter-first-draft' || payload.task === 'global-assistant') && providerSupportsTools(settings)
+      const shouldTryAgent = payload.task === 'chapter-first-draft' || payload.task === 'global-assistant'
 
       let streamedContent = ''
       void (async () => {
         try {
-          if (useAgentPath) {
-            const result = await runStreamingAgentTask(
-              payload,
-              {
-                onTextDelta: (delta) => {
-                  streamedContent += delta
-                  if (!event.sender.isDestroyed()) {
-                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'chunk', delta, charCount: streamedContent.length })
+          if (shouldTryAgent) {
+            try {
+              const result = await runStreamingAgentTask(
+                payload,
+                {
+                  onTextDelta: (delta) => {
+                    streamedContent += delta
+                    if (!event.sender.isDestroyed()) {
+                      event.sender.send('characterarc:ai-stream-event', { streamId, type: 'chunk', delta, charCount: streamedContent.length })
+                    }
+                  },
+                  onReasoningDelta: (delta) => {
+                    if (!event.sender.isDestroyed()) {
+                      event.sender.send('characterarc:ai-stream-event', { streamId, type: 'reasoning', delta })
+                    }
+                  },
+                  onToolUseStart: (toolUseId, toolName, args) => {
+                    if (!event.sender.isDestroyed()) {
+                      event.sender.send('characterarc:ai-stream-event', { streamId, type: 'tool_use_start', toolUseId, toolName, args })
+                    }
+                  },
+                  onToolResult: (toolUseId, toolName, content, isError, durationMs) => {
+                    if (!event.sender.isDestroyed()) {
+                      event.sender.send('characterarc:ai-stream-event', { streamId, type: 'tool_result', toolUseId, toolName, content, isError, durationMs })
+                    }
+                  },
+                  onAgentStatus: (message, iteration, maxIterations) => {
+                    if (!event.sender.isDestroyed()) {
+                      event.sender.send('characterarc:ai-stream-event', { streamId, type: 'agent_status', message, iteration, maxIterations })
+                    }
+                  },
+                  onEditApplied: (chapterId, editType, preview, versionId) => {
+                    if (!event.sender.isDestroyed()) {
+                      event.sender.send('characterarc:ai-stream-event', { streamId, type: 'edit_applied', chapterId, editType, preview, versionId })
+                    }
+                  },
+                  onEditProposed: (chapterId, proposalId, editType, preview, oldContent, newContent) => {
+                    if (!event.sender.isDestroyed()) {
+                      event.sender.send('characterarc:ai-stream-event', { streamId, type: 'edit_proposed', chapterId, proposalId, editType, preview, oldContent, newContent })
+                    }
                   }
                 },
-                onToolUseStart: (toolUseId, toolName, args) => {
-                  if (!event.sender.isDestroyed()) {
-                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'tool_use_start', toolUseId, toolName, args })
-                  }
-                },
-                onToolResult: (toolUseId, toolName, content, isError, durationMs) => {
-                  if (!event.sender.isDestroyed()) {
-                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'tool_result', toolUseId, toolName, content, isError, durationMs })
-                  }
-                },
-                onAgentStatus: (message, iteration, maxIterations) => {
-                  if (!event.sender.isDestroyed()) {
-                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'agent_status', message, iteration, maxIterations })
-                  }
-                },
-                onEditApplied: (chapterId, editType, preview, versionId) => {
-                  if (!event.sender.isDestroyed()) {
-                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'edit_applied', chapterId, editType, preview, versionId })
-                  }
-                },
-                onEditProposed: (chapterId, proposalId, editType, preview, oldContent, newContent) => {
-                  if (!event.sender.isDestroyed()) {
-                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'edit_proposed', chapterId, proposalId, editType, preview, oldContent, newContent })
-                  }
+                controller.signal,
+                knowledgeContext
+              )
+              if (result.meta.projectId) {
+                deps!.emitAiRunEvent({ projectId: result.meta.projectId, meta: { id: randomUUID(), ...result.meta } })
+              }
+              if (!event.sender.isDestroyed()) {
+                event.sender.send('characterarc:ai-stream-event', {
+                  streamId,
+                  type: 'done',
+                  content: (result.result as { content?: string }).content ?? streamedContent,
+                  result: result.result
+                })
+              }
+              return
+            } catch (agentError) {
+              if (!isToolUseNotSupportedError(agentError)) throw agentError
+              streamedContent = ''
+            }
+          }
+
+          const result = await streamAiTask(
+            payload,
+            {
+              onTextDelta: (delta: string) => {
+                streamedContent += delta
+                if (!event.sender.isDestroyed()) {
+                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'chunk', delta, charCount: streamedContent.length })
                 }
               },
-              controller.signal,
-              knowledgeContext
-            )
-            if (result.meta.projectId) {
-              deps!.emitAiRunEvent({ projectId: result.meta.projectId, meta: { id: randomUUID(), ...result.meta } })
-            }
-            if (!event.sender.isDestroyed()) {
-              event.sender.send('characterarc:ai-stream-event', {
-                streamId,
-                type: 'done',
-                content: (result.result as { content?: string }).content ?? streamedContent,
-                result: result.result
-              })
-            }
-          } else {
-            const result = await streamAiTask(
-              payload,
-              {
-                onTextDelta: (delta: string) => {
-                  streamedContent += delta
-                  if (!event.sender.isDestroyed()) {
-                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'chunk', delta, charCount: streamedContent.length })
-                  }
+              onReasoningDelta: (delta: string) => {
+                if (!event.sender.isDestroyed()) {
+                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'reasoning', delta })
                 }
-              },
-              controller.signal,
-              knowledgeContext
-            )
-            if (result.meta.projectId) {
-              deps!.emitAiRunEvent({ projectId: result.meta.projectId, meta: { id: randomUUID(), ...result.meta } })
-            }
-            if (!event.sender.isDestroyed()) {
-              event.sender.send('characterarc:ai-stream-event', {
-                streamId,
-                type: 'done',
-                content: (result.result as { content?: string }).content ?? streamedContent,
-                result: result.result
-              })
-            }
+              }
+            },
+            controller.signal,
+            knowledgeContext
+          )
+          if (result.meta.projectId) {
+            deps!.emitAiRunEvent({ projectId: result.meta.projectId, meta: { id: randomUUID(), ...result.meta } })
+          }
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('characterarc:ai-stream-event', {
+              streamId,
+              type: 'done',
+              content: (result.result as { content?: string }).content ?? streamedContent,
+              result: result.result
+            })
           }
         } catch (error) {
           const aiRunMeta = error && typeof error === 'object' && 'aiRunMeta' in error
@@ -225,10 +240,6 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
   // ── Agent 流式生成（带工具调用） ──
   ipcMain.handle('characterarc:ai-agent-stream-start', async (event, payload: AiTaskPayload) => {
     try {
-      if (!providerSupportsTools(payload.settings as AppSettings)) {
-        return { success: false, error: '当前 AI 供应商不支持工具调用，请切换到支持 tool_use 的模型。' }
-      }
-
       const streamId = `agent-${randomUUID()}`
       const controller = new AbortController()
       const knowledgeContext = retrieveKnowledgeContext(payload, deps!.getLatestWorkspaceSnapshot() as Parameters<typeof retrieveKnowledgeContext>[1])
@@ -237,38 +248,74 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       let streamedContent = ''
       void (async () => {
         try {
-          const result = await runStreamingAgentTask(
+          try {
+            const result = await runStreamingAgentTask(
+              payload,
+              {
+                onTextDelta: (delta) => {
+                  streamedContent += delta
+                  if (!event.sender.isDestroyed()) {
+                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'chunk', delta, charCount: streamedContent.length })
+                  }
+                },
+                onReasoningDelta: (delta) => {
+                  if (!event.sender.isDestroyed()) {
+                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'reasoning', delta })
+                  }
+                },
+                onToolUseStart: (toolUseId, toolName, args) => {
+                  if (!event.sender.isDestroyed()) {
+                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'tool_use_start', toolUseId, toolName, args })
+                  }
+                },
+                onToolResult: (toolUseId, toolName, content, isError, durationMs) => {
+                  if (!event.sender.isDestroyed()) {
+                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'tool_result', toolUseId, toolName, content, isError, durationMs })
+                  }
+                },
+                onAgentStatus: (message, iteration, maxIterations) => {
+                  if (!event.sender.isDestroyed()) {
+                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'agent_status', message, iteration, maxIterations })
+                  }
+                },
+                onEditApplied: (chapterId, editType, preview, versionId) => {
+                  if (!event.sender.isDestroyed()) {
+                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'edit_applied', chapterId, editType, preview, versionId })
+                  }
+                },
+                onEditProposed: (chapterId, proposalId, editType, preview, oldContent, newContent) => {
+                  if (!event.sender.isDestroyed()) {
+                    event.sender.send('characterarc:ai-stream-event', { streamId, type: 'edit_proposed', chapterId, proposalId, editType, preview, oldContent, newContent })
+                  }
+                }
+              },
+              controller.signal,
+              knowledgeContext
+            )
+            if (result.meta.projectId) {
+              deps!.emitAiRunEvent({ projectId: result.meta.projectId, meta: { id: randomUUID(), ...result.meta } })
+            }
+            if (!event.sender.isDestroyed()) {
+              event.sender.send('characterarc:ai-stream-event', { streamId, type: 'done', content: streamedContent, result: result.result })
+            }
+            return
+          } catch (agentError) {
+            if (!isToolUseNotSupportedError(agentError)) throw agentError
+            streamedContent = ''
+          }
+
+          const result = await streamAiTask(
             payload,
             {
-              onTextDelta: (delta) => {
+              onTextDelta: (delta: string) => {
                 streamedContent += delta
                 if (!event.sender.isDestroyed()) {
                   event.sender.send('characterarc:ai-stream-event', { streamId, type: 'chunk', delta, charCount: streamedContent.length })
                 }
               },
-              onToolUseStart: (toolUseId, toolName, args) => {
+              onReasoningDelta: (delta: string) => {
                 if (!event.sender.isDestroyed()) {
-                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'tool_use_start', toolUseId, toolName, args })
-                }
-              },
-              onToolResult: (toolUseId, toolName, content, isError, durationMs) => {
-                if (!event.sender.isDestroyed()) {
-                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'tool_result', toolUseId, toolName, content, isError, durationMs })
-                }
-              },
-              onAgentStatus: (message, iteration, maxIterations) => {
-                if (!event.sender.isDestroyed()) {
-                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'agent_status', message, iteration, maxIterations })
-                }
-              },
-              onEditApplied: (chapterId, editType, preview, versionId) => {
-                if (!event.sender.isDestroyed()) {
-                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'edit_applied', chapterId, editType, preview, versionId })
-                }
-              },
-              onEditProposed: (chapterId, proposalId, editType, preview, oldContent, newContent) => {
-                if (!event.sender.isDestroyed()) {
-                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'edit_proposed', chapterId, proposalId, editType, preview, oldContent, newContent })
+                  event.sender.send('characterarc:ai-stream-event', { streamId, type: 'reasoning', delta })
                 }
               }
             },
@@ -279,7 +326,12 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
             deps!.emitAiRunEvent({ projectId: result.meta.projectId, meta: { id: randomUUID(), ...result.meta } })
           }
           if (!event.sender.isDestroyed()) {
-            event.sender.send('characterarc:ai-stream-event', { streamId, type: 'done', content: streamedContent, result: result.result })
+            event.sender.send('characterarc:ai-stream-event', {
+              streamId,
+              type: 'done',
+              content: (result.result as { content?: string }).content ?? streamedContent,
+              result: result.result
+            })
           }
         } catch (error) {
           if (!event.sender.isDestroyed()) {

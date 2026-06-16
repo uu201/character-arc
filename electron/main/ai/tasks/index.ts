@@ -27,6 +27,7 @@ import referenceDeepAnalyze from './reference-deep-analyze'
 import styleFingerprintExtract from './style-fingerprint-extract'
 import storyDeepAudit from './story-deep-audit'
 import chapterRepair from './chapter-repair'
+import chapterSessionNote from './chapter-session-note'
 import spiralSeed from './spiral-seed'
 import spiralExpand from './spiral-expand'
 import spiralValidate from './spiral-validate'
@@ -72,6 +73,7 @@ register(referenceDeepAnalyze)
 register(styleFingerprintExtract)
 register(storyDeepAudit)
 register(chapterRepair)
+register(chapterSessionNote)
 register(spiralSeed)
 register(spiralExpand)
 register(spiralValidate)

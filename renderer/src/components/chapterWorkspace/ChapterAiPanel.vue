@@ -8,7 +8,7 @@ import ChapterFirstDraftDialog from './ChapterFirstDraftDialog.vue'
 import ChapterThreadDetectDialog from './ChapterThreadDetectDialog.vue'
 import GlobalAssistantDiffReviewDialog from '@/components/GlobalAssistantDiffReviewDialog.vue'
 import { useChapterAi } from './useChapterAi'
-import { useChapterFirstDraft } from './useChapterFirstDraft'
+import { useChapterFirstDraft, type FirstDraftConfig } from './useChapterFirstDraft'
 import { useChapterThreadDetect } from './useChapterThreadDetect'
 import { useChapterSummary } from './useChapterSummary'
 import { useChapterInspiration, type ChapterInspirationFocus } from './useChapterInspiration'
@@ -143,9 +143,10 @@ function handleCommandSelect(prompt: string): void {
   void send(prompt)
 }
 
-async function handleDraft(): Promise<void> {
+async function handleDraft(config?: FirstDraftConfig): Promise<void> {
+  if (!config) return
   closeAllPanels()
-  try { await draft.start() } catch (error) { message.error(error instanceof Error ? error.message : 'AI 初稿生成失败') }
+  try { await draft.start(config) } catch (error) { message.error(error instanceof Error ? error.message : 'AI 初稿生成失败') }
 }
 
 async function handleDetect(): Promise<void> {
@@ -185,8 +186,8 @@ function sendPrompt(prompt: string): void {
   void send(prompt)
 }
 
-function triggerDraft(): void {
-  void handleDraft()
+function triggerDraft(config?: FirstDraftConfig): void {
+  void handleDraft(config)
 }
 
 defineExpose({ sendPrompt, triggerDraft })
@@ -351,6 +352,7 @@ onBeforeUnmount(() => {
       :is-auditing="draft.isAuditing.value"
       :is-streaming="draft.isStreaming.value"
       :execution-label="draft.executionLabel.value"
+      :reasoning-content="draft.reasoningContent.value"
       :preview-title="draft.previewTitle.value"
       :preview-content="draft.previewContent.value"
       :progress-percent="draft.progressPercent.value"

@@ -71,6 +71,11 @@ declare global {
       }
     | {
         streamId: string
+        type: 'reasoning'
+        delta: string
+      }
+    | {
+        streamId: string
         type: 'tool_result'
         toolUseId: string
         toolName: string
