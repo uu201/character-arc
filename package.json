@@ -114,7 +114,7 @@
         "en_US"
       ],
       "language": "2052",
-      "artifactName": "${productName}-${version}-setup.${ext}"
+      "artifactName": "${productName}-${version}-${arch}-setup.${ext}"
     },
     "linux": {
       "icon": "resources/icon.png",

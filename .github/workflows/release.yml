@@ -12,18 +12,53 @@ on:
       - "pnpm-lock.yaml"
       - "electron.vite.config.ts"
       - "build/**"
-      - "resources/icon.png"
+      - "resources/**"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build renderer and Electron bundles
+        run: pnpm run build
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          retention-days: 1
+          path: |
+            out/
+            dist-electron/
+
   package-macos:
     name: macOS ${{ matrix.arch }}
+    needs: build
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -49,8 +84,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build renderer and Electron bundles
-        run: pnpm run build
+      - name: Download build output
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
+      - name: Cache electron-builder
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron-builder
+          key: eb-macos-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: eb-macos-
 
       - name: Package macOS ${{ matrix.arch }}
         run: pnpm exec electron-builder --mac --${{ matrix.arch }} --publish never
@@ -68,6 +112,7 @@ jobs:
 
   package-windows:
     name: Windows ${{ matrix.arch }}
+    needs: build
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -75,7 +120,6 @@ jobs:
         arch: [x64, arm64]
 
     env:
-      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
       ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
 
     steps:
@@ -97,8 +141,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build renderer and Electron bundles
-        run: pnpm run build
+      - name: Download build output
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
+      - name: Cache electron-builder
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/electron-builder/Cache
+          key: eb-windows-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: eb-windows-
 
       - name: Package Windows ${{ matrix.arch }}
         run: pnpm exec electron-builder --win --${{ matrix.arch }} --publish never
@@ -115,6 +168,7 @@ jobs:
 
   package-linux:
     name: Linux ${{ matrix.arch }}
+    needs: build
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -126,7 +180,6 @@ jobs:
             runner: ubuntu-24.04-arm
 
     env:
-      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
       ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
 
     steps:
@@ -148,8 +201,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build renderer and Electron bundles
-        run: pnpm run build
+      - name: Download build output
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
+      - name: Cache electron-builder
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron-builder
+          key: eb-linux-${{ matrix.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: eb-linux-${{ matrix.arch }}-
 
       - name: Package Linux ${{ matrix.arch }}
         run: pnpm exec electron-builder --linux --${{ matrix.arch }} --publish never
@@ -164,3 +226,28 @@ jobs:
             dist/*.deb
             dist/*.blockmap
             dist/latest-linux.yml
+
+  release:
+    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [package-macos, package-windows, package-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: CharacterArc-*
+          merge-multiple: false
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" \) -exec cp {} release/ \;
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: release/*
