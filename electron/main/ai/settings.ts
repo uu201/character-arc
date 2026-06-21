@@ -189,7 +189,7 @@ export function resolveMaxTokens(task?: AiTaskPayload): number | undefined {
  * @returns 兜底后的 max_tokens
  */
 export function applyReasoningSafeFloor(baseMaxTokens: number | undefined): number {
-  const SINGLE_SHOT_MIN_OUTPUT_TOKENS = 8000
+  const SINGLE_SHOT_MIN_OUTPUT_TOKENS = 26000
   return Math.max(baseMaxTokens ?? SINGLE_SHOT_MIN_OUTPUT_TOKENS, SINGLE_SHOT_MIN_OUTPUT_TOKENS)
 }
 
