@@ -4,6 +4,19 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.10.2] - 2026-06-23
+
+### Changed
+
+- **技能 manifest 元数据补充**：为蒸馏小说工具箱（Distilled-Novel-Toolbox）的 12 个技能 frontmatter 增加 `manifest` 配置，包含分类、适用阶段、关联任务与触发词，便于技能注册表按任务自动匹配
+- **CI 手动触发自动建 tag**：支持手动触发 workflow 时自动创建 Release tag
+
+### Fixed
+
+- **导入归档跨进程克隆失败**：修复导入项目归档时直接传入 Vue 响应式 `Proxy` 数组，跨 contextBridge 结构化克隆失败导致点击"开始导入"报错 `An object could not be cloned` 的问题
+
+[1.10.2]: https://github.com/zhouyeshan/character-arc/releases/tag/v1.10.2
+
 ## [1.10.1] - 2026-06-21
 
 ### Added
