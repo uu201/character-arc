@@ -90,7 +90,7 @@ async function confirmArchiveImport(): Promise<void> {
       filePath: archiveImportFilePath.value,
       mode: archiveImportMode.value,
       targetProjectId: archiveImportMode.value === 'overwrite-project' ? archiveTargetProjectId.value : undefined,
-      modules: archiveSelectedModules.value
+      modules: [...archiveSelectedModules.value]
     })
     if (!result.success) {
       message.error(result.error ?? '导入项目归档失败')
