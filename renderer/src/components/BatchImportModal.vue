@@ -1,251 +1,43 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
-import { NButton, NModal, NCard, NProgress, NTag, useMessage } from 'naive-ui'
+import { NButton, NModal, NCard, NProgress, NTag } from 'naive-ui'
 import { RefreshCw, X } from 'lucide-vue-next'
-import { useAppStore } from '@/stores/app'
+import { useBatchImport } from '@/composables/useBatchImport'
 
-const props = defineProps<{ show: boolean }>()
-const emit = defineEmits<{
-  (e: 'update:show', value: boolean): void
-  (e: 'done'): void
-}>()
-
-const appStore = useAppStore()
-const message = useMessage()
-
-type PickedFile = { filePath: string; fileName: string; size: number }
-type BookState = {
-  bookId: string
-  fileName: string
-  filePath: string
-  status: 'queued' | 'running' | 'success' | 'error' | 'canceled'
-  phase: string
-  message: string
-  percent: number
-  chunkIndex: number
-  chunkTotal: number
-  chunkLabel: string
-  startedAt: number
-  elapsedLabel: string
-}
-
-const stage = ref<'picker' | 'running' | 'done'>('picker')
-const pickedFiles = ref<PickedFile[]>([])
-const concurrency = ref(3)
-const books = reactive<Map<string, BookState>>(new Map())
-const batchFinished = ref(false)
-
-const totalSize = computed(() => pickedFiles.value.reduce((sum, f) => sum + f.size, 0))
-const totalSizeLabel = computed(() => {
-  const kb = totalSize.value / 1024
-  return kb > 1024 ? `${(kb / 1024).toFixed(2)} MB` : `${Math.round(kb)} KB`
-})
-
-const bookList = computed(() => Array.from(books.values()))
-const completedCount = computed(() => bookList.value.filter(b => b.status === 'success' || b.status === 'error' || b.status === 'canceled').length)
-const successCount = computed(() => bookList.value.filter(b => b.status === 'success').length)
-const errorCount = computed(() => bookList.value.filter(b => b.status === 'error').length)
-const runningCount = computed(() => bookList.value.filter(b => b.status === 'running').length)
-const queuedCount = computed(() => bookList.value.filter(b => b.status === 'queued').length)
-const overallPercent = computed(() => books.size === 0 ? 0 : Math.round((completedCount.value / books.size) * 100))
-const failedBooks = computed(() => bookList.value.filter(b => b.status === 'error'))
-
-const phases = ['extracting', 'chunking', 'chunk-analysis', 'aggregating', 'saving', 'done'] as const
-const phaseLabels: Record<string, string> = {
-  extracting: '读取',
-  chunking: '切分',
-  'chunk-analysis': '分块分析',
-  aggregating: '汇总',
-  saving: '归档',
-  done: '完成'
-}
-
-function phaseState(book: BookState, p: string): 'done' | 'active' | 'pending' {
-  if (book.status === 'success') return 'done'
-  if (book.status === 'error' || book.status === 'canceled') return 'pending'
-  const currentIdx = phases.indexOf(book.phase as typeof phases[number])
-  const pIdx = phases.indexOf(p as typeof phases[number])
-  if (pIdx < currentIdx) return 'done'
-  if (pIdx === currentIdx) return 'active'
-  return 'pending'
-}
-
-function formatSize(bytes: number): string {
-  const kb = bytes / 1024
-  return kb > 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`
-}
-
-// -- Elapsed timer --
-let tickTimer: number | null = null
-function startTicker() {
-  if (tickTimer) return
-  tickTimer = window.setInterval(() => {
-    for (const book of books.values()) {
-      if (book.status === 'running' && book.startedAt > 0) {
-        const seconds = Math.round((Date.now() - book.startedAt) / 1000)
-        book.elapsedLabel = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${seconds % 60}s`
-      }
-    }
-  }, 1000)
-}
-function stopTicker() {
-  if (tickTimer) { window.clearInterval(tickTimer); tickTimer = null }
-}
-onBeforeUnmount(stopTicker)
-
-// -- Progress listener --
-const cleanupProgress = window.characterArc.onReferenceImportProgress((payload) => {
-  if (!payload.bookId) return
-  const existing = books.get(payload.bookId)
-  const now = Date.now()
-  if (existing) {
-    existing.phase = payload.phase
-    existing.message = payload.message
-    existing.percent = payload.percent
-    existing.chunkIndex = payload.chunkIndex ?? existing.chunkIndex
-    existing.chunkTotal = payload.chunkTotal ?? existing.chunkTotal
-    existing.chunkLabel = payload.chunkLabel ?? existing.chunkLabel
-    if (payload.sourceTitle) existing.fileName = payload.sourceTitle
-    if (payload.status && payload.status !== 'queued') {
-      if (existing.status === 'queued' && payload.status === 'running') {
-        existing.startedAt = now
-      }
-      existing.status = payload.status
-    }
-  } else {
-    books.set(payload.bookId, {
-      bookId: payload.bookId,
-      fileName: payload.sourceTitle || '',
-      filePath: '',
-      status: payload.status ?? 'queued',
-      phase: payload.phase,
-      message: payload.message,
-      percent: payload.percent,
-      chunkIndex: payload.chunkIndex ?? 0,
-      chunkTotal: payload.chunkTotal ?? 0,
-      chunkLabel: payload.chunkLabel ?? '',
-      startedAt: payload.status === 'running' ? now : 0,
-      elapsedLabel: ''
-    })
-  }
-})
-onBeforeUnmount(() => cleanupProgress())
-
-// -- Actions --
-async function handlePickFiles() {
-  const result = await window.characterArc.pickReferenceNovelFiles()
-  if (!result.success || result.canceled || !result.files) return
-  const existing = new Set(pickedFiles.value.map(f => f.filePath))
-  for (const file of result.files) {
-    if (!existing.has(file.filePath)) {
-      pickedFiles.value.push(file)
-    }
-  }
-}
-
-function removeFile(index: number) {
-  pickedFiles.value.splice(index, 1)
-}
-
-function clearFiles() {
-  pickedFiles.value = []
-}
-
-let batchGeneration = 0
-
-async function startBatch() {
-  if (pickedFiles.value.length === 0) return
-  stage.value = 'running'
-  batchFinished.value = false
-  books.clear()
-  startTicker()
-
-  const currentGen = ++batchGeneration
-  const filePaths = pickedFiles.value.map(f => f.filePath)
-  const result = await window.characterArc.importReferenceNovelBatch(JSON.parse(JSON.stringify({
-    settings: appStore.appSettings,
-    projectSkills: [],
-    filePaths,
-    concurrency: concurrency.value
-  })))
-
-  if (currentGen !== batchGeneration) return
-
-  stopTicker()
-  batchFinished.value = true
-  stage.value = 'done'
-
-  if (result.success && result.results) {
-    for (const item of result.results) {
-      if (item.success && item.result) {
-        appStore.upsertReferenceWork(item.result.referenceWork)
-        appStore.mergeKnowledgeDocuments(item.result.knowledgeDocuments)
-      }
-    }
-    if (successCount.value > 0) {
-      message.success(`${successCount.value} 本拆书完成已归档`)
-    }
-  }
-}
-
-function handleCancelBook(bookId: string) {
-  window.characterArc.cancelReferenceNovelBook(bookId)
-  const book = books.get(bookId)
-  if (book && (book.status === 'running' || book.status === 'queued')) {
-    book.status = 'canceled'
-    book.message = '已取消'
-    book.percent = 0
-  }
-}
-
-function handleCancelAll() {
-  window.characterArc.cancelReferenceNovelBook()
-  for (const book of books.values()) {
-    if (book.status === 'running' || book.status === 'queued') {
-      book.status = 'canceled'
-      book.message = '已取消'
-      book.percent = 0
-    }
-  }
-  stopTicker()
-  batchFinished.value = true
-  stage.value = 'done'
-}
-
-/** 是否有后台正在跑的任务（弹窗关闭后仍在跑） */
-const isRunningInBackground = computed(() => stage.value === 'running' && !batchFinished.value)
-
-function closeModal() {
-  if (isRunningInBackground.value) {
-    emit('update:show', false)
-    return
-  }
-  stage.value = 'picker'
-  pickedFiles.value = []
-  books.clear()
-  emit('update:show', false)
-  emit('done')
-}
-
-function finishAndClose() {
-  batchGeneration++
-  stage.value = 'picker'
-  pickedFiles.value = []
-  books.clear()
-  batchFinished.value = false
-  emit('update:show', false)
-  emit('done')
-}
-
-function setConcurrency(n: number) {
-  concurrency.value = n
-}
+const {
+  showModal,
+  stage,
+  pickedFiles,
+  concurrency,
+  bookList,
+  completedCount,
+  successCount,
+  errorCount,
+  runningCount,
+  queuedCount,
+  overallPercent,
+  failedBooks,
+  totalSizeLabel,
+  isRunningInBackground,
+  startBatch,
+  handleCancelBook,
+  handleCancelAll,
+  handlePickFiles,
+  removeFile,
+  clearFiles,
+  closeModal,
+  finishAndClose,
+  setConcurrency,
+  BOOK_PHASES,
+  PHASE_LABELS,
+  formatSize,
+  phaseState
+} = useBatchImport()
 
 defineExpose({ isRunningInBackground })
 </script>
 
 <template>
-  <n-modal :show="show" :mask-closable="false" @update:show="closeModal">
+  <n-modal :show="showModal" :mask-closable="false" @update:show="closeModal">
     <n-card
       style="width: min(600px, 92vw)"
       :bordered="false"
@@ -309,7 +101,7 @@ defineExpose({ isRunningInBackground })
       <div v-else class="batch-body">
         <div class="progress-summary" :class="{ 'is-done': stage === 'done' }">
           <div>
-            <div class="summary-num">{{ completedCount }} / {{ books.size }}</div>
+            <div class="summary-num">{{ completedCount }} / {{ bookList.length }}</div>
             <div class="summary-label">{{ stage === 'done' ? '全部处理完毕' : '已完成' }}</div>
           </div>
           <div class="stat-group">
@@ -370,9 +162,9 @@ defineExpose({ isRunningInBackground })
 
             <!-- Phase pills -->
             <div v-if="book.status === 'running'" class="book-phases">
-              <template v-for="(p, i) in phases.slice(0, -1)" :key="p">
+              <template v-for="(p, i) in BOOK_PHASES.slice(0, -1)" :key="p">
                 <span v-if="i > 0" class="phase-arrow">›</span>
-                <span class="phase-pill" :class="`is-${phaseState(book, p)}`">{{ phaseLabels[p] }}</span>
+                <span class="phase-pill" :class="`is-${phaseState(book, p)}`">{{ PHASE_LABELS[p] }}</span>
               </template>
             </div>
 

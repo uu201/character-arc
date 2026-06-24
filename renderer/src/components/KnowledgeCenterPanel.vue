@@ -28,15 +28,16 @@ import {
   type ReferenceAssetLibrary
 } from '@/features/knowledge/knowledgeCenter'
 import { useAppStore } from '@/stores/app'
+import { useBatchImport } from '@/composables/useBatchImport'
 import BatchImportModal from './BatchImportModal.vue'
 
 const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
+const { openModal } = useBatchImport()
 
 const keyword = ref('')
 const selectedDocument = ref<KnowledgeDocumentView | null>(null)
-const showBatchImportModal = ref(false)
 
 const allState = computed(() => buildKnowledgeCenterState(appStore.knowledgeDocuments))
 const referenceAssets = computed(() =>
@@ -277,7 +278,7 @@ function resolveAssetDocuments(asset: ReferenceAssetLibrary): KnowledgeDocumentV
         </n-tag>
       </div>
       <div class="knowledge-header-actions">
-        <n-button secondary @click="showBatchImportModal = true">
+        <n-button secondary @click="openModal">
           导入小说并拆书
         </n-button>
       </div>
@@ -394,7 +395,7 @@ function resolveAssetDocuments(asset: ReferenceAssetLibrary): KnowledgeDocumentV
 
 
     <!-- Batch Import Modal -->
-    <BatchImportModal v-model:show="showBatchImportModal" />
+    <BatchImportModal />
 
     <!-- Detail Modal -->
     <n-modal v-model:show="detailVisible">

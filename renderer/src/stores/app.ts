@@ -2894,6 +2894,28 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /**
+   * 手动注册一条 AI 任务（不绑定 executor，由调用方自行管理生命周期）。
+   * 配合 `finalizeManualTask` 使用。
+   */
+  function registerManualTask(input: AiTaskRunInput): void {
+    const run: AiTaskRun = {
+      ...input,
+      startedAt: Date.now(),
+      stage: 'running'
+    }
+    replaceTaskRuns((next) => {
+      next.set(input.key, run)
+    })
+  }
+
+  /**
+   * 手动终结一条由 `registerManualTask` 注册的 AI 任务。
+   */
+  function finalizeManualTask(key: string, stage: 'done' | 'error', error?: string): void {
+    finalizeAiTask(key, stage, error)
+  }
+
   // ── 事件监听注册 ──
   window.characterArc.onWorkspaceSync(handleRemoteWorkspaceSync)
   window.characterArc.onAiRunEvent(handleAiRunEvent)
@@ -3071,6 +3093,8 @@ export const useAppStore = defineStore('app', () => {
     getClientTaskId,
     dismissAiTask,
     cancelAiTask,
+    registerManualTask,
+    finalizeManualTask,
     getChapterStateWarnings,
     dismissChapterStateWarnings,
     getChapterPostGenerationIssues,
