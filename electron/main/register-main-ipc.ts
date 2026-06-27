@@ -10,6 +10,7 @@ import { indexReferenceNovel } from './ai/knowledge-retrieval'
 import { refreshRegistry as refreshSkillRegistry, toScanEntries as skillScanEntries, toContextEntries as skillContextEntries } from './ai/skills'
 import { getProjectSkillsDirPath as getSkillsDirPath } from './ai/skills/discovery'
 import { extractReferenceNovelContext, type ReferenceNovelLocalContext } from './referenceAnalysis'
+import { fetchWithCache } from './github-mirror'
 import { fetchFanqieTrends } from './fanqie-trends'
 import { getWorkspaceDirPath } from './workspace-store'
 import {
@@ -1293,21 +1294,14 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
   })
 
   ipcMain.handle('characterarc:fetch-announcements', async () => {
-    try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 8000)
-      const response = await fetch('https://raw.githubusercontent.com/uu201/character-arc/main/announcements.json', {
-        headers: { 'User-Agent': 'CharacterArc-Desktop' },
-        signal: controller.signal
-      })
-      clearTimeout(timer)
-      if (!response.ok) return { success: false }
-      const data = await response.json()
-      if (Array.isArray(data) && data.length > 0) return { success: true, data }
-      return { success: false }
-    } catch {
-      return { success: false }
-    }
+    return fetchWithCache({
+      repo: 'uu201/character-arc',
+      branch: 'main',
+      filePath: 'announcements.json',
+      cacheDir: 'announcements-cache',
+      ttlMs: 1 * 60 * 60 * 1000,
+      timeoutMs: 8000,
+    })
   })
 
   ipcMain.handle('characterarc:open-external-url', (_event, url: string) => {
