@@ -1,10 +1,34 @@
 <script setup lang="ts">
-import { ChevronLeft, Flame, RefreshCw } from 'lucide-vue-next'
+import { ChevronLeft, Copy, ExternalLink, Flame, RefreshCw } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
-import { NButton } from 'naive-ui'
+import { NButton, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 
 const appStore = useAppStore()
+const message = useMessage()
+
+function openBookUrl(url: unknown): void {
+  const target = typeof url === 'string' ? url.trim() : ''
+  if (!target) {
+    message.warning('该书暂无原文链接')
+    return
+  }
+  void window.characterArc.openExternalUrl(target)
+}
+
+async function copyBookIntro(intro: unknown): Promise<void> {
+  const text = typeof intro === 'string' ? intro.trim() : ''
+  if (!text) {
+    message.warning('该书暂无简介可复制')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    message.success('简介已复制到剪贴板')
+  } catch {
+    message.error('复制失败，请重试')
+  }
+}
 
 function backToProjectCenter(): void {
   appStore.backToProjects()
@@ -284,13 +308,41 @@ onMounted(() => {
           <div v-if="curBoardItem?.has_genres && hotGenres.length" class="section">
             <h3 class="section-title">热门综合赛道 <span class="hint">按阅读增长加权</span></h3>
             <div class="grid">
-              <div v-for="(g, i) in hotGenres" :key="g.name" class="genre-card" :class="{ top1: i === 0 }">
-                <div class="rank-no num">{{ i + 1 }}</div>
-                <div class="name">{{ g.name }}</div>
-                <div class="lead">领涨分类 · <b>{{ g.lead_category || '—' }}</b></div>
-                <div class="score num">+{{ fmt(g.read_growth_total ?? g.score) }}<small>在读增长</small></div>
-                <div class="cats">
-                  <span v-for="c in (g.categories || [])" :key="c" class="chip">{{ c }}</span>
+              <div v-for="(g, i) in hotGenres" :key="g.name" class="genre-card" :class="['rank-' + (i + 1), { top1: i === 0 }]">
+                <div class="rank-badge num">#{{ i + 1 }}</div>
+                <div class="genre-head">
+                  <div class="name">{{ g.name }}</div>
+                  <div v-if="g.lead_category" class="lead">
+                    <span class="lead-label">领涨</span>
+                    <span class="lead-val">{{ g.lead_category }}</span>
+                  </div>
+                </div>
+                <div class="score-row">
+                  <span class="score-arrow" aria-hidden="true">▲</span>
+                  <span class="score num">{{ fmt(g.read_growth_total ?? g.score) }}</span>
+                  <span class="score-unit">在读增长</span>
+                </div>
+                <div v-if="g.new_count != null || g.dropped_count != null || g.active_days != null" class="metrics">
+                  <span v-if="g.new_count != null" class="metric metric-up">
+                    <span class="m-val num">+{{ g.new_count }}</span>
+                    <span class="m-label">新书</span>
+                  </span>
+                  <span v-if="g.dropped_count != null" class="metric metric-down">
+                    <span class="m-val num">−{{ g.dropped_count }}</span>
+                    <span class="m-label">掉榜</span>
+                  </span>
+                  <span v-if="g.active_days != null" class="metric metric-mute">
+                    <span class="m-val num">{{ g.active_days }}d</span>
+                    <span class="m-label">活跃</span>
+                  </span>
+                </div>
+                <div v-if="(g.categories || []).length" class="cats">
+                  <span
+                    v-for="c in (g.categories || [])"
+                    :key="c"
+                    class="chip"
+                    :class="{ 'chip-lead': c === g.lead_category }"
+                  >{{ c }}</span>
                 </div>
               </div>
             </div>
@@ -308,7 +360,7 @@ onMounted(() => {
           </div>
 
           <div v-if="hotThemes.length" class="section">
-            <h3 class="section-title">高频题材标签 <span class="hint">新书简介命中次数</span></h3>
+            <h3 class="section-title">高频题材标签</h3>
             <div class="themes">
               <span v-for="t in hotThemes" :key="t.name" class="theme-tag" :style="{ fontSize: t._size + 'px' }">
                 <span class="t-name">{{ t.name }}</span><span class="t-count num">×{{ t.count }}</span>
@@ -337,6 +389,26 @@ onMounted(() => {
                     <div class="bk-title">{{ b.title }} <span v-if="isNewBook(b.title)" class="tag-new">NEW</span></div>
                     <div class="bk-meta">{{ b.author }} · <span class="bk-reads num">{{ b.reads }} 在读</span></div>
                     <div class="bk-intro">{{ b.intro }}</div>
+                    <div class="bk-actions">
+                      <button
+                        type="button"
+                        class="bk-action-btn"
+                        :disabled="!b.url"
+                        :title="b.url ? '在浏览器中打开原文' : '该书暂无原文链接'"
+                        @click="openBookUrl(b.url)"
+                      >
+                        <ExternalLink :size="12" /> 访问原文
+                      </button>
+                      <button
+                        type="button"
+                        class="bk-action-btn"
+                        :disabled="!b.intro"
+                        title="复制简介到剪贴板"
+                        @click="copyBookIntro(b.intro)"
+                      >
+                        <Copy :size="12" /> 复制简介
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -531,33 +603,139 @@ onMounted(() => {
 }
 .section-title .hint { font-size: 12px; color: var(--arc-text-hint); font-weight: 400; }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 14px; }
 .genre-card {
   background: var(--arc-bg-surface);
   border: 1px solid var(--arc-border);
   border-radius: var(--arc-radius-lg);
-  padding: 16px;
-  transition: all 0.18s;
+  padding: 16px 16px 14px;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.genre-card:hover { border-color: var(--arc-border-strong); transform: translateY(-2px); }
-.genre-card .rank-no {
+.genre-card::before {
+  content: '';
   position: absolute;
-  top: 10px;
-  right: 14px;
-  font-size: 30px;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: transparent;
+  transition: background 0.18s ease;
+}
+.genre-card:hover {
+  border-color: var(--arc-border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--arc-shadow-md, 0 6px 18px -10px rgba(0,0,0,0.25));
+}
+.genre-card.top1 {
+  background: linear-gradient(155deg, color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface)) 0%, var(--arc-bg-surface) 55%);
+  border-color: color-mix(in srgb, var(--arc-primary) 35%, var(--arc-border));
+}
+.genre-card.top1::before { background: linear-gradient(90deg, var(--arc-primary), #ff9466 70%, transparent); }
+.genre-card.rank-2::before { background: linear-gradient(90deg, color-mix(in srgb, var(--arc-primary) 55%, transparent), transparent); }
+.genre-card.rank-3::before { background: linear-gradient(90deg, color-mix(in srgb, var(--arc-primary) 30%, transparent), transparent); }
+
+.genre-card .rank-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  min-width: 30px;
+  height: 22px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11.5px;
   font-weight: 800;
-  color: var(--arc-bg-surface-hover);
+  letter-spacing: 0.02em;
+  color: var(--arc-text-hint);
+  background: var(--arc-bg-weak);
+  border: 1px solid var(--arc-border);
+  border-radius: 999px;
   line-height: 1;
 }
-.genre-card.top1 .rank-no { color: color-mix(in srgb, var(--arc-primary) 22%, transparent); }
-.genre-card .name { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
-.genre-card .lead { font-size: 12px; color: var(--arc-text-hint); margin-bottom: 12px; }
-.genre-card .lead b { color: var(--arc-primary); font-weight: 600; }
-.genre-card .score { font-size: 22px; font-weight: 800; color: var(--arc-success, #15803d); letter-spacing: -0.02em; }
-.genre-card .score small { font-size: 12px; color: var(--arc-text-hint); font-weight: 500; margin-left: 4px; }
-.genre-card .cats { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+.genre-card.rank-1 .rank-badge { color: #92510a; background: linear-gradient(135deg, #fde68a, #fbbf24); border-color: #f59e0b; }
+.genre-card.rank-2 .rank-badge { color: #475569; background: linear-gradient(135deg, #f1f5f9, #cbd5e1); border-color: #94a3b8; }
+.genre-card.rank-3 .rank-badge { color: #7c2d12; background: linear-gradient(135deg, #fed7aa, #fb923c); border-color: #ea580c; }
+
+.genre-card .genre-head { padding-right: 44px; }
+.genre-card .name {
+  font-size: 17px;
+  font-weight: 760;
+  letter-spacing: -0.01em;
+  color: var(--arc-text-primary);
+  margin-bottom: 6px;
+  line-height: 1.25;
+}
+.genre-card .lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--arc-text-secondary);
+}
+.genre-card .lead-label {
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--arc-primary-soft);
+  color: var(--arc-primary);
+  font-weight: 700;
+}
+.genre-card .lead-val { font-weight: 600; color: var(--arc-text-primary); }
+
+.genre-card .score-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+}
+.genre-card .score-arrow {
+  font-size: 11px;
+  color: var(--arc-success, #15803d);
+  transform: translateY(-1px);
+}
+.genre-card .score {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--arc-success, #15803d);
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+.genre-card .score-unit { font-size: 11.5px; color: var(--arc-text-hint); font-weight: 500; }
+
+.genre-card .metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.genre-card .metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  background: var(--arc-bg-weak);
+  border: 1px solid var(--arc-border);
+}
+.genre-card .metric .m-val { font-weight: 700; letter-spacing: -0.01em; }
+.genre-card .metric .m-label { color: var(--arc-text-hint); }
+.genre-card .metric-up .m-val { color: var(--arc-success, #15803d); }
+.genre-card .metric-down .m-val { color: var(--arc-danger, #dc2626); }
+.genre-card .metric-mute .m-val { color: var(--arc-text-secondary); }
+
+.genre-card .cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--arc-border);
+}
 .chip {
   font-size: 11px;
   padding: 2px 9px;
@@ -565,6 +743,13 @@ onMounted(() => {
   background: var(--arc-bg-weak);
   border: 1px solid var(--arc-border);
   color: var(--arc-text-secondary);
+  transition: border-color 0.16s, color 0.16s;
+}
+.chip.chip-lead {
+  background: var(--arc-primary-soft);
+  border-color: color-mix(in srgb, var(--arc-primary) 45%, var(--arc-border));
+  color: var(--arc-primary);
+  font-weight: 600;
 }
 
 .themes { display: flex; flex-wrap: wrap; gap: 9px; }
@@ -637,6 +822,35 @@ onMounted(() => {
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.book-card .bk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.bk-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--arc-text-secondary);
+  background: var(--arc-bg-weak);
+  border: 1px solid var(--arc-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.16s, color 0.16s, background 0.16s;
+}
+.bk-action-btn:hover:not(:disabled) {
+  border-color: var(--arc-primary);
+  color: var(--arc-primary);
+  background: var(--arc-primary-soft);
+}
+.bk-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .trend-side { display: flex; flex-direction: column; gap: 14px; }
