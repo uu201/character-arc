@@ -50,6 +50,7 @@ type AnyRecord = Record<string, any>
 
 // ===== 状态 =====
 const loading = ref(true)
+const switching = ref(false)
 const errorMsg = ref('')
 const boardsList = ref<BoardItem[]>([])
 const curBoard = ref<string | null>(null)
@@ -97,7 +98,7 @@ async function switchBoard(slug: string, force = false): Promise<void> {
     return
   }
   boardEmpty.value = false
-  loading.value = true
+  switching.value = true
   errorMsg.value = ''
   try {
     const [summary, all] = await Promise.all([
@@ -111,8 +112,10 @@ async function switchBoard(slug: string, force = false): Promise<void> {
     const cats = (all.categories || []) as AnyRecord[]
     if (cats.length) curCat.value = cats[0].name
     loading.value = false
+    switching.value = false
   } catch (e) {
     loading.value = false
+    switching.value = false
     errorMsg.value = `加载榜单「${board.name}」失败：` + (e instanceof Error ? e.message : String(e))
   }
 }
@@ -143,7 +146,9 @@ async function loadAll(force = false): Promise<void> {
       if (!BOARD_ORDER.includes(b.slug)) boardsList.value.push({ ...b, _empty: false })
     })
 
-    const firstReady = boardsList.value.find((b) => !b._empty) || boardsList.value[0]
+    const firstReady = boardsList.value.find((b) => b.slug === curBoard.value && !b._empty)
+      || boardsList.value.find((b) => !b._empty)
+      || boardsList.value[0]
     if (firstReady) {
       await switchBoard(firstReady.slug, force)
     } else {
@@ -268,7 +273,7 @@ onMounted(() => {
         <button class="refresh-btn" style="margin-top:16px" @click="loadAll(true)">重试</button>
       </div>
 
-      <div v-else class="content">
+      <div v-else class="content" :class="{ switching }">
         <div class="board-tabs">
           <button
             v-for="b in boardsList"
@@ -562,12 +567,13 @@ onMounted(() => {
 .period-tab:hover { color: var(--arc-text-primary); }
 .period-tab.active { background: var(--arc-primary); color: #fff; box-shadow: var(--arc-shadow-sm); }
 .summary-card {
-  background: linear-gradient(135deg, var(--arc-primary-soft), transparent 80%);
-  border: 1px solid var(--arc-border);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-surface)) 0%, var(--arc-bg-surface) 70%);
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 25%, var(--arc-border));
   border-left: 3px solid var(--arc-primary);
   border-radius: var(--arc-radius-lg);
   padding: 16px 20px;
   margin-bottom: 24px;
+  box-shadow: 0 2px 12px -4px color-mix(in srgb, var(--arc-primary) 15%, transparent);
 }
 .summary-card .label {
   font-size: 11px;
@@ -600,6 +606,8 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   color: var(--arc-text-primary);
+  padding-left: 10px;
+  border-left: 3px solid var(--arc-primary);
 }
 .section-title .hint { font-size: 12px; color: var(--arc-text-hint); font-weight: 400; }
 
@@ -632,6 +640,7 @@ onMounted(() => {
 .genre-card.top1 {
   background: linear-gradient(155deg, color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface)) 0%, var(--arc-bg-surface) 55%);
   border-color: color-mix(in srgb, var(--arc-primary) 35%, var(--arc-border));
+  box-shadow: 0 4px 20px -6px color-mix(in srgb, var(--arc-primary) 30%, transparent);
 }
 .genre-card.top1::before { background: linear-gradient(90deg, var(--arc-primary), #ff9466 70%, transparent); }
 .genre-card.rank-2::before { background: linear-gradient(90deg, color-mix(in srgb, var(--arc-primary) 55%, transparent), transparent); }
@@ -809,7 +818,7 @@ onMounted(() => {
 .book-card:hover { border-color: var(--arc-border-strong); }
 .book-card .bk-rank { flex-shrink: 0; width: 26px; font-size: 17px; font-weight: 800; color: var(--arc-text-hint); text-align: center; }
 .book-card:nth-child(-n+3) .bk-rank { color: var(--arc-primary); }
-.book-card img { width: 52px; height: 70px; object-fit: cover; border-radius: 5px; flex-shrink: 0; background: var(--arc-bg-weak); }
+.book-card img { width: 60px; height: 80px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: var(--arc-bg-weak); box-shadow: 0 2px 8px -2px rgba(0,0,0,0.18); }
 .book-card .bk-info { min-width: 0; flex: 1; }
 .book-card .bk-title { font-size: 14px; font-weight: 700; margin-bottom: 2px; display: flex; align-items: center; gap: 7px; }
 .book-card .bk-meta { font-size: 12px; color: var(--arc-text-hint); margin-bottom: 5px; }
@@ -854,7 +863,12 @@ onMounted(() => {
 }
 
 .trend-side { display: flex; flex-direction: column; gap: 14px; }
-.trend-box { background: var(--arc-bg-surface); border: 1px solid var(--arc-border); border-radius: var(--arc-radius-md); padding: 14px; }
+.trend-box { background: var(--arc-bg-surface); border: 1px solid var(--arc-border); border-radius: var(--arc-radius-md); padding: 14px; border-left: 3px solid var(--arc-border); }
+.trend-box:nth-child(1) { border-left-color: var(--arc-success, #15803d); }
+.trend-box:nth-child(2) { border-left-color: var(--arc-danger, #dc2626); }
+.trend-box:nth-child(3) { border-left-color: var(--arc-warning, #a16207); }
+.trend-box:nth-child(4) { border-left-color: var(--arc-primary); }
+.trend-box:nth-child(5) { border-left-color: var(--arc-border-strong); }
 .trend-box h4 { margin: 0 0 10px; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
 .trend-item {
   display: flex;
@@ -882,6 +896,9 @@ onMounted(() => {
   margin-bottom: 18px;
 }
 .cat-summary :deep(strong) { color: var(--arc-text-primary); }
+
+.content { transition: opacity 0.18s; }
+.content.switching { opacity: 0.45; pointer-events: none; }
 
 .state { text-align: center; padding: 80px 20px; color: var(--arc-text-hint); }
 .state .spinner {
