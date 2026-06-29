@@ -182,13 +182,16 @@ declare global {
     current: number
     total: number
     chapterTitle: string
-    phase: 'extracting' | 'applying' | 'done'
+    phase: 'extracting' | 'applying' | 'skipped' | 'failed' | 'done'
+    message?: string
   }
 
   type CharacterArcBackfillStateResult = {
     totalChapters: number
     processedChapters: number
     skipped: number
+    failed: number
+    errors: Array<{ chapterTitle: string; message: string }>
   }
 
   interface Window {

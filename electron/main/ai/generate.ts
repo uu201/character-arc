@@ -26,21 +26,24 @@ function resolveSamplingOptions(settings: AppSettings): { temperature?: number; 
   }
 }
 
-function resolveProviderOptions(settings: AppSettings): AiProviderOptions | undefined {
-  if (!useOpenAIChatCompatibility(settings)) {
+function resolveProviderOptions(settings: AppSettings, options?: AiGenerateOptions): AiProviderOptions | undefined {
+  const useCompatibilityOptions = useOpenAIChatCompatibility(settings)
+  if (!useCompatibilityOptions && !options?.disableReasoning) {
     return undefined
   }
 
   return {
     openai: {
-      forceReasoning: false,
-      systemMessageMode: 'system'
+      forceReasoning: useCompatibilityOptions ? false : undefined,
+      reasoningEffort: options?.disableReasoning ? 'none' : undefined,
+      systemMessageMode: useCompatibilityOptions ? 'system' : undefined
     }
   }
 }
 
 export type AiGenerateOptions = {
   schema?: ZodTypeAny
+  disableReasoning?: boolean
 }
 
 export type AiTextGenerationResult = {
@@ -98,7 +101,7 @@ export async function aiGenerateTextWithUsage(
 ): Promise<AiTextGenerationResult> {
   const system = buildSystemPrompt(settings, prompt.system)
   const canUseNativeStructuredOutput = providerSupportsNativeStructuredOutput(settings)
-  const providerOptions = resolveProviderOptions(settings)
+  const providerOptions = resolveProviderOptions(settings, options)
   const samplingOptions = resolveSamplingOptions(settings)
 
   if (options?.schema && canUseNativeStructuredOutput) {

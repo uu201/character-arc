@@ -76,6 +76,7 @@ export type AiTaskName =
   | 'chapter-session-note'
   | 'inspiration-pack'
   | 'story-deep-audit'
+  | 'state-backfill'
   | 'character-enhance'
   | 'worldview-enhance'
   | 'outline-enhance'

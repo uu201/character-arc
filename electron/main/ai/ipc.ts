@@ -524,11 +524,35 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       if (!projectId) throw new Error('缺少 projectId。')
       if (!request?.settings) throw new Error('缺少 AI 设置。')
 
-      const result = await backfillProjectStateFromChapters(request.settings, projectId, (progress) => {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send('characterarc:ai-backfill-state-progress', progress)
+      const result = await backfillProjectStateFromChapters(
+        request.settings,
+        projectId,
+        (progress) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('characterarc:ai-backfill-state-progress', progress)
+          }
+        },
+        {
+          onChapterRun: (run) => {
+            const meta = buildRunMeta(
+              'state-backfill',
+              run.projectId,
+              run.chapterId,
+              run.settings,
+              run.status,
+              run.startedAt,
+              run.finishedAt,
+              run.usage,
+              [],
+              [],
+              false,
+              run.responsePreview || `状态补录：${run.chapterTitle}`,
+              run.error
+            )
+            deps!.emitAiRunEvent({ projectId: run.projectId, meta: { id: randomUUID(), ...meta } })
+          }
         }
-      })
+      )
       return { success: true, result }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : '状态补录失败' }

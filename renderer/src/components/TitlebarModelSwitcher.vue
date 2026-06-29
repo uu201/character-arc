@@ -66,6 +66,7 @@ const taskLabelMap: Record<string, string> = {
   'chapter-analysis': '章节分析',
   'chapter-session-note': '写作日志',
   'story-deep-audit': '全书审计',
+  'state-backfill': '状态补录',
   'assistant-intent': '意图判断',
   'assistant-action-proposal': '操作建议',
   'worldview-entry': '世界观生成',
