@@ -71,6 +71,7 @@ export const EditorSearchExtension = Extension.create<object, EditorSearchStorag
   },
 
   addProseMirrorPlugins() {
+    const ext = this
     return [
       new Plugin<SearchPluginState>({
         key: SEARCH_KEY,
@@ -80,6 +81,7 @@ export const EditorSearchExtension = Extension.create<object, EditorSearchStorag
           },
           apply(tr, prev): SearchPluginState {
             const meta = tr.getMeta(SEARCH_KEY) as Partial<SearchPluginState> | undefined
+            let next: SearchPluginState = prev
             if (meta) {
               const term = meta.term ?? prev.term
               const caseSensitive = meta.caseSensitive ?? prev.caseSensitive
@@ -87,14 +89,17 @@ export const EditorSearchExtension = Extension.create<object, EditorSearchStorag
               const currentIndex = meta.currentIndex !== undefined
                 ? Math.max(0, Math.min(meta.currentIndex, Math.max(0, matches.length - 1)))
                 : prev.currentIndex
-              return { term, caseSensitive, matches, currentIndex, decorations: buildDecorations(tr.doc, matches, currentIndex) }
-            }
-            if (tr.docChanged && prev.term) {
+              next = { term, caseSensitive, matches, currentIndex, decorations: buildDecorations(tr.doc, matches, currentIndex) }
+            } else if (tr.docChanged && prev.term) {
               const matches = findMatches(tr.doc, prev.term, prev.caseSensitive)
               const currentIndex = Math.max(0, Math.min(prev.currentIndex, Math.max(0, matches.length - 1)))
-              return { ...prev, matches, currentIndex, decorations: buildDecorations(tr.doc, matches, currentIndex) }
+              next = { ...prev, matches, currentIndex, decorations: buildDecorations(tr.doc, matches, currentIndex) }
             }
-            return prev
+            // 把最新结果同步到 extension storage，方便外部（含 Vue 组件）读取
+            // 注意：这里只赋值原始字段，外部需要响应式时应自己监听 transaction
+            ext.storage.matches = next.matches
+            ext.storage.currentIndex = next.currentIndex
+            return next
           }
         },
         props: {
@@ -111,12 +116,16 @@ export const EditorSearchExtension = Extension.create<object, EditorSearchStorag
         const tr = state.tr.setMeta(SEARCH_KEY, { term, caseSensitive, currentIndex: 0 })
         dispatch(tr)
         const pluginState = SEARCH_KEY.getState(editor.state)
-        const storage = editor.storage.editorSearch
-        storage.matches = pluginState?.matches ?? []
-        storage.currentIndex = 0
         const first = pluginState?.matches[0]
         if (first) {
-          editor.chain().setTextSelection(first).scrollIntoView().run()
+          // 滚动到第一个匹配但不改动选区/焦点
+          const dom = editor.view.domAtPos(first.from)
+          const node = dom.node as HTMLElement | Node | null
+          if (node && (node as HTMLElement).scrollIntoView) {
+            ;(node as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' })
+          } else if (node?.parentElement) {
+            node.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
         }
         return true
       },
@@ -126,9 +135,8 @@ export const EditorSearchExtension = Extension.create<object, EditorSearchStorag
         if (!pluginState?.matches.length || !dispatch) return false
         const nextIndex = (pluginState.currentIndex + 1) % pluginState.matches.length
         dispatch(state.tr.setMeta(SEARCH_KEY, { currentIndex: nextIndex }))
-        editor.storage.editorSearch.currentIndex = nextIndex
         const match = pluginState.matches[nextIndex]
-        editor.chain().setTextSelection(match).scrollIntoView().run()
+        scrollMatchIntoView(editor, match.from)
         return true
       },
 
@@ -137,31 +145,48 @@ export const EditorSearchExtension = Extension.create<object, EditorSearchStorag
         if (!pluginState?.matches.length || !dispatch) return false
         const prevIndex = (pluginState.currentIndex - 1 + pluginState.matches.length) % pluginState.matches.length
         dispatch(state.tr.setMeta(SEARCH_KEY, { currentIndex: prevIndex }))
-        editor.storage.editorSearch.currentIndex = prevIndex
         const match = pluginState.matches[prevIndex]
-        editor.chain().setTextSelection(match).scrollIntoView().run()
+        scrollMatchIntoView(editor, match.from)
         return true
       },
 
-      replaceCurrentMatch: (replacement: string) => ({ editor, state }: { editor: Editor; state: EditorState }) => {
-        const pluginState = SEARCH_KEY.getState(state)
+      replaceCurrentMatch: (replacement: string) => ({ editor, tr, dispatch }: { editor: Editor; tr: Transaction; dispatch: ((tr: Transaction) => void) | undefined }) => {
+        const pluginState = SEARCH_KEY.getState(editor.state)
         if (!pluginState?.matches.length) return false
+        if (!dispatch) return false
         const match = pluginState.matches[pluginState.currentIndex]
-        editor.chain().setTextSelection(match).insertContent(replacement).run()
+        // 直接用命令提供的 tr 操作，避免 chain 与外部 dispatch 时序冲突
+        // 用 insertText 比 insertContent 更安全：跨 inline 节点也不会破坏结构
+        tr.insertText(replacement, match.from, match.to)
         return true
       },
 
-      replaceAllMatches: (replacement: string) => ({ editor, state }: { editor: Editor; state: EditorState }) => {
-        const pluginState = SEARCH_KEY.getState(state)
+      replaceAllMatches: (replacement: string) => ({ editor, tr, dispatch }: { editor: Editor; tr: Transaction; dispatch: ((tr: Transaction) => void) | undefined }) => {
+        const pluginState = SEARCH_KEY.getState(editor.state)
         if (!pluginState?.matches.length) return false
+        if (!dispatch) return false
+        // 倒序替换：后面的修改不会影响前面位置
         const reversed = [...pluginState.matches].reverse()
-        const chain = editor.chain()
         for (const match of reversed) {
-          chain.setTextSelection(match).insertContent(replacement)
+          tr.insertText(replacement, match.from, match.to)
         }
-        chain.run()
         return true
       }
     }
   }
 })
+
+function scrollMatchIntoView(editor: Editor, pos: number): void {
+  try {
+    const dom = editor.view.domAtPos(pos)
+    let target: HTMLElement | null = null
+    if (dom.node.nodeType === Node.ELEMENT_NODE) {
+      target = dom.node as HTMLElement
+    } else if (dom.node.parentElement) {
+      target = dom.node.parentElement
+    }
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  } catch {
+    /* ignore */
+  }
+}

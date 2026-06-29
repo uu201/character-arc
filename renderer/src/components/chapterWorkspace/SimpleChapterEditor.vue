@@ -7,6 +7,7 @@ import CharacterCount from '@tiptap/extension-character-count'
 import Underline from '@tiptap/extension-underline'
 import { ensureEditorHtmlContent } from '@/features/chapters/editorContent'
 import type { ChapterInsertionRequest, ChapterSelectionState } from '@/types/app'
+import { EditorSearchExtension } from '@/features/chapters/editorSearch'
 
 const props = defineProps<{
   chapterId: string
@@ -73,6 +74,7 @@ const editor = useEditor({
     }),
     CharacterCount,
     Underline,
+    EditorSearchExtension,
   ],
   content: ensureEditorHtmlContent(props.modelValue),
   editorProps: {
@@ -164,6 +166,8 @@ onBeforeUnmount(() => {
   flushEmit()
   editor.value?.destroy()
 })
+
+defineExpose({ editor })
 </script>
 
 <template>
@@ -199,5 +203,14 @@ onBeforeUnmount(() => {
   text-indent: 0;
   margin-bottom: 12px;
   font-weight: 700;
+}
+
+:deep(.search-hl) {
+  background: rgba(255, 200, 0, 0.35);
+  border-radius: 2px;
+}
+
+:deep(.search-hl-cur) {
+  background: rgba(255, 140, 0, 0.6);
 }
 </style>

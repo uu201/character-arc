@@ -4,6 +4,8 @@ import { ChevronRight, Folder, FocusIcon, History, Maximize2, Menu, MessageSquar
 import { NAlert, NTag, NTooltip } from 'naive-ui'
 import SimpleChapterEditor from './SimpleChapterEditor.vue'
 import ChapterVersionDialog from './ChapterVersionDialog.vue'
+import EditorFindBar from './EditorFindBar.vue'
+import EditorContextMenu from './EditorContextMenu.vue'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { formatChapterWordTargetLabel, parseChapterWordTarget } from '@/features/chapters/wordTarget'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
@@ -86,6 +88,99 @@ const selToolbarVisible = ref(false)
 const selToolbarTop = ref(0)
 const selToolbarLeft = ref(0)
 const scrollRef = ref<HTMLDivElement | null>(null)
+const editorRef = ref<InstanceType<typeof SimpleChapterEditor> | null>(null)
+const findBarRef = ref<InstanceType<typeof EditorFindBar> | null>(null)
+const findBarVisible = ref(false)
+const findInitialTerm = ref('')
+// editorRef.value.editor 通过模板 ref 自动 unwrap 为 Editor | undefined
+const tiptapEditor = computed(() => (editorRef.value as any)?.editor ?? null)
+
+function openFindBar(): void {
+  const editor = tiptapEditor.value
+  let preset = ''
+  if (editor) {
+    const { from, to } = editor.state.selection
+    if (from !== to) {
+      const text = editor.state.doc.textBetween(from, to, '\n').trim()
+      // 选区单行才预填，多段选区跳过
+      if (text && !text.includes('\n')) preset = text
+    }
+  }
+  findInitialTerm.value = preset
+  if (findBarVisible.value) {
+    // 已打开：强制用选区文本覆盖（如果没选区，则保留原搜索词）
+    if (preset) {
+      ;(findBarRef.value as any)?.setTerm(preset)
+    } else {
+      ;(findBarRef.value as any)?.focus()
+    }
+  } else {
+    findBarVisible.value = true
+  }
+}
+
+const ctxMenuVisible = ref(false)
+const ctxMenuX = ref(0)
+const ctxMenuY = ref(0)
+const ctxMenuHasSelection = ref(false)
+
+function handleEditorContextMenu(e: MouseEvent): void {
+  const target = e.target as HTMLElement | null
+  // 仅在 ProseMirror 编辑区域内拦截
+  if (!target?.closest('.ProseMirror')) return
+  e.preventDefault()
+  const editor = tiptapEditor.value
+  const sel = editor?.state.selection
+  ctxMenuHasSelection.value = !!sel && sel.from !== sel.to
+  ctxMenuX.value = e.clientX
+  ctxMenuY.value = e.clientY
+  ctxMenuVisible.value = true
+}
+
+async function handleCtxAction(id: string): Promise<void> {
+  const editor = tiptapEditor.value
+  if (!editor) return
+  if (id === 'copy') {
+    const { from, to } = editor.state.selection
+    if (from === to) return
+    const text = editor.state.doc.textBetween(from, to, '\n')
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // 剪贴板被拒绝时回退到执行命令
+      document.execCommand('copy')
+    }
+  } else if (id === 'cut') {
+    const { from, to } = editor.state.selection
+    if (from === to) return
+    const text = editor.state.doc.textBetween(from, to, '\n')
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      document.execCommand('cut')
+      return
+    }
+    editor.chain().focus().deleteSelection().run()
+  } else if (id === 'paste') {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) editor.chain().focus().insertContent(text).run()
+    } catch {
+      document.execCommand('paste')
+    }
+  } else if (id === 'paste-plain') {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) editor.chain().focus().insertContent(text).run()
+    } catch {
+      /* ignore */
+    }
+  } else if (id === 'select-all') {
+    editor.chain().focus().selectAll().run()
+  } else if (id === 'find') {
+    openFindBar()
+  }
+}
 
 function handleSelectionChange(): void {
   const sel = window.getSelection()
@@ -134,13 +229,28 @@ function handleMouseDown(e: MouseEvent): void {
   selToolbarVisible.value = false
 }
 
+function handleGlobalKeydown(e: KeyboardEvent): void {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    const scrollEl = scrollRef.value
+    if (!scrollEl) return
+    // 仅当焦点在当前编辑器区域内时才拦截
+    const active = document.activeElement
+    const inEditor = scrollEl.contains(active) || findBarVisible.value
+    if (!inEditor) return
+    e.preventDefault()
+    openFindBar()
+  }
+}
+
 onMounted(() => {
   document.addEventListener('selectionchange', handleSelectionChange)
   document.addEventListener('mousedown', handleMouseDown)
+  document.addEventListener('keydown', handleGlobalKeydown)
 })
 onBeforeUnmount(() => {
   document.removeEventListener('selectionchange', handleSelectionChange)
   document.removeEventListener('mousedown', handleMouseDown)
+  document.removeEventListener('keydown', handleGlobalKeydown)
 })
 </script>
 
@@ -195,7 +305,7 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <div ref="scrollRef" class="ep-scroll arc-scrollbar">
+    <div ref="scrollRef" class="ep-scroll arc-scrollbar" @contextmenu="handleEditorContextMenu">
       <div class="ep-canvas" :style="{ fontSize: fontSize + 'px' }">
         <div v-if="!currentChapter" class="ep-empty">
           请在左侧选择一个章节，或新建一个章节开始写作
@@ -239,6 +349,7 @@ onBeforeUnmount(() => {
           </n-alert>
 
           <SimpleChapterEditor
+            ref="editorRef"
             class="ep-editor"
             :chapter-id="currentChapter.id"
             :model-value="currentChapter.content ?? ''"
@@ -250,6 +361,24 @@ onBeforeUnmount(() => {
         </template>
       </div>
     </div>
+
+    <EditorFindBar
+      ref="findBarRef"
+      :visible="findBarVisible"
+      :editor="tiptapEditor"
+      :initial-term="findInitialTerm"
+      :scroll-container="scrollRef"
+      @close="findBarVisible = false"
+    />
+
+    <EditorContextMenu
+      :visible="ctxMenuVisible"
+      :x="ctxMenuX"
+      :y="ctxMenuY"
+      :has-selection="ctxMenuHasSelection"
+      @close="ctxMenuVisible = false"
+      @action="handleCtxAction"
+    />
 
     <Teleport to="body">
       <Transition name="arc-sel-fade">
@@ -307,6 +436,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   background: var(--arc-bg-body);
   overflow: hidden;
+  position: relative;
 }
 
 .ep-header {
