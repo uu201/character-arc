@@ -83,7 +83,7 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
   const editChapter: Tool = {
     definition: {
       name: 'edit_chapter',
-      description: 'Edit the current chapter content. Supports replace, insert, and append.',
+      description: 'Prepare or apply a chapter content edit. Supports replace, insert, and append. In diff review mode, this creates a pending review proposal and does not write to the chapter until the user approves it.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -144,7 +144,9 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
 
           const proposalId = randomUUID()
           onEditProposed(targetChapterId, proposalId, operation, computed.preview, computed.oldContent, computed.newContent)
-          return { content: `Edit applied: ${computed.preview}` }
+          return {
+            content: `已生成待审查的章节修改提案：${computed.preview}。正文尚未写回；只有用户在 Diff 审阅中确认写回后才会生效。请不要把这描述为已修复或已写入。`
+          }
         }
 
         const result = await applyChapterEdit(ctx.projectId, targetChapterId, {

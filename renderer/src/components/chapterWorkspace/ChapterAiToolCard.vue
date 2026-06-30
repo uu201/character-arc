@@ -20,7 +20,7 @@ const toolLabel = computed(() => {
       return chapterId ? `读取章节` : '读取当前章节'
     }
     case 'edit_chapter':
-      return '编辑章节'
+      return '生成章节修改提案'
     case 'search_project':
       return '搜索项目'
     case 'skill_list':

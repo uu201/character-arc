@@ -131,9 +131,12 @@ function formatToolResultPreview(content?: string, toolCall?: AssistantToolCall)
 
   if (
     toolCall?.toolName === 'edit_chapter'
-    && normalized.includes('No active chapter is selected')
+    && (
+      normalized.includes('No active chapter is selected')
+      || (normalized.includes('No chapter_id was provided') && normalized.includes('there is no active chapter'))
+    )
   ) {
-    return '当前没有激活章节，所以这次不能直接修改正文。请先进入某一章，或先让 AI 找到目标章节。'
+    return '当前没有激活章节，所以这次不能生成章节修改提案。请先进入某一章，或先让 AI 找到目标章节。'
   }
 
   return normalized.length > 160 ? `${normalized.slice(0, 160)}...` : normalized
@@ -201,11 +204,11 @@ function describeToolAction(toolCall: AssistantToolCall): string {
       return chapterId ? '读取指定章节内容' : '读取当前章节内容'
     case 'edit_chapter': {
       const opMap: Record<string, string> = {
-        replace: '替换章节内容',
-        insert: '插入章节内容',
-        append: '追加章节内容'
+        replace: '生成章节替换提案',
+        insert: '生成章节插入提案',
+        append: '生成章节追加提案'
       }
-      return opMap[operation] ?? '修改章节内容'
+      return opMap[operation] ?? '生成章节修改提案'
     }
     case 'list_chapters':
       return '查看章节列表'
