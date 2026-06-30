@@ -747,4 +747,31 @@ watch(() => props.show, (val) => {
 .ga-diff-modal .n-card__content {
   padding: 0;
 }
+
+/* ─── diff2html 暗黑模式覆盖：把 light 变量重映射到 diff2html 内置的 dark 变量 ─── */
+.dark-mode .ga-diff-body {
+  color: var(--d2h-dark-color);
+  --d2h-bg-color: var(--d2h-dark-bg-color);
+  --d2h-border-color: var(--d2h-dark-border-color);
+  --d2h-dim-color: var(--d2h-dark-dim-color);
+  --d2h-line-border-color: var(--d2h-dark-line-border-color);
+  --d2h-file-header-bg-color: var(--d2h-dark-file-header-bg-color);
+  --d2h-file-header-border-color: var(--d2h-dark-file-header-border-color);
+  --d2h-empty-placeholder-bg-color: var(--d2h-dark-empty-placeholder-bg-color);
+  --d2h-empty-placeholder-border-color: var(--d2h-dark-empty-placeholder-border-color);
+  --d2h-selected-color: var(--d2h-dark-selected-color);
+  --d2h-ins-bg-color: var(--d2h-dark-ins-bg-color);
+  --d2h-ins-border-color: var(--d2h-dark-ins-border-color);
+  --d2h-ins-highlight-bg-color: var(--d2h-dark-ins-highlight-bg-color);
+  --d2h-ins-label-color: var(--d2h-dark-ins-label-color);
+  --d2h-del-bg-color: var(--d2h-dark-del-bg-color);
+  --d2h-del-border-color: var(--d2h-dark-del-border-color);
+  --d2h-del-highlight-bg-color: var(--d2h-dark-del-highlight-bg-color);
+  --d2h-del-label-color: var(--d2h-dark-del-label-color);
+  --d2h-change-del-color: var(--d2h-dark-change-del-color);
+  --d2h-change-ins-color: var(--d2h-dark-change-ins-color);
+  --d2h-info-bg-color: var(--d2h-dark-info-bg-color);
+  --d2h-info-border-color: var(--d2h-dark-info-border-color);
+  --d2h-change-label-color: var(--d2h-dark-change-label-color);
+}
 </style>

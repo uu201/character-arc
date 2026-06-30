@@ -39,6 +39,8 @@ function hasProposalContent(proposal: Partial<GlobalAssistantProposalResult>): b
     proposal.worldviewUpdates?.length ||
     proposal.characterCreates?.length ||
     proposal.characterUpdates?.length ||
+    proposal.organizationCreates?.length ||
+    proposal.organizationUpdates?.length ||
     proposal.outlineCreates?.length ||
     proposal.outlineUpdates?.length ||
     proposal.notes?.some((item) => String(item).trim())
@@ -126,15 +128,17 @@ ${String(context.userPrompt ?? '')}
 4. worldviewUpdates：需要修改的世界观词条，必须带 matchTitle 和 reason。
 5. characterCreates：需要新增的人物卡。
 6. characterUpdates：需要修改的人物卡，必须带 matchName 和 reason。
-7. outlineCreates：需要新增的大纲节点。
-8. outlineUpdates：需要修改的大纲节点，必须带 matchTitle 和 reason。
-9. notes：补充提醒，例如“这条约束尚未写入人物卡，需要用户确认”。
-10. 如果某一类没有提案，返回空数组。
-11. 每一类最多返回 4 条；每个 content/description/summary 控制在 180 字以内，reason 控制在 80 字以内，notes 每条控制在 80 字以内。
-12. 不要为了覆盖所有分类而强行填满数组，只返回真正需要写回的内容。
+7. organizationCreates：需要新增的势力/组织条目。
+8. organizationUpdates：需要修改的势力/组织条目，必须带 matchName 和 reason。
+9. outlineCreates：需要新增的大纲节点。
+10. outlineUpdates：需要修改的大纲节点，必须带 matchTitle 和 reason。
+11. notes：补充提醒，例如”这条约束尚未写入人物卡，需要用户确认”。
+12. 如果某一类没有提案，返回空数组。
+13. 每一类最多返回 4 条；每个 content/description/summary 控制在 180 字以内，reason 控制在 80 字以内，notes 每条控制在 80 字以内。
+14. 不要为了覆盖所有分类而强行填满数组，只返回真正需要写回的内容。
 
 返回格式：
-{"summary":"","constraintCreates":[{"title":"","content":"","scope":"","weight":"core","locked":true,"reason":"","keywords":[""]}],"worldviewCreates":[{"type":"","title":"","content":""}],"worldviewUpdates":[{"matchTitle":"","reason":"","type":"","title":"","content":""}],"characterCreates":[{"name":"","role":"","description":"","tags":[""]}],"characterUpdates":[{"matchName":"","reason":"","name":"","role":"","description":"","tags":[""]}],"outlineCreates":[{"title":"","wordTarget":"","conflict":"","summary":""}],"outlineUpdates":[{"matchTitle":"","reason":"","title":"","wordTarget":"","conflict":"","summary":""}],"notes":[""]}`
+{“summary”:””,”constraintCreates”:[{“title”:””,”content”:””,”scope”:””,”weight”:”core”,”locked”:true,”reason”:””,”keywords”:[“”]}],”worldviewCreates”:[{“type”:””,”title”:””,”content”:””}],”worldviewUpdates”:[{“matchTitle”:””,”reason”:””,”type”:””,”title”:””,”content”:””}],”characterCreates”:[{“name”:””,”role”:””,”description”:””,”tags”:[“”]}],”characterUpdates”:[{“matchName”:””,”reason”:””,”name”:””,”role”:””,”description”:””,”tags”:[“”]}],”organizationCreates”:[{“name”:””,”type”:””,”description”:””,”motto”:””}],”organizationUpdates”:[{“matchName”:””,”reason”:””,”name”:””,”type”:””,”description”:””,”motto”:””}],”outlineCreates”:[{“title”:””,”wordTarget”:””,”conflict”:””,”summary”:””}],”outlineUpdates”:[{“matchTitle”:””,”reason”:””,”title”:””,”wordTarget”:””,”conflict”:””,”summary”:””}],”notes”:[“”]}`
     }
   },
   normalize(raw: string): AiTaskResult {
@@ -207,6 +211,32 @@ ${String(context.userPrompt ?? '')}
           .slice(0, 6)
       : []
 
+    const organizationCreates = Array.isArray(parsed.organizationCreates)
+      ? parsed.organizationCreates
+          .map((item) => ({
+            name: String(item?.name ?? '').trim(),
+            type: String(item?.type ?? '').trim(),
+            description: String(item?.description ?? '').trim(),
+            motto: String(item?.motto ?? '').trim() || undefined
+          }))
+          .filter((item) => item.name && item.type && item.description)
+          .slice(0, 6)
+      : []
+
+    const organizationUpdates = Array.isArray(parsed.organizationUpdates)
+      ? parsed.organizationUpdates
+          .map((item) => ({
+            matchName: String(item?.matchName ?? '').trim(),
+            reason: String(item?.reason ?? '').trim(),
+            name: String(item?.name ?? '').trim() || undefined,
+            type: String(item?.type ?? '').trim() || undefined,
+            description: String(item?.description ?? '').trim() || undefined,
+            motto: String(item?.motto ?? '').trim() || undefined
+          }))
+          .filter((item) => item.matchName && item.reason && (item.name || item.type || item.description || item.motto))
+          .slice(0, 6)
+      : []
+
     const outlineCreates = Array.isArray(parsed.outlineCreates)
       ? parsed.outlineCreates
           .map((item) => ({
@@ -244,6 +274,8 @@ ${String(context.userPrompt ?? '')}
       worldviewUpdates,
       characterCreates,
       characterUpdates,
+      organizationCreates,
+      organizationUpdates,
       outlineCreates,
       outlineUpdates,
       notes
@@ -260,7 +292,7 @@ ${String(context.userPrompt ?? '')}
       errors.push('summary 不能为空，必须用一句话概括本次写回提案。')
     }
     if (!hasProposalContent(proposal)) {
-      errors.push('写回提案为空。必须至少返回 1 条 constraintCreates、worldviewCreates、worldviewUpdates、characterCreates、characterUpdates、outlineCreates、outlineUpdates 或 notes。')
+      errors.push('写回提案为空。必须至少返回 1 条 constraintCreates、worldviewCreates、worldviewUpdates、characterCreates、characterUpdates、organizationCreates、organizationUpdates、outlineCreates、outlineUpdates 或 notes。')
     }
     return errors
   },

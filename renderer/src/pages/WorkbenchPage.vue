@@ -44,6 +44,7 @@ const isSidebarOpen = ref(true)
 const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
 const isGlobalAssistantOpen = ref(false)
 const GLOBAL_ASSISTANT_WIDTH_STORAGE_KEY = 'arc-global-assistant-width'
+const GLOBAL_ASSISTANT_OPEN_STORAGE_KEY = 'arc-global-assistant-open'
 const GLOBAL_ASSISTANT_DEFAULT_WIDTH = 420
 const GLOBAL_ASSISTANT_MIN_WIDTH = 320
 const GLOBAL_ASSISTANT_MAX_WIDTH = 760
@@ -176,10 +177,12 @@ function toggleSidebar(): void {
 
 function toggleGlobalAssistant(): void {
   isGlobalAssistantOpen.value = !isGlobalAssistantOpen.value
+  localStorage.setItem(GLOBAL_ASSISTANT_OPEN_STORAGE_KEY, isGlobalAssistantOpen.value ? '1' : '0')
 }
 
 function closeGlobalAssistant(): void {
   isGlobalAssistantOpen.value = false
+  localStorage.setItem(GLOBAL_ASSISTANT_OPEN_STORAGE_KEY, '0')
 }
 
 /**
@@ -259,6 +262,10 @@ onMounted(() => {
   const savedWidth = Number(localStorage.getItem(GLOBAL_ASSISTANT_WIDTH_STORAGE_KEY))
   if (Number.isFinite(savedWidth) && savedWidth >= GLOBAL_ASSISTANT_MIN_WIDTH && savedWidth <= GLOBAL_ASSISTANT_MAX_WIDTH) {
     globalAssistantWidth.value = savedWidth
+  }
+  const savedOpen = localStorage.getItem(GLOBAL_ASSISTANT_OPEN_STORAGE_KEY)
+  if (savedOpen === '1') {
+    isGlobalAssistantOpen.value = true
   }
   window.addEventListener('resize', syncViewportState)
 })

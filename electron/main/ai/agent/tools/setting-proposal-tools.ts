@@ -8,6 +8,8 @@ export type SettingProposalDraft = Partial<GlobalAssistantProposalResult> & {
   worldviewUpdates: GlobalAssistantProposalResult['worldviewUpdates']
   characterCreates: GlobalAssistantProposalResult['characterCreates']
   characterUpdates: GlobalAssistantProposalResult['characterUpdates']
+  organizationCreates: GlobalAssistantProposalResult['organizationCreates']
+  organizationUpdates: GlobalAssistantProposalResult['organizationUpdates']
   outlineCreates: GlobalAssistantProposalResult['outlineCreates']
   outlineUpdates: GlobalAssistantProposalResult['outlineUpdates']
   notes: string[]
@@ -20,6 +22,8 @@ export function createEmptySettingProposalDraft(): SettingProposalDraft {
     worldviewUpdates: [],
     characterCreates: [],
     characterUpdates: [],
+    organizationCreates: [],
+    organizationUpdates: [],
     outlineCreates: [],
     outlineUpdates: [],
     notes: []
@@ -34,6 +38,8 @@ export function settingProposalHasContent(draft: SettingProposalDraft): boolean 
     draft.worldviewUpdates.length ||
     draft.characterCreates.length ||
     draft.characterUpdates.length ||
+    draft.organizationCreates.length ||
+    draft.organizationUpdates.length ||
     draft.outlineCreates.length ||
     draft.outlineUpdates.length ||
     draft.notes.some((item) => String(item).trim())
@@ -56,6 +62,7 @@ const PER_CATEGORY_LIMIT = {
   constraint: 8,
   worldview: 6,
   character: 6,
+  organization: 6,
   outline: 8
 } as const
 
@@ -93,6 +100,8 @@ export function createSettingProposalTools(opts: SettingProposalToolFactoryOptio
       draft.worldviewUpdates.length +
       draft.characterCreates.length +
       draft.characterUpdates.length +
+      draft.organizationCreates.length +
+      draft.organizationUpdates.length +
       draft.outlineCreates.length +
       draft.outlineUpdates.length +
       draft.notes.length
@@ -312,5 +321,62 @@ export function createSettingProposalTools(opts: SettingProposalToolFactoryOptio
     }
   }
 
-  return [proposeConstraint, proposeWorldview, proposeCharacter, proposeOutline]
+  const proposeOrganization: Tool = {
+    definition: {
+      name: 'propose_organization',
+      description:
+        '提议新增或更新一个「势力/组织」条目（门派、帝国、反派组织、中立势力等）。要更新已有组织时，先用 read_project_data 取到精确名称，填入 match_name 并给出 reason；不确定就别填 match_name（按新增处理）。本工具只产出提案，用户确认后才写入。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          match_name: { type: 'string', description: '可选。要更新的已有组织的精确名称；给出即视为更新，否则为新增。' },
+          reason: { type: 'string', description: '更新时必填：说明为何修改该组织。' },
+          name: { type: 'string', description: '组织名称。新增时必填。' },
+          type: { type: 'string', description: '组织类型（如 帝国 / 反抗军 / 商会 / 教会）。新增时必填。' },
+          description: { type: 'string', description: '组织描述。新增时必填。' },
+          motto: { type: 'string', description: '可选。组织信条/口号。' }
+        },
+        required: []
+      }
+    },
+    async handler(input) {
+      const matchName = str(input.match_name)
+      const name = str(input.name)
+      const type = str(input.type)
+      const description = clamp(str(input.description), maxContent)
+      const motto = str(input.motto)
+
+      if (matchName) {
+        const reason = str(input.reason)
+        if (!reason) return err('更新组织需要提供 reason')
+        if (!name && !type && !description && !motto) {
+          return err('更新组织需至少提供 name / type / description / motto 之一')
+        }
+        const blocked = guard(draft.organizationUpdates.length, PER_CATEGORY_LIMIT.organization)
+        if (blocked) return blocked
+        draft.organizationUpdates.push({
+          matchName,
+          reason,
+          name: name || undefined,
+          type: type || undefined,
+          description: description || undefined,
+          motto: motto || undefined
+        })
+        return recorded(`更新组织「${matchName}」`)
+      }
+
+      if (!name || !type || !description) return err('新增组织需要 name、type 和 description')
+      const blocked = guard(draft.organizationCreates.length, PER_CATEGORY_LIMIT.organization)
+      if (blocked) return blocked
+      draft.organizationCreates.push({
+        name,
+        type,
+        description,
+        motto: motto || undefined
+      })
+      return recorded(`新增组织「${name}」`)
+    }
+  }
+
+  return [proposeConstraint, proposeWorldview, proposeCharacter, proposeOrganization, proposeOutline]
 }

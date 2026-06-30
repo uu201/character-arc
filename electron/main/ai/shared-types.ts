@@ -252,6 +252,20 @@ export type GlobalAssistantProposalResult = {
     description?: string
     tags?: string[]
   }>
+  organizationCreates: Array<{
+    name: string
+    type: string
+    description: string
+    motto?: string
+  }>
+  organizationUpdates: Array<{
+    matchName: string
+    reason: string
+    name?: string
+    type?: string
+    description?: string
+    motto?: string
+  }>
   outlineCreates: OutlineResult[]
   outlineUpdates: Array<{
     matchTitle: string

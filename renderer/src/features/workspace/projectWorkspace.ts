@@ -148,6 +148,8 @@ export function normalizeGlobalAssistantProposal(proposal?: GlobalAssistantPropo
     worldviewUpdates: Array.isArray(proposal.worldviewUpdates) ? proposal.worldviewUpdates : [],
     characterCreates: Array.isArray(proposal.characterCreates) ? proposal.characterCreates : [],
     characterUpdates: Array.isArray(proposal.characterUpdates) ? proposal.characterUpdates : [],
+    organizationCreates: Array.isArray(proposal.organizationCreates) ? proposal.organizationCreates : [],
+    organizationUpdates: Array.isArray(proposal.organizationUpdates) ? proposal.organizationUpdates : [],
     outlineCreates: Array.isArray(proposal.outlineCreates) ? proposal.outlineCreates : [],
     outlineUpdates: Array.isArray(proposal.outlineUpdates) ? proposal.outlineUpdates : [],
     notes: Array.isArray(proposal.notes) ? proposal.notes : []
@@ -185,6 +187,8 @@ export function mergeGlobalAssistantProposals(
     worldviewUpdates: dedupe([...(base?.worldviewUpdates ?? []), ...(add?.worldviewUpdates ?? [])], (item) => item.matchTitle),
     characterCreates: dedupe([...(base?.characterCreates ?? []), ...(add?.characterCreates ?? [])], (item) => item.name),
     characterUpdates: dedupe([...(base?.characterUpdates ?? []), ...(add?.characterUpdates ?? [])], (item) => item.matchName),
+    organizationCreates: dedupe([...(base?.organizationCreates ?? []), ...(add?.organizationCreates ?? [])], (item) => item.name),
+    organizationUpdates: dedupe([...(base?.organizationUpdates ?? []), ...(add?.organizationUpdates ?? [])], (item) => item.matchName),
     outlineCreates: dedupe([...(base?.outlineCreates ?? []), ...(add?.outlineCreates ?? [])], (item) => item.title),
     outlineUpdates: dedupe([...(base?.outlineUpdates ?? []), ...(add?.outlineUpdates ?? [])], (item) => item.matchTitle),
     notes: dedupe([...(base?.notes ?? []), ...(add?.notes ?? [])].filter((note) => String(note).trim()), (note) => String(note))
@@ -196,6 +200,8 @@ export function mergeGlobalAssistantProposals(
     merged.worldviewUpdates.length ||
     merged.characterCreates.length ||
     merged.characterUpdates.length ||
+    merged.organizationCreates.length ||
+    merged.organizationUpdates.length ||
     merged.outlineCreates.length ||
     merged.outlineUpdates.length ||
     merged.notes.length

@@ -93,6 +93,15 @@ watch(
   { immediate: true }
 )
 
+// 将 dark-mode class 同步到 <html>，使 teleport 到 body 的弹窗（NModal 等）也能命中暗黑样式
+watch(
+  () => appStore.appSettings.darkMode,
+  (dark) => {
+    document.documentElement.classList.toggle('dark-mode', dark)
+  },
+  { immediate: true }
+)
+
 function shouldShowManualSaveToast(): boolean {
   return appStore.currentView === 'chapter-studio' || appStore.activePanel === 'chapters'
 }
