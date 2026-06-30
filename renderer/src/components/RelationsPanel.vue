@@ -1020,33 +1020,42 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
     <n-modal
       :show="organizationEditorVisible"
       preset="card"
-      class="arc-editor-modal"
+      class="arc-editor-modal-wide"
       :title="editingOrganizationId ? '编辑组织' : '新建组织'"
       :bordered="false"
       @close="organizationEditorVisible = false"
     >
-      <n-form label-placement="top">
-        <n-form-item label="组织名称">
-          <n-input v-model:value="organizationForm.name" placeholder="例如：夜枭会 / 帝都学院 / 第七码头工会" />
-        </n-form-item>
-        <n-form-item label="组织类型">
-          <n-input v-model:value="organizationForm.type" placeholder="例如：地下据点 / 宫廷势力 / 商会联盟" />
-        </n-form-item>
-        <n-form-item label="组织说明">
-          <n-input
-            v-model:value="organizationForm.description"
-            type="textarea"
-            :autosize="{ minRows: 4, maxRows: 7 }"
-            placeholder="补充组织掌控资源、核心利益和故事作用..."
-          />
-        </n-form-item>
-        <n-form-item label="口号或精神标识">
-          <n-input v-model:value="organizationForm.motto" placeholder="例如：活下来，比体面更重要。" />
-        </n-form-item>
-      </n-form>
-
-      <template #footer>
-        <div class="arc-modal-actions">
+      <div class="arc-split-body">
+        <div class="arc-split-left">
+          <n-form label-placement="top">
+            <n-form-item label="组织名称">
+              <n-input v-model:value="organizationForm.name" placeholder="例如：夜枭会 / 帝都学院 / 第七码头工会" />
+            </n-form-item>
+            <n-form-item label="组织类型">
+              <n-input v-model:value="organizationForm.type" placeholder="例如：地下据点 / 宫廷势力 / 商会联盟" />
+            </n-form-item>
+            <n-form-item label="口号或精神标识">
+              <n-input v-model:value="organizationForm.motto" placeholder="例如：活下来，比体面更重要。" />
+            </n-form-item>
+          </n-form>
+        </div>
+        <div class="arc-split-right">
+          <div class="arc-split-right-header">组织说明</div>
+          <div class="arc-split-right-body">
+            <n-input
+              v-model:value="organizationForm.description"
+              type="textarea"
+              placeholder="补充组织掌控资源、核心利益和故事作用..."
+              :show-count="true"
+            />
+          </div>
+        </div>
+      </div>
+      <div class="arc-modal-footer">
+        <div class="arc-modal-footer-left">
+          <span>{{ organizationForm.description.length }} 字</span>
+        </div>
+        <div class="arc-modal-footer-right">
           <n-button round strong @click="organizationEditorVisible = false">取消</n-button>
           <n-button round strong :loading="enhanceOrgLoading" @click="handleAiEnhanceOrg">
             <template #icon><Sparkles :size="14" /></template>
@@ -1056,6 +1065,10 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
             {{ editingOrganizationId ? '保存修改' : '创建组织' }}
           </n-button>
         </div>
+      </div>
+
+      <template #footer>
+        <span />
       </template>
     </n-modal>
 
@@ -1070,41 +1083,50 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
     <n-modal
       :show="relationshipEditorVisible"
       preset="card"
-      class="arc-editor-modal"
+      class="arc-editor-modal-wide"
       :title="editingRelationshipId ? '编辑关系' : '新建关系'"
       :bordered="false"
       @close="relationshipEditorVisible = false"
     >
-      <n-form label-placement="top">
-        <div class="form-grid">
-          <n-form-item label="角色 A">
-            <n-select v-model:value="relationshipForm.fromCharacterId" :options="characterOptions" />
-          </n-form-item>
-          <n-form-item label="角色 B">
-            <n-select v-model:value="relationshipForm.toCharacterId" :options="characterOptions" />
-          </n-form-item>
+      <div class="arc-split-body">
+        <div class="arc-split-left">
+          <n-form label-placement="top">
+            <div class="form-grid">
+              <n-form-item label="角色 A">
+                <n-select v-model:value="relationshipForm.fromCharacterId" :options="characterOptions" />
+              </n-form-item>
+              <n-form-item label="角色 B">
+                <n-select v-model:value="relationshipForm.toCharacterId" :options="characterOptions" />
+              </n-form-item>
+            </div>
+            <n-form-item label="关系类型">
+              <n-input v-model:value="relationshipForm.type" placeholder="例如：盟友 / 利用 / 师徒 / 竞争 / 暧昧" />
+            </n-form-item>
+            <n-form-item label="关系强度">
+              <div class="slider-block">
+                <n-slider v-model:value="relationshipForm.intensity" :step="1" :min="0" :max="100" />
+                <span>{{ relationshipForm.intensity }}</span>
+              </div>
+            </n-form-item>
+          </n-form>
         </div>
-        <n-form-item label="关系类型">
-          <n-input v-model:value="relationshipForm.type" placeholder="例如：盟友 / 利用 / 师徒 / 竞争 / 暧昧" />
-        </n-form-item>
-        <n-form-item label="关系描述">
-          <n-input
-            v-model:value="relationshipForm.description"
-            type="textarea"
-            :autosize="{ minRows: 4, maxRows: 7 }"
-            placeholder="补充两人冲突来源、情感张力或合作方式..."
-          />
-        </n-form-item>
-        <n-form-item label="关系强度">
-          <div class="slider-block">
-            <n-slider v-model:value="relationshipForm.intensity" :step="1" :min="0" :max="100" />
-            <span>{{ relationshipForm.intensity }}</span>
+        <div class="arc-split-right">
+          <div class="arc-split-right-header">关系描述</div>
+          <div class="arc-split-right-body">
+            <n-input
+              v-model:value="relationshipForm.description"
+              type="textarea"
+              placeholder="补充两人冲突来源、情感张力或合作方式..."
+              :show-count="true"
+            />
           </div>
-        </n-form-item>
-      </n-form>
-
-      <template #footer>
-        <div class="arc-modal-actions">
+        </div>
+      </div>
+      <div class="arc-modal-footer">
+        <div class="arc-modal-footer-left">
+          <span>{{ relationshipForm.description.length }} 字</span>
+        </div>
+        <div class="arc-modal-footer-right">
           <n-button round strong @click="relationshipEditorVisible = false">取消</n-button>
           <n-button round strong :loading="enhanceRelLoading" @click="handleAiEnhanceRel">
             <template #icon><Sparkles :size="14" /></template>
@@ -1114,6 +1136,10 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
             {{ editingRelationshipId ? '保存修改' : '创建关系' }}
           </n-button>
         </div>
+      </div>
+
+      <template #footer>
+        <span />
       </template>
     </n-modal>
 
@@ -1128,35 +1154,44 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
     <n-modal
       :show="membershipEditorVisible"
       preset="card"
-      class="arc-editor-modal"
+      class="arc-editor-modal-wide"
       :title="editingMembershipId ? '编辑归属' : '新建归属'"
       :bordered="false"
       @close="membershipEditorVisible = false"
     >
-      <n-form label-placement="top">
-        <div class="form-grid">
-          <n-form-item label="角色">
-            <n-select v-model:value="membershipForm.characterId" :options="characterOptions" />
-          </n-form-item>
-          <n-form-item label="组织">
-            <n-select v-model:value="membershipForm.organizationId" :options="organizationOptions" />
-          </n-form-item>
+      <div class="arc-split-body">
+        <div class="arc-split-left">
+          <n-form label-placement="top">
+            <div class="form-grid">
+              <n-form-item label="角色">
+                <n-select v-model:value="membershipForm.characterId" :options="characterOptions" />
+              </n-form-item>
+              <n-form-item label="组织">
+                <n-select v-model:value="membershipForm.organizationId" :options="organizationOptions" />
+              </n-form-item>
+            </div>
+            <n-form-item label="组织身份">
+              <n-input v-model:value="membershipForm.role" placeholder="例如：联络人 / 二把手 / 外围成员 / 导师" />
+            </n-form-item>
+          </n-form>
         </div>
-        <n-form-item label="组织身份">
-          <n-input v-model:value="membershipForm.role" placeholder="例如：联络人 / 二把手 / 外围成员 / 导师" />
-        </n-form-item>
-        <n-form-item label="归属备注">
-          <n-input
-            v-model:value="membershipForm.notes"
-            type="textarea"
-            :autosize="{ minRows: 4, maxRows: 7 }"
-            placeholder="补充该角色在组织里的权限、职责、风险与站位..."
-          />
-        </n-form-item>
-      </n-form>
-
-      <template #footer>
-        <div class="arc-modal-actions">
+        <div class="arc-split-right">
+          <div class="arc-split-right-header">归属备注</div>
+          <div class="arc-split-right-body">
+            <n-input
+              v-model:value="membershipForm.notes"
+              type="textarea"
+              placeholder="补充该角色在组织里的权限、职责、风险与站位..."
+              :show-count="true"
+            />
+          </div>
+        </div>
+      </div>
+      <div class="arc-modal-footer">
+        <div class="arc-modal-footer-left">
+          <span>{{ membershipForm.notes.length }} 字</span>
+        </div>
+        <div class="arc-modal-footer-right">
           <n-button round strong @click="membershipEditorVisible = false">取消</n-button>
           <n-button round strong :loading="enhanceMemLoading" @click="handleAiEnhanceMem">
             <template #icon><Sparkles :size="14" /></template>
@@ -1166,6 +1201,10 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
             {{ editingMembershipId ? '保存修改' : '创建归属' }}
           </n-button>
         </div>
+      </div>
+
+      <template #footer>
+        <span />
       </template>
     </n-modal>
 
