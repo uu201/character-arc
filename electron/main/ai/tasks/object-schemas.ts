@@ -56,6 +56,8 @@ const taskObjectSchemas: Partial<Record<AiTaskName, z.ZodTypeAny>> = {
       title: stringField,
       content: stringField,
       scope: stringField,
+      weight: z.enum(['core', 'important', 'supporting']).optional(),
+      locked: z.boolean().optional(),
       reason: stringField,
       keywords: stringList
     })),
@@ -80,6 +82,20 @@ const taskObjectSchemas: Partial<Record<AiTaskName, z.ZodTypeAny>> = {
       role: stringField.optional(),
       description: stringField.optional(),
       tags: stringList.optional()
+    })),
+    organizationCreates: z.array(z.object({
+      name: stringField,
+      type: stringField,
+      description: stringField,
+      motto: stringField.optional()
+    })),
+    organizationUpdates: z.array(z.object({
+      matchName: stringField,
+      reason: stringField,
+      name: stringField.optional(),
+      type: stringField.optional(),
+      description: stringField.optional(),
+      motto: stringField.optional()
     })),
     outlineCreates: z.array(outlineItemSchema),
     outlineUpdates: z.array(z.object({

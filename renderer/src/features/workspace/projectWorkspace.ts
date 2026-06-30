@@ -180,17 +180,85 @@ export function mergeGlobalAssistantProposals(
     return result
   }
 
+  const mergeLongText = (currentValue: string | undefined, incomingValue: string | undefined): string | undefined => {
+    const currentText = String(currentValue ?? '').trim()
+    const incomingText = String(incomingValue ?? '').trim()
+    if (!incomingText) return currentText || undefined
+    if (!currentText) return incomingText
+    if (currentText.includes(incomingText)) return currentText
+    if (incomingText.includes(currentText)) return incomingText
+    return `${currentText}\n\n${incomingText}`
+  }
+
+  const mergeByKey = <T>(items: T[], keyOf: (item: T) => string, mergeItem: (current: T, incoming: T) => T): T[] => {
+    const indexByKey = new Map<string, number>()
+    const result: T[] = []
+    for (const item of items) {
+      const key = keyOf(item).trim().toLowerCase()
+      if (!key) {
+        result.push(item)
+        continue
+      }
+      const existingIndex = indexByKey.get(key)
+      if (existingIndex === undefined) {
+        indexByKey.set(key, result.length)
+        result.push(item)
+        continue
+      }
+      result[existingIndex] = mergeItem(result[existingIndex], item)
+    }
+    return result
+  }
+
   const merged: GlobalAssistantProposal = {
     summary: (add?.summary || base?.summary || '').trim(),
-    constraintCreates: dedupe([...(base?.constraintCreates ?? []), ...(add?.constraintCreates ?? [])], (item) => item.title),
-    worldviewCreates: dedupe([...(base?.worldviewCreates ?? []), ...(add?.worldviewCreates ?? [])], (item) => item.title),
-    worldviewUpdates: dedupe([...(base?.worldviewUpdates ?? []), ...(add?.worldviewUpdates ?? [])], (item) => item.matchTitle),
-    characterCreates: dedupe([...(base?.characterCreates ?? []), ...(add?.characterCreates ?? [])], (item) => item.name),
-    characterUpdates: dedupe([...(base?.characterUpdates ?? []), ...(add?.characterUpdates ?? [])], (item) => item.matchName),
-    organizationCreates: dedupe([...(base?.organizationCreates ?? []), ...(add?.organizationCreates ?? [])], (item) => item.name),
-    organizationUpdates: dedupe([...(base?.organizationUpdates ?? []), ...(add?.organizationUpdates ?? [])], (item) => item.matchName),
-    outlineCreates: dedupe([...(base?.outlineCreates ?? []), ...(add?.outlineCreates ?? [])], (item) => item.title),
-    outlineUpdates: dedupe([...(base?.outlineUpdates ?? []), ...(add?.outlineUpdates ?? [])], (item) => item.matchTitle),
+    constraintCreates: mergeByKey([...(base?.constraintCreates ?? []), ...(add?.constraintCreates ?? [])], (item) => item.title, (current, incoming) => ({
+      ...current,
+      ...incoming,
+      content: mergeLongText(current.content, incoming.content) ?? current.content
+    })),
+    worldviewCreates: mergeByKey([...(base?.worldviewCreates ?? []), ...(add?.worldviewCreates ?? [])], (item) => item.title, (current, incoming) => ({
+      ...current,
+      ...incoming,
+      content: mergeLongText(current.content, incoming.content) ?? current.content
+    })),
+    worldviewUpdates: mergeByKey([...(base?.worldviewUpdates ?? []), ...(add?.worldviewUpdates ?? [])], (item) => item.matchTitle, (current, incoming) => ({
+      ...current,
+      ...incoming,
+      content: mergeLongText(current.content, incoming.content)
+    })),
+    characterCreates: mergeByKey([...(base?.characterCreates ?? []), ...(add?.characterCreates ?? [])], (item) => item.name, (current, incoming) => ({
+      ...current,
+      ...incoming,
+      description: mergeLongText(current.description, incoming.description) ?? current.description,
+      tags: dedupe([...(current.tags ?? []), ...(incoming.tags ?? [])], (tag) => tag)
+    })),
+    characterUpdates: mergeByKey([...(base?.characterUpdates ?? []), ...(add?.characterUpdates ?? [])], (item) => item.matchName, (current, incoming) => ({
+      ...current,
+      ...incoming,
+      description: mergeLongText(current.description, incoming.description),
+      tags: incoming.tags?.length || current.tags?.length ? dedupe([...(current.tags ?? []), ...(incoming.tags ?? [])], (tag) => tag) : undefined
+    })),
+    organizationCreates: mergeByKey([...(base?.organizationCreates ?? []), ...(add?.organizationCreates ?? [])], (item) => item.name, (current, incoming) => ({
+      ...current,
+      ...incoming,
+      description: mergeLongText(current.description, incoming.description) ?? current.description
+    })),
+    organizationUpdates: mergeByKey([...(base?.organizationUpdates ?? []), ...(add?.organizationUpdates ?? [])], (item) => item.matchName, (current, incoming) => ({
+      ...current,
+      ...incoming,
+      description: mergeLongText(current.description, incoming.description)
+    })),
+    outlineCreates: mergeByKey([...(base?.outlineCreates ?? []), ...(add?.outlineCreates ?? [])], (item) => item.title, (current, incoming) => ({
+      ...current,
+      ...incoming,
+      summary: mergeLongText(current.summary, incoming.summary) ?? current.summary
+    })),
+    outlineUpdates: mergeByKey([...(base?.outlineUpdates ?? []), ...(add?.outlineUpdates ?? [])], (item) => item.matchTitle, (current, incoming) => ({
+      ...current,
+      ...incoming,
+      summary: mergeLongText(current.summary, incoming.summary)
+    })),
     notes: dedupe([...(base?.notes ?? []), ...(add?.notes ?? [])].filter((note) => String(note).trim()), (note) => String(note))
   }
 

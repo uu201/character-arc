@@ -51,12 +51,12 @@ export type SettingProposalToolFactoryOptions = {
   draft: SettingProposalDraft
   /** 单次 loop 全局提案上限，防工具被刷爆。默认 20。 */
   maxItems?: number
-  /** 单字段（content/description/summary）字符上限。默认 600。 */
+  /** 单字段（content/description/summary）字符上限。默认 6000。 */
   maxContentChars?: number
 }
 
 const DEFAULT_MAX_ITEMS = 20
-const DEFAULT_MAX_CONTENT_CHARS = 600
+const DEFAULT_MAX_CONTENT_CHARS = 6000
 /** 按类软上限，与 global-assistant-proposal.ts 的 normalize slice 对齐。 */
 const PER_CATEGORY_LIMIT = {
   constraint: 8,

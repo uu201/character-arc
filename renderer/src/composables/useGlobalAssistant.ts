@@ -717,6 +717,16 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     return appStore.organizations.find((entry) => entry.id === targetId) ?? null
   }
 
+  function mergeLongTextForIngest(currentValue: string | undefined, incomingValue: string | undefined): string {
+    const currentText = String(currentValue ?? '').trim()
+    const incomingText = String(incomingValue ?? '').trim()
+    if (!incomingText) return currentText
+    if (!currentText) return incomingText
+    if (currentText.includes(incomingText)) return currentText
+    if (incomingText.includes(currentText)) return incomingText
+    return `${currentText}\n\n${incomingText}`
+  }
+
   function trimProposal(current: GlobalAssistantProposal): GlobalAssistantProposal | null {
     const next: GlobalAssistantProposal = {
       summary: current.summary,
@@ -819,6 +829,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
     for (const [index, item] of current.worldviewUpdates.entries()) {
       const target = resolveWorldviewTarget(item, index)
+      const mergedContent = mergeLongTextForIngest(target?.content, item.content)
       files.push({
         id: `worldview-update-${index}-${item.matchTitle}`,
         title: item.title || item.matchTitle,
@@ -831,7 +842,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
         newText: [
           `分类：${item.type || target?.type || ''}`,
           `标题：${item.title || target?.title || item.matchTitle}`,
-          `内容：${item.content || target?.content || ''}`
+          `内容：${mergedContent}`
         ].join('\n'),
         reason: item.reason,
         canApply: Boolean(target)
@@ -862,6 +873,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
     for (const [index, item] of current.characterUpdates.entries()) {
       const target = resolveCharacterTarget(item, index)
+      const mergedDescription = mergeLongTextForIngest(target?.description, item.description)
       files.push({
         id: `character-update-${index}-${item.matchName}`,
         title: item.name || item.matchName,
@@ -879,7 +891,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
         newText: [
           `姓名：${item.name || target?.name || item.matchName}`,
           `定位：${item.role || target?.role || ''}`,
-          `简介：${item.description || target?.description || ''}`,
+          `简介：${mergedDescription}`,
           item.tags?.length ? `标签：${item.tags.join('、')}` : (target?.tags.length ? `标签：${target.tags.map((tag) => tag.label).join('、')}` : '')
         ].filter(Boolean).join('\n'),
         reason: item.reason,
@@ -911,6 +923,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
     for (const [index, item] of current.outlineUpdates.entries()) {
       const target = resolveOutlineTarget(item, index)
+      const mergedSummary = mergeLongTextForIngest(target?.summary, item.summary)
       files.push({
         id: `outline-update-${index}-${item.matchTitle}`,
         title: item.title || item.matchTitle,
@@ -929,7 +942,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
           `标题：${item.title || target?.title || item.matchTitle}`,
           `目标字数：${item.wordTarget || target?.wordTarget || ''}`,
           `冲突：${item.conflict || target?.conflict || ''}`,
-          `摘要：${item.summary || target?.summary || ''}`
+          `摘要：${mergedSummary}`
         ].filter(Boolean).join('\n'),
         reason: item.reason,
         canApply: Boolean(target)
@@ -960,6 +973,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
     for (const [index, item] of current.organizationUpdates.entries()) {
       const target = resolveOrganizationTarget(item, index)
+      const mergedDescription = mergeLongTextForIngest(target?.description, item.description)
       files.push({
         id: `organization-update-${index}-${item.matchName}`,
         title: item.name || item.matchName,
@@ -977,7 +991,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
         newText: [
           `名称：${item.name || target?.name || item.matchName}`,
           `类型：${item.type || target?.type || ''}`,
-          `描述：${item.description || target?.description || ''}`,
+          `描述：${mergedDescription}`,
           (item.motto || target?.motto) ? `信条：${item.motto || target?.motto || ''}` : ''
         ].filter(Boolean).join('\n'),
         reason: item.reason,
@@ -1158,7 +1172,11 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     for (const [index, item] of current.worldviewUpdates.entries()) {
       const target = resolveWorldviewTarget(item, index)
       if (!target) continue
-      appStore.updateWorldviewEntry(target.id, { type: item.type, title: item.title, content: item.content })
+      appStore.updateWorldviewEntry(target.id, {
+        type: item.type,
+        title: item.title,
+        content: mergeLongTextForIngest(target.content, item.content)
+      })
       appliedCount += 1
       appliedTitles.push(item.title || target.title)
     }
@@ -1199,7 +1217,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       appStore.updateCharacter(target.id, {
         name: item.name,
         role: item.role,
-        description: item.description,
+        description: mergeLongTextForIngest(target.description, item.description),
         tags: item.tags?.map((label) => ({ label }))
       })
       appliedCount += 1
@@ -1244,7 +1262,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
         title: item.title,
         wordTarget: item.wordTarget,
         conflict: item.conflict,
-        summary: item.summary
+        summary: mergeLongTextForIngest(target.summary, item.summary)
       })
       appliedCount += 1
       appliedTitles.push(item.title || target.title)
@@ -1286,7 +1304,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       appStore.updateOrganization(target.id, {
         name: item.name,
         type: item.type,
-        description: item.description,
+        description: mergeLongTextForIngest(target.description, item.description),
         motto: item.motto
       })
       appliedCount += 1
@@ -1354,7 +1372,11 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       const item = current.worldviewUpdates[index]
       const target = item ? resolveWorldviewTarget(item, index) : null
       if (!item || !target) return false
-      appStore.updateWorldviewEntry(target.id, { type: item.type, title: item.title, content: item.content })
+      appStore.updateWorldviewEntry(target.id, {
+        type: item.type,
+        title: item.title,
+        content: mergeLongTextForIngest(target.content, item.content)
+      })
       const { [worldviewUpdateKey(index, item.matchTitle)]: _removed, ...remainingTargets } = worldviewTargetMap.value
       worldviewTargetMap.value = remainingTargets
       setProposal(trimProposal({
@@ -1391,7 +1413,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       appStore.updateCharacter(target.id, {
         name: item.name,
         role: item.role,
-        description: item.description,
+        description: mergeLongTextForIngest(target.description, item.description),
         tags: item.tags?.map((label) => ({ label }))
       })
       const { [characterUpdateKey(index, item.matchName)]: _removed, ...remainingTargets } = characterTargetMap.value
@@ -1432,7 +1454,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
         title: item.title,
         wordTarget: item.wordTarget,
         conflict: item.conflict,
-        summary: item.summary
+        summary: mergeLongTextForIngest(target.summary, item.summary)
       })
       const { [outlineUpdateKey(index, item.matchTitle)]: _removed, ...remainingTargets } = outlineTargetMap.value
       outlineTargetMap.value = remainingTargets
@@ -1470,7 +1492,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       appStore.updateOrganization(target.id, {
         name: item.name,
         type: item.type,
-        description: item.description,
+        description: mergeLongTextForIngest(target.description, item.description),
         motto: item.motto
       })
       const { [organizationUpdateKey(index, item.matchName)]: _removed, ...remainingTargets } = organizationTargetMap.value
