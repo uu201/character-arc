@@ -1,6 +1,6 @@
 import type { AiTaskPayload } from '../shared-types'
 import type { SkillDefinition, SkillSelection } from './types'
-import { getEnabledSkills } from './registry'
+import { getAllSkills, getEnabledSkills } from './registry'
 import { loadSkillReferences } from './loader'
 import { getTaskHandler } from '../tasks'
 import { matchNarrativeFunction } from './narrative-function-map'
@@ -30,7 +30,9 @@ export async function pickSkillsFor(
   enabledOverrides?: Map<string, boolean>
 ): Promise<SkillSelection[]> {
   const projectId = String(task.context.projectId ?? '').trim()
-  const skills = getEnabledSkills(projectId)
+  const skills = enabledOverrides
+    ? getAllSkills(projectId).filter((skill) => enabledOverrides.get(skill.id) === true)
+    : getEnabledSkills(projectId)
   const context = task.context ?? {}
 
   // 从 TaskHandler 读取 maxSkills，允许复杂任务使用更多 skill
@@ -45,10 +47,6 @@ export async function pickSkillsFor(
   }
 
   const candidates = skills
-    .filter((skill) => {
-      if (enabledOverrides?.has(skill.id)) return enabledOverrides.get(skill.id)!
-      return true
-    })
     .map((skill) => ({ skill, breakdown: computeScore(skill, task, context) }))
     .filter((entry) => entry.breakdown.total > 0 || entry.skill.manifest.required)
 

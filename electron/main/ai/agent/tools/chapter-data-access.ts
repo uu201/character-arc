@@ -131,6 +131,10 @@ function matchesQuery(query: string, ...fields: string[]): boolean {
   return fields.some((field) => field.toLowerCase().includes(query))
 }
 
+function readPublicReferenceWorkRows(db: Awaited<ReturnType<typeof ensureWorkspaceDb>>): Record<string, unknown>[] {
+  return db.prepare('SELECT id, title, source, notes, file_name, analysis_json FROM reference_works ORDER BY created_at DESC, rowid DESC').all() as Record<string, unknown>[]
+}
+
 export async function readChapterFromDb(projectId: string, chapterId: string): Promise<ChapterData | null> {
   const db = await ensureWorkspaceDb()
   const row = db.prepare(
@@ -408,6 +412,32 @@ export async function searchProjectData(
     }
   }
 
+  if (shouldSearch('organization_memberships')) {
+    const chars = db.prepare('SELECT id, name FROM characters WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    const orgs = db.prepare('SELECT id, name FROM organizations WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    const charMap = new Map(chars.map((item) => [String(item.id), String(item.name)]))
+    const orgMap = new Map(orgs.map((item) => [String(item.id), String(item.name)]))
+    const rows = db.prepare('SELECT id, character_id, organization_id, role, notes FROM organization_memberships WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const character = charMap.get(String(row.character_id)) ?? String(row.character_id)
+      const organization = orgMap.get(String(row.organization_id)) ?? String(row.organization_id)
+      const role = String(row.role ?? '')
+      const notes = String(row.notes ?? '')
+      const title = `${character} -> ${organization}${role ? ` (${role})` : ''}`
+      if (matchesQuery(normalizedQuery, character, organization, role, notes)) {
+        push({
+          entityType: 'organization_memberships',
+          entityId: id,
+          type: 'organization_memberships',
+          title,
+          content: truncateSnippet(notes)
+        })
+      }
+    }
+  }
+
   if (shouldSearch('relationships')) {
     const rows = db.prepare('SELECT id, from_character_id, to_character_id, type, description FROM character_relationships WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
     for (const row of rows) {
@@ -451,19 +481,20 @@ export async function searchProjectData(
   }
 
   if (shouldSearch('chapters')) {
-    const rows = db.prepare('SELECT id, title, summary FROM chapters WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    const rows = db.prepare('SELECT id, title, summary, content FROM chapters WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
     for (const row of rows) {
       if (results.length >= maxResults) break
       const id = String(row.id)
       const title = String(row.title)
       const summary = String(row.summary ?? '')
-      if (matchesQuery(normalizedQuery, title, summary)) {
+      const content = stripHtmlTags(String(row.content ?? ''))
+      if (matchesQuery(normalizedQuery, title, summary, content)) {
         push({
           entityType: 'chapters',
           entityId: id,
           type: 'chapters',
           title,
-          content: truncateSnippet(summary, 300)
+          content: truncateSnippet(summary || content, 500)
         })
       }
     }
@@ -484,6 +515,71 @@ export async function searchProjectData(
           type: 'knowledge',
           title,
           content: truncateSnippet(summary || content)
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('deconstruction_library')) {
+    const rows = db.prepare("SELECT id, title, content, summary, source_label FROM knowledge_documents WHERE project_id = '' OR project_id IS NULL").all() as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const summary = String(row.summary ?? '')
+      const content = String(row.content ?? '')
+      const sourceLabel = String(row.source_label ?? '')
+      if (matchesQuery(normalizedQuery, title, summary, content, sourceLabel)) {
+        push({
+          entityType: 'deconstruction_library',
+          entityId: id,
+          type: 'deconstruction_library',
+          title,
+          content: truncateSnippet(summary || content)
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('available_deconstructions')) {
+    const rows = readPublicReferenceWorkRows(db)
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const source = String(row.source ?? '')
+      const notes = String(row.notes ?? '')
+      const fileName = String(row.file_name ?? '')
+      const analysis = String(row.analysis_json ?? '')
+      if (matchesQuery(normalizedQuery, title, source, notes, fileName, analysis)) {
+        push({
+          entityType: 'available_deconstructions',
+          entityId: id,
+          type: 'available_deconstructions',
+          title,
+          content: truncateSnippet(notes || analysis)
+        })
+      }
+    }
+  }
+
+  if (shouldSearch('reference_works')) {
+    const rows = db.prepare('SELECT id, title, source, notes, file_name, analysis_json FROM reference_works').all() as Record<string, unknown>[]
+    for (const row of rows) {
+      if (results.length >= maxResults) break
+      const id = String(row.id)
+      const title = String(row.title)
+      const source = String(row.source ?? '')
+      const notes = String(row.notes ?? '')
+      const fileName = String(row.file_name ?? '')
+      const analysis = String(row.analysis_json ?? '')
+      if (matchesQuery(normalizedQuery, title, source, notes, fileName, analysis)) {
+        push({
+          entityType: 'reference_works',
+          entityId: id,
+          type: 'reference_works',
+          title,
+          content: truncateSnippet(notes || analysis)
         })
       }
     }

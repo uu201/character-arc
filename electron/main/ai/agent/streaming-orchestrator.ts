@@ -1,7 +1,8 @@
 import type { AiAgentStreamHandlers, AiKnowledgeDocumentDraft, AiTaskKnowledgeContext, AiTaskPayload, AiTaskResponse } from '../shared-types'
 import { normalizeSettings, validateSettings, resolveMaxTokens } from '../settings'
 import { getTaskHandler } from '../tasks'
-import { resolveTaskSkills, getSkillById } from '../skills'
+import { resolveTaskSkills, getSkillById, getAllSkills } from '../skills'
+import { isSkillEnabledForTask } from '../skills/task-selection'
 import { buildPromptInput } from '../runtime/context-builder'
 import { enrichTaskContextForGeneration } from '../runtime/task-context'
 import { buildRunMeta, buildResponsePreview } from '../runtime/run-meta'
@@ -138,7 +139,7 @@ export async function runStreamingAgentTask(
     plotThreads: '剧情线索（使用 read_project_data entity_type=plot_threads）',
     inspiration: '灵感记录（使用 read_project_data entity_type=inspiration）',
     knowledge: '项目知识库（使用 read_project_data entity_type=knowledge）',
-    deconstructionLibrary: '拆书知识库（使用 read_project_data entity_type=deconstruction_library）',
+    deconstructionLibrary: '公共拆书知识库/参考书（使用 read_project_data entity_type=available_deconstructions 或 deconstruction_library）',
     workflowDocuments: '工作流文档（使用 read_project_data entity_type=workflow_documents）',
     projectConstraints: '项目约束（使用 read_project_data entity_type=project_constraints）'
   }
@@ -167,6 +168,8 @@ export async function runStreamingAgentTask(
         '- Decide which project modules to inspect before answering. Do not rely only on short summaries when the request depends on concrete project facts.',
         '- Prefer `read_project_data` without `entity_type` to get a quick index, then read only the modules that matter.',
         '- Use narrow reads whenever possible: `summary_only=true` for reconnaissance, `limit` to avoid over-reading, `entity_id` for exact entities, and `doc_key` for workflow documents.',
+        '- When the user asks what skills exist, what skills are enabled, or asks to summarize every skill, you must call `skill_list` first and answer from its result. The skill index above is only the current task-matched subset, not the complete registry.',
+        '- When the user asks for 拆书知识库 / 可用拆书 / 参考书 / 对标作品 / reference works, call `read_project_data` with `entity_type=available_deconstructions`; the deconstruction library is public and shared across projects, not owned by the current project.',
         '- Do not rely on the static skill list alone. When the task may benefit from project skills, you must decide which skills are relevant and explicitly call `skill_load` yourself before concluding.',
         '- Use `search_project` first when the user mentions a specific concept, role, event, clue, workflow artifact, or rule and you are not sure where it lives.',
         '- Treat `project_constraints` as hard boundaries and `workflow_documents` as live planning artifacts. If they may affect the answer, inspect them before concluding.',
@@ -202,7 +205,7 @@ export async function runStreamingAgentTask(
     : [
         '- 只有在用户明确提到某一章、当前章节，或任务确实依赖章节正文时，才使用 `read_chapter`。',
         '- 如果没有活动章节，就不要盲目调用 `read_chapter`；先用 `list_chapters`、`search_project` 或 `read_project_data` 找到目标章节或改读别的项目资料。',
-        '- 只有在用户明确要求修改章节正文，且已有活动章节或明确章节目标时，才使用 `edit_chapter`。',
+        '- 只有在用户明确要求修改章节正文，且已有活动章节或明确章节目标时，才使用 `edit_chapter`；如果目标不是当前章节，先用 `list_chapters` / `search_project` 找到 `chapter_id` 后传给 `edit_chapter`。',
         '- 当你不确定资料在哪个模块时，先用 `search_project`；当你只需要目录或概览时，先用 `read_project_data({ summary_only: true, limit: ... })`。',
         '- 知识文档、工作流文档、项目约束都可能影响判断；如果请求涉及风格、流程、边界、硬性规则，应主动检查这些模块。'
       ]
@@ -212,10 +215,10 @@ export async function runStreamingAgentTask(
     '## 可用工具',
     '',
     '你可以使用以下工具访问项目数据和操作章节：',
-    '- `read_project_data`: 读取项目设定与资料，支持先取索引，再按 `entity_id` / `summary_only` / `limit` / `doc_key` 精读世界观、角色、组织、关系、大纲、剧情线索、灵感、知识文档、拆书知识库、工作流文档、项目约束',
+    '- `read_project_data`: 读取项目设定与资料，支持先取索引，再按 `entity_id` / `summary_only` / `limit` / `doc_key` 精读世界观、角色、组织、组织成员、关系、大纲、章节、剧情线索、灵感、项目知识、公共拆书库、参考书、工作流文档、项目约束',
     '- `read_chapter`: 读取章节内容和元数据',
-    '- `edit_chapter`: 直接编辑章节正文（替换/插入/追加）',
-    '- `search_project`: 搜索项目中的世界观、角色、组织、关系、大纲、章节、剧情线索、灵感、工作流文档、项目约束等资料，并返回 `entity_type` / `entity_id`',
+    '- `edit_chapter`: 直接编辑章节正文（替换/插入/追加），可传 `chapter_id` 指定目标章节',
+    '- `search_project`: 搜索项目中的世界观、角色、组织、组织成员、关系、大纲、章节、剧情线索、灵感、项目知识、公共拆书库、参考书、工作流文档、项目约束等资料，并返回 `entity_type` / `entity_id`',
     '- `list_chapters`: 获取所有章节列表',
     '',
     '## 工具使用规则',
@@ -239,6 +242,8 @@ export async function runStreamingAgentTask(
 
   const skillTools = createSkillTools({
     resolveSkill: (id) => getSkillById(id, projectId || undefined),
+    listSkills: () => getAllSkills(projectId || undefined),
+    resolveSkillEnabled: (skill) => isSkillEnabledForTask(task, skill.id, projectId),
     allowScriptExecution: (skill) => skill.scope === 'builtin'
   })
 

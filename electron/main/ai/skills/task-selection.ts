@@ -1,5 +1,5 @@
 import type { AiTaskPayload } from '../shared-types'
-import { getAllSkills, refreshRegistry } from './registry'
+import { getAllSkills, getEnabledSkills, refreshRegistry } from './registry'
 import { pickSkillsFor } from './matcher'
 import type { SkillSelection } from './types'
 
@@ -13,7 +13,7 @@ export async function resolveTaskSkills(task: AiTaskPayload): Promise<ResolvedTa
   const projectId = String(task.context.projectId ?? '').trim()
   await refreshRegistry(projectId || undefined).catch(() => {})
 
-  const skills = await pickSkillsFor(task, resolveEnabledSkillOverrides(task, projectId))
+  const skills = await pickSkillsFor(task, resolveSkillEnabledOverrides(task, projectId))
   return {
     projectId,
     skills,
@@ -21,7 +21,7 @@ export async function resolveTaskSkills(task: AiTaskPayload): Promise<ResolvedTa
   }
 }
 
-function resolveEnabledSkillOverrides(
+export function resolveSkillEnabledOverrides(
   task: AiTaskPayload,
   projectId: string
 ): Map<string, boolean> | undefined {
@@ -29,21 +29,45 @@ function resolveEnabledSkillOverrides(
     return undefined
   }
 
-  const enabledIds = new Set(
-    task.context.projectSkills
-      .map((skill) => {
-        if (!skill || typeof skill !== 'object') {
-          return ''
-        }
-        return String((skill as { id?: string }).id ?? '').trim()
-      })
-      .filter(Boolean)
-  )
+  const overrideById = new Map<string, boolean>()
+  let hasExplicitEnabledState = false
+  for (const rawSkill of task.context.projectSkills) {
+    if (!rawSkill || typeof rawSkill !== 'object') {
+      continue
+    }
+    const skill = rawSkill as { id?: unknown; enabled?: unknown }
+    const id = String(skill.id ?? '').trim()
+    if (!id) {
+      continue
+    }
+    if (typeof skill.enabled === 'boolean') {
+      hasExplicitEnabledState = true
+      overrideById.set(id, skill.enabled)
+    } else {
+      // 兼容旧调用方：它们只传"已启用 skill"列表，条目里没有 enabled 字段。
+      overrideById.set(id, true)
+    }
+  }
 
   const allSkills = getAllSkills(projectId || undefined)
   if (!allSkills.length) {
     return undefined
   }
 
-  return new Map(allSkills.map((skill) => [skill.id, enabledIds.has(skill.id)]))
+  return new Map(allSkills.map((skill) => [
+    skill.id,
+    overrideById.get(skill.id) ?? (hasExplicitEnabledState ? skill.enabled : false)
+  ]))
+}
+
+export function isSkillEnabledForTask(
+  task: AiTaskPayload,
+  skillId: string,
+  projectId: string
+): boolean {
+  const overrides = resolveSkillEnabledOverrides(task, projectId)
+  if (overrides?.has(skillId)) {
+    return overrides.get(skillId) === true
+  }
+  return getEnabledSkills(projectId || undefined).some((skill) => skill.id === skillId)
 }

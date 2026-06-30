@@ -92,6 +92,10 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
             enum: ['replace', 'insert', 'append'],
             description: 'Edit operation.'
           },
+          chapter_id: {
+            type: 'string',
+            description: 'Optional target chapter ID. Omit to edit the active chapter.'
+          },
           search: {
             type: 'string',
             description: 'Required for replace. Optional anchor text for insert.'
@@ -110,8 +114,9 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
       }
     },
     handler: async (input, ctx) => {
-      if (!currentChapterId) {
-        return { content: 'No active chapter is selected, so edit_chapter cannot run.', isError: true }
+      const targetChapterId = String(input.chapter_id || currentChapterId).trim()
+      if (!targetChapterId) {
+        return { content: 'No chapter_id was provided and there is no active chapter, so edit_chapter cannot run. Use list_chapters or search_project first.', isError: true }
       }
 
       const operation = String(input.operation) as 'replace' | 'insert' | 'append'
@@ -128,27 +133,27 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
 
       try {
         if (useDiffReview && onEditProposed) {
-          const computed = await computeChapterEdit(ctx.projectId, currentChapterId, {
+          const computed = await computeChapterEdit(ctx.projectId, targetChapterId, {
             operation,
             search,
             content,
             position
-          }, virtualContent.get(currentChapterId))
+          }, virtualContent.get(targetChapterId))
 
-          virtualContent.set(currentChapterId, computed.newContent)
+          virtualContent.set(targetChapterId, computed.newContent)
 
           const proposalId = randomUUID()
-          onEditProposed(currentChapterId, proposalId, operation, computed.preview, computed.oldContent, computed.newContent)
+          onEditProposed(targetChapterId, proposalId, operation, computed.preview, computed.oldContent, computed.newContent)
           return { content: `Edit applied: ${computed.preview}` }
         }
 
-        const result = await applyChapterEdit(ctx.projectId, currentChapterId, {
+        const result = await applyChapterEdit(ctx.projectId, targetChapterId, {
           operation,
           search,
           content,
           position
         })
-        onEditApplied?.(currentChapterId, operation, result.preview, result.versionId)
+        onEditApplied?.(targetChapterId, operation, result.preview, result.versionId)
         return { content: `Edit applied: ${result.preview}. Snapshot version saved: ${result.versionId}` }
       } catch (error) {
         return { content: error instanceof Error ? error.message : String(error), isError: true }
@@ -175,8 +180,12 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
                 'worldview',
                 'characters',
                 'organizations',
+                'organization_memberships',
                 'relationships',
                 'outline',
+                'available_deconstructions',
+                'reference_works',
+                'deconstruction_library',
                 'knowledge',
                 'chapters',
                 'plot_threads',

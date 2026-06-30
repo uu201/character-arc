@@ -8,6 +8,10 @@ import type { Tool, ToolHandlerResult } from './types'
 export type SkillToolFactoryOptions = {
   /** 按 id 查 skill。projectId 已经被 orchestrator 注入，这里只接受 id。 */
   resolveSkill: (id: string) => SkillDefinition | undefined
+  /** 列出当前项目可见的所有 skill（内置 + 项目扩展）。 */
+  listSkills?: () => SkillDefinition[]
+  /** 解析当前项目下 skill 是否启用；未提供时使用 skill 自身默认 enabled。 */
+  resolveSkillEnabled?: (skill: SkillDefinition) => boolean
   /** 是否允许 skill_run_script。builtin skill 默认开；project skill 应受 settings 控制。 */
   allowScriptExecution?: (skill: SkillDefinition) => boolean
   /** 单文件读取上限。0 表示不截断。默认不截断。 */
@@ -49,6 +53,28 @@ function requireString(input: Record<string, unknown>, key: string): string {
   return value.trim()
 }
 
+function normalizeOptionalString(input: Record<string, unknown>, key: string): string {
+  return typeof input[key] === 'string' ? String(input[key]).trim() : ''
+}
+
+function formatSkillListEntry(skill: SkillDefinition, enabled: boolean): string {
+  const scope = skill.scope === 'builtin' ? '内置' : '项目'
+  const enabledLabel = enabled ? '启用' : '停用'
+  const desc = (skill.description || '暂无描述').replace(/\s+/g, ' ').trim()
+  const stageIds = skill.manifest.stages.length ? skill.manifest.stages.join(',') : '未绑定阶段'
+  return [
+    `- ${skill.id}`,
+    `名称：${skill.name}`,
+    `状态：${enabledLabel}`,
+    `来源：${scope}（${skill.path}）`,
+    `分类：${skill.manifest.category}`,
+    `阶段：${stageIds}`,
+    `适配：${skill.compatibility}`,
+    `参考文件：${skill.referencesCount}`,
+    `一句话：${desc}`
+  ].join('｜')
+}
+
 /**
  * 创建 skill 相关的一组工具（加载、读取参考文件、列出文件、运行脚本）
  * @param opts - 工厂配置选项
@@ -64,6 +90,62 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
     const skill = opts.resolveSkill(skillId)
     if (!skill) return { error: `skill 未找到：${skillId}` }
     return skill
+  }
+
+  const skillList: Tool = {
+    definition: {
+      name: 'skill_list',
+      description: '列出当前项目可见的所有 skills 摘要（内置 + 项目扩展）。当用户询问“有哪些 skills / 现有 skills / 全部 skills / 每个 skill 总结一句话 / skills 清单”时，必须先调用此工具，不要只根据 system prompt 里的候选 skill 索引作答。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          enabled_only: { type: 'boolean', description: '是否只返回已启用的 skill。默认 false，表示返回所有已识别 skill。' },
+          scope: { type: 'string', enum: ['all', 'builtin', 'project'], description: '按来源过滤。默认 all。' },
+          query: { type: 'string', description: '可选，按 id、名称、路径或描述做模糊过滤。' }
+        }
+      }
+    },
+    async handler(input) {
+      try {
+        const enabledOnly = input.enabled_only === true
+        const scope = normalizeOptionalString(input, 'scope')
+        const query = normalizeOptionalString(input, 'query').toLowerCase()
+        const resolveEnabled = opts.resolveSkillEnabled ?? ((skill: SkillDefinition) => skill.enabled)
+        const skills = (opts.listSkills?.() ?? [])
+          .map((skill) => ({ skill, enabled: resolveEnabled(skill) }))
+          .filter((entry) => !enabledOnly || entry.enabled)
+          .filter((entry) => scope === 'builtin' || scope === 'project' ? entry.skill.scope === scope : true)
+          .filter((entry) => {
+            if (!query) return true
+            const { skill } = entry
+            return [
+              skill.id,
+              skill.name,
+              skill.path,
+              skill.description,
+              skill.manifest.category,
+              skill.compatibility
+            ].some((value) => String(value ?? '').toLowerCase().includes(query))
+          })
+          .sort((a, b) => a.skill.path.localeCompare(b.skill.path, 'zh-CN') || a.skill.id.localeCompare(b.skill.id, 'zh-CN'))
+
+        if (!skills.length) {
+          return ok('未找到匹配的 skill。')
+        }
+
+        const total = opts.listSkills?.().length ?? skills.length
+        const enabledCount = skills.filter((entry) => entry.enabled).length
+        const builtinCount = skills.filter((entry) => entry.skill.scope === 'builtin').length
+        const projectCount = skills.filter((entry) => entry.skill.scope === 'project').length
+        return ok([
+          `已识别 skills：${total} 个；本次返回：${skills.length} 个；其中启用：${enabledCount} 个，内置：${builtinCount} 个，项目扩展：${projectCount} 个。`,
+          '',
+          ...skills.map((entry) => formatSkillListEntry(entry.skill, entry.enabled))
+        ].join('\n'))
+      } catch (error) {
+        return err(error instanceof Error ? error.message : String(error))
+      }
+    }
   }
 
   const skillLoad: Tool = {
@@ -205,7 +287,7 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
     }
   }
 
-  return [skillLoad, skillReadReference, skillGlob, skillRunScript]
+  return [skillList, skillLoad, skillReadReference, skillGlob, skillRunScript]
 }
 
 /**

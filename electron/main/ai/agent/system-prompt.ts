@@ -18,9 +18,10 @@ export function buildSkillIndex(skills: SkillDefinition[]): string {
 
   return [
     '',
-    '## 可用 SKILLS（按需加载，不要一次性全部加载）',
+    '## 当前任务候选 SKILLS（按需加载，不要一次性全部加载）',
     '',
-    '当前任务可访问的 skill 索引如下，每个 skill 列出了它的 references/ 文件清单。',
+    '以下只是当前任务自动匹配到的候选 skill 索引，不是完整 skill 清单；用户询问现有/全部/启用 skills 时请调用 `skill_list`。',
+    '每个候选 skill 列出了它的 references/ 文件清单。',
     '判断哪些参考文件与当前任务相关后，用 `skill_read_reference` 直接读对应文件；',
     '想看 SKILL.md 主体用 `skill_load`；想列其他子目录用 `skill_glob`。',
     '不相关的文件不要加载，避免浪费上下文。',

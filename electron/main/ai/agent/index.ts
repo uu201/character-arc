@@ -8,7 +8,8 @@ import type {
 } from '../shared-types'
 import { normalizeSettings, validateSettings, resolveMaxTokens } from '../settings'
 import { getTaskHandler } from '../tasks'
-import { getSkillById, resolveTaskSkills } from '../skills'
+import { getAllSkills, getSkillById, resolveTaskSkills } from '../skills'
+import { isSkillEnabledForTask } from '../skills/task-selection'
 import { addAiRunUsage, aiGenerateTextWithUsage } from '../generate'
 import { buildPromptInput } from '../runtime/context-builder'
 import { enrichTaskContextForGeneration } from '../runtime/task-context'
@@ -98,6 +99,7 @@ export async function runAgentTask(
         '- Decide which project modules to inspect before answering. Do not rely only on short summaries when the request depends on concrete project facts.',
         '- Prefer `read_project_data` without `entity_type` to get a quick index, then read only the modules that matter.',
         '- Use narrow reads whenever possible: `summary_only=true` for reconnaissance, `limit` to avoid over-reading, `entity_id` for exact entities, and `doc_key` for workflow documents.',
+        '- When the user asks what skills exist, what skills are enabled, or asks to summarize every skill, you must call `skill_list` first and answer from its result. The skill index above is only the current task-matched subset, not the complete registry.',
         '- Do not rely on the static skill list alone. When the task may benefit from project skills, you must decide which skills are relevant and explicitly call `skill_load` yourself before concluding.',
         '- Use `search_project` first when the user mentions a specific concept, role, event, clue, workflow artifact, or rule and you are not sure where it lives.',
         '- Treat `project_constraints` as hard boundaries and `workflow_documents` as live planning artifacts. If they may affect the answer, inspect them before concluding.',
@@ -110,6 +112,8 @@ export async function runAgentTask(
 
   const skillTools = createSkillTools({
     resolveSkill: (id) => getSkillById(id, projectId || undefined),
+    listSkills: () => getAllSkills(projectId || undefined),
+    resolveSkillEnabled: (skill) => isSkillEnabledForTask(task, skill.id, projectId),
     allowScriptExecution: (skill) => skill.scope === 'builtin'
   })
 

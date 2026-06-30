@@ -23,6 +23,8 @@ const toolLabel = computed(() => {
       return '编辑章节'
     case 'search_project':
       return '搜索项目'
+    case 'skill_list':
+      return '查看技能清单'
     case 'list_chapters':
       return '章节列表'
     case 'read_project_data': {
@@ -30,10 +32,20 @@ const toolLabel = computed(() => {
       const typeLabels: Record<string, string> = {
         'characters': '读取角色设定',
         'worldview': '读取世界观',
+        'organizations': '读取组织设定',
+        'organization_memberships': '读取成员归属',
+        'relationships': '读取角色关系',
         'outline': '读取章节大纲',
+        'chapters': '读取章节',
         'plotThreads': '读取剧情线索',
+        'plot_threads': '读取剧情线索',
         'knowledge': '读取项目知识库',
+        'available_deconstructions': '读取公共拆书库',
         'deconstructionLibrary': '读取拆书知识库',
+        'deconstruction_library': '读取拆书知识库',
+        'reference_works': '读取参考书',
+        'workflow_documents': '读取工作流文档',
+        'project_constraints': '读取项目约束',
         'style': '读取写作风格'
       }
       return typeLabels[String(entityType)] || '读取项目数据'

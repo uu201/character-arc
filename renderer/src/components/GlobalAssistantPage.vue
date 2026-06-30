@@ -65,6 +65,7 @@ function toggleGroup(key: string): void {
 function toolRowIcon(toolCall: AssistantToolCall) {
   switch (toolCall.toolName) {
     case 'search_project':
+    case 'skill_list':
     case 'skill_load':
       return Search
     case 'edit_chapter':

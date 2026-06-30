@@ -151,13 +151,16 @@ function toolScopeLabel(scope: string): string {
     worldview: '世界观',
     characters: '角色',
     organizations: '组织',
+    organization_memberships: '成员归属',
     relationships: '关系',
     outline: '大纲',
     plot_threads: '剧情线索',
     plotThreads: '剧情线索',
     inspiration: '灵感',
     knowledge: '项目知识',
+    available_deconstructions: '公共拆书库',
     deconstruction_library: '拆书知识库',
+    reference_works: '参考书',
     chapters: '章节',
     workflow_documents: '工作流文档',
     workflowDocuments: '工作流文档',
@@ -208,6 +211,8 @@ function describeToolAction(toolCall: AssistantToolCall): string {
       return '查看章节列表'
     case 'knowledge_save_document':
       return '保存知识文档'
+    case 'skill_list':
+      return '查看 Skills 清单'
     case 'skill_load':
       return '加载相关技能'
     default:
@@ -222,7 +227,7 @@ function toolStatusLabel(toolCall: AssistantToolCall): string {
 }
 
 function toolGroupKey(toolCall: AssistantToolCall): ToolGroup['key'] {
-  if (toolCall.toolName === 'search_project' || toolCall.toolName === 'skill_load') {
+  if (toolCall.toolName === 'search_project' || toolCall.toolName === 'skill_list' || toolCall.toolName === 'skill_load') {
     return 'search'
   }
   if (toolCall.toolName === 'knowledge_save_document' || toolCall.toolName === 'edit_chapter') {
@@ -1071,7 +1076,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
           workflowDocuments: appStore.workflowDocuments,
           knowledgeDocuments: appStore.knowledgeDocuments.slice(0, 30),
           projectConstraints: appStore.projectConstraints.slice(0, 24),
-          projectSkills: project.projectSkills.filter((item) => item.enabled)
+          projectSkills: project.projectSkills
         }
       }))
 
@@ -1507,7 +1512,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
           projectGenre: project.genre,
           currentChapterIndex,
           userPrompt: promptOverride || composerValue.value.trim() || '请基于当前项目设定与章节状态执行一次一致性审计。',
-          projectSkills: project.projectSkills.filter((item) => item.enabled)
+          projectSkills: project.projectSkills
         }
       }))
 
@@ -1604,7 +1609,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
           workflowDocuments: appStore.workflowDocuments.slice(0, 6).map((item) => ({ title: item.title, content: item.content.slice(0, 1200) })),
           knowledgeDocuments: appStore.knowledgeDocuments.slice(0, 24).map((item) => ({ title: item.title, summary: item.summary, content: item.content.slice(0, 800), sourceLabel: item.sourceLabel, metadata: item.metadata })),
           projectConstraints: appStore.projectConstraints.slice(0, 24).map((item) => ({ title: item.title, content: item.content, summary: item.summary, keywords: item.keywords, metadata: item.metadata })),
-          projectSkills: project.projectSkills.filter((item) => item.enabled)
+          projectSkills: project.projectSkills
         }
       }))
 
