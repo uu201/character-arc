@@ -81,35 +81,42 @@ function handleAfterEnter(): void {
     @close="emit('update:show', false)"
     @after-enter="handleAfterEnter"
   >
-    <div class="update-body">
-      <!-- Loading -->
-      <div v-if="loading" class="update-loading">
-        <n-spin size="medium" />
-        <p>正在检查最新版本...</p>
-      </div>
+    <!-- Loading -->
+    <div v-if="loading" class="update-state-body">
+      <n-spin size="medium" />
+      <p>正在检查最新版本...</p>
+    </div>
 
-      <!-- Error -->
-      <n-result v-else-if="error" status="error" :description="error" size="small">
+    <!-- Error -->
+    <div v-else-if="error" class="update-state-body">
+      <n-result status="error" :description="error" size="small">
         <template #footer>
           <n-button @click="check">重试</n-button>
         </template>
       </n-result>
+    </div>
 
-      <!-- Has Update -->
-      <div v-else-if="updateInfo?.hasUpdate" class="update-available">
-        <div class="update-header">
-          <ArrowUpCircle :size="32" class="update-icon" />
-          <div>
-            <h3>发现新版本</h3>
-            <p>
-              <n-tag size="small" type="info">v{{ updateInfo.currentVersion }}</n-tag>
-              <span class="update-arrow">→</span>
-              <n-tag size="small" type="success">v{{ updateInfo.latestVersion }}</n-tag>
-              <span v-if="updateInfo.publishedAt" class="update-date">{{ formatDate(updateInfo.publishedAt) }}</span>
-            </p>
+    <!-- Up to date -->
+    <div v-else-if="updateInfo && !updateInfo.hasUpdate" class="update-state-body">
+      <n-result status="success" title="已是最新版本" :description="`当前版本 v${updateInfo.currentVersion}`" size="small" />
+    </div>
+
+    <!-- Has Update -->
+    <template v-else-if="updateInfo?.hasUpdate">
+      <div class="update-top">
+        <ArrowUpCircle :size="28" class="update-icon" />
+        <div class="update-top-copy">
+          <h3>发现新版本</h3>
+          <div class="update-version-row">
+            <n-tag size="small" type="info">v{{ updateInfo.currentVersion }}</n-tag>
+            <span class="update-arrow">→</span>
+            <n-tag size="small" type="success">v{{ updateInfo.latestVersion }}</n-tag>
+            <span v-if="updateInfo.publishedAt" class="update-date">{{ formatDate(updateInfo.publishedAt) }}</span>
           </div>
         </div>
+      </div>
 
+      <div class="update-scroll">
         <div v-if="updateInfo.releaseNotes" class="update-notes">
           <h4>更新说明</h4>
           <div class="update-notes-content" v-html="renderedNotes" />
@@ -126,44 +133,40 @@ function handleAfterEnter(): void {
             </n-button>
           </div>
         </div>
+      </div>
 
-        <n-button v-if="updateInfo.releaseUrl" block secondary @click="openUrl(updateInfo.releaseUrl)">
+      <div v-if="updateInfo.releaseUrl" class="update-bottom">
+        <n-button block secondary @click="openUrl(updateInfo.releaseUrl)">
           <template #icon><ExternalLink :size="14" /></template>
           在浏览器中查看完整发布说明
         </n-button>
       </div>
-
-      <!-- Up to date -->
-      <n-result v-else-if="updateInfo && !updateInfo.hasUpdate" status="success" title="已是最新版本" :description="`当前版本 v${updateInfo.currentVersion}`" size="small" />
-    </div>
+    </template>
   </n-modal>
 </template>
 
 <style scoped>
-.update-body {
-  min-height: 120px;
-}
-
-.update-loading {
+/* loading / error / up-to-date 三种轻量状态共用，居中展示 */
+.update-state-body {
+  min-height: 140px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 14px;
-  padding: 32px 0;
+  padding: 16px 0;
   color: var(--arc-text-secondary);
   font-size: 14px;
 }
 
-.update-available {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.update-header {
+/* 有更新时：顶部版本信息固定 */
+.update-top {
   display: flex;
   align-items: flex-start;
   gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--arc-border);
+  margin-bottom: 16px;
 }
 
 .update-icon {
@@ -172,15 +175,14 @@ function handleAfterEnter(): void {
   margin-top: 2px;
 }
 
-.update-header h3 {
-  margin: 0 0 6px;
+.update-top-copy h3 {
+  margin: 0 0 8px;
   font-size: 16px;
   font-weight: 700;
   color: var(--arc-text-primary);
 }
 
-.update-header p {
-  margin: 0;
+.update-version-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -192,9 +194,18 @@ function handleAfterEnter(): void {
 }
 
 .update-date {
-  margin-left: 8px;
+  margin-left: 4px;
   color: var(--arc-text-hint);
   font-size: 12px;
+}
+
+/* 中间滚动区：更新说明 + 下载列表，最多 280px 防止撑高 */
+.update-scroll {
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .update-notes h4,
@@ -206,15 +217,12 @@ function handleAfterEnter(): void {
 }
 
 .update-notes-content {
-  margin: 0;
   padding: 12px;
   border: 1px solid var(--arc-border);
   border-radius: 8px;
   background: var(--arc-bg-weak);
   font-size: 13px;
   line-height: 1.65;
-  max-height: 200px;
-  overflow-y: auto;
   color: var(--arc-text-secondary);
 }
 
@@ -271,5 +279,12 @@ function handleAfterEnter(): void {
   color: var(--arc-text-hint);
   font-size: 12px;
   flex-shrink: 0;
+}
+
+/* 底部操作按钮固定在滚动区下方 */
+.update-bottom {
+  padding-top: 14px;
+  border-top: 1px solid var(--arc-border);
+  margin-top: 16px;
 }
 </style>
