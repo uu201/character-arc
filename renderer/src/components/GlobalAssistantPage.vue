@@ -97,13 +97,13 @@ function onSuggest(action: { label: string; prompt: string }): void {
   nextTick(() => composerRef.value?.focus())
 }
 
-function applyAllFromReview(): void {
-  a.applyAllProposal()
+async function applyAllFromReview(): Promise<void> {
+  await a.applyAllProposal()
   showDiffReview.value = false
 }
 
-function applyFileFromReview(fileId: string): void {
-  if (a.applyProposalDiffFile(fileId) && a.proposalDiffStats.value.total === 0) {
+async function applyFileFromReview(fileId: string): Promise<void> {
+  if (await a.applyProposalDiffFile(fileId) && a.proposalDiffStats.value.total === 0) {
     showDiffReview.value = false
   }
 }
@@ -387,7 +387,7 @@ watch(
                     {{ a.isAuditMode.value ? '重新审计' : '生成提案' }}
                   </NButton>
                   <NButton
-                    v-if="a.proposal.value && (a.proposal.value.constraintCreates.length || a.hasWorldviewApplyTarget() || a.hasCharacterApplyTarget() || a.hasOutlineApplyTarget())"
+                    v-if="a.hasChapterEditProposals.value || (a.proposal.value && (a.proposal.value.constraintCreates.length || a.hasWorldviewApplyTarget() || a.hasCharacterApplyTarget() || a.hasOutlineApplyTarget()))"
                     size="small"
                     type="primary"
                     @click="showDiffReview = true"
@@ -397,11 +397,22 @@ watch(
                   <NButton size="small" quaternary @click="a.clearProposal()">忽略</NButton>
                 </div>
               </div>
-              <p class="ga-proposal__summary">{{ a.proposal.value?.summary || '正在整理世界观、人物卡和大纲提案…' }}</p>
+              <p class="ga-proposal__summary">{{ a.proposal.value?.summary || (a.hasChapterEditProposals.value ? '已生成章节正文修改提案，请审查 Diff 后写回。' : '正在整理世界观、人物卡和大纲提案…') }}</p>
 
-              <div v-if="a.proposal.value" class="ga-proposal__sections">
+              <div v-if="a.proposal.value || a.hasChapterEditProposals.value" class="ga-proposal__sections">
+                <section v-if="a.hasChapterEditProposals.value" class="ga-section">
+                  <div class="ga-section__head"><span>章节正文</span><NButton size="tiny" secondary @click="showDiffReview = true">审查 Diff</NButton></div>
+                  <div v-for="item in a.pendingChapterEditProposals.value" :key="item.proposalId" class="ga-item">
+                    <div class="ga-item__top">
+                      <strong>修改 · {{ a.resolveChapterEditTitle(item.chapterId) }}</strong>
+                      <NTag size="small" round :bordered="false" type="info">{{ item.editType }}</NTag>
+                    </div>
+                    <p>{{ item.preview }}</p>
+                  </div>
+                </section>
+
                 <!-- 项目约束 -->
-                <section v-if="a.proposal.value.constraintCreates.length" class="ga-section">
+                <section v-if="a.proposal.value && a.proposal.value.constraintCreates.length" class="ga-section">
                   <div class="ga-section__head"><span>项目约束</span><NButton size="tiny" secondary @click="showDiffReview = true">审查 Diff</NButton></div>
                   <div v-for="item in a.proposal.value.constraintCreates" :key="`gc-${item.title}`" class="ga-item">
                     <div class="ga-item__top"><strong>新增 · {{ item.title }}</strong><NTag size="small" round :bordered="false" type="warning">{{ item.scope }}</NTag></div>
@@ -411,7 +422,7 @@ watch(
                 </section>
 
                 <!-- 世界观 -->
-                <section v-if="a.proposal.value.worldviewCreates.length || a.proposal.value.worldviewUpdates.length" class="ga-section">
+                <section v-if="a.proposal.value && (a.proposal.value.worldviewCreates.length || a.proposal.value.worldviewUpdates.length)" class="ga-section">
                   <div class="ga-section__head"><span>世界观</span><NButton size="tiny" secondary :disabled="!a.hasWorldviewApplyTarget()" @click="showDiffReview = true">审查 Diff</NButton></div>
                   <div v-for="item in a.proposal.value.worldviewCreates" :key="`wc-${item.title}`" class="ga-item">
                     <div class="ga-item__top"><strong>新增 · {{ item.title }}</strong><NTag size="small" round :bordered="false" type="info">{{ item.type }}</NTag></div>
@@ -438,7 +449,7 @@ watch(
                 </section>
 
                 <!-- 人物卡 -->
-                <section v-if="a.proposal.value.characterCreates.length || a.proposal.value.characterUpdates.length" class="ga-section">
+                <section v-if="a.proposal.value && (a.proposal.value.characterCreates.length || a.proposal.value.characterUpdates.length)" class="ga-section">
                   <div class="ga-section__head"><span>人物卡</span><NButton size="tiny" secondary :disabled="!a.hasCharacterApplyTarget()" @click="showDiffReview = true">审查 Diff</NButton></div>
                   <div v-for="item in a.proposal.value.characterCreates" :key="`cc-${item.name}`" class="ga-item">
                     <div class="ga-item__top"><strong>新增 · {{ item.name }}</strong><NTag v-if="item.role" size="small" round :bordered="false" type="info">{{ item.role }}</NTag></div>
@@ -466,7 +477,7 @@ watch(
                 </section>
 
                 <!-- 大纲 -->
-                <section v-if="a.proposal.value.outlineCreates.length || a.proposal.value.outlineUpdates.length" class="ga-section">
+                <section v-if="a.proposal.value && (a.proposal.value.outlineCreates.length || a.proposal.value.outlineUpdates.length)" class="ga-section">
                   <div class="ga-section__head"><span>大纲</span><NButton size="tiny" secondary :disabled="!a.hasOutlineApplyTarget()" @click="showDiffReview = true">审查 Diff</NButton></div>
                   <div v-for="item in a.proposal.value.outlineCreates" :key="`oc-${item.title}`" class="ga-item">
                     <div class="ga-item__top"><strong>新增 · {{ item.title }}</strong><NTag v-if="item.wordTarget" size="small" round :bordered="false" type="info">{{ item.wordTarget }}</NTag></div>
@@ -493,7 +504,7 @@ watch(
                   </div>
                 </section>
 
-                <section v-if="a.proposal.value.notes.length" class="ga-section">
+                <section v-if="a.proposal.value && a.proposal.value.notes.length" class="ga-section">
                   <div class="ga-section__head"><span>提醒</span></div>
                   <ul class="ga-notes"><li v-for="note in a.proposal.value.notes" :key="note">{{ note }}</li></ul>
                 </section>

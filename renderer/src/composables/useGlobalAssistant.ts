@@ -5,7 +5,7 @@ import { useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import type { AssistantToolCall, ChatMessage, GlobalAssistantProposal, PanelName } from '@/types/app'
+import type { AssistantToolCall, ChapterEditProposal, ChatMessage, GlobalAssistantProposal, PanelName } from '@/types/app'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 
@@ -35,7 +35,7 @@ export type GlobalAssistantProposalDiffFile = {
   id: string
   title: string
   path: string
-  kind: 'constraint' | 'worldview' | 'character' | 'organization' | 'outline' | 'note'
+  kind: 'constraint' | 'worldview' | 'character' | 'organization' | 'outline' | 'chapter' | 'note'
   action: 'create' | 'update' | 'note'
   oldText: string
   newText: string
@@ -68,6 +68,7 @@ const PROPOSAL_TASK_KEY = 'global-assistant-proposal'
 const sharedIsRunningAudit = ref(false)
 const sharedIsSending = ref(false)
 const sharedIsProposalLoading = ref(false)
+const sharedPendingChapterEditProposals = ref<ChapterEditProposal[]>([])
 /** 已被用户忽略「生成提案」提示的助手消息 id；新回复到来后会重新提示。 */
 const sharedDismissedProposalSuggestionFor = ref('')
 let sharedStreamId: string | null = null
@@ -264,6 +265,17 @@ function normalizeDiffText(value: unknown): string {
   return String(value ?? '').replace(/\r\n/g, '\n').trim()
 }
 
+function stripHtmlForDiff(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .trim()
+}
+
 function escapeDiffPath(value: string): string {
   return value.replace(/\s+/g, '_').replace(/[\\]/g, '/')
 }
@@ -312,6 +324,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
   const isRunningAudit = sharedIsRunningAudit
   const isSending = sharedIsSending
   const isProposalLoading = sharedIsProposalLoading
+  const pendingChapterEditProposals = sharedPendingChapterEditProposals
   let proposalRequestToken = 0
 
   const modeOptions = GLOBAL_ASSISTANT_MODE_OPTIONS
@@ -373,6 +386,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
   const hasActionableProposal = computed(() => {
     const current = proposal.value
+    if (pendingChapterEditProposals.value.length > 0) return true
     if (!current) return false
     return Boolean(
       current.constraintCreates.length ||
@@ -385,6 +399,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       current.notes.length
     )
   })
+  const hasChapterEditProposals = computed(() => pendingChapterEditProposals.value.length > 0)
 
   /** 最近一条已完成的助手回复（用于「生成提案」提示的锚点）。 */
   const lastAssistantMessage = computed(() => {
@@ -488,6 +503,21 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       return
     }
 
+    if (payload.type === 'edit_proposed') {
+      pendingChapterEditProposals.value = [
+        ...pendingChapterEditProposals.value.filter((item) => item.proposalId !== payload.proposalId),
+        {
+          proposalId: payload.proposalId,
+          chapterId: payload.chapterId,
+          editType: payload.editType,
+          preview: payload.preview,
+          oldContent: payload.oldContent,
+          newContent: payload.newContent
+        }
+      ]
+      return
+    }
+
     if (payload.type === 'done') {
       const finalText = String(payload.content ?? '').trim()
       if (finalText) {
@@ -582,9 +612,14 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     outlineTargetMap.value = {}
   }
 
+  function clearChapterEditProposals(): void {
+    pendingChapterEditProposals.value = []
+  }
+
   function clearProposal(): void {
     appStore.updateAssistantSessionProposal({ proposal: null })
     clearTargetSelections()
+    clearChapterEditProposals()
   }
 
   function setProposal(nextProposal: GlobalAssistantProposal | null): void {
@@ -604,6 +639,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
   function resetConversationState(): void {
     clearTargetSelections()
+    clearChapterEditProposals()
   }
 
   function startNewConversation(): void {
@@ -717,6 +753,10 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     return appStore.organizations.find((entry) => entry.id === targetId) ?? null
   }
 
+  function resolveChapterEditTitle(chapterId: string): string {
+    return appStore.chapters.find((chapter) => chapter.id === chapterId)?.title ?? chapterId
+  }
+
   function mergeLongTextForIngest(currentValue: string | undefined, incomingValue: string | undefined): string {
     const currentText = String(currentValue ?? '').trim()
     const incomingText = String(incomingValue ?? '').trim()
@@ -782,9 +822,24 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
   const proposalDiffFiles = computed<GlobalAssistantProposalDiffFile[]>(() => {
     const current = proposal.value
-    if (!current) return []
-
     const files: GlobalAssistantProposalDiffFile[] = []
+
+    for (const [index, item] of pendingChapterEditProposals.value.entries()) {
+      const chapterTitle = resolveChapterEditTitle(item.chapterId)
+      files.push({
+        id: `chapter-edit-${item.proposalId}`,
+        title: `正文修改 ${index + 1}: ${chapterTitle}`,
+        path: `chapters/${escapeDiffPath(chapterTitle || item.chapterId)}.body`,
+        kind: 'chapter',
+        action: 'update',
+        oldText: stripHtmlForDiff(item.oldContent),
+        newText: stripHtmlForDiff(item.newContent),
+        reason: item.preview || item.editType,
+        canApply: true
+      })
+    }
+
+    if (!current) return files
 
     for (const [index, item] of current.constraintCreates.entries()) {
       const alreadyExists = appStore.projectConstraints.some(
@@ -1323,15 +1378,40 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     }
   }
 
-  function applyProposalDiffFile(fileId: string): boolean {
-    const current = proposal.value
+  async function applyProposalDiffFile(fileId: string): Promise<boolean> {
     const file = proposalDiffFiles.value.find((item) => item.id === fileId)
-    if (!current || !file) return false
+    if (!file) return false
 
     if (!file.canApply) {
       message.warning('这条提案还不能写回，请先匹配目标或人工处理')
       return false
     }
+
+    if (file.kind === 'chapter' && file.action === 'update') {
+      const proposalId = file.id.replace(/^chapter-edit-/, '')
+      const chapterProposal = pendingChapterEditProposals.value.find((item) => item.proposalId === proposalId)
+      const projectId = appStore.currentProject?.id
+      if (!chapterProposal || !projectId) return false
+
+      const response = await window.characterArc.commitChapterEdit(
+        projectId,
+        chapterProposal.chapterId,
+        chapterProposal.oldContent,
+        chapterProposal.newContent
+      )
+      if (!response.success) {
+        message.error(response.error ?? '章节正文写回失败')
+        return false
+      }
+
+      pendingChapterEditProposals.value = pendingChapterEditProposals.value.filter((item) => item.proposalId !== proposalId)
+      await appStore.reloadChapterFromDb(chapterProposal.chapterId)
+      message.success(`已写回正文：${resolveChapterEditTitle(chapterProposal.chapterId)}`)
+      return true
+    }
+
+    const current = proposal.value
+    if (!current) return false
 
     if (file.kind === 'constraint' && file.action === 'create') {
       const index = parseProposalDiffIndex(file.id, 'constraint-create')
@@ -1508,15 +1588,21 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     return false
   }
 
-  function applyAllProposal(): void {
-    if (!proposal.value) return
-    if (proposal.value.constraintCreates.length) applyConstraintProposal()
-    if (hasWorldviewApplyTarget()) applyWorldviewProposal()
+  async function applyAllProposal(): Promise<void> {
+    if (proposal.value?.constraintCreates.length) applyConstraintProposal()
+    if (proposal.value && hasWorldviewApplyTarget()) applyWorldviewProposal()
     if (proposal.value && hasCharacterApplyTarget()) applyCharacterProposal()
     if (proposal.value && hasOrganizationApplyTarget()) applyOrganizationProposal()
     if (proposal.value && hasOutlineApplyTarget()) applyOutlineProposal()
     if (proposal.value?.notes.length) {
       setProposal(trimProposal({ ...proposal.value, notes: [] }))
+    }
+
+    const chapterFileIds = proposalDiffFiles.value
+      .filter((file) => file.kind === 'chapter' && file.canApply)
+      .map((file) => file.id)
+    for (const fileId of chapterFileIds) {
+      await applyProposalDiffFile(fileId)
     }
   }
 
@@ -1607,6 +1693,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     registerStreamListener()
 
     try {
+      const selectedChapter = appStore.selectedChapter
       const response = await window.characterArc.startAiAgentStream(toIpcPayload({
         task: 'global-assistant',
         clientKey: AI_TASK_KEY,
@@ -1621,8 +1708,26 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
           writingStylePrompt: project.writingStylePrompt,
           assistantMode: activeMode.value,
           currentPanelLabel: resolveViewLabel(),
+          chapterId: selectedChapter?.id ?? '',
+          chapterTitle: selectedChapter?.title ?? '',
+          chapterSummary: selectedChapter?.summary ?? '',
+          chapterStatus: selectedChapter?.status ?? '',
+          chapterWordTarget: selectedChapter?.wordTarget ?? '',
           userPrompt: prompt,
-          enabledContextModules: ['worldview', 'characters', 'organizations', 'relationships', 'outline', 'plotThreads', 'inspiration', 'knowledge', 'deconstructionLibrary', 'workflowDocuments', 'projectConstraints'],
+          enabledContextModules: [
+            'chapter',
+            'worldview',
+            'characters',
+            'organizations',
+            'relationships',
+            'outline',
+            'plotThreads',
+            'inspiration',
+            'knowledge',
+            'deconstructionLibrary',
+            'workflowDocuments',
+            'projectConstraints'
+          ],
           recentMessages: appStore.messages.slice(0, -2).slice(-8).map((item) => ({ role: item.role, content: item.content })),
           worldviewEntries: appStore.worldviewEntries.slice(0, 24),
           characters: appStore.characters.slice(0, 24),
@@ -1693,6 +1798,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     characterTargetMap,
     organizationTargetMap,
     outlineTargetMap,
+    pendingChapterEditProposals,
     messages,
     proposal,
     proposalDiffFiles,
@@ -1709,6 +1815,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     dismissProposalSuggestion,
     generateProposalFromSuggestion,
     hasActionableProposal,
+    hasChapterEditProposals,
     projectTitle,
     projectGenre,
     projectConstraintSummary,
@@ -1743,6 +1850,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     applyProposalDiffFile,
     applyAllProposal,
     clearProposal,
+    clearChapterEditProposals,
     setProposal,
     worldviewUpdateKey,
     characterUpdateKey,
@@ -1752,6 +1860,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     findCharacterByName,
     findOrganizationByName,
     findOutlineByTitle,
+    resolveChapterEditTitle,
     resolveWorldviewTarget,
     resolveCharacterTarget,
     resolveOrganizationTarget,

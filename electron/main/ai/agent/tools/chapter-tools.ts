@@ -3,6 +3,7 @@ import type { Tool } from './types'
 import {
   applyChapterEdit,
   computeChapterEdit,
+  type ChapterSummaryItem,
   listProjectChapters,
   readChapterFromDb,
   searchProjectData
@@ -19,16 +20,94 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
   const { currentChapterId, useDiffReview, onEditApplied, onEditProposed } = callbacks
   const virtualContent = new Map<string, string>()
 
+  function normalizeChapterRef(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/[《》「」『』“”"']/g, '')
+  }
+
+  function parseChapterOrdinal(ref: string): number | null {
+    const normalized = normalizeChapterRef(ref)
+    const arabic = normalized.match(/^第?(\d+)章?$/)
+    if (arabic) {
+      return Number(arabic[1])
+    }
+
+    const chineseDigits: Record<string, number> = {
+      零: 0,
+      一: 1,
+      二: 2,
+      两: 2,
+      三: 3,
+      四: 4,
+      五: 5,
+      六: 6,
+      七: 7,
+      八: 8,
+      九: 9
+    }
+    const chinese = normalized.match(/^第?([零一二两三四五六七八九十百]+)章?$/)
+    if (!chinese) return null
+
+    const value = chinese[1]
+    if (value === '十') return 10
+    const tenIndex = value.indexOf('十')
+    if (tenIndex >= 0) {
+      const before = value.slice(0, tenIndex)
+      const after = value.slice(tenIndex + 1)
+      const tens = before ? chineseDigits[before] ?? 0 : 1
+      const ones = after ? chineseDigits[after] ?? 0 : 0
+      return tens * 10 + ones
+    }
+    return chineseDigits[value] ?? null
+  }
+
+  async function resolveChapterId(projectId: string, ref: string): Promise<string> {
+    const rawRef = ref.trim()
+    if (!rawRef) return ''
+
+    const direct = await readChapterFromDb(projectId, rawRef)
+    if (direct) return direct.id
+
+    const chapters = await listProjectChapters(projectId)
+    const normalizedRef = normalizeChapterRef(rawRef)
+    const ordinal = parseChapterOrdinal(rawRef)
+    if (ordinal !== null && ordinal >= 1 && ordinal <= chapters.length) {
+      return chapters[ordinal - 1].id
+    }
+
+    const exactTitle = chapters.find((chapter) => normalizeChapterRef(chapter.title) === normalizedRef)
+    if (exactTitle) return exactTitle.id
+
+    const titleContains = chapters.filter((chapter) => normalizeChapterRef(chapter.title).includes(normalizedRef))
+    if (titleContains.length === 1) {
+      return titleContains[0].id
+    }
+
+    throw new Error(formatChapterResolveError(rawRef, chapters))
+  }
+
+  function formatChapterResolveError(ref: string, chapters: ChapterSummaryItem[]): string {
+    if (!chapters.length) return '当前项目还没有章节。'
+    const options = chapters
+      .slice(0, 20)
+      .map((chapter, index) => `${index + 1}. ${chapter.title}`)
+      .join('\n')
+    return `无法定位章节“${ref}”。请根据章节列表自行选择最可能的目标，必要时再询问用户：\n${options}`
+  }
+
   const readChapter: Tool = {
     definition: {
       name: 'read_chapter',
-      description: 'Read a chapter in the current project. If chapter_id is omitted, read the currently active chapter.',
+      description: 'Read a chapter in the current project. If chapter_id is omitted, read the currently active chapter. chapter_id may be an actual ID, a title, or a natural reference like "第一章", "第1章", or "1".',
       inputSchema: {
         type: 'object',
         properties: {
           chapter_id: {
             type: 'string',
-            description: 'Optional chapter ID. Omit to read the current chapter.'
+            description: 'Optional chapter ID, title, ordinal, or natural chapter reference. Examples: "第一章", "第1章", "1", "序章". Omit to read the current chapter.'
           },
           include_content: {
             type: 'boolean',
@@ -38,18 +117,23 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
       }
     },
     handler: async (input, ctx) => {
-      const chapterId = String(input.chapter_id || currentChapterId).trim()
-      if (!chapterId) {
+      const rawChapterRef = String(input.chapter_id || currentChapterId).trim()
+      if (!rawChapterRef) {
         return {
-          content: 'No chapter_id was provided and there is no active chapter. Use list_chapters first or ask the user which chapter to inspect.',
+          content: '没有提供章节引用，也没有当前激活章节。请先用 list_chapters 查看项目章节，并自行判断用户说的是哪一章。',
           isError: true
         }
       }
 
-      const chapter = await readChapterFromDb(ctx.projectId, chapterId)
-      if (!chapter) {
-        return { content: `Chapter not found: ${chapterId}`, isError: true }
+      let chapterId = ''
+      try {
+        chapterId = await resolveChapterId(ctx.projectId, rawChapterRef)
+      } catch (error) {
+        return { content: error instanceof Error ? error.message : String(error), isError: true }
       }
+
+      const chapter = await readChapterFromDb(ctx.projectId, chapterId)
+      if (!chapter) return { content: `Chapter not found: ${chapterId}`, isError: true }
 
       const includeContent = input.include_content !== false
       const plainContent = includeContent
@@ -94,7 +178,7 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
           },
           chapter_id: {
             type: 'string',
-            description: 'Optional target chapter ID. Omit to edit the active chapter.'
+            description: 'Optional target chapter ID, title, ordinal, or natural chapter reference. Examples: "第一章", "第1章", "1", "序章". Omit to edit the active chapter.'
           },
           search: {
             type: 'string',
@@ -114,9 +198,16 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
       }
     },
     handler: async (input, ctx) => {
-      const targetChapterId = String(input.chapter_id || currentChapterId).trim()
-      if (!targetChapterId) {
-        return { content: 'No chapter_id was provided and there is no active chapter, so edit_chapter cannot run. Use list_chapters or search_project first.', isError: true }
+      const rawChapterRef = String(input.chapter_id || currentChapterId).trim()
+      if (!rawChapterRef) {
+        return { content: '没有提供章节引用，也没有当前激活章节，所以无法修改正文。请先用 list_chapters 查看项目章节，并自行判断目标章节。', isError: true }
+      }
+
+      let targetChapterId = ''
+      try {
+        targetChapterId = await resolveChapterId(ctx.projectId, rawChapterRef)
+      } catch (error) {
+        return { content: error instanceof Error ? error.message : String(error), isError: true }
       }
 
       const operation = String(input.operation) as 'replace' | 'insert' | 'append'

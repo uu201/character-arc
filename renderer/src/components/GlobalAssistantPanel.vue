@@ -35,6 +35,7 @@ const {
   worldviewTargetMap,
   characterTargetMap,
   outlineTargetMap,
+  pendingChapterEditProposals,
   messages,
   proposal,
   proposalDiffFiles,
@@ -46,6 +47,7 @@ const {
   isAuditMode,
   assistantStatus,
   hasActionableProposal,
+  hasChapterEditProposals,
   canSuggestProposal,
   dismissProposalSuggestion,
   generateProposalFromSuggestion,
@@ -78,6 +80,7 @@ const {
   findWorldviewByTitle,
   findCharacterByName,
   findOutlineByTitle,
+  resolveChapterEditTitle,
   resolveWorldviewTarget,
   resolveCharacterTarget,
   resolveOutlineTarget,
@@ -172,13 +175,13 @@ function startNewConversation(): void {
   nextTick(() => scrollToBottom(false))
 }
 
-function applyAllFromReview(): void {
-  applyAllProposal()
+async function applyAllFromReview(): Promise<void> {
+  await applyAllProposal()
   showDiffReview.value = false
 }
 
-function applyFileFromReview(fileId: string): void {
-  if (applyProposalDiffFile(fileId) && proposalDiffStats.value.total === 0) {
+async function applyFileFromReview(fileId: string): Promise<void> {
+  if (await applyProposalDiffFile(fileId) && proposalDiffStats.value.total === 0) {
     showDiffReview.value = false
   }
 }
@@ -393,14 +396,14 @@ watch(
             <div class="global-proposal__header">
               <div>
                 <strong>写回提案</strong>
-                <p>{{ proposal?.summary || '正在整理世界观、人物卡和大纲提案…' }}</p>
+                <p>{{ proposal?.summary || (hasChapterEditProposals ? '已生成章节正文修改提案，请审查 Diff 后写回。' : '正在整理世界观、人物卡和大纲提案…') }}</p>
               </div>
               <div class="global-proposal__header-actions">
                 <NButton size="small" tertiary :loading="isProposalLoading" :disabled="isSending || isRunningAudit || isProposalLoading" @click="isAuditMode ? runAuditFromAssistant() : regenerateProposal()">
                   {{ isAuditMode ? '重新审计' : '生成提案' }}
                 </NButton>
                 <NButton
-                  v-if="proposal && (proposal.constraintCreates.length || hasWorldviewApplyTarget() || hasCharacterApplyTarget() || hasOutlineApplyTarget())"
+                  v-if="hasChapterEditProposals || (proposal && (proposal.constraintCreates.length || hasWorldviewApplyTarget() || hasCharacterApplyTarget() || hasOutlineApplyTarget()))"
                   size="small"
                   type="primary"
                   @click="showDiffReview = true"
@@ -410,8 +413,24 @@ watch(
               </div>
             </div>
 
-            <div v-if="proposal" class="global-proposal__sections">
-              <section v-if="proposal.constraintCreates.length" class="global-proposal__section">
+            <div v-if="proposal || hasChapterEditProposals" class="global-proposal__sections">
+              <section v-if="hasChapterEditProposals" class="global-proposal__section">
+                <div class="global-proposal__section-head">
+                  <span>章节正文</span>
+                  <NButton size="tiny" tertiary @click="showDiffReview = true">审查 Diff</NButton>
+                </div>
+                <div class="global-proposal__items">
+                  <div v-for="item in pendingChapterEditProposals" :key="item.proposalId" class="global-proposal__item">
+                    <div class="global-proposal__item-top">
+                      <strong>修改 · {{ resolveChapterEditTitle(item.chapterId) }}</strong>
+                      <NTag size="small" round :bordered="false" type="info">{{ item.editType }}</NTag>
+                    </div>
+                    <p>{{ item.preview }}</p>
+                  </div>
+                </div>
+              </section>
+
+              <section v-if="proposal && proposal.constraintCreates.length" class="global-proposal__section">
                 <div class="global-proposal__section-head">
                   <span>项目约束</span>
                   <NButton size="tiny" tertiary @click="showDiffReview = true">审查 Diff</NButton>
@@ -431,7 +450,7 @@ watch(
                 </div>
               </section>
 
-              <section v-if="proposal.worldviewCreates.length || proposal.worldviewUpdates.length" class="global-proposal__section">
+              <section v-if="proposal && (proposal.worldviewCreates.length || proposal.worldviewUpdates.length)" class="global-proposal__section">
                 <div class="global-proposal__section-head">
                   <span>世界观</span>
                   <NButton size="tiny" tertiary :disabled="!hasWorldviewApplyTarget()" @click="showDiffReview = true">审查 Diff</NButton>
@@ -473,7 +492,7 @@ watch(
                 </div>
               </section>
 
-              <section v-if="proposal.characterCreates.length || proposal.characterUpdates.length" class="global-proposal__section">
+              <section v-if="proposal && (proposal.characterCreates.length || proposal.characterUpdates.length)" class="global-proposal__section">
                 <div class="global-proposal__section-head">
                   <span>人物卡</span>
                   <NButton size="tiny" tertiary :disabled="!hasCharacterApplyTarget()" @click="showDiffReview = true">审查 Diff</NButton>
@@ -521,7 +540,7 @@ watch(
                 </div>
               </section>
 
-              <section v-if="proposal.outlineCreates.length || proposal.outlineUpdates.length" class="global-proposal__section">
+              <section v-if="proposal && (proposal.outlineCreates.length || proposal.outlineUpdates.length)" class="global-proposal__section">
                 <div class="global-proposal__section-head">
                   <span>大纲</span>
                   <NButton size="tiny" tertiary :disabled="!hasOutlineApplyTarget()" @click="showDiffReview = true">审查 Diff</NButton>
@@ -567,7 +586,7 @@ watch(
                 </div>
               </section>
 
-              <section v-if="proposal.notes.length" class="global-proposal__section">
+              <section v-if="proposal && proposal.notes.length" class="global-proposal__section">
                 <div class="global-proposal__section-head">
                   <span>提醒</span>
                 </div>
