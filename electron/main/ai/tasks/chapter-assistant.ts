@@ -34,7 +34,7 @@ function formatProjectConstraints(source: unknown): string {
 }
 
 /** 章节助手系统提示词：定义创作助理的连贯性铁律、创作原则、去AI味约束等规则 */
-const CHAPTER_ASSISTANT_SYSTEM = `你是 CharacterArc 的小说创作助理，同时扮演资深编辑与角色构建专家。请基于当前项目和章节上下文，用中文直接输出可供作者使用的正文、润色稿、分析或建议。不要输出 Markdown 标题，不要解释你是 AI，也不要返回 JSON。
+const CHAPTER_ASSISTANT_SYSTEM = `你是 CharacterArc 的小说创作助理，同时扮演资深编辑与角色构建专家。请基于当前项目和章节上下文，用中文输出可供作者使用的正文、润色稿、分析或建议；如果当前任务启用正文 Diff 审阅或要求写回修改，必须通过工具生成待审查提案，不要直接输出改好的正文。不要输出 Markdown 标题，不要解释你是 AI，也不要返回 JSON。
 
 【连贯性铁律】
 新内容必须与前文完美衔接，禁止自相矛盾、时间线断裂和利益链断裂。前文埋下的资源、人脉、交易、仇怨，后文必须按因果兑现。拒绝机械降神——解决问题必须在已写内容中有迹可循，不能临时发明设定填坑。
@@ -92,14 +92,22 @@ const handler: TaskHandler = {
     const quickAction = String(context.quickAction ?? '自由提问')
     const responseMode = String(context.responseMode ?? 'freeform')
     const responseLength = String(context.responseLength ?? 'medium')
+    const diffReviewMode = context.diffReviewMode === true
     const modeInstruction = resolveChapterAssistantModeInstruction(responseMode)
     const lengthInstruction = resolveChapterAssistantLengthInstruction(responseLength)
     const quickActionInstruction = resolveChapterAssistantQuickActionInstruction(quickAction)
+    const diffReviewInstruction = diffReviewMode
+      ? [
+          '当前启用正文 Diff 审阅：只要用户要求修改、润色、改写、重写、精简、扩写、调整开头、调整段落或处理当前章节正文，必须通过 `edit_chapter` 生成待审查修改提案；不要把改好的正文直接作为最终回复输出。',
+          '用户说“文章开头 / 章节开头 / 开篇 / 开头部分”时，默认目标是当前章节开头若干段；先读取章节，再用 `edit_chapter` 对开头内容生成替换提案。',
+          '只有当用户明确要求建议、诊断、分析或询问怎么改时，才输出建议而不调用 `edit_chapter`。'
+        ].join('\n')
+      : '当前未启用正文 Diff 审阅；若任务需要正文结果，可以按请求直接输出。'
     const retrievalBlock = knowledgeBlock ? `\n\n检索到的项目记忆与参考资料：\n${knowledgeBlock}` : ''
 
     return {
       system: `${capabilityPreamble.system}\n\n${CHAPTER_ASSISTANT_SYSTEM}\n\n【全局设定最高优先级】\n项目级约束、locked 约束、weight=core 约束、用户标记 [锁定] 的设定，优先级高于本章灵感、临时改写和常规套路。不得覆盖、反转、弱化或绕开这些设定；人物锚点、世界规则红线和禁写项必须在输出时主动避让。`,
-      user: `${capabilityPreamble.user}\n\n请处理当前写作请求，并优先给出可直接使用的结果。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前项目默认风格：${String(context.writingStyleLabel ?? '未指定')}\n风格要求：${String(context.writingStylePrompt ?? '暂无')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n当前章节预估字数：${String(context.chapterWordTarget ?? '')}\n当前章节正文：\n${String(context.chapterContent ?? '')}\n\n当前选中文本：\n${selectedText || '暂无'}\n\n相邻章节参考：\n${formatRelatedChapters(context.relatedChapters) || '暂无'}\n\n本卷章节概览：\n${formatVolumeChapterSummaries(context.volumeChapterSummaries) || '暂无'}\n\n全书开篇：\n${formatNovelOpenerSummary(context.novelOpenerSummary) || '暂无'}\n\n未收伏笔 / 活跃剧情线：\n${formatOpenPlotThreads(context.plotThreads) || '暂无'}\n\n相关世界观：\n${formatWorldviewEntries(context.worldviewEntries) || '暂无'}\n\n相关角色：\n${formatCharacters(context.characters) || '暂无'}\n\n相关组织：\n${formatOrganizations(context.organizations) || '暂无'}\n\n角色关系：\n${formatCharacterRelationships(context.characterRelationships, context.characters) || '暂无'}\n\n成员归属：\n${formatOrganizationMemberships(context.organizationMemberships, context.organizations, context.characters) || '暂无'}\n\n当前可用灵感：\n${formatInspirationEntries(context.inspirationEntries) || '暂无'}\n\n相关大纲：\n${formatOutlineItems(context.outlineItems) || '暂无'}\n\n项目级约束：\n${formatProjectConstraints(context.knowledgeDocuments) || '暂无'}${retrievalBlock}\n\n最近对话：\n${formatRecentMessages(context.recentMessages) || '暂无'}\n\n当前项目启用 skills：\n${skillsBlock || '暂无'}\n\n快捷动作：${quickAction}\n输出模式：${responseMode}\n输出长度：${responseLength}\n用户请求：${String(context.userPrompt ?? '')}\n\n要求：\n1. 回答要紧贴当前章节上下文\n2. 如果请求是润色、续写、描写，请优先输出可直接插入正文的内容\n3. 如果提供了当前选中文本，并且请求与润色、改写有关，请优先只围绕这段文本处理\n4. 续写必须与相邻章节保持连续\n5. 若当前可用灵感不为空，可优先借用其中最贴合的一条\n6. 项目级约束属于后续生成必须遵守的高优先级边界，不能擅自突破\n7. 如果当前项目启用了 skills，优先吸收其中与正文创作相关的规则\n8. 上方提供的角色、世界观、大纲等信息仅为索引摘要。如果你需要某个角色的完整设定、某条世界观的详细内容或大纲的具体描述，请使用 read_project_data 工具按需读取，不要基于不完整的摘要进行猜测\n9. ${modeInstruction}\n10. ${lengthInstruction}\n11. ${quickActionInstruction}`
+      user: `${capabilityPreamble.user}\n\n请处理当前写作请求。\n\n项目标题：${String(context.projectTitle ?? '')}\n项目题材：${String(context.projectGenre ?? '')}\n当前项目默认风格：${String(context.writingStyleLabel ?? '未指定')}\n风格要求：${String(context.writingStylePrompt ?? '暂无')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n当前章节状态：${String(context.chapterStatus ?? '')}\n当前章节预估字数：${String(context.chapterWordTarget ?? '')}\n当前章节正文：\n${String(context.chapterContent ?? '')}\n\n当前选中文本：\n${selectedText || '暂无'}\n\n相邻章节参考：\n${formatRelatedChapters(context.relatedChapters) || '暂无'}\n\n本卷章节概览：\n${formatVolumeChapterSummaries(context.volumeChapterSummaries) || '暂无'}\n\n全书开篇：\n${formatNovelOpenerSummary(context.novelOpenerSummary) || '暂无'}\n\n未收伏笔 / 活跃剧情线：\n${formatOpenPlotThreads(context.plotThreads) || '暂无'}\n\n相关世界观：\n${formatWorldviewEntries(context.worldviewEntries) || '暂无'}\n\n相关角色：\n${formatCharacters(context.characters) || '暂无'}\n\n相关组织：\n${formatOrganizations(context.organizations) || '暂无'}\n\n角色关系：\n${formatCharacterRelationships(context.characterRelationships, context.characters) || '暂无'}\n\n成员归属：\n${formatOrganizationMemberships(context.organizationMemberships, context.organizations, context.characters) || '暂无'}\n\n当前可用灵感：\n${formatInspirationEntries(context.inspirationEntries) || '暂无'}\n\n相关大纲：\n${formatOutlineItems(context.outlineItems) || '暂无'}\n\n项目级约束：\n${formatProjectConstraints(context.knowledgeDocuments) || '暂无'}${retrievalBlock}\n\n最近对话：\n${formatRecentMessages(context.recentMessages) || '暂无'}\n\n当前项目启用 skills：\n${skillsBlock || '暂无'}\n\n快捷动作：${quickAction}\n输出模式：${responseMode}\n输出长度：${responseLength}\n用户请求：${String(context.userPrompt ?? '')}\n\n要求：\n1. 回答要紧贴当前章节上下文\n2. ${diffReviewInstruction}\n3. 如果未启用正文 Diff 审阅，且请求是润色、续写、描写，可以优先输出可直接插入正文的内容\n4. 如果提供了当前选中文本，并且请求与润色、改写有关，请优先只围绕这段文本处理；若启用正文 Diff 审阅，则通过 edit_chapter 生成替换提案\n5. 续写必须与相邻章节保持连续\n6. 若当前可用灵感不为空，可优先借用其中最贴合的一条\n7. 项目级约束属于后续生成必须遵守的高优先级边界，不能擅自突破\n8. 如果当前项目启用了 skills，优先吸收其中与正文创作相关的规则\n9. 上方提供的角色、世界观、大纲等信息仅为索引摘要。如果你需要某个角色的完整设定、某条世界观的详细内容或大纲的具体描述，请使用 read_project_data 工具按需读取，不要基于不完整的摘要进行猜测\n10. ${modeInstruction}\n11. ${lengthInstruction}\n12. ${quickActionInstruction}`
     }
   },
   normalize(raw: string): AiTaskResult {

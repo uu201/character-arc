@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { ArrowDown, Check, ChevronDown as ChevronDownIcon, Copy, Edit3, Replace, RotateCw, Sparkles, Undo2, Wand2 } from 'lucide-vue-next'
+import { ArrowDown, Brain, Check, ChevronDown as ChevronDownIcon, Copy, Edit3, Replace, RotateCw, Sparkles, Undo2, Wand2 } from 'lucide-vue-next'
 import { useMessage } from 'naive-ui'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -77,6 +77,7 @@ const scrollRef = ref<HTMLDivElement | null>(null)
 const isAtBottom = ref(true)
 const showScrollBtn = ref(false)
 const copiedMsgId = ref<string | null>(null)
+const expandedReasoning = ref<Record<string, boolean>>({})
 
 const lastMsg = computed(() => props.messages[props.messages.length - 1])
 
@@ -97,7 +98,7 @@ function scrollToBottom(smooth = true): void {
 }
 
 watch(
-  () => [props.messages.length, lastMsg.value?.content, lastMsg.value?.toolCalls?.length, lastMsg.value?.editEvents?.length] as const,
+  () => [props.messages.length, lastMsg.value?.content, lastMsg.value?.reasoning, lastMsg.value?.toolCalls?.length, lastMsg.value?.editEvents?.length] as const,
   () => {
     if (isAtBottom.value) {
       nextTick(() => scrollToBottom(false))
@@ -195,6 +196,15 @@ onBeforeUnmount(() => {
 
         <!-- AI message: multi-turn display -->
         <template v-else>
+          <div v-if="msg.reasoning" class="reasoning-card" :class="{ expanded: expandedReasoning[msg.id] }">
+            <button type="button" class="reasoning-head" @click="expandedReasoning[msg.id] = !expandedReasoning[msg.id]">
+              <Brain :size="12" />
+              <span>{{ isStreaming(msg) ? '正在思考' : '思考过程' }}</span>
+              <ChevronDownIcon :size="13" class="reasoning-chevron" />
+            </button>
+            <pre v-if="expandedReasoning[msg.id] || isStreaming(msg)" class="reasoning-body">{{ msg.reasoning }}</pre>
+          </div>
+
           <!-- 新结构：使用 turns -->
           <div v-if="msg.turns && msg.turns.length > 0" class="ai-turns">
             <div v-for="(turn, idx) in msg.turns" :key="idx" class="turn">
@@ -422,6 +432,56 @@ onBeforeUnmount(() => {
 
 .msg.user { align-items: flex-end; }
 .msg.assistant { align-items: flex-start; }
+
+.reasoning-card {
+  width: min(96%, 720px);
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 16%, var(--arc-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--arc-primary) 4%, var(--arc-bg-surface));
+  overflow: hidden;
+}
+
+.reasoning-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: var(--arc-text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reasoning-head svg:first-child {
+  color: var(--arc-primary);
+}
+
+.reasoning-chevron {
+  margin-left: auto;
+  color: var(--arc-text-hint);
+  transition: transform 0.15s ease;
+}
+
+.reasoning-card.expanded .reasoning-chevron {
+  transform: rotate(180deg);
+}
+
+.reasoning-body {
+  max-height: 180px;
+  margin: 0;
+  padding: 8px 10px 10px;
+  overflow: auto;
+  border-top: 1px solid color-mix(in srgb, var(--arc-primary) 12%, var(--arc-border));
+  color: var(--arc-text-hint);
+  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
 
 /* ── Multi-turn AI messages ── */
 .ai-turns {

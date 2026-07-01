@@ -6,7 +6,7 @@
  */
 export function resolveChapterAssistantModeInstruction(mode: string): string {
   switch (mode) {
-    case 'polish': return '当前模式是"润色"。请尽量直接输出可替换原文的润色结果，减少分析。'
+    case 'polish': return '当前模式是"润色"。若未启用正文 Diff 审阅，请尽量直接输出可替换原文的润色结果，减少分析；若已启用正文 Diff 审阅，必须生成待审查修改提案，不要直接输出润色全文。'
     case 'continue': return '当前模式是"续写"。请紧接现有正文自然续写，保持语气、节奏和剧情方向一致。'
     case 'suggest': return '当前模式是"剧情建议"。请给出 3 到 5 条具体建议，按可执行性优先排序。'
     case 'reference': return '当前模式是"设定查阅"。请优先提炼与当前章节最相关的设定、角色和风险点。'

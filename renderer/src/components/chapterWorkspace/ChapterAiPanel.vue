@@ -30,7 +30,7 @@ const showSessionList = ref(false)
 const showCommandPanel = ref(false)
 const showContextPanel = ref(false)
 
-const { messages, isResponding, agentStatus, hasSelection, selectedText, enabledContextModules, toggleContextModule, currentSessionId, sessions, send, stop, resetMessages, newSession, saveCurrentSession, loadSession, deleteSession, refreshSessions, applyToChapter, registerStreamListener: registerChatStream, unregisterStreamListener: unregisterChatStream, showDiffReview, pendingEditProposals, proposalDiffFiles, proposalDiffPatch, proposalDiffStats, acceptEditProposal, acceptAllEditProposals, rejectEditProposal, clearEditProposals } = useChapterAi()
+const { messages, isResponding, agentStatus, hasSelection, selectedText, enabledContextModules, toggleContextModule, currentSessionId, sessions, send, stop, resetMessages, newSession, hydrateCurrentSession, saveCurrentSession, loadSession, deleteSession, refreshSessions, applyToChapter, registerStreamListener: registerChatStream, unregisterStreamListener: unregisterChatStream, showDiffReview, pendingEditProposals, proposalDiffFiles, proposalDiffPatch, proposalDiffStats, acceptEditProposal, acceptAllEditProposals, rejectEditProposal, clearEditProposals } = useChapterAi()
 
 const draft = useChapterFirstDraft()
 const detect = useChapterThreadDetect()
@@ -183,6 +183,41 @@ async function handleUndoEdit(versionId: string): Promise<void> {
   else message.warning(result.error ?? '撤销失败')
 }
 
+async function handleAcceptEditProposal(proposalId: string): Promise<void> {
+  try {
+    const ok = await acceptEditProposal(proposalId)
+    if (ok) {
+      message.success('已写回章节正文')
+      if (pendingEditProposals.value.length === 0) showDiffReview.value = false
+    }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '章节正文写回失败')
+  }
+}
+
+async function handleAcceptAllEditProposals(): Promise<void> {
+  try {
+    const ok = await acceptAllEditProposals()
+    if (ok) {
+      message.success('已写回全部章节修改')
+      showDiffReview.value = false
+    }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '章节正文写回失败')
+  }
+}
+
+function handleRegenerateEditProposal(): void {
+  const lastUserPrompt = [...messages.value].reverse().find((item) => item.role === 'user')?.content.trim()
+  if (!lastUserPrompt) {
+    message.warning('暂无可重新生成的编辑请求')
+    return
+  }
+  clearEditProposals()
+  showDiffReview.value = false
+  void send(lastUserPrompt)
+}
+
 function sendPrompt(prompt: string): void {
   void send(prompt)
 }
@@ -196,7 +231,9 @@ defineExpose({ sendPrompt, triggerDraft })
 onMounted(() => {
   registerChatStream()
   draft.registerStreamListener()
-  void refreshSessions()
+  void hydrateCurrentSession().catch((error) => {
+    message.warning(error instanceof Error ? error.message : '加载创作助理历史会话失败')
+  })
 })
 onBeforeUnmount(() => {
   unregisterChatStream()
@@ -379,9 +416,9 @@ onBeforeUnmount(() => {
       :patch="proposalDiffPatch"
       :files="proposalDiffFiles"
       :stats="proposalDiffStats"
-      @apply-file="acceptEditProposal"
-      @apply-all="acceptAllEditProposals"
-      @regenerate="clearEditProposals"
+      @apply-file="handleAcceptEditProposal"
+      @apply-all="handleAcceptAllEditProposals"
+      @regenerate="handleRegenerateEditProposal"
       @clear="clearEditProposals"
     />
   </aside>

@@ -38,6 +38,7 @@ export interface ChapterAiMessage {
   content: string  // 保留用于向后兼容
   createdAt: number
   chapterId?: string
+  reasoning?: string
   toolCalls?: ChapterAiToolCall[]  // 保留用于向后兼容
   editEvents?: ChapterAiEditEvent[]  // 保留用于向后兼容
   turns?: ChapterAiTurn[]  // 新增：多轮推理结构
@@ -53,12 +54,206 @@ function nextMessageId(): string {
   return `cwm-${Date.now().toString(36)}-${messageSeq}`
 }
 
+const sharedMessages = ref<ChapterAiMessage[]>([])
+const sharedAgentStatus = ref('')
+const sharedPendingEditProposals = ref<ChapterEditProposal[]>([])
+const sharedShowDiffReview = ref(false)
+const sharedCurrentSessionId = ref<string | null>(null)
+const sharedSessions = ref<SessionSummary[]>([])
+let sharedHydratedProjectId = ''
+
 export type ContextModule = 'chapter' | 'outline' | 'characters' | 'worldview' | 'plotThreads' | 'knowledge' | 'deconstructionLibrary'
 
 const ALL_CONTEXT_MODULES: ContextModule[] = ['chapter', 'outline', 'characters', 'worldview', 'plotThreads', 'knowledge', 'deconstructionLibrary']
 
+type ComposerMode = '问答' | '改写' | '续写'
+
+function resolveComposerMode(prompt: string): ComposerMode {
+  const match = prompt.match(/^\[(问答|改写|续写)\]\s*/)
+  return (match?.[1] as ComposerMode | undefined) ?? '问答'
+}
+
+function stripComposerModePrefix(prompt: string): string {
+  return prompt.replace(/^\[(问答|改写|续写)\]\s*/, '').trim()
+}
+
+function includesAny(text: string, keywords: string[]): boolean {
+  return keywords.some((keyword) => text.includes(keyword))
+}
+
+function collectEditRequirements(normalizedPrompt: string): string[] {
+  const requirements: string[] = []
+  if (includesAny(normalizedPrompt, ['文章开头', '章节开头', '小说开头', '开篇', '开头部分', '开头'])) {
+    requirements.push('优先处理当前章节开头部分')
+  }
+  if (includesAny(normalizedPrompt, ['疲软', '拖沓', '水分', '冗余'])) {
+    requirements.push('删除或压缩疲软、拖沓、冗余的段落')
+  }
+  if (includesAny(normalizedPrompt, ['长句', '拆句', '断句', '句子太长'])) {
+    requirements.push('拆分长句，让句子长短交替')
+  }
+  if (includesAny(normalizedPrompt, ['段落控', '段落控制', '分段', '段落太长', '段落长度'])) {
+    requirements.push('控制段落长度和信息密度')
+  }
+  if (includesAny(normalizedPrompt, ['节奏', '节奏感', '节拍'])) {
+    requirements.push('调整叙事节奏和阅读推进感')
+  }
+  if (includesAny(normalizedPrompt, ['ai味', 'AI味', '机械', '模板感'])) {
+    requirements.push('降低 AI 味和机械句式')
+  }
+  return requirements
+}
+
+function hasConcreteEditDirection(normalizedPrompt: string): boolean {
+  const concreteKeywords = [
+    '改写',
+    '重写',
+    '润色',
+    '替换',
+    '删掉',
+    '删除',
+    '精简',
+    '压缩',
+    '拆长句',
+    '拆句',
+    '断句',
+    '分段',
+    '段落控',
+    '段落控制',
+    '调整节奏',
+    '优化表达',
+    '降低AI感',
+    '降低ai感',
+    '去AI味',
+    '去ai味',
+    '疲软',
+    '拖沓',
+    '冗余',
+    '长句',
+    '口语',
+    '文风',
+    '节奏',
+    '开头',
+    '开篇',
+    '文章开头',
+    '章节开头',
+    '小说开头',
+    '开头部分',
+    '直接改',
+    '按建议改',
+    '按你说的改'
+  ]
+  return includesAny(normalizedPrompt, concreteKeywords)
+}
+
+function buildChapterIntentHint(prompt: string, hasSelection: boolean): string {
+  const mode = resolveComposerMode(prompt)
+  const content = stripComposerModePrefix(prompt)
+  const normalized = content.replace(/\s+/g, '')
+
+  const editKeywords = [
+    '改写',
+    '重写',
+    '润色',
+    '修改',
+    '替换',
+    '删掉',
+    '删除',
+    '精简',
+    '压缩',
+    '拆长句',
+    '拆句',
+    '断句',
+    '分段',
+    '段落控',
+    '段落控制',
+    '调整段落',
+    '调整节奏',
+    '优化表达',
+    '降低AI感',
+    '降低ai感',
+    '去AI味',
+    '去ai味',
+    '直接改',
+    '改一下',
+    '处理一下'
+  ]
+  const diagnoseKeywords = ['分析', '诊断', '检查', '建议', '怎么改', '如何改', '哪里有问题', '问题在哪']
+  const applyPreviousKeywords = ['按你说的改', '按建议改', '按上面改', '照这个改', '就这样改', '应用修改', '写回正文']
+
+  const hasEditIntent = mode === '改写' || includesAny(normalized, editKeywords)
+  const hasApplyPreviousIntent = includesAny(normalized, applyPreviousKeywords)
+  const hasDiagnoseIntent = includesAny(normalized, diagnoseKeywords)
+  const hasConcreteDirection = hasConcreteEditDirection(normalized)
+  const explicitExecution = includesAny(normalized, ['直接', '需要', '帮我', '请', '把', '输出一版', '生成一版', '处理'])
+  const target = hasSelection ? '当前选中文本' : '当前章节正文'
+  const requirements = collectEditRequirements(normalized)
+
+  if (hasEditIntent && !hasConcreteDirection && !hasSelection) {
+    return [
+      '意图判读提示（仅供你结合用户原话复核，不替代你的判断）：',
+      '- 初步意图：章节修改意向，但缺少具体修改方向',
+      `- 输入模式：${mode}`,
+      `- 默认目标：${target}`,
+      '- 期望工具动作：先读取目标章节并给出简短诊断/可选修改方向，或询问用户想改什么；不要直接调用 edit_chapter 生成 Diff 提案。'
+    ].join('\n')
+  }
+
+  if (hasApplyPreviousIntent || (hasEditIntent && hasConcreteDirection && (!hasDiagnoseIntent || explicitExecution))) {
+    const kind = hasApplyPreviousIntent ? 'apply_previous_suggestion' : 'chapter_edit_proposal'
+    return [
+      '意图判读提示（仅供你结合用户原话复核，不替代你的判断）：',
+      `- 初步意图：${kind === 'apply_previous_suggestion' ? '应用上一轮建议并生成正文修改提案' : '执行型章节正文修改'}`,
+      `- 输入模式：${mode}`,
+      `- 默认目标：${target}`,
+      '- 期望工具动作：先确认正文上下文，再调用 edit_chapter 生成待审查 Diff 提案；不要只罗列修改建议。',
+      `- 用户要求：${requirements.length ? requirements.join('；') : '按用户描述改写正文'}`
+    ].join('\n')
+  }
+
+  if (mode === '续写') {
+    return [
+      '意图判读提示（仅供你结合用户原话复核，不替代你的判断）：',
+      '- 初步意图：续写或补写正文',
+      `- 输入模式：${mode}`,
+      `- 默认目标：${target}`,
+      '- 期望工具动作：先确认当前章节上下文；只有用户明确要求写回正文时，才调用 edit_chapter 生成 Diff 提案。'
+    ].join('\n')
+  }
+
+  if (hasDiagnoseIntent) {
+    return [
+      '意图判读提示（仅供你结合用户原话复核，不替代你的判断）：',
+      '- 初步意图：诊断或建议型请求',
+      `- 输入模式：${mode}`,
+      `- 默认目标：${target}`,
+      '- 期望工具动作：可以读取正文或项目资料来诊断；不要在用户未要求执行修改时调用 edit_chapter。'
+    ].join('\n')
+  }
+
+  return [
+    '意图判读提示（仅供你结合用户原话复核，不替代你的判断）：',
+    '- 初步意图：普通问答或讨论',
+    `- 输入模式：${mode}`,
+    '- 期望工具动作：根据问题需要读取上下文；不要主动写回正文。'
+  ].join('\n')
+}
+
+function resolveResponseMode(prompt: string): 'freeform' | 'polish' | 'continue' {
+  const mode = resolveComposerMode(prompt)
+  const normalized = stripComposerModePrefix(prompt).replace(/\s+/g, '')
+  if (mode === '改写') return 'polish'
+  if (mode === '续写') return 'continue'
+  if (hasConcreteEditDirection(normalized)) return 'polish'
+  return 'freeform'
+}
+
 function stripHtmlForDiff(html: string): string {
   return html
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/div>\s*<div[^>]*>/gi, '\n')
+    .replace(/<\/li>\s*<li[^>]*>/gi, '\n')
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
@@ -66,6 +261,17 @@ function stripHtmlForDiff(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .trim()
+}
+
+function escapeDiffPath(value: string): string {
+  return value.replace(/[\\/:*?"<>|#\s]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'chapter'
+}
+
+function resolveEditOperationLabel(editType: string): string {
+  if (editType === 'replace') return '替换正文'
+  if (editType === 'insert') return '插入正文'
+  if (editType === 'append') return '追加正文'
+  return editType || '正文修改'
 }
 
 export interface SessionSummary {
@@ -89,6 +295,7 @@ export function useChapterAi(): {
   stop: () => Promise<void>
   resetMessages: () => void
   newSession: () => void
+  hydrateCurrentSession: () => Promise<void>
   saveCurrentSession: () => Promise<void>
   loadSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
@@ -101,18 +308,18 @@ export function useChapterAi(): {
   proposalDiffFiles: Ref<GlobalAssistantProposalDiffFile[]>
   proposalDiffPatch: Ref<string>
   proposalDiffStats: Ref<{ total: number; creatable: number; updatable: number; blocked: number }>
-  acceptEditProposal: (proposalId: string) => Promise<void>
-  acceptAllEditProposals: () => Promise<void>
+  acceptEditProposal: (proposalId: string) => Promise<boolean>
+  acceptAllEditProposals: () => Promise<boolean>
   rejectEditProposal: (proposalId: string) => void
   clearEditProposals: () => void
 } {
   const appStore = useAppStore()
-  const messages = ref<ChapterAiMessage[]>([])
+  const messages = sharedMessages
   const isResponding = computed(() => appStore.isAiTaskRunning(TASK_KEY))
-  const agentStatus = ref('')
+  const agentStatus = sharedAgentStatus
   const enabledContextModules = reactive(new Set<ContextModule>(ALL_CONTEXT_MODULES))
-  const pendingEditProposals = ref<ChapterEditProposal[]>([])
-  const showDiffReview = ref(false)
+  const pendingEditProposals = sharedPendingEditProposals
+  const showDiffReview = sharedShowDiffReview
 
   function toggleContextModule(mod: ContextModule): void {
     if (enabledContextModules.has(mod)) {
@@ -122,8 +329,8 @@ export function useChapterAi(): {
     }
   }
 
-  const currentSessionId = ref<string | null>(null)
-  const sessions = ref<SessionSummary[]>([])
+  const currentSessionId = sharedCurrentSessionId
+  const sessions = sharedSessions
 
   function generateSessionId(): string {
     return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -143,6 +350,27 @@ export function useChapterAi(): {
     if (result.success && result.result) {
       sessions.value = result.result
     }
+  }
+
+  async function hydrateCurrentSession(): Promise<void> {
+    const projectId = appStore.currentProject?.id
+    if (!projectId) return
+
+    if (sharedHydratedProjectId !== projectId) {
+      currentSessionId.value = null
+      messages.value = []
+      pendingEditProposals.value = []
+      showDiffReview.value = false
+      agentStatus.value = ''
+    }
+
+    await refreshSessions()
+    sharedHydratedProjectId = projectId
+    if (messages.value.length > 0 || currentSessionId.value || sessions.value.length === 0) {
+      return
+    }
+
+    await loadSession(sessions.value[0].id)
   }
 
   async function saveCurrentSession(): Promise<void> {
@@ -193,6 +421,9 @@ export function useChapterAi(): {
   function newSession(): void {
     currentSessionId.value = null
     messages.value = []
+    pendingEditProposals.value = []
+    showDiffReview.value = false
+    agentStatus.value = ''
   }
 
   const selectedText = computed(() => appStore.currentChapterSelection?.text.trim() ?? '')
@@ -240,6 +471,13 @@ export function useChapterAi(): {
 
   function handleStreamEvent(payload: CharacterArcAiStreamEvent): void {
     if (payload.streamId !== streamId) return
+
+    if (payload.type === 'reasoning') {
+      const msg = messages.value.find((m) => m.id === streamingMsgId)
+      if (!msg) return
+      msg.reasoning = `${msg.reasoning ?? ''}${payload.delta}`
+      return
+    }
 
     if (payload.type === 'chunk') {
       const msg = messages.value.find((m) => m.id === streamingMsgId)
@@ -567,6 +805,8 @@ export function useChapterAi(): {
             firstChapter && firstChapter.id !== chapter.id && !relatedTitles.has(firstChapter.title)
               ? { title: firstChapter.title, summary: firstChapter.summary }
               : undefined
+          const intentHint = buildChapterIntentHint(trimmed, hasSelection.value)
+          const userPromptForAi = `${intentHint}\n\n原始用户请求：\n${trimmed}`
 
           const context = buildChapterAssistantContext({
             project: appStore.currentProject,
@@ -589,9 +829,11 @@ export function useChapterAi(): {
             workflowDocuments: [],
             knowledgeDocuments: appStore.projectConstraints,
             selectedText: selectedText.value,
-            responseMode: 'freeform',
+            responseMode: resolveResponseMode(trimmed),
             responseLength: 'medium',
-            userPrompt: trimmed,
+            quickAction: resolveComposerMode(trimmed),
+            diffReviewMode: true,
+            userPrompt: userPromptForAi,
             chapterContent: ''
           })
 
@@ -682,17 +924,22 @@ export function useChapterAi(): {
   }
 
   const proposalDiffFiles = computed<GlobalAssistantProposalDiffFile[]>(() =>
-    pendingEditProposals.value.map((p, index) => ({
-      id: p.proposalId,
-      title: `编辑 ${index + 1}: ${p.preview}`,
-      path: `chapter/${p.chapterId}/edit-${index + 1}`,
-      kind: 'note' as const,
-      action: 'update' as const,
-      oldText: stripHtmlForDiff(p.oldContent),
-      newText: stripHtmlForDiff(p.newContent),
-      reason: p.editType,
-      canApply: true
-    }))
+    pendingEditProposals.value.map((p, index) => {
+      const chapterTitle = appStore.chapters.find((chapter) => chapter.id === p.chapterId)?.title ?? '当前章节'
+      return {
+        id: p.proposalId,
+        title: `${chapterTitle} · 修改 ${index + 1}`,
+        path: `chapters/${escapeDiffPath(chapterTitle)}-${index + 1}.body`,
+        kind: 'chapter' as const,
+        action: 'update' as const,
+        oldText: stripHtmlForDiff(p.oldContent),
+        newText: stripHtmlForDiff(p.newContent),
+        reason: p.preview
+          ? `${resolveEditOperationLabel(p.editType)} · ${p.preview}`
+          : resolveEditOperationLabel(p.editType),
+        canApply: true
+      }
+    })
   )
 
   const proposalDiffPatch = computed(() => {
@@ -719,26 +966,34 @@ export function useChapterAi(): {
     blocked: 0
   }))
 
-  async function acceptEditProposal(proposalId: string): Promise<void> {
+  async function acceptEditProposal(proposalId: string): Promise<boolean> {
     const proposal = pendingEditProposals.value.find((p) => p.proposalId === proposalId)
-    if (!proposal) return
+    if (!proposal) return false
     const projectId = appStore.currentProject?.id
-    if (!projectId) return
+    if (!projectId) return false
 
-    await window.characterArc.commitChapterEdit(projectId, proposal.chapterId, proposal.oldContent, proposal.newContent)
+    const response = await window.characterArc.commitChapterEdit(projectId, proposal.chapterId, proposal.oldContent, proposal.newContent)
+    if (!response.success) {
+      throw new Error(response.error ?? '章节正文写回失败')
+    }
     pendingEditProposals.value = pendingEditProposals.value.filter((p) => p.proposalId !== proposalId)
     void appStore.reloadChapterFromDb(proposal.chapterId)
+    return true
   }
 
-  async function acceptAllEditProposals(): Promise<void> {
+  async function acceptAllEditProposals(): Promise<boolean> {
     const projectId = appStore.currentProject?.id
-    if (!projectId) return
+    if (!projectId) return false
 
     for (const proposal of [...pendingEditProposals.value]) {
-      await window.characterArc.commitChapterEdit(projectId, proposal.chapterId, proposal.oldContent, proposal.newContent)
+      const response = await window.characterArc.commitChapterEdit(projectId, proposal.chapterId, proposal.oldContent, proposal.newContent)
+      if (!response.success) {
+        throw new Error(response.error ?? `章节正文写回失败：${proposal.preview}`)
+      }
+      pendingEditProposals.value = pendingEditProposals.value.filter((p) => p.proposalId !== proposal.proposalId)
       void appStore.reloadChapterFromDb(proposal.chapterId)
     }
-    pendingEditProposals.value = []
+    return true
   }
 
   function rejectEditProposal(proposalId: string): void {
@@ -764,6 +1019,7 @@ export function useChapterAi(): {
     stop,
     resetMessages,
     newSession,
+    hydrateCurrentSession,
     saveCurrentSession,
     loadSession,
     deleteSession,

@@ -71,6 +71,7 @@ type ChapterAssistantContextInput = {
   responseMode: 'freeform' | 'polish' | 'continue' | 'suggest' | 'reference'  // 响应模式
   responseLength: 'short' | 'medium' | 'long'          // 期望的响应长度
   quickAction?: string                                  // 触发的快捷动作标识
+  diffReviewMode?: boolean                              // 是否要求正文修改走 Diff 审阅
   userPrompt: string                                    // 用户输入的提示词
   chapterContent: string                                // 当前章节的完整正文内容
 }
@@ -245,6 +246,7 @@ export function buildChapterAssistantContext(input: ChapterAssistantContextInput
     responseMode: input.responseMode,
     responseLength: input.responseLength,
     quickAction: input.quickAction,
+    diffReviewMode: input.diffReviewMode ?? false,
     userPrompt: input.userPrompt
   }
 }

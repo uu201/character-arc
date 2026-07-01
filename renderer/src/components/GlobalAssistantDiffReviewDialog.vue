@@ -7,6 +7,12 @@ import { NButton, NModal, NScrollbar, NTag } from 'naive-ui'
 import type { GlobalAssistantProposalDiffFile } from '@/composables/useGlobalAssistant'
 
 type FileDecision = 'pending' | 'accepted' | 'rejected'
+type ChapterCompareParagraphState = 'unchanged' | 'removed' | 'added'
+type ChapterCompareParagraph = {
+  id: string
+  text: string
+  state: ChapterCompareParagraphState
+}
 
 const props = defineProps<{
   show: boolean
@@ -36,6 +42,9 @@ const notesExpanded = ref(false)
 
 const actionableFiles = computed(() => props.files.filter((f) => f.action !== 'note'))
 const noteFiles = computed(() => props.files.filter((f) => f.action === 'note'))
+const isChapterReview = computed(() =>
+  actionableFiles.value.length > 0 && actionableFiles.value.every((file) => file.kind === 'chapter')
+)
 
 const activeFile = computed(() =>
   actionableFiles.value.find((file) => file.id === activeFileId.value) ?? actionableFiles.value[0] ?? null
@@ -59,8 +68,76 @@ const renderedDiff = computed(() => {
 })
 
 const acceptedIds = computed(() => actionableFiles.value.filter((f) => f.canApply && decisions.value[f.id] === 'accepted').map((f) => f.id))
+const applyableCount = computed(() => actionableFiles.value.filter((f) => f.canApply).length)
 const rejectedCount = computed(() => actionableFiles.value.filter((f) => decisions.value[f.id] === 'rejected').length)
 const pendingCount = computed(() => actionableFiles.value.filter((f) => decisions.value[f.id] !== 'accepted' && decisions.value[f.id] !== 'rejected').length)
+const currentDecision = computed(() => activeFile.value ? getDecision(activeFile.value.id) : 'pending')
+const chapterActionLabel = computed(() => resolveChapterActionLabel(activeFile.value?.reason ?? ''))
+const chapterReasonText = computed(() => resolveChapterReasonText(activeFile.value?.reason ?? props.summary))
+const chapterCompareParagraphs = computed<{ before: ChapterCompareParagraph[]; after: ChapterCompareParagraph[] }>(() => {
+  const file = activeFile.value
+  if (!file) return { before: [], after: [] }
+
+  const oldParagraphs = splitParagraphs(file.oldText)
+  const newParagraphs = splitParagraphs(file.newText)
+  if (oldParagraphs.length === 0 && newParagraphs.length === 0) return { before: [], after: [] }
+
+  let start = 0
+  while (
+    start < oldParagraphs.length &&
+    start < newParagraphs.length &&
+    normalizeParagraph(oldParagraphs[start]) === normalizeParagraph(newParagraphs[start])
+  ) {
+    start += 1
+  }
+
+  let oldEnd = oldParagraphs.length - 1
+  let newEnd = newParagraphs.length - 1
+  while (
+    oldEnd >= start &&
+    newEnd >= start &&
+    normalizeParagraph(oldParagraphs[oldEnd]) === normalizeParagraph(newParagraphs[newEnd])
+  ) {
+    oldEnd -= 1
+    newEnd -= 1
+  }
+
+  const before: ChapterCompareParagraph[] = [
+    ...oldParagraphs.slice(0, start).map((text, index) => ({ id: `before-prefix-${index}`, text, state: 'unchanged' as const })),
+    ...oldParagraphs.slice(start, oldEnd + 1).map((text, index) => ({ id: `before-removed-${index}`, text, state: 'removed' as const })),
+    ...oldParagraphs.slice(oldEnd + 1).map((text, index) => ({ id: `before-suffix-${index}`, text, state: 'unchanged' as const }))
+  ]
+  const after: ChapterCompareParagraph[] = [
+    ...newParagraphs.slice(0, start).map((text, index) => ({ id: `after-prefix-${index}`, text, state: 'unchanged' as const })),
+    ...newParagraphs.slice(start, newEnd + 1).map((text, index) => ({ id: `after-added-${index}`, text, state: 'added' as const })),
+    ...newParagraphs.slice(newEnd + 1).map((text, index) => ({ id: `after-suffix-${index}`, text, state: 'unchanged' as const }))
+  ]
+
+  return { before, after }
+})
+
+function normalizeParagraph(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+function splitParagraphs(text: string): string[] {
+  return text
+    .replace(/\r\n/g, '\n')
+    .split(/\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+}
+
+function resolveChapterActionLabel(reason: string): string {
+  if (reason.includes('替换正文') || reason === 'replace') return '替换正文'
+  if (reason.includes('插入正文') || reason === 'insert') return '插入正文'
+  if (reason.includes('追加正文') || reason === 'append') return '追加正文'
+  return '正文修订'
+}
+
+function resolveChapterReasonText(reason: string): string {
+  return reason.replace(/^(替换正文|插入正文|追加正文|正文修订)\s*·\s*/, '').trim() || '请审查 AI 准备写回的正文修改。'
+}
 
 function getDecision(fileId: string): FileDecision {
   return decisions.value[fileId] ?? 'pending'
@@ -88,9 +165,24 @@ function rejectAll(): void {
   }
 }
 
+function acceptCurrent(): void {
+  if (!activeFile.value?.canApply) return
+  decisions.value[activeFile.value.id] = 'accepted'
+}
+
+function rejectCurrent(): void {
+  if (!activeFile.value) return
+  decisions.value[activeFile.value.id] = 'rejected'
+}
+
+function acceptAllAndApply(): void {
+  acceptAll()
+  emit('applyAll')
+}
+
 function applyAccepted(): void {
   if (acceptedIds.value.length === 0) return
-  if (acceptedIds.value.length === actionableFiles.value.filter((f) => f.canApply).length) {
+  if (acceptedIds.value.length === applyableCount.value) {
     emit('applyAll')
   } else {
     for (const id of acceptedIds.value) {
@@ -119,7 +211,10 @@ watch(
 )
 
 watch(() => props.show, (val) => {
-  if (val) decisions.value = {}
+  if (val) {
+    decisions.value = {}
+    outputFormat.value = isChapterReview.value ? 'line-by-line' : 'side-by-side'
+  }
 })
 </script>
 
@@ -130,13 +225,17 @@ watch(() => props.show, (val) => {
     class="ga-diff-modal"
     :bordered="false"
     :closable="false"
+    :mask-closable="false"
     :segmented="{ content: true }"
     @update:show="emit('update:show', $event)"
   >
     <template #header>
       <div class="ga-diff-title">
         <span class="ga-diff-title__icon"><GitCompare :size="17" /></span>
-        <span>写回变更审查</span>
+        <div class="ga-diff-title__copy">
+          <span>{{ isChapterReview ? 'AI 正文修订审阅' : '写回变更审查' }}</span>
+          <small v-if="isChapterReview">{{ chapterActionLabel }} · 待确认</small>
+        </div>
       </div>
     </template>
 
@@ -146,7 +245,97 @@ watch(() => props.show, (val) => {
       </button>
     </template>
 
-    <div class="ga-diff-review">
+    <div v-if="isChapterReview" class="ga-diff-review ga-diff-review--chapter">
+      <aside class="ga-diff-rail chapter-diff-rail">
+        <div class="ga-diff-rail-header chapter-diff-rail-header">
+          <div class="ga-diff-summary">
+            <strong>{{ actionableFiles.length }} 项正文修改</strong>
+            <span>逐项确认后再写回章节</span>
+          </div>
+          <div class="ga-diff-batch">
+            <button type="button" class="ga-diff-batch-btn accept" @click="acceptAll">
+              <Check :size="13" />
+              全部确认
+            </button>
+            <button type="button" class="ga-diff-batch-btn reject" @click="rejectAll">
+              <X :size="12" />
+              全部忽略
+            </button>
+          </div>
+        </div>
+
+        <NScrollbar class="ga-diff-file-scroll">
+          <div class="chapter-change-list">
+            <div
+              v-for="(file, index) in actionableFiles"
+              :key="file.id"
+              class="chapter-change-card"
+              :class="{
+                active: activeFile?.id === file.id,
+                accepted: getDecision(file.id) === 'accepted',
+                rejected: getDecision(file.id) === 'rejected'
+              }"
+              @click="activeFileId = file.id"
+            >
+              <div class="chapter-change-card__index">{{ index + 1 }}</div>
+              <div class="chapter-change-card__body">
+                <strong>{{ file.title }}</strong>
+                <span>{{ resolveChapterActionLabel(file.reason) }}</span>
+                <p>{{ resolveChapterReasonText(file.reason) }}</p>
+              </div>
+              <div class="chapter-change-card__state" :class="getDecision(file.id)">
+                <Check v-if="getDecision(file.id) === 'accepted'" :size="14" />
+                <X v-else-if="getDecision(file.id) === 'rejected'" :size="14" />
+              </div>
+            </div>
+          </div>
+        </NScrollbar>
+      </aside>
+
+      <main class="ga-diff-main chapter-diff-main">
+        <div class="ga-diff-toolbar chapter-diff-toolbar">
+          <div class="ga-diff-current chapter-diff-current">
+            <strong>{{ activeFile?.title || '暂无正文修改' }}</strong>
+            <span v-if="activeFile && !activeFile.canApply"><Lock :size="12" /> 需要先匹配目标或人工确认</span>
+            <span v-else>{{ chapterReasonText }}</span>
+          </div>
+          <span class="chapter-compare-badge">原文对照</span>
+        </div>
+
+        <div v-if="activeFile" class="chapter-prose-scroll arc-scrollbar">
+          <div class="chapter-compare">
+            <article class="chapter-compare__pane">
+              <div class="chapter-compare__label">原文</div>
+              <p
+                v-for="paragraph in chapterCompareParagraphs.before"
+                :key="paragraph.id"
+                class="chapter-compare__paragraph"
+                :class="`chapter-compare__paragraph--${paragraph.state}`"
+              >
+                {{ paragraph.text }}
+              </p>
+            </article>
+            <article class="chapter-compare__pane chapter-compare__pane--after">
+              <div class="chapter-compare__label">修改后</div>
+              <p
+                v-for="paragraph in chapterCompareParagraphs.after"
+                :key="paragraph.id"
+                class="chapter-compare__paragraph"
+                :class="`chapter-compare__paragraph--${paragraph.state}`"
+              >
+                {{ paragraph.text }}
+              </p>
+            </article>
+          </div>
+        </div>
+
+        <div v-else class="ga-diff-empty">
+          当前没有可审查的章节修改。
+        </div>
+      </main>
+    </div>
+
+    <div v-else class="ga-diff-review">
       <aside class="ga-diff-rail">
         <div class="ga-diff-rail-header">
           <div class="ga-diff-summary">
@@ -251,7 +440,39 @@ watch(() => props.show, (val) => {
     </div>
 
     <template #footer>
-      <div class="ga-diff-footer">
+      <div v-if="isChapterReview" class="ga-diff-footer chapter-diff-footer">
+        <div class="ga-diff-footer__hint">
+          当前项
+          <strong
+            :class="{
+              'hint-accepted': currentDecision === 'accepted',
+              'hint-rejected': currentDecision === 'rejected',
+              'hint-pending': currentDecision === 'pending'
+            }"
+          >
+            {{ currentDecision === 'accepted' ? '已确认' : currentDecision === 'rejected' ? '已忽略' : '待审查' }}
+          </strong>
+          · 已确认 <strong class="hint-accepted">{{ acceptedIds.length }}</strong> / {{ applyableCount }} 项
+        </div>
+        <div class="ga-diff-footer__actions">
+          <NButton size="small" secondary type="success" :disabled="!activeFile?.canApply" @click="acceptCurrent">
+            确认当前项
+          </NButton>
+          <NButton size="small" secondary type="error" :disabled="!activeFile" @click="rejectCurrent">
+            忽略当前项
+          </NButton>
+          <NButton tertiary size="small" @click="emit('regenerate')">重新生成</NButton>
+          <NButton quaternary size="small" @click="emit('clear')">忽略提案</NButton>
+          <NButton type="primary" :disabled="acceptedIds.length === 0" @click="applyAccepted">
+            写回已确认项 ({{ acceptedIds.length }})
+          </NButton>
+          <NButton type="primary" :disabled="applyableCount === 0" @click="acceptAllAndApply">
+            全部确认并写回
+          </NButton>
+        </div>
+      </div>
+
+      <div v-else class="ga-diff-footer">
         <div class="ga-diff-footer__hint">
           已确认 <strong class="hint-accepted">{{ acceptedIds.length }}</strong> 项，已忽略 <strong class="hint-rejected">{{ rejectedCount }}</strong> 项，待审查 <strong class="hint-pending">{{ pendingCount }}</strong> 项
         </div>
@@ -274,6 +495,19 @@ watch(() => props.show, (val) => {
   gap: 8px;
   color: var(--arc-text-primary, #1f2937);
   font-weight: 700;
+}
+
+.ga-diff-title__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.2;
+}
+
+.ga-diff-title__copy small {
+  color: var(--arc-text-hint, #9ca3af);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .ga-diff-title__icon {
@@ -309,6 +543,11 @@ watch(() => props.show, (val) => {
   height: min(72vh, 760px);
   min-height: 460px;
   background: var(--arc-bg-surface, #ffffff);
+}
+
+.ga-diff-review--chapter {
+  grid-template-columns: 286px minmax(0, 1fr);
+  background: var(--arc-bg-weak, #f9fafb);
 }
 
 /* ─── Left Rail ─── */
@@ -532,6 +771,121 @@ watch(() => props.show, (val) => {
   background: var(--arc-bg-surface-hover, #f3f4f6);
 }
 
+/* ─── Chapter review list ─── */
+.chapter-diff-rail {
+  background: color-mix(in srgb, var(--arc-bg-weak, #f9fafb) 88%, var(--arc-bg-surface, #ffffff));
+}
+
+.chapter-change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.chapter-change-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  gap: 8px;
+  min-height: 92px;
+  padding: 10px;
+  border: 1px solid var(--arc-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--arc-bg-surface, #ffffff);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.chapter-change-card:hover {
+  border-color: var(--arc-border-strong, #cbd5e1);
+}
+
+.chapter-change-card.active {
+  border-color: color-mix(in srgb, var(--arc-primary, #2563eb) 52%, var(--arc-border, #e5e7eb));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary, #2563eb) 8%, transparent);
+}
+
+.chapter-change-card.accepted {
+  border-color: color-mix(in srgb, var(--arc-success, #16a34a) 38%, var(--arc-border, #e5e7eb));
+  background: color-mix(in srgb, var(--arc-success, #16a34a) 4%, var(--arc-bg-surface, #ffffff));
+}
+
+.chapter-change-card.rejected {
+  border-color: color-mix(in srgb, var(--arc-danger, #dc2626) 18%, var(--arc-border, #e5e7eb));
+  opacity: 0.58;
+}
+
+.chapter-change-card__index {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--arc-bg-weak, #f9fafb);
+  color: var(--arc-text-secondary, #4b5563);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chapter-change-card__body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chapter-change-card__body strong,
+.chapter-change-card__body span,
+.chapter-change-card__body p {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chapter-change-card__body strong {
+  color: var(--arc-text-primary, #1f2937);
+  font-size: 12.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.chapter-change-card__body span {
+  color: var(--arc-primary, #2563eb);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.chapter-change-card__body p {
+  display: -webkit-box;
+  margin: 0;
+  color: var(--arc-text-secondary, #4b5563);
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.chapter-change-card__state {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: transparent;
+}
+
+.chapter-change-card__state.accepted {
+  background: color-mix(in srgb, var(--arc-success, #16a34a) 10%, transparent);
+  color: var(--arc-success, #16a34a);
+}
+
+.chapter-change-card__state.rejected {
+  background: color-mix(in srgb, var(--arc-danger, #dc2626) 8%, transparent);
+  color: var(--arc-danger, #dc2626);
+}
+
 /* ─── Main panel ─── */
 .ga-diff-main {
   display: flex;
@@ -607,6 +961,122 @@ watch(() => props.show, (val) => {
   overflow: auto;
   padding: 12px;
   background: var(--arc-bg-weak, #f9fafb);
+}
+
+.chapter-diff-main {
+  background: var(--arc-bg-surface, #ffffff);
+}
+
+.chapter-diff-toolbar {
+  align-items: center;
+  min-height: 64px;
+  padding: 13px 16px;
+  background: var(--arc-bg-surface, #ffffff);
+}
+
+.chapter-diff-current strong {
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.chapter-diff-current span {
+  max-width: 760px;
+  color: var(--arc-text-secondary, #4b5563);
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.chapter-compare-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0 10px;
+  border: 1px solid var(--arc-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--arc-bg-weak, #f9fafb);
+  color: var(--arc-text-secondary, #4b5563);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chapter-prose-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 22px clamp(18px, 4vw, 48px);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--arc-border, #e5e7eb) 55%, transparent) 1px, transparent 1px) left top / 18px 18px,
+    var(--arc-bg-weak, #f9fafb);
+}
+
+.chapter-compare__pane p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.78;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.chapter-compare__pane p + p {
+  margin-top: 12px;
+}
+
+.chapter-compare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.chapter-compare__pane {
+  min-width: 0;
+  padding: 22px 22px 24px;
+  border: 1px solid var(--arc-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--arc-bg-surface, #ffffff);
+  color: var(--arc-text-primary, #1f2937);
+  box-shadow: var(--arc-shadow-sm, 0 1px 2px rgba(0,0,0,0.05));
+}
+
+.chapter-compare__pane--after {
+  border-color: color-mix(in srgb, var(--arc-success, #16a34a) 20%, var(--arc-border, #e5e7eb));
+}
+
+.chapter-compare__label {
+  margin-bottom: 12px;
+  color: var(--arc-text-hint, #9ca3af);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chapter-compare__paragraph {
+  position: relative;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+
+.chapter-compare__paragraph--unchanged {
+  color: var(--arc-text-secondary, #4b5563);
+}
+
+.chapter-compare__paragraph--removed {
+  border-color: color-mix(in srgb, var(--arc-danger, #dc2626) 24%, var(--arc-border, #e5e7eb));
+  background: color-mix(in srgb, var(--arc-danger, #dc2626) 5%, var(--arc-bg-surface, #ffffff));
+  color: color-mix(in srgb, var(--arc-danger, #dc2626) 72%, var(--arc-text-primary, #1f2937));
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--arc-danger, #dc2626) 36%, transparent);
+}
+
+.chapter-compare__paragraph--added {
+  border-color: color-mix(in srgb, var(--arc-success, #16a34a) 26%, var(--arc-border, #e5e7eb));
+  background: color-mix(in srgb, var(--arc-success, #16a34a) 6%, var(--arc-bg-surface, #ffffff));
+  color: color-mix(in srgb, var(--arc-success, #16a34a) 65%, var(--arc-text-primary, #1f2937));
 }
 
 .ga-diff-empty {
@@ -692,6 +1162,12 @@ watch(() => props.show, (val) => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.chapter-diff-footer .ga-diff-footer__actions {
+  row-gap: 6px;
 }
 
 /* ─── diff2html overrides ─── */
@@ -714,6 +1190,14 @@ watch(() => props.show, (val) => {
 .ga-diff-body :deep(.d2h-code-line),
 .ga-diff-body :deep(.d2h-code-side-line) {
   font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ga-diff-body :deep(.d2h-code-line-ctn),
+.ga-diff-body :deep(.d2h-code-side-line-ctn) {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 @media (max-width: 860px) {
@@ -735,6 +1219,35 @@ watch(() => props.show, (val) => {
 
   .ga-diff-footer__actions {
     justify-content: flex-end;
+  }
+
+  .ga-diff-review--chapter {
+    grid-template-columns: 1fr;
+  }
+
+  .chapter-change-list {
+    padding: 8px;
+  }
+
+  .chapter-change-card {
+    min-height: 82px;
+  }
+
+  .chapter-diff-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .chapter-prose-scroll {
+    padding: 14px;
+  }
+
+  .chapter-compare__pane {
+    padding: 17px 16px 19px;
+  }
+
+  .chapter-compare {
+    grid-template-columns: 1fr;
   }
 }
 </style>
