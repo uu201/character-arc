@@ -438,6 +438,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
         :is-committing="isCommitting"
         @accept="(ids) => assistant.acceptChanges(ids)"
         @reject="(ids) => assistant.rejectChanges(ids)"
+        @bind-target="(changeId, entityId) => assistant.bindTarget(changeId, entityId)"
         @commit="(ids) => handleCommit(ids)"
       />
     </div>

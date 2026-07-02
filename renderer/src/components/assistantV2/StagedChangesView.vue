@@ -13,6 +13,7 @@ const emit = defineEmits<{
   (e: 'accept', ids: string[]): void
   (e: 'reject', ids: string[]): void
   (e: 'commit', ids?: string[]): void
+  (e: 'bind-target', changeId: string, entityId: string): void
 }>()
 
 const activeFilter = ref<'all' | 'chapter' | 'setting' | 'pending'>('all')
@@ -115,6 +116,14 @@ function diffBlocks(change: StagedChange): Array<{ type: 'del' | 'add'; line: st
     ...diff.added.map((line) => ({ type: 'add' as const, line }))
   ]
 }
+
+function hasTargetCandidates(change: StagedChange): boolean {
+  return change.action === 'update' && Boolean(change.candidates?.length)
+}
+
+function bindTarget(changeId: string, entityId: string): void {
+  emit('bind-target', changeId, entityId)
+}
 </script>
 
 <template>
@@ -134,6 +143,10 @@ function diffBlocks(change: StagedChange): Array<{ type: 'del' | 'add'; line: st
           <span>动作</span>
           <strong>{{ reviewingChange.action }}</strong>
         </div>
+        <div v-if="reviewingChange.entityId">
+          <span>目标</span>
+          <strong>{{ reviewingChange.entityId }}</strong>
+        </div>
         <div>
           <span>原因</span>
           <strong>{{ reviewingChange.reason }}</strong>
@@ -141,6 +154,22 @@ function diffBlocks(change: StagedChange): Array<{ type: 'del' | 'add'; line: st
       </div>
 
       <div class="review-body">
+        <div v-if="hasTargetCandidates(reviewingChange)" class="target-box">
+          <div class="target-head">匹配目标</div>
+          <div class="target-options">
+            <button
+              v-for="candidate in reviewingChange.candidates"
+              :key="candidate.entityId"
+              type="button"
+              :class="{ active: candidate.entityId === reviewingChange.entityId }"
+              @click="bindTarget(reviewingChange.id, candidate.entityId)"
+            >
+              <strong>{{ candidate.label }}</strong>
+              <span v-if="candidate.hint">{{ candidate.hint }}</span>
+            </button>
+          </div>
+        </div>
+
         <div class="review-section">
           <div class="review-section-head">差异摘要</div>
           <div v-if="diffBlocks(reviewingChange).length" class="review-diff">
@@ -228,6 +257,22 @@ function diffBlocks(change: StagedChange): Array<{ type: 'del' | 'add'; line: st
         </div>
         <div class="action-line">{{ c.action }}</div>
         <div class="reason">{{ c.reason }}</div>
+
+        <div v-if="hasTargetCandidates(c)" class="target-box compact">
+          <div class="target-head">匹配目标</div>
+          <div class="target-options">
+            <button
+              v-for="candidate in c.candidates"
+              :key="candidate.entityId"
+              type="button"
+              :class="{ active: candidate.entityId === c.entityId }"
+              @click="bindTarget(c.id, candidate.entityId)"
+            >
+              <strong>{{ candidate.label }}</strong>
+              <span v-if="candidate.hint">{{ candidate.hint }}</span>
+            </button>
+          </div>
+        </div>
 
         <div class="diff">
           <template v-for="(line, i) in computeDiff(c.before, c.after).removed" :key="'d' + i">
@@ -388,6 +433,67 @@ function diffBlocks(change: StagedChange): Array<{ type: 'del' | 'add'; line: st
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+.target-box {
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
+  padding: 10px;
+}
+.target-box.compact {
+  margin: 8px 0 10px;
+  padding: 8px;
+  background: var(--arc-bg-weak);
+}
+.target-head {
+  margin-bottom: 7px;
+  color: var(--arc-text-hint);
+  font-family: var(--v2-mono, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.target-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.target-options button {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--arc-border);
+  border-radius: 7px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  padding: 7px 8px;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.target-options button:hover {
+  border-color: var(--arc-primary);
+}
+.target-options button.active {
+  border-color: var(--arc-primary);
+  background: var(--arc-primary-soft);
+}
+.target-options strong {
+  overflow: hidden;
+  color: var(--arc-text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.target-options span {
+  overflow: hidden;
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .review-section-head,
 .compare-head {

@@ -23,8 +23,8 @@ import { resolveNovelLengthLabel } from '@/features/wizard/projectGenres'
 import { useAppStore } from '@/stores/app'
 import NovelWorkflowPanel from '@/components/NovelWorkflowPanel.vue'
 import OverviewPanel from '@/components/OverviewPanel.vue'
-import GlobalAssistantPanel from '@/components/GlobalAssistantPanel.vue'
 import GlobalAssistantPage from '@/components/GlobalAssistantPage.vue'
+import GlobalAssistantV2Panel from '@/components/assistantV2/GlobalAssistantV2Panel.vue'
 import GlobalAssistantV2Page from '@/components/assistantV2/GlobalAssistantV2Page.vue'
 import ProjectKnowledgePanel from '@/components/ProjectKnowledgePanel.vue'
 import WorldviewPanel from '@/components/WorldviewPanel.vue'
@@ -282,7 +282,7 @@ onBeforeUnmount(() => {
 watch(
   () => appStore.activePanel,
   (panel) => {
-    if (panel === 'global-assistant') {
+    if (panel === 'global-assistant' || panel === 'global-assistant-v2') {
       closeGlobalAssistant()
     }
     searchKeyword.value = panelSearch[panel] ?? ''
@@ -392,6 +392,7 @@ watch(searchKeyword, (value) => {
             round
             :type="isGlobalAssistantOpen ? 'primary' : 'default'"
             class="assistant-toggle"
+            title="打开全局助手 v2"
             @click="toggleGlobalAssistant"
           >
             AI助手
@@ -450,7 +451,7 @@ watch(searchKeyword, (value) => {
                 @mousedown="startGlobalAssistantResize"
                 @dblclick="resetGlobalAssistantWidth"
               />
-              <GlobalAssistantPanel
+              <GlobalAssistantV2Panel
                 class="workspace-assistant-dock"
                 :active-view-label="activeViewLabel"
                 @close="closeGlobalAssistant"
