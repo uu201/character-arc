@@ -11,7 +11,7 @@
  *   7. 返回 { systemPrompt, tools, settings, maxOutputTokens }
  */
 
-import type { AppSettings, AiKnowledgeDocumentDraft } from '../shared-types'
+import type { AppSettings } from '../shared-types'
 import type { Tool } from '../agent/tools/types'
 import { createChapterTools } from '../agent/tools/chapter-tools'
 import { createProjectDataTools } from '../agent/tools/project-data-tools'
@@ -28,6 +28,7 @@ import { makeStageEntitiesTools } from './tools/stage-entities'
 import { type ToolFactory } from './agent-loop'
 import type { ResolveTurnExecutionPlan } from './ipc'
 import type { SnapshotAccessor } from './providers/shared'
+import { saveRuntimeKnowledgeDocument } from './knowledge-writer'
 
 /** 输出预算的下限。推理模型会把 reasoning 也算进 maxOutputTokens，不能太紧。 */
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000
@@ -37,6 +38,7 @@ const SELECTION_CONTEXT_BUDGET_TOKENS = 6000
 
 export interface CreateExecutionPlannerDeps {
   snapshot: SnapshotAccessor
+  onKnowledgeSaved?: () => Promise<void> | void
 }
 
 /**
@@ -81,7 +83,7 @@ export function createExecutionPlanner(
     //    - 章节读写：read_chapter / list_chapters / search_project（丢弃旧 edit_chapter）
     //    - 项目数据：read_project_data
     //    - 技能：skill_list / skill_load / (skill_run_script 由内置 skill 决定)
-    //    - 知识：knowledge_save_document（收集到内存，Phase 2 v0.2 会串真持久化）
+    //    - 知识：knowledge_save_document（直接写入项目知识库，并刷新 workspace snapshot）
     //    - 变更暂存：stage_chapter_edit（工厂形态，闭包 turnId/sessionId）
     const currentChapterId = extractCurrentChapterId(session.scopeRef) ?? ''
     const chapterReadTools = createChapterTools({
@@ -90,11 +92,14 @@ export function createExecutionPlanner(
     }).filter((t) => t.definition.name !== 'edit_chapter')
     const projectDataTools = createProjectDataTools()
 
-    // knowledgeTools 需要 collectDocument 回调；Phase 2 v0.1 暂只收集到内存
-    // （每个 turn 一个数组），后续 v0.2 补 IPC 事件让前端能看到。
-    const collectedKnowledgeDocs: AiKnowledgeDocumentDraft[] = []
     const knowledgeTools = createKnowledgeTools({
-      collectDocument: (doc) => collectedKnowledgeDocs.push(doc),
+      collectDocument: async (doc) => {
+        const id = await saveRuntimeKnowledgeDocument(
+          { projectId: session.projectId, draft: doc },
+          { onSaved: deps.onKnowledgeSaved }
+        )
+        return id
+      },
       defaultSourceLabel: 'assistant-v2'
     })
 

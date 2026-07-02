@@ -12,7 +12,7 @@ const VALID_SOURCE_TYPES = new Set<AiKnowledgeDocumentDraft['sourceType']>([
 
 export type KnowledgeToolFactoryOptions = {
   /** 单次 agent loop 内的"已落库"集合。每次工具调用 push 进来。 */
-  collectDocument: (doc: AiKnowledgeDocumentDraft) => void
+  collectDocument: (doc: AiKnowledgeDocumentDraft) => void | string | Promise<void | string>
   /** 默认 sourceType——agent 没显式指定时使用。如 reference-deep-analyze 默认 reference-summary。 */
   defaultSourceType?: AiKnowledgeDocumentDraft['sourceType']
   /** 默认 sourceLabel——通常是参考作品的书名等。 */
@@ -65,6 +65,10 @@ export function createKnowledgeTools(opts: KnowledgeToolFactoryOptions): Tool[] 
             description:
               '文档类型：reference-summary（拆书总纲，整体风格 / 故事线 / 人物架构）、reference-chunk（拆书分块，单段或单章的具体桥段分析）、workflow-document（创作记忆）、canon-fact（项目设定事实）、chapter-summary（章节摘要）。',
             enum: Array.from(VALID_SOURCE_TYPES)
+          },
+          sourceLabel: {
+            type: 'string',
+            description: '可选。来源标签，如 story-deep-audit、writing-journal、assistant-v2。省略时使用当前任务默认来源。'
           },
           content: {
             type: 'string',
@@ -128,21 +132,25 @@ export function createKnowledgeTools(opts: KnowledgeToolFactoryOptions): Tool[] 
         const truncatedContent = content.length > maxContent ? content.slice(0, maxContent) : content
         const truncated = truncatedContent.length < content.length
 
+        const sourceLabel = typeof input.sourceLabel === 'string' && input.sourceLabel.trim()
+          ? input.sourceLabel.trim()
+          : opts.defaultSourceLabel ?? ''
+
         const draft: AiKnowledgeDocumentDraft = {
           title,
           sourceType,
-          sourceLabel: opts.defaultSourceLabel ?? '',
+          sourceLabel,
           content: truncatedContent,
           summary,
           ...(keywords ? { keywords } : {}),
           ...(Object.keys(metadata).length > 0 ? { metadata } : {})
         }
 
-        opts.collectDocument(draft)
+        const savedId = await opts.collectDocument(draft)
         savedCount += 1
 
         return ok([
-          `已落库第 ${savedCount} 份知识文档：${title}（${sourceType}，${truncatedContent.length} 字${truncated ? '，超长已截断' : ''}）。`,
+          `已落库第 ${savedCount} 份知识文档：${title}（${sourceType}，${truncatedContent.length} 字${truncated ? '，超长已截断' : ''}${savedId ? `，ID: ${savedId}` : ''}）。`,
           '继续保存其余维度的知识，或如果已经覆盖完所有需要拆解的内容，直接给出最终回复结束本次任务。'
         ].join('\n'))
       } catch (error) {

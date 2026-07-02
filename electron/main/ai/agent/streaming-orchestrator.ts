@@ -260,7 +260,9 @@ export async function runStreamingAgentTask(
 
   const producedKnowledgeDocuments: AiKnowledgeDocumentDraft[] = []
   const knowledgeTools = createKnowledgeTools({
-    collectDocument: (doc) => producedKnowledgeDocuments.push(doc),
+    collectDocument: (doc) => {
+      producedKnowledgeDocuments.push(doc)
+    },
     defaultSourceLabel: String(task.context.chapterTitle ?? 'agent')
   })
 

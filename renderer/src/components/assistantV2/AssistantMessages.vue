@@ -24,6 +24,10 @@ const props = defineProps<{
   isStreaming: boolean
 }>()
 
+const emit = defineEmits<{
+  (e: 'open-knowledge', documentId?: string): void
+}>()
+
 const scrollRef = ref<HTMLDivElement | null>(null)
 
 watch(
@@ -98,6 +102,16 @@ function short(v: unknown, max = 40): string {
   return s.length > max ? s.slice(0, max) + '…' : s
 }
 
+function knowledgeDocumentId(t: AssistantToolCallView): string | undefined {
+  if (t.toolName !== 'knowledge_save_document' || !t.resultPreview) return undefined
+  const match = String(t.resultPreview).match(/ID:\s*([A-Za-z0-9_-]+)/)
+  return match?.[1]
+}
+
+function canOpenKnowledge(t: AssistantToolCallView): boolean {
+  return t.toolName === 'knowledge_save_document' && t.status === 'ok'
+}
+
 const hasContent = computed(() => props.messages.length > 0)
 </script>
 
@@ -131,6 +145,14 @@ const hasContent = computed(() => props.messages.length > 0)
                 <span v-if="t.status === 'ok' && t.resultPreview" class="tool-result">{{ short(t.resultPreview, 80) }}</span>
                 <span v-else-if="t.status === 'error'" class="tool-result err">{{ short(t.resultPreview, 80) }}</span>
                 <span v-else-if="t.status === 'running'" class="tool-result running">进行中</span>
+                <button
+                  v-if="canOpenKnowledge(t)"
+                  type="button"
+                  class="tool-open"
+                  @click="emit('open-knowledge', knowledgeDocumentId(t))"
+                >
+                  打开
+                </button>
               </div>
             </div>
           </div>
@@ -363,6 +385,20 @@ const hasContent = computed(() => props.messages.length > 0)
 }
 .tool-result.err { color: var(--v2-danger); }
 .tool-result.running { color: var(--v2-warn); }
+.tool-open {
+  flex: 0 0 auto;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-primary);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 6px;
+}
+.tool-open:hover {
+  border-color: var(--arc-primary);
+  background: var(--arc-primary-soft);
+}
 .reasoning {
   margin-bottom: 8px;
   font-size: 12px;

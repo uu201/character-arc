@@ -58,7 +58,7 @@ function buildIntentHintBlock(intentHint?: string): string {
     case 'correct':
       return `【当前模式】修正。先读取相关资料定位冲突或跑偏点，再产出最小必要的暂存修改。不要泛泛重写；每个 stage_* 的 reason 要说明修正目标。`
     case 'audit':
-      return `【当前模式】审计。先读取项目资料并输出问题、证据和风险等级；只有当修法明确且低风险时才产出暂存变更。审计应覆盖设定矛盾、人物 OOC、大纲断裂、伏笔未回收和项目约束冲突。`
+      return `【当前模式】审计。先读取项目资料并输出问题、证据和风险等级；审计报告必须用 knowledge_save_document 保存到项目知识库（sourceType=canon-fact，sourceLabel=story-deep-audit，metadata 写入 auditMode=global-assistant-v2、riskCount/criticalCount 等摘要字段）。只有当修法明确且低风险时才产出暂存变更；修正章节/世界观/人物/大纲/创作记忆时使用对应 stage_* 工具。审计应覆盖设定矛盾、人物 OOC、大纲断裂、伏笔未回收和项目约束冲突。`
     default:
       return ''
   }

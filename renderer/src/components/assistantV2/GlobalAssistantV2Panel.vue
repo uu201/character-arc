@@ -114,6 +114,14 @@ function sendWithMode(): void {
   })
 }
 
+function openKnowledgeDocument(documentId?: string): void {
+  appStore.setPanel('project-knowledge')
+  if (documentId) {
+    appStore.setAssistantFocusTarget('project-knowledge', documentId)
+  }
+  emit('close')
+}
+
 function createSession(): void {
   activeTab.value = 'chat'
   void assistant.createSession()
@@ -230,6 +238,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
         v-if="assistant.messages.value.length > 0 || assistant.isStreaming.value"
         :messages="assistant.messages.value"
         :is-streaming="assistant.isStreaming.value"
+        @open-knowledge="openKnowledgeDocument"
       />
 
       <div v-else class="starter">

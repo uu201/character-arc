@@ -42,7 +42,8 @@ export function bootstrapAssistantRuntime(deps: BootstrapAssistantRuntimeDeps): 
 
   // 2. 构造 execution planner
   const resolveTurnExecutionPlan = createExecutionPlanner({
-    snapshot: snapshotAccessor
+    snapshot: snapshotAccessor,
+    onKnowledgeSaved: deps.refreshSnapshot
   })
 
   // 3. 构造 committer。resolveProjectId 走同步 peek——

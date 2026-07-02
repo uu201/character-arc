@@ -120,7 +120,9 @@ export async function runAgentTask(
   const producedKnowledgeDocuments: AiKnowledgeDocumentDraft[] = []
   const referenceTitle = String(task.context.referenceTitle ?? task.context.sourceTitle ?? '').trim()
   const knowledgeTools = createKnowledgeTools({
-    collectDocument: (doc) => producedKnowledgeDocuments.push(doc),
+    collectDocument: (doc) => {
+      producedKnowledgeDocuments.push(doc)
+    },
     defaultSourceLabel: referenceTitle || 'agent'
   })
 

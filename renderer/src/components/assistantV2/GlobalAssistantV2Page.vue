@@ -103,6 +103,13 @@ function sendWithMode(): void {
   })
 }
 
+function openKnowledgeDocument(documentId?: string): void {
+  appStore.setPanel('project-knowledge')
+  if (documentId) {
+    appStore.setAssistantFocusTarget('project-knowledge', documentId)
+  }
+}
+
 // 暂存栏是否折叠（用户可最小化）
 const stageCollapsed = ref(false)
 const stageBadgeCount = computed(() =>
@@ -338,6 +345,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
         v-if="assistant.messages.value.length > 0 || assistant.isStreaming.value"
         :messages="assistant.messages.value"
         :is-streaming="assistant.isStreaming.value"
+        @open-knowledge="openKnowledgeDocument"
       />
 
       <div v-else class="starter">
