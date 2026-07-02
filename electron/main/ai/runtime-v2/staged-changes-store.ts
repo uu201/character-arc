@@ -156,12 +156,12 @@ export class StagedChangesStore {
     })
   }
 
-  /** 批量接受。仅对 pending 状态生效；已 accepted 保持不变。 */
+  /** 批量接受。pending/rejected 均可转 accepted（rejected→accepted 即"恢复"）。 */
   accept(ids: readonly string[]): StagedChange[] {
     const changed: StagedChange[] = []
     for (const id of ids) {
       const c = this.transition(id, (c) => {
-        if (c.status === 'pending') c.status = 'accepted'
+        if (c.status === 'pending' || c.status === 'rejected') c.status = 'accepted'
       })
       if (c && c.status === 'accepted') changed.push(c)
     }

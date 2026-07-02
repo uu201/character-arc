@@ -29,10 +29,11 @@ import { type ToolFactory } from './agent-loop'
 import type { ResolveTurnExecutionPlan } from './ipc'
 import type { SnapshotAccessor } from './providers/shared'
 
-/** 上下文构建预算。太大浪费 token，太小容易占位过多。 */
-const CONTEXT_BUDGET_TOKENS = 6000
-/** 输出预算的下限。 */
-const DEFAULT_MAX_OUTPUT_TOKENS = 8000
+/** 输出预算的下限。推理模型会把 reasoning 也算进 maxOutputTokens，不能太紧。 */
+const DEFAULT_MAX_OUTPUT_TOKENS = 16000
+const GLOBAL_CONTEXT_BUDGET_TOKENS = 24000
+const CHAPTER_CONTEXT_BUDGET_TOKENS = 12000
+const SELECTION_CONTEXT_BUDGET_TOKENS = 6000
 
 export interface CreateExecutionPlannerDeps {
   snapshot: SnapshotAccessor
@@ -59,12 +60,13 @@ export function createExecutionPlanner(
     validateSettings(settings)
 
     // 1. 构建上下文
+    const contextBudgetTokens = resolveContextBudgetTokens(surface)
     const contextResult = await contextBuilder.build(surface, {
       surface,
       sessionId: session.id,
       projectId: session.projectId,
       scopeRef: session.scopeRef,
-      budgetTokens: CONTEXT_BUDGET_TOKENS
+      budgetTokens: contextBudgetTokens
     })
     const contextBlock = assembleContextBlock(contextResult)
 
@@ -134,7 +136,7 @@ export function createExecutionPlanner(
 
     // 4. 输出 token 预算
     const maxOutputTokens = Math.max(
-      estimateTokens(systemPrompt) + 4000,
+      estimateTokens(systemPrompt) + 6000,
       DEFAULT_MAX_OUTPUT_TOKENS
     )
 
@@ -145,6 +147,16 @@ export function createExecutionPlanner(
       maxOutputTokens
     }
   }
+}
+
+function resolveContextBudgetTokens(surface: { id: string; scope: string }): number {
+  if (surface.id === 'global-page' || surface.id === 'global-panel' || surface.scope === 'project') {
+    return GLOBAL_CONTEXT_BUDGET_TOKENS
+  }
+  if (surface.id === 'chapter-panel' || surface.scope === 'chapter') {
+    return CHAPTER_CONTEXT_BUDGET_TOKENS
+  }
+  return SELECTION_CONTEXT_BUDGET_TOKENS
 }
 
 function extractCurrentChapterId(scopeRef: string | undefined): string | null {

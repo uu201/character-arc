@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useMessage } from 'naive-ui'
 import {
   BookMarked,
   FileCheck2,
   Globe2,
   Network,
+  PanelLeftOpen,
   ShieldCheck,
   Sparkles,
   Users,
@@ -21,6 +23,7 @@ import StagedChangesView from './StagedChangesView.vue'
 
 const appStore = useAppStore()
 const { selectedProjectId } = storeToRefs(appStore)
+const message = useMessage()
 
 const SURFACE: SurfaceDefinition = {
   id: 'global-page',
@@ -107,17 +110,224 @@ const stageBadgeCount = computed(() =>
     (c) => c.status === 'pending' || c.status === 'accepted' || c.status === 'streaming'
   ).length
 )
+
+// 左侧对话记录栏是否隐藏
+const sessionCollapsed = ref(false)
+
+const SESSION_WIDTH_KEY = 'global-assistant-v2-session-width'
+const STAGE_WIDTH_KEY = 'global-assistant-v2-stage-width'
+const SESSION_DEFAULT_WIDTH = 220
+const SESSION_MIN_WIDTH = 172
+const SESSION_MAX_WIDTH = 360
+const SESSION_HIDE_THRESHOLD = 148
+const STAGE_DEFAULT_WIDTH = 380
+const STAGE_MIN_WIDTH = 280
+const STAGE_MAX_WIDTH = 680
+const STAGE_HIDE_THRESHOLD = 240
+
+const sessionWidth = ref(SESSION_DEFAULT_WIDTH)
+const stageWidth = ref(STAGE_DEFAULT_WIDTH)
+const isSessionResizing = ref(false)
+const isStageResizing = ref(false)
+
+const pageStyle = computed<Record<string, string>>(() => ({
+  '--session-col-width': sessionCollapsed.value ? '44px' : `${sessionWidth.value}px`,
+  '--stage-col-width': stageCollapsed.value ? '44px' : `${stageWidth.value}px`
+}))
+
+let activeResizeCleanup: (() => void) | null = null
+
+function clampWidth(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)))
+}
+
+function readStoredWidth(key: string, fallback: number, min: number, max: number): number {
+  try {
+    const stored = window.localStorage.getItem(key)
+    const parsed = stored == null ? Number.NaN : Number.parseInt(stored, 10)
+    return Number.isFinite(parsed) ? clampWidth(parsed, min, max) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function saveStoredWidth(key: string, value: number): void {
+  try {
+    window.localStorage.setItem(key, String(Math.round(value)))
+  } catch {
+    // localStorage may be unavailable in some embedded/browser privacy modes.
+  }
+}
+
+function resizeSessionTo(rawWidth: number): void {
+  if (rawWidth <= SESSION_HIDE_THRESHOLD) {
+    sessionCollapsed.value = true
+    return
+  }
+  sessionCollapsed.value = false
+  sessionWidth.value = clampWidth(rawWidth, SESSION_MIN_WIDTH, SESSION_MAX_WIDTH)
+}
+
+function resizeStageTo(rawWidth: number): void {
+  if (rawWidth <= STAGE_HIDE_THRESHOLD) {
+    stageCollapsed.value = true
+    return
+  }
+  stageCollapsed.value = false
+  stageWidth.value = clampWidth(rawWidth, STAGE_MIN_WIDTH, STAGE_MAX_WIDTH)
+}
+
+function resizeSessionBy(delta: number): void {
+  resizeSessionTo(sessionWidth.value + delta)
+  saveStoredWidth(SESSION_WIDTH_KEY, sessionWidth.value)
+}
+
+function resizeStageBy(delta: number): void {
+  resizeStageTo(stageWidth.value + delta)
+  saveStoredWidth(STAGE_WIDTH_KEY, stageWidth.value)
+}
+
+function reopenSessionPanel(): void {
+  sessionCollapsed.value = false
+  sessionWidth.value = clampWidth(sessionWidth.value, SESSION_MIN_WIDTH, SESSION_MAX_WIDTH)
+}
+
+function reopenStagePanel(): void {
+  stageCollapsed.value = false
+  stageWidth.value = clampWidth(stageWidth.value, STAGE_MIN_WIDTH, STAGE_MAX_WIDTH)
+}
+
+function startSessionResize(event: MouseEvent): void {
+  startColumnResize('session', event)
+}
+
+function startStageResize(event: MouseEvent): void {
+  startColumnResize('stage', event)
+}
+
+function startColumnResize(side: 'session' | 'stage', event: MouseEvent): void {
+  event.preventDefault()
+  activeResizeCleanup?.()
+
+  const startX = event.clientX
+  const startWidth = side === 'session' ? sessionWidth.value : stageWidth.value
+  const previousCursor = document.body.style.cursor
+  const previousUserSelect = document.body.style.userSelect
+
+  isSessionResizing.value = side === 'session'
+  isStageResizing.value = side === 'stage'
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+
+  const handleMove = (moveEvent: MouseEvent): void => {
+    const delta = moveEvent.clientX - startX
+    if (side === 'session') {
+      resizeSessionTo(startWidth + delta)
+    } else {
+      resizeStageTo(startWidth - delta)
+    }
+  }
+
+  const finishResize = (): void => {
+    document.removeEventListener('mousemove', handleMove)
+    document.removeEventListener('mouseup', finishResize)
+    document.body.style.cursor = previousCursor
+    document.body.style.userSelect = previousUserSelect
+    saveStoredWidth(SESSION_WIDTH_KEY, sessionWidth.value)
+    saveStoredWidth(STAGE_WIDTH_KEY, stageWidth.value)
+    isSessionResizing.value = false
+    isStageResizing.value = false
+    activeResizeCleanup = null
+  }
+
+  document.addEventListener('mousemove', handleMove)
+  document.addEventListener('mouseup', finishResize)
+  activeResizeCleanup = finishResize
+}
+
+onMounted(() => {
+  sessionWidth.value = readStoredWidth(
+    SESSION_WIDTH_KEY,
+    SESSION_DEFAULT_WIDTH,
+    SESSION_MIN_WIDTH,
+    SESSION_MAX_WIDTH
+  )
+  stageWidth.value = readStoredWidth(
+    STAGE_WIDTH_KEY,
+    STAGE_DEFAULT_WIDTH,
+    STAGE_MIN_WIDTH,
+    STAGE_MAX_WIDTH
+  )
+})
+
+onBeforeUnmount(() => {
+  activeResizeCleanup?.()
+})
+
+// 写回进行中（独立于 AI 生成状态，仅在真正提交时为 true）
+const isCommitting = ref(false)
+
+// 写回已确认变更：完成后给出成功/失败提示
+async function handleCommit(ids?: string[]): Promise<void> {
+  if (isCommitting.value) return
+  isCommitting.value = true
+  try {
+    const { committed, failed } = await assistant.commitAccepted(ids)
+    if (failed > 0 && committed > 0) {
+      message.warning(`已写回 ${committed} 项，${failed} 项失败`)
+    } else if (failed > 0) {
+      message.error(`写回失败：${failed} 项未能提交`)
+    } else if (committed > 0) {
+      message.success(`已成功写回 ${committed} 项变更`)
+    }
+  } finally {
+    isCommitting.value = false
+  }
+}
 </script>
 
 <template>
-  <div class="v2-page" :class="{ 'stage-collapsed': stageCollapsed }">
-    <AssistantSessionList
-      :sessions="assistant.sessions.value"
-      :active-session-id="assistant.activeSessionId.value"
-      @switch="(id) => assistant.switchSession(id)"
-      @create="assistant.createSession()"
-      @delete="(id) => assistant.deleteSession(id)"
-    />
+  <div
+    class="v2-page"
+    :class="{
+      'stage-collapsed': stageCollapsed,
+      'session-collapsed': sessionCollapsed,
+      'session-resizing': isSessionResizing,
+      'stage-resizing': isStageResizing
+    }"
+    :style="pageStyle"
+  >
+    <div v-if="!sessionCollapsed" class="session-col" :class="{ resizing: isSessionResizing }">
+      <AssistantSessionList
+        :sessions="assistant.sessions.value"
+        :active-session-id="assistant.activeSessionId.value"
+        @switch="(id) => assistant.switchSession(id)"
+        @create="assistant.createSession()"
+        @delete="(id) => assistant.deleteSession(id)"
+        @collapse="sessionCollapsed = true"
+      />
+      <div
+        class="col-resizer session-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整对话历史栏宽度"
+        tabindex="0"
+        @mousedown="startSessionResize"
+        @keydown.left.prevent="resizeSessionBy(-24)"
+        @keydown.right.prevent="resizeSessionBy(24)"
+      />
+    </div>
+
+    <button
+      v-else
+      type="button"
+      class="session-mini"
+      title="展开对话历史"
+      @click="reopenSessionPanel"
+    >
+      <PanelLeftOpen :size="16" />
+      <span class="session-mini-label">对话</span>
+    </button>
 
     <div class="main">
       <div v-if="assistant.isStreaming.value" class="stream-strip">
@@ -125,16 +335,19 @@ const stageBadgeCount = computed(() =>
       </div>
 
       <AssistantMessages
+        v-if="assistant.messages.value.length > 0 || assistant.isStreaming.value"
         :messages="assistant.messages.value"
         :is-streaming="assistant.isStreaming.value"
       />
 
-      <div v-if="assistant.messages.value.length === 0 && !assistant.isStreaming.value" class="starter">
-        <div class="starter-head">
-          <div>
+      <div v-else class="starter">
+        <div class="starter-inner">
+          <div class="starter-head">
             <div class="starter-kicker">Global Assistant v2</div>
             <h2>需要我做点什么？</h2>
+            <p class="starter-sub">{{ currentMode.description }}</p>
           </div>
+
           <div class="mode-switch" role="tablist" aria-label="助手模式">
             <button
               v-for="mode in modeOptions"
@@ -147,37 +360,32 @@ const stageBadgeCount = computed(() =>
               <span>{{ mode.label }}</span>
             </button>
           </div>
-        </div>
 
-        <div class="mode-note">
-          <strong>{{ currentMode.label }}</strong>
-          <span>{{ currentMode.description }}</span>
-        </div>
+          <div class="quick-grid">
+            <button
+              v-for="action in quickActions[activeMode]"
+              :key="action.label"
+              type="button"
+              class="quick-card"
+              @click="fillQuickAction(action.prompt)"
+            >
+              <span>{{ action.label }}</span>
+            </button>
+          </div>
 
-        <div class="asset-strip">
-          <button
-            v-for="item in assetLinks"
-            :key="item.id"
-            type="button"
-            class="asset-pill"
-            @click="appStore.setPanel(item.id as never)"
-          >
-            <component :is="item.icon" :size="14" />
-            <span>{{ item.count }}</span>
-            <em>{{ item.label }}</em>
-          </button>
-        </div>
-
-        <div class="quick-grid">
-          <button
-            v-for="action in quickActions[activeMode]"
-            :key="action.label"
-            type="button"
-            class="quick-card"
-            @click="fillQuickAction(action.prompt)"
-          >
-            <span>{{ action.label }}</span>
-          </button>
+          <div class="asset-strip">
+            <button
+              v-for="item in assetLinks"
+              :key="item.id"
+              type="button"
+              class="asset-pill"
+              @click="appStore.setPanel(item.id as never)"
+            >
+              <component :is="item.icon" :size="14" />
+              <span>{{ item.count }}</span>
+              <em>{{ item.label }}</em>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -199,17 +407,27 @@ const stageBadgeCount = computed(() =>
       v-if="stageCollapsed"
       class="stage-mini"
       :title="`展开暂存变更 (${stageBadgeCount})`"
-      @click="stageCollapsed = false"
+      @click="reopenStagePanel"
     >
       <span class="stage-mini-label">暂存</span>
       <span v-if="stageBadgeCount > 0" class="stage-mini-badge">{{ stageBadgeCount }}</span>
     </button>
 
     <!-- 展开态：完整变更列表 -->
-    <div v-else class="stage-col">
+    <div v-else class="stage-col" :class="{ resizing: isStageResizing }">
+      <div
+        class="col-resizer stage-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整暂存区宽度"
+        tabindex="0"
+        @mousedown="startStageResize"
+        @keydown.left.prevent="resizeStageBy(24)"
+        @keydown.right.prevent="resizeStageBy(-24)"
+      />
       <div class="stage-col-head">
         <span class="stage-col-title">暂存区</span>
-        <button class="collapse-btn" title="最小化" @click="stageCollapsed = true">
+        <button type="button" class="collapse-btn" title="最小化" @click="stageCollapsed = true">
           <span>›</span>
         </button>
       </div>
@@ -217,9 +435,10 @@ const stageBadgeCount = computed(() =>
         class="stage-view"
         :changes="assistant.stagedChanges.value"
         :is-busy="assistant.isStreaming.value"
+        :is-committing="isCommitting"
         @accept="(ids) => assistant.acceptChanges(ids)"
         @reject="(ids) => assistant.rejectChanges(ids)"
-        @commit="(ids) => assistant.commitAccepted(ids)"
+        @commit="(ids) => handleCommit(ids)"
       />
     </div>
   </div>
@@ -244,9 +463,11 @@ const stageBadgeCount = computed(() =>
   --v2-mono: 'JetBrains Mono', 'Consolas', 'SF Mono', ui-monospace, Menlo, monospace;
   --v2-radius-card: 14px;
   --v2-radius-btn: 8px;
+  --session-col-width: 220px;
+  --stage-col-width: 380px;
   letter-spacing: -0.005em;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 380px;
+  grid-template-columns: var(--session-col-width) minmax(0, 1fr) var(--stage-col-width);
   width: 100%;
   height: 100%;
   flex: 1 1 auto;
@@ -256,8 +477,74 @@ const stageBadgeCount = computed(() =>
   background: var(--arc-bg-body);
   color: var(--arc-text-primary);
 }
-.v2-page.stage-collapsed {
-  grid-template-columns: 220px minmax(0, 1fr) 44px;
+.session-col,
+.stage-col {
+  position: relative;
+}
+.session-col {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.session-col :deep(.session-list) {
+  width: 100%;
+  flex: 1 1 auto;
+}
+.session-mini {
+  border: none;
+  border-right: 1px solid var(--arc-border);
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 16px 0;
+  gap: 8px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.session-mini:hover {
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-primary);
+}
+.session-mini-label {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  font-family: var(--v2-mono);
+}
+.col-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 10px;
+  cursor: col-resize;
+  outline: none;
+}
+.col-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.col-resizer:hover::after,
+.col-resizer:focus-visible::after,
+.session-col.resizing .session-resizer::after,
+.stage-col.resizing .stage-resizer::after {
+  background: var(--arc-primary);
+}
+.session-resizer {
+  right: 0;
+}
+.stage-resizer {
+  left: 0;
 }
 .main {
   display: flex;
@@ -267,18 +554,22 @@ const stageBadgeCount = computed(() =>
   position: relative;
 }
 .starter {
-  width: min(760px, calc(100% - 64px));
-  margin: auto auto 0;
-  padding: 26px 0 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 32px;
+}
+.starter-inner {
+  width: min(720px, 100%);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 22px;
 }
 .starter-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 18px;
+  text-align: center;
 }
 .starter-kicker {
   font-family: var(--v2-mono);
@@ -286,22 +577,28 @@ const stageBadgeCount = computed(() =>
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--arc-primary);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .starter h2 {
   margin: 0;
   color: var(--arc-text-primary);
-  font-size: 28px;
+  font-size: 30px;
   line-height: 1.15;
   font-weight: 700;
 }
+.starter-sub {
+  margin: 8px 0 0;
+  color: var(--arc-text-secondary);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
 .mode-switch {
-  display: inline-grid;
-  grid-template-columns: repeat(3, minmax(62px, 1fr));
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--arc-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--arc-bg-surface);
   box-shadow: var(--arc-shadow-sm);
 }
@@ -324,25 +621,11 @@ const stageBadgeCount = computed(() =>
   color: var(--arc-primary);
   font-weight: 600;
 }
-.mode-note {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--arc-border);
-  border-radius: 10px;
-  background: var(--arc-bg-surface);
-  color: var(--arc-text-secondary);
-  font-size: 12.5px;
-}
-.mode-note strong {
-  color: var(--arc-text-primary);
-  font-size: 13px;
-}
 .asset-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  justify-content: center;
 }
 .asset-pill {
   border: 1px solid var(--arc-border);
@@ -429,7 +712,7 @@ const stageBadgeCount = computed(() =>
 .stage-col {
   display: flex;
   flex-direction: column;
-  width: 380px;
+  width: auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -493,11 +776,11 @@ const stageBadgeCount = computed(() =>
   writing-mode: vertical-rl;
   font-size: 12px;
   letter-spacing: 0.08em;
-  font-family: monospace;
+  font-family: var(--v2-mono);
 }
 .stage-mini-badge {
   font-size: 10px;
-  font-family: monospace;
+  font-family: var(--v2-mono);
   padding: 2px 6px;
   border-radius: 999px;
   background: var(--arc-primary);
@@ -505,16 +788,15 @@ const stageBadgeCount = computed(() =>
   font-weight: 600;
 }
 @media (max-width: 980px) {
-  .v2-page,
-  .v2-page.stage-collapsed {
+  .v2-page {
     grid-template-columns: minmax(0, 1fr);
   }
-  .starter {
-    width: calc(100% - 32px);
-  }
-  .starter-head {
-    align-items: stretch;
-    flex-direction: column;
+  .session-col,
+  .session-mini,
+  .stage-col,
+  .stage-mini,
+  .col-resizer {
+    display: none;
   }
   .quick-grid {
     grid-template-columns: 1fr;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { PanelLeftClose } from 'lucide-vue-next'
 import type { AssistantSession } from '@shared/assistant-runtime'
 
 const props = defineProps<{
@@ -11,6 +12,7 @@ const emit = defineEmits<{
   (e: 'switch', sessionId: string): void
   (e: 'create'): void
   (e: 'delete', sessionId: string): void
+  (e: 'collapse'): void
 }>()
 
 type GroupKey = 'today' | 'yesterday' | 'week' | 'earlier'
@@ -64,6 +66,9 @@ const grouped = computed(() => {
         <span>全局助理</span>
         <span class="ver">v2</span>
       </div>
+      <button class="collapse-side" title="收起对话记录" @click="emit('collapse')">
+        <PanelLeftClose :size="16" />
+      </button>
     </div>
 
     <button class="new-btn" @click="emit('create')">
@@ -106,7 +111,27 @@ const grouped = computed(() => {
   border-right: 1px solid var(--arc-border);
 }
 .head {
-  padding: 16px 14px 10px;
+  padding: 16px 12px 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.collapse-side {
+  border: none;
+  background: transparent;
+  color: var(--arc-text-hint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.collapse-side:hover {
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-primary);
 }
 .brand {
   display: flex;

@@ -341,6 +341,21 @@ export function useAssistant(options: UseAssistantOptions) {
     )
   }
 
+  /** 会话标题是否仍是系统默认值（未被用户或自动摘要覆盖）。 */
+  function isDefaultTitle(title: string): boolean {
+    return !title || title.startsWith('新会话')
+  }
+
+  /** 从用户首条提问摘要出简短会话标题。 */
+  function deriveSessionTitle(text: string): string {
+    // 压平空白，取首句（中英文标点断句），再截断到合理长度
+    const flat = text.replace(/\s+/g, ' ').trim()
+    const firstSentence = flat.split(/[。！？.!?\n]/)[0]?.trim() || flat
+    const base = firstSentence || flat
+    const MAX = 18
+    return base.length > MAX ? base.slice(0, MAX) + '…' : base
+  }
+
   // ==========================================================================
   // Turn 操作
   // ==========================================================================
@@ -350,9 +365,15 @@ export function useAssistant(options: UseAssistantOptions) {
     if (!text || isStreaming.value) return
     let sessionId = activeSessionId.value
     if (!sessionId) {
-      const session = await createSession(text.slice(0, 20))
+      const session = await createSession(deriveSessionTitle(text))
       if (!session) return
       sessionId = session.id
+    } else {
+      // 已有会话但仍是默认标题（如通过"新建对话"按钮创建）：用首条提问摘要覆盖
+      const current = sessions.value.find((s) => s.id === sessionId)
+      if (current && isDefaultTitle(current.title)) {
+        void renameSession(sessionId, deriveSessionTitle(text))
+      }
     }
 
     composerValue.value = ''
@@ -423,13 +444,14 @@ export function useAssistant(options: UseAssistantOptions) {
     await reloadStaged()
   }
 
-  async function commitAccepted(ids?: string[]): Promise<void> {
+  async function commitAccepted(ids?: string[]): Promise<{ committed: number; failed: number }> {
     const results = await A.stageCommit({ changeIds: ids })
     const errors = results.filter((r) => !r.ok)
     if (errors.length > 0) {
       lastError.value = `${errors.length} 项提交失败：${errors.map((e) => e.error).join('; ')}`
     }
     await reloadStaged()
+    return { committed: results.length - errors.length, failed: errors.length }
   }
 
   async function bindTarget(changeId: string, entityId: string): Promise<void> {
