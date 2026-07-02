@@ -318,8 +318,8 @@ export type ProjectBootstrapResult = {
 }
 
 /**
- * 工作流文档集合生成结果。
- * 每个 key 对应一种工作流文档（任务计划、发现、进度等）。
+ * 创作记忆集合生成结果。
+ * 每个 key 对应一种创作记忆（任务计划、发现、进度等）。
  */
 export type WorkflowDocumentsResult = {
   task_plan: string

@@ -75,7 +75,7 @@ function buildKnowledgeQuery(task: AiTaskPayload): string {
   ].filter(Boolean).join('\n')
 }
 
-/** 判断知识来源是否属于项目内文档（工作流文档、设定事实、章节摘要）。 */
+/** 判断知识来源是否属于项目内文档（创作记忆、设定事实、章节摘要）。 */
 function isProjectKnowledgeSource(sourceType: KnowledgeDocumentSourceType): boolean {
   return sourceType === 'workflow-document' || sourceType === 'canon-fact' || sourceType === 'chapter-summary'
 }

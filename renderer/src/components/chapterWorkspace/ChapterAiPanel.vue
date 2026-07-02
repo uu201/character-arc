@@ -412,6 +412,7 @@ onBeforeUnmount(() => {
 
     <GlobalAssistantDiffReviewDialog
       v-model:show="showDiffReview"
+      review-mode="chapter"
       summary="AI 章节编辑审查"
       :patch="proposalDiffPatch"
       :files="proposalDiffFiles"

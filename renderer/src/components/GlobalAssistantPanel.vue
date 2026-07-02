@@ -117,6 +117,10 @@ const maxInputHeight = computed(() =>
 const inputHeightStyle = computed(() => ({ height: `${inputHeight.value}px` }))
 
 const activeViewLabel = computed(() => props.activeViewLabel ?? '项目工作台')
+const diffReviewMode = computed<'default' | 'chapter'>(() => {
+  const actionable = proposalDiffFiles.value.filter((file) => file.action !== 'note')
+  return actionable.length > 0 && actionable.every((file) => file.kind === 'chapter') ? 'chapter' : 'default'
+})
 
 function clampInputHeight(height: number): number {
   return Math.max(GLOBAL_ASSISTANT_INPUT_MIN_HEIGHT, Math.min(maxInputHeight.value, height))
@@ -676,6 +680,7 @@ watch(
     </div>
     <GlobalAssistantDiffReviewDialog
       v-model:show="showDiffReview"
+      :review-mode="diffReviewMode"
       :summary="proposal?.summary || ''"
       :patch="proposalDiffPatch"
       :files="proposalDiffFiles"

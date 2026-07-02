@@ -293,7 +293,7 @@ export const useAppStore = defineStore('app', () => {
   const activeWorkflowVolume = computed(
     () => outlineVolumes.value.find((v) => v.id === activeWorkflowVolumeId.value) ?? outlineVolumes.value[0]
   )
-  /** 当前激活分卷的流程文件（每卷独立维护） */
+  /** 当前激活分卷的创作记忆（每卷独立维护） */
   const workflowDocuments = computed(
     () => activeWorkflowVolume.value?.workflowDocuments ?? createDefaultWorkflowDocuments()
   )

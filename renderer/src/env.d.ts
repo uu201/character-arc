@@ -553,6 +553,50 @@ declare global {
         mirror?: string
         error?: string
       }>
+
+      /** Assistant Runtime v2 IPC 通道。参数与返回值见 @shared/assistant-runtime。 */
+      assistant: {
+        sessionList: (payload: {
+          projectId: string
+          surfaceId?: string
+          scopeRef?: string
+          limit?: number
+        }) => Promise<import('@shared/assistant-runtime').AssistantSession[]>
+        sessionCreate: (payload: {
+          projectId: string
+          surfaceId: string
+          scopeRef?: string
+          title: string
+        }) => Promise<import('@shared/assistant-runtime').AssistantSession>
+        sessionDelete: (payload: { sessionId: string }) => Promise<{ ok: boolean }>
+        sessionLoad: (payload: { sessionId: string; withReplay?: boolean }) => Promise<{
+          session: import('@shared/assistant-runtime').AssistantSession | null
+          turns: import('@shared/assistant-runtime').AssistantTurn[]
+          events: import('@shared/assistant-runtime').PersistedTurnEvent[]
+        }>
+        sessionRename: (payload: { sessionId: string; title: string }) => Promise<{ ok: boolean }>
+        turnSend: (payload: import('@shared/assistant-runtime').TurnSendRequest) =>
+          Promise<{ turnId: string; finalText: string; status: string; error?: string }>
+        turnCancel: (payload: import('@shared/assistant-runtime').TurnCancelRequest) =>
+          Promise<{ ok: boolean; reason?: string }>
+        stageList: (payload: {
+          sessionId?: string
+          status?: readonly string[]
+          kind?: readonly string[]
+          turnId?: string
+        }) => Promise<import('@shared/assistant-runtime').StagedChange[]>
+        stageAccept: (payload: import('@shared/assistant-runtime').StageAcceptRequest) =>
+          Promise<import('@shared/assistant-runtime').StagedChange[]>
+        stageReject: (payload: import('@shared/assistant-runtime').StageRejectRequest) =>
+          Promise<import('@shared/assistant-runtime').StagedChange[]>
+        stageCommit: (payload: import('@shared/assistant-runtime').StageCommitRequest) =>
+          Promise<import('@shared/assistant-runtime').StagedChangeCommitResult[]>
+        stageBindTarget: (payload: import('@shared/assistant-runtime').StageBindTargetRequest) =>
+          Promise<import('@shared/assistant-runtime').StagedChange | null>
+        onEvent: (
+          callback: (payload: import('@shared/assistant-runtime').AssistantEventPush) => void
+        ) => () => void
+      }
     }
   }
 }

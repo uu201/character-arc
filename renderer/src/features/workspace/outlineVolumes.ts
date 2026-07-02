@@ -50,7 +50,7 @@ export function cloneOutlineVolumes(outlineVolumes?: OutlineVolume[]): OutlineVo
     : []
 }
 
-// 对分卷的流程文件做规范化处理，保留现有有效内容，用默认值填补缺失字段
+// 对分卷的创作记忆做规范化处理，保留现有有效内容，用默认值填补缺失字段
 export function normalizeVolumeWorkflowDocuments(volume: OutlineVolume, fallbackDocs?: WorkflowDocument[]): WorkflowDocument[] {
   if (volume.workflowDocuments?.length) {
     return normalizeWorkflowDocuments(volume.workflowDocuments)

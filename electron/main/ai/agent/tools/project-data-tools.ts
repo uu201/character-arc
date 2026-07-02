@@ -164,7 +164,7 @@ async function buildIndex(projectId: string): Promise<string> {
   if (referenceWorks.length) sections.push(`## Reference Works (${referenceWorks.length})\n${referenceWorks.map((item) => `- [${item.id}] ${item.title}`).join('\n')}`)
 
   const workflowDocuments = db.prepare('SELECT id, title, doc_key FROM workflow_documents WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string; doc_key: string }[]
-  if (workflowDocuments.length) sections.push(`## Workflow Documents (${workflowDocuments.length})\n${workflowDocuments.map((item) => `- [${item.id}] ${item.title} (${item.doc_key})`).join('\n')}`)
+  if (workflowDocuments.length) sections.push(`## Creative Memory (${workflowDocuments.length})\n${workflowDocuments.map((item) => `- [${item.id}] ${item.title} (${item.doc_key})`).join('\n')}`)
 
   const constraints = db.prepare(`
     SELECT id, title
@@ -474,20 +474,20 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
     case 'workflow_documents': {
       if (docKey) {
         const row = db.prepare('SELECT id, title, doc_key, content, updated_at FROM workflow_documents WHERE doc_key = ? AND project_id = ?').get(docKey, projectId) as { id: string; title: string; doc_key: string; content: string; updated_at: string } | undefined
-        if (!row) return `Workflow document not found for doc_key: ${docKey}`
+        if (!row) return `Creative memory not found for doc_key: ${docKey}`
         return summaryOnly
           ? [`# ${row.title}`, `ID: ${row.id}`, `Key: ${row.doc_key}`, `Updated: ${row.updated_at}`, '', truncateText(row.content, 500)].join('\n')
           : [`# ${row.title}`, `ID: ${row.id}`, `Key: ${row.doc_key}`, `Updated: ${row.updated_at}`, '', row.content].join('\n')
       }
       if (entityId) {
         const row = db.prepare('SELECT title, doc_key, content, updated_at FROM workflow_documents WHERE id = ? AND project_id = ?').get(entityId, projectId) as { title: string; doc_key: string; content: string; updated_at: string } | undefined
-        if (!row) return `Workflow document not found: ${entityId}`
+        if (!row) return `Creative memory not found: ${entityId}`
         return summaryOnly
           ? [`# ${row.title}`, `Key: ${row.doc_key}`, `Updated: ${row.updated_at}`, '', truncateText(row.content, 500)].join('\n')
           : [`# ${row.title}`, `Key: ${row.doc_key}`, `Updated: ${row.updated_at}`, '', row.content].join('\n')
       }
       const rows = db.prepare('SELECT id, title, doc_key, content, updated_at FROM workflow_documents WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string; doc_key: string; content: string; updated_at: string }[]
-      if (!rows.length) return 'No workflow documents.'
+      if (!rows.length) return 'No creative memory.'
       const limitedRows = applyLimit(rows, limit)
       const body = summaryOnly
         ? limitedRows.map((row) => `- [${row.id}] ${row.title} (${row.doc_key}) Updated: ${row.updated_at}`).join('\n')

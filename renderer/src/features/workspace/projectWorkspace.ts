@@ -471,7 +471,7 @@ export function normalizeWorkspace(
     chapters: workspace.chapters
   })
 
-  // 为每个分卷规范化流程文件：
+  // 为每个分卷规范化创作记忆：
   // - 已有 workflowDocuments 的分卷直接规范化
   // - 第一卷无文件时，尝试迁移旧的项目级 workflowDocuments
   // - 其余分卷无文件时，初始化为默认模板

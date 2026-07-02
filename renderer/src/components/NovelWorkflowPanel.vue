@@ -32,7 +32,7 @@ const message = useMessage()
 
 const userPrompt = ref('')
 const AI_TASK_KEY = 'workflow-documents'
-// 生成流程文件是面板级任务，跨面板切换时通过全局注册表保留进度
+// 生成创作记忆是面板级任务，跨面板切换时通过全局注册表保留进度
 const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY))
 const editingDocumentKey = ref<WorkflowDocumentKey | null>(null)
 const editingContent = ref('')
@@ -238,8 +238,8 @@ async function generateAllDocuments(): Promise<void> {
       {
         key: AI_TASK_KEY,
         kind: 'workflow',
-        label: 'AI 生成流程文件',
-        description: `正在基于当前项目资料整合 ${allDocumentKeys.length} 份流程文件`,
+        label: 'AI 生成创作记忆',
+        description: `正在基于当前项目资料整合 ${allDocumentKeys.length} 份创作记忆`,
         panel: 'workflow'
       },
       async () => {
@@ -251,14 +251,14 @@ async function generateAllDocuments(): Promise<void> {
             ...buildGenerationContext(),
             projectSkills,
             userPrompt: userPrompt.value.trim()
-              || '请生成全部流程文件，整合项目现有资料与参考书。'
+              || '请生成全部创作记忆，整合项目现有资料与参考书。'
           }
         }))
       }
     )
 
     if (!result.success || !result.result) {
-      throw new Error(result.error ?? '流程文件生成失败')
+      throw new Error(result.error ?? '创作记忆生成失败')
     }
 
     const payload = result.result as Record<string, string>
@@ -268,9 +268,9 @@ async function generateAllDocuments(): Promise<void> {
         .map((key) => ({ key, content: payload[key] ?? '' }))
         .filter((item) => item.content.trim())
     )
-    message.success('已生成全部流程文件')
+    message.success('已生成全部创作记忆')
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '流程文件生成失败')
+    message.error(error instanceof Error ? error.message : '创作记忆生成失败')
   }
 }
 
@@ -289,9 +289,9 @@ watch(
   <section class="workflow-page">
     <div class="workflow-header">
       <div class="workflow-header-text">
-        <span class="workflow-kicker">Workflow Files</span>
-        <h2>流程文件生成</h2>
-        <p>基于项目资料与可选参考书，一键 AI 生成全部流程文件。</p>
+        <span class="workflow-kicker">Creative Memory</span>
+        <h2>创作记忆</h2>
+        <p>基于项目资料与可选参考书，整理当前分卷的计划、进度、伏笔和素材。</p>
       </div>
     </div>
 
@@ -345,7 +345,7 @@ watch(
 
       <div class="workflow-prompt-section">
         <strong>补充说明</strong>
-        <span v-if="hasAnyProjectContext" class="workflow-hint">可选，帮助 AI 更准确地生成流程文件</span>
+        <span v-if="hasAnyProjectContext" class="workflow-hint">可选，帮助 AI 更准确地整理创作记忆</span>
         <span v-else class="workflow-hint workflow-hint-required">项目暂无可用资料时必填，请描述你想写的小说类型、题材、风格等</span>
         <n-input
           v-model:value="userPrompt"
@@ -386,14 +386,14 @@ watch(
           <template #icon>
             <Sparkles :size="18" />
           </template>
-          {{ isGenerating ? '正在生成中...' : '一键 AI 生成全部流程文件' }}
+          {{ isGenerating ? '正在生成中...' : '一键 AI 生成创作记忆' }}
         </n-button>
       </div>
     </n-card>
 
     <div class="workflow-documents-header">
       <FileText :size="18" />
-      <strong>流程文件</strong>
+      <strong>创作记忆</strong>
       <n-tag v-if="outlineVolumes.length > 1" size="small" :bordered="false">
         {{ activeWorkflowVolume?.title || '默认卷' }}
       </n-tag>

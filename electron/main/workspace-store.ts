@@ -15,6 +15,7 @@ import {
   normalizeWorkspacePayload
 } from './workspace-types'
 import { initStoryStateSchema } from './story-state-store'
+import { initAssistantRuntimeSchema } from './ai/runtime-v2/conversation-manager'
 
 const WORKSPACE_DB = 'workspace.db'
 const WORKSPACE_FILE = 'workspace.json'
@@ -355,6 +356,7 @@ export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
   ensureWorkflowDocumentColumns(db)
   ensureKnowledgeDocumentSchema(db)
   initStoryStateSchema(db)
+  initAssistantRuntimeSchema(db)
 
   await migrateLegacyWorkspaceFile(db)
   workspaceDb = db

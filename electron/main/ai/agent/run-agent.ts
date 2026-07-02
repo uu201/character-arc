@@ -142,15 +142,6 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
         throw part.error
       }
     }
-    // 某些中转站对非 Claude 模型会把文本放在 reasoning/thinking blocks 里，
-    // textStream 拿不到。如果流式正文为空但有 output tokens，从最终结果兜底。
-    if (!fullText) {
-      const finalText = await result.text
-      if (finalText) {
-        fullText = finalText
-        params.handlers.onTextDelta(finalText)
-      }
-    }
   } else {
     for await (const part of result.fullStream) {
       if (part.type === 'reasoning-delta') {
@@ -167,9 +158,27 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   // 兜底：若错误未以 error part 形式出现而是走了 onError，这里重抛。
   if (streamError) throw streamError
 
+  // 流式正文兜底（两个分支共用）：
+  //   - 推理模型可能把内容塞进 reasoning/thinking blocks，textStream 拿不到
+  //   - 部分 openai-compatible 中转站在带 tools 时不吐 text-delta，
+  //     只把正文放到最终 response 里
+  // 若流式没拿到文本但最终结果有，就把它一次性回灌进来。
+  if (!fullText) {
+    try {
+      const finalText = await result.text
+      if (finalText) {
+        fullText = finalText
+        params.handlers.onTextDelta(finalText)
+      }
+    } catch {
+      // 忽略：让下方 finishReason 逻辑决定报错还是返回空
+    }
+  }
+
   const finishReason = await result.finishReason
 
   let usage: AiRunUsage = toUsage(await result.totalUsage)
+
 
   // 步数耗尽收尾：finishReason='tool-calls' 说明模型还想继续调工具但已撞上 maxSteps，
   // 此时最后一步往往是工具调用、可见正文为空或残缺。不报错也不返回残缺，

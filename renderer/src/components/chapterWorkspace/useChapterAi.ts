@@ -60,6 +60,7 @@ const sharedPendingEditProposals = ref<ChapterEditProposal[]>([])
 const sharedShowDiffReview = ref(false)
 const sharedCurrentSessionId = ref<string | null>(null)
 const sharedSessions = ref<SessionSummary[]>([])
+const sharedDeletedSessionIds = new Set<string>()
 let sharedHydratedProjectId = ''
 
 export type ContextModule = 'chapter' | 'outline' | 'characters' | 'worldview' | 'plotThreads' | 'knowledge' | 'deconstructionLibrary'
@@ -250,16 +251,17 @@ function resolveResponseMode(prompt: string): 'freeform' | 'polish' | 'continue'
 
 function stripHtmlForDiff(html: string): string {
   return html
-    .replace(/<\/p>\s*<p[^>]*>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6]|blockquote)>\s*/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/div>\s*<div[^>]*>/gi, '\n')
-    .replace(/<\/li>\s*<li[^>]*>/gi, '\n')
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
@@ -348,7 +350,7 @@ export function useChapterAi(): {
     if (!projectId) return
     const result = await window.characterArc.listSessions(projectId)
     if (result.success && result.result) {
-      sessions.value = result.result
+      sessions.value = result.result.filter((session) => !sharedDeletedSessionIds.has(session.id))
     }
   }
 
@@ -377,16 +379,25 @@ export function useChapterAi(): {
     const projectId = appStore.currentProject?.id
     if (!projectId || messages.value.length === 0) return
 
+    const sessionIdAtStart = currentSessionId.value
+    const messagesAtStart = messages.value
+    if (sessionIdAtStart && sharedDeletedSessionIds.has(sessionIdAtStart)) return
+
     await appStore.persistWorkspace()
     if (appStore.persistenceError) {
       throw new Error(appStore.persistenceError)
     }
+    if (messages.value !== messagesAtStart) return
+    if (sessionIdAtStart && currentSessionId.value !== sessionIdAtStart) return
+    if (sessionIdAtStart && sharedDeletedSessionIds.has(sessionIdAtStart)) return
 
     if (!currentSessionId.value) {
       currentSessionId.value = generateSessionId()
     }
+    const sessionId = currentSessionId.value
+    if (!sessionId || sharedDeletedSessionIds.has(sessionId)) return
     const result = await window.characterArc.saveSession(toIpcPayload({
-      id: currentSessionId.value,
+      id: sessionId,
       projectId,
       title: deriveSessionTitle(),
       messages: messages.value
@@ -394,10 +405,17 @@ export function useChapterAi(): {
     if (!result.success) {
       throw new Error(result.error ?? '保存历史会话失败')
     }
+    if (sharedDeletedSessionIds.has(sessionId)) {
+      void window.characterArc.deleteSession(sessionId)
+      return
+    }
     await refreshSessions()
   }
 
   async function loadSession(sessionId: string): Promise<void> {
+    if (sharedDeletedSessionIds.has(sessionId)) {
+      throw new Error('该历史会话已删除')
+    }
     const result = await window.characterArc.loadSession(sessionId)
     if (!result.success || !result.result) {
       throw new Error(result.error ?? '加载历史会话失败')
@@ -407,13 +425,30 @@ export function useChapterAi(): {
   }
 
   async function deleteSession(sessionId: string): Promise<void> {
-    const result = await window.characterArc.deleteSession(sessionId)
-    if (!result.success) {
-      throw new Error(result.error ?? '删除历史会话失败')
-    }
-    if (currentSessionId.value === sessionId) {
+    const wasCurrent = currentSessionId.value === sessionId
+    const previousMessages = messages.value
+    const previousPendingEditProposals = pendingEditProposals.value
+    const previousShowDiffReview = showDiffReview.value
+    const previousAgentStatus = agentStatus.value
+    sharedDeletedSessionIds.add(sessionId)
+    if (wasCurrent) {
       currentSessionId.value = null
       messages.value = []
+      pendingEditProposals.value = []
+      showDiffReview.value = false
+      agentStatus.value = ''
+    }
+    const result = await window.characterArc.deleteSession(sessionId)
+    if (!result.success) {
+      sharedDeletedSessionIds.delete(sessionId)
+      if (wasCurrent) {
+        currentSessionId.value = sessionId
+        messages.value = previousMessages
+        pendingEditProposals.value = previousPendingEditProposals
+        showDiffReview.value = previousShowDiffReview
+        agentStatus.value = previousAgentStatus
+      }
+      throw new Error(result.error ?? '删除历史会话失败')
     }
     await refreshSessions()
   }

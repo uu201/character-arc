@@ -1,0 +1,416 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { NButton } from 'naive-ui'
+import type { StagedChange } from '@shared/assistant-runtime'
+
+const props = defineProps<{
+  changes: StagedChange[]
+  isBusy: boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'accept', ids: string[]): void
+  (e: 'reject', ids: string[]): void
+  (e: 'commit', ids?: string[]): void
+}>()
+
+const activeFilter = ref<'all' | 'chapter' | 'setting' | 'pending'>('all')
+
+const filtered = computed(() => {
+  const list = props.changes.filter((c) => c.status !== 'committed')
+  switch (activeFilter.value) {
+    case 'chapter':
+      return list.filter((c) => c.kind === 'chapter')
+    case 'setting':
+      return list.filter((c) => c.kind !== 'chapter')
+    case 'pending':
+      return list.filter((c) => c.status === 'pending' || c.status === 'streaming')
+    default:
+      return list
+  }
+})
+
+const pendingCount = computed(() =>
+  props.changes.filter((c) => c.status === 'pending').length
+)
+const acceptedCount = computed(() =>
+  props.changes.filter((c) => c.status === 'accepted').length
+)
+
+const expandedIds = ref<Set<string>>(new Set())
+function toggleExpand(id: string): void {
+  const next = new Set(expandedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedIds.value = next
+}
+
+function kindLabel(kind: string): string {
+  switch (kind) {
+    case 'chapter': return '章节'
+    case 'worldview': return '世界观'
+    case 'character': return '人物'
+    case 'organization': return '组织'
+    case 'outline': return '大纲'
+    case 'constraint': return '约束'
+    case 'plot_thread': return '线索'
+    case 'workflow_document': return '流程'
+    default: return kind
+  }
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'streaming': return '生成中'
+    case 'pending': return '待审阅'
+    case 'accepted': return '已确认'
+    case 'rejected': return '已忽略'
+    case 'committed': return '已写回'
+    case 'stale': return '需重解析'
+    default: return status
+  }
+}
+
+function computeDiff(before: string, after: string): { added: string[]; removed: string[] } {
+  // 简化 diff：按段落切分，粗粒度对比
+  const b = before.split(/\n+/).map((s) => s.trim()).filter(Boolean)
+  const a = after.split(/\n+/).map((s) => s.trim()).filter(Boolean)
+  const bSet = new Set(b)
+  const aSet = new Set(a)
+  return {
+    added: a.filter((line) => !bSet.has(line)),
+    removed: b.filter((line) => !aSet.has(line))
+  }
+}
+</script>
+
+<template>
+  <div class="stage">
+    <div class="head">
+      <div class="title-row">
+        <div class="title">暂存变更</div>
+        <div class="count">
+          <strong>{{ pendingCount }}</strong> 待审阅
+          <span class="sep">·</span>
+          <strong>{{ acceptedCount }}</strong> 已确认
+        </div>
+      </div>
+      <div class="filter">
+        <button :class="{ active: activeFilter === 'all' }" @click="activeFilter = 'all'">全部</button>
+        <button :class="{ active: activeFilter === 'chapter' }" @click="activeFilter = 'chapter'">章节</button>
+        <button :class="{ active: activeFilter === 'setting' }" @click="activeFilter = 'setting'">设定</button>
+        <button :class="{ active: activeFilter === 'pending' }" @click="activeFilter = 'pending'">待审阅</button>
+      </div>
+    </div>
+
+    <div class="list">
+      <div v-if="filtered.length === 0" class="empty">
+        <div class="empty-title">暂无变更</div>
+        <div class="empty-hint">让 AI 帮你改点什么，暂存的变更会显示在这里。</div>
+      </div>
+
+      <div
+        v-for="c in filtered"
+        :key="c.id"
+        class="change"
+        :class="c.status"
+      >
+        <div class="change-head">
+          <span class="kind" :class="c.kind">{{ kindLabel(c.kind) }}</span>
+          <span class="action">{{ c.action }}</span>
+          <span class="entity">{{ c.entityTitle }}</span>
+          <span class="status">{{ statusLabel(c.status) }}</span>
+        </div>
+        <div class="reason">{{ c.reason }}</div>
+
+        <div class="diff">
+          <template v-for="(line, i) in computeDiff(c.before, c.after).removed" :key="'d' + i">
+            <div v-if="i < 3" class="diff-line del">- {{ line.slice(0, 120) }}{{ line.length > 120 ? '…' : '' }}</div>
+          </template>
+          <template v-for="(line, i) in computeDiff(c.before, c.after).added" :key="'a' + i">
+            <div v-if="i < 3" class="diff-line add">+ {{ line.slice(0, 120) }}{{ line.length > 120 ? '…' : '' }}</div>
+          </template>
+        </div>
+
+        <div v-if="expandedIds.has(c.id)" class="expanded">
+          <div class="side-head">修改前</div>
+          <div class="side-body">{{ c.before || '（空）' }}</div>
+          <div class="side-head">修改后</div>
+          <div class="side-body">{{ c.after || '（空）' }}</div>
+        </div>
+
+        <div class="actions">
+          <NButton
+            size="tiny"
+            :type="c.status === 'accepted' ? 'primary' : 'default'"
+            :disabled="c.status !== 'pending' && c.status !== 'accepted'"
+            @click="emit('accept', [c.id])"
+          >
+            {{ c.status === 'accepted' ? '✓ 已确认' : '确认' }}
+          </NButton>
+          <NButton
+            size="tiny"
+            :disabled="c.status === 'rejected' || c.status === 'committed'"
+            @click="emit('reject', [c.id])"
+          >
+            忽略
+          </NButton>
+          <NButton size="tiny" quaternary @click="toggleExpand(c.id)">
+            {{ expandedIds.has(c.id) ? '收起' : '展开全文' }}
+          </NButton>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <div class="foot-summary">
+        <strong>{{ pendingCount }}</strong> 项待处理
+      </div>
+      <NButton
+        size="small"
+        type="primary"
+        :disabled="acceptedCount === 0 || props.isBusy"
+        @click="emit('commit')"
+      >
+        写回已确认 ({{ acceptedCount }})
+      </NButton>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--arc-bg-surface);
+  border-left: 1px solid var(--arc-border);
+}
+.head {
+  padding: 16px 20px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid var(--arc-border);
+}
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--arc-text-primary);
+}
+.count {
+  font-family: monospace;
+  color: var(--arc-text-hint);
+  font-size: 12px;
+}
+.count strong {
+  color: var(--arc-text-primary);
+  font-weight: 500;
+}
+.count .sep {
+  margin: 0 4px;
+}
+.filter {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--arc-bg-weak);
+  border-radius: 8px;
+  border: 1px solid var(--arc-border);
+}
+.filter button {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: monospace;
+}
+.filter button.active {
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-primary);
+  box-shadow: var(--arc-shadow-sm);
+}
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.empty {
+  margin: 40px 8px;
+  padding: 22px 20px;
+  border: 1px dashed var(--arc-border-strong);
+  border-radius: 14px;
+  text-align: center;
+  color: var(--arc-text-hint);
+  font-size: 12.5px;
+}
+.empty-title {
+  color: var(--arc-text-primary);
+  font-weight: 500;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.change {
+  border: 1px solid var(--arc-border);
+  border-radius: var(--v2-radius-card, 14px);
+  padding: 12px 14px;
+  transition: border-color 0.18s ease, transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  background: var(--arc-bg-surface);
+  animation: cardIn 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.change:hover {
+  border-color: var(--arc-border-strong);
+}
+.change.accepted {
+  border-color: var(--v2-accent-line, var(--arc-primary));
+  background: var(--arc-primary-soft);
+}
+.change.rejected {
+  opacity: 0.5;
+}
+.change.streaming {
+  border-color: var(--v2-warn, #b45309);
+  background: var(--v2-warn-soft, rgba(180, 83, 9, 0.06));
+}
+.change-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.kind {
+  font-family: var(--v2-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-secondary);
+  text-transform: uppercase;
+}
+.kind.chapter { background: var(--arc-primary-soft); color: var(--arc-primary); }
+.kind.worldview { background: rgba(180, 83, 9, 0.1); color: #b45309; }
+.kind.character { background: rgba(30, 64, 175, 0.1); color: #1e40af; }
+.kind.organization { background: rgba(37, 99, 235, 0.1); color: #2563eb; }
+.kind.outline { background: rgba(126, 34, 206, 0.1); color: #7e22ce; }
+.kind.constraint { background: rgba(24, 24, 27, 0.08); color: var(--arc-text-primary); }
+.kind.plot_thread { background: rgba(219, 39, 119, 0.1); color: #db2777; }
+.kind.workflow_document { background: rgba(5, 150, 105, 0.1); color: #059669; }
+.action {
+  font-size: 10.5px;
+  color: var(--arc-text-hint);
+  font-family: var(--v2-mono, monospace);
+}
+.status {
+  font-family: var(--v2-mono, monospace);
+}
+.entity {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--arc-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status {
+  font-size: 10.5px;
+  color: var(--arc-text-hint);
+  font-family: monospace;
+}
+.reason {
+  font-size: 12px;
+  color: var(--arc-text-secondary);
+  margin: 4px 0 8px;
+  line-height: 1.5;
+}
+.diff {
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.diff-line {
+  padding: 3px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.diff-line.add {
+  background: var(--v2-add-bg, rgba(4, 120, 87, 0.09));
+  color: var(--v2-add, #047857);
+}
+.diff-line.del {
+  background: var(--v2-del-bg, rgba(185, 28, 28, 0.07));
+  color: var(--v2-del, #b91c1c);
+}
+.diff-line + .diff-line {
+  border-top: 1px solid var(--arc-border);
+}
+.expanded {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--arc-border);
+  font-size: 12px;
+}
+.side-head {
+  font-size: 10.5px;
+  color: var(--arc-text-hint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  font-family: monospace;
+}
+.side-body {
+  padding: 6px 8px;
+  background: var(--arc-bg-weak);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  color: var(--arc-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+}
+.foot {
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--arc-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.foot-summary {
+  flex: 1;
+  font-size: 12px;
+  color: var(--arc-text-secondary);
+  font-family: monospace;
+}
+.foot-summary strong {
+  color: var(--arc-text-primary);
+  font-weight: 500;
+}
+</style>

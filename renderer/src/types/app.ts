@@ -5,7 +5,7 @@ export type ThemeName = 'ocean' | 'jade' | 'amber' | 'rose'
 export type DarkModeStyle = 'nord'
 
 /** 工作台面板名称 */
-export type PanelName = 'workflow' | 'overview' | 'deconstruction' | 'project-knowledge' | 'world' | 'characters' | 'relations' | 'inspiration' | 'outline' | 'threads' | 'chapters' | 'settings' | 'global-assistant'
+export type PanelName = 'workflow' | 'overview' | 'deconstruction' | 'project-knowledge' | 'world' | 'characters' | 'relations' | 'inspiration' | 'outline' | 'threads' | 'chapters' | 'settings' | 'global-assistant' | 'global-assistant-v2'
 
 /** 小说流程阶段标识 */
 export type NovelWorkflowStageId = 'reference' | 'premise' | 'setting' | 'outline' | 'draft'
@@ -21,7 +21,7 @@ export interface NovelWorkflowStageState {
   status: NovelWorkflowStageStatus
 }
 
-/** 固定流程文件键 */
+/** 固定创作记忆键 */
 export type WorkflowDocumentKey =
   | 'task_plan'
   | 'findings'
@@ -32,13 +32,13 @@ export type WorkflowDocumentKey =
   | 'pending_hooks'
   | 'resource_ledger'
 
-/** 项目级流程文件 */
+/** 项目级创作记忆 */
 export interface WorkflowDocument {
-  /** 文件键 */
+  /** 记忆键 */
   key: WorkflowDocumentKey
   /** 展示标题 */
   title: string
-  /** 文件正文 */
+  /** 记忆正文 */
   content: string
   /** 最后更新时间 */
   updatedAt: string
@@ -331,7 +331,7 @@ export interface ProjectSummary {
   projectSkills: ProjectSkillItem[]
   /** 项目目标平台 */
   targetPlatform: string
-  /** 本次用于生成流程文件的参考作品 ID 列表（指向全局拆书库），可为空 */
+  /** 本次用于生成创作记忆的参考作品 ID 列表（指向全局拆书库），可为空 */
   selectedReferenceWorkIds: string[]
   /** 封面生成历史记录 */
   coverHistory: CoverGenerationHistoryItem[]
@@ -471,7 +471,7 @@ export interface OutlineVolume {
   wordTarget: string
   /** 分卷整体剧情摘要 */
   summary: string
-  /** 分卷级流程文件，每卷独立维护一套 */
+  /** 分卷级创作记忆，每卷独立维护一套 */
   workflowDocuments?: WorkflowDocument[]
 }
 
@@ -771,7 +771,7 @@ export interface ProjectWorkspaceData {
   activeGlobalAssistantSessionId: string
   /** AI 运行记录列表 */
   aiRuns: AiRunRecord[]
-  /** 项目固定流程文件 */
+  /** 项目固定创作记忆 */
   workflowDocuments: WorkflowDocument[]
   /** 剧情线索 / 伏笔追踪列表 */
   plotThreads: PlotThread[]

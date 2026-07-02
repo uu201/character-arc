@@ -19,6 +19,7 @@ const props = defineProps<{
   summary: string
   patch: string
   files: GlobalAssistantProposalDiffFile[]
+  reviewMode?: 'default' | 'chapter'
   stats: {
     total: number
     creatable: number
@@ -43,7 +44,7 @@ const notesExpanded = ref(false)
 const actionableFiles = computed(() => props.files.filter((f) => f.action !== 'note'))
 const noteFiles = computed(() => props.files.filter((f) => f.action === 'note'))
 const isChapterReview = computed(() =>
-  actionableFiles.value.length > 0 && actionableFiles.value.every((file) => file.kind === 'chapter')
+  props.reviewMode === 'chapter' && actionableFiles.value.length > 0 && actionableFiles.value.every((file) => file.kind === 'chapter')
 )
 
 const activeFile = computed(() =>
@@ -539,9 +540,11 @@ watch(() => props.show, (val) => {
 
 .ga-diff-review {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  height: min(72vh, 760px);
-  min-height: 460px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: min(64vh, 680px, calc(100vh - 168px));
+  min-width: 0;
+  min-height: min(380px, calc(100vh - 168px));
+  overflow: hidden;
   background: var(--arc-bg-surface, #ffffff);
 }
 
@@ -899,12 +902,15 @@ watch(() => props.show, (val) => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  flex-shrink: 0;
+  min-width: 0;
   padding: 12px 14px;
   border-bottom: 1px solid var(--arc-border, #e5e7eb);
 }
 
 .ga-diff-current {
   display: flex;
+  flex: 1;
   min-width: 0;
   flex-direction: column;
   gap: 3px;
@@ -923,8 +929,10 @@ watch(() => props.show, (val) => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
   color: var(--arc-text-hint, #9ca3af);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .ga-diff-toggle {
@@ -958,6 +966,7 @@ watch(() => props.show, (val) => {
 .ga-diff-body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
   padding: 12px;
   background: var(--arc-bg-weak, #f9fafb);
@@ -1003,6 +1012,7 @@ watch(() => props.show, (val) => {
 .chapter-prose-scroll {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
   padding: 22px clamp(18px, 4vw, 48px);
   background:
@@ -1028,6 +1038,7 @@ watch(() => props.show, (val) => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px;
+  min-width: 0;
   width: min(1120px, 100%);
   margin: 0 auto;
 }
@@ -1139,11 +1150,14 @@ watch(() => props.show, (val) => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .ga-diff-footer__hint {
+  min-width: 0;
   color: var(--arc-text-hint, #9ca3af);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .ga-diff-footer__hint .hint-accepted {
@@ -1187,23 +1201,26 @@ watch(() => props.show, (val) => {
   background: var(--arc-bg-surface, #ffffff);
 }
 
-.ga-diff-body :deep(.d2h-code-line),
-.ga-diff-body :deep(.d2h-code-side-line) {
-  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
+.ga-diff-body :deep(.d2h-file-name) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.ga-diff-body :deep(.d2h-code-line-ctn),
-.ga-diff-body :deep(.d2h-code-side-line-ctn) {
-  white-space: pre-wrap;
-  word-break: break-word;
+.ga-diff-body :deep(.d2h-diff-table) {
+  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  font-size: 12.5px;
 }
 
 @media (max-width: 860px) {
   .ga-diff-review {
     grid-template-columns: 1fr;
-    height: 76vh;
+    height: min(76vh, calc(100vh - 150px));
+    min-height: min(420px, calc(100vh - 150px));
+  }
+
+  .ga-diff-body :deep(.d2h-files-diff) {
+    grid-template-columns: 1fr;
   }
 
   .ga-diff-rail {
@@ -1254,11 +1271,32 @@ watch(() => props.show, (val) => {
 
 <style>
 .ga-diff-modal {
-  width: min(1200px, calc(100vw - 32px));
+  width: min(1040px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+}
+
+.ga-diff-modal.n-card,
+.ga-diff-modal .n-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ga-diff-modal .n-card-header,
+.ga-diff-modal .n-card__footer {
+  flex-shrink: 0;
 }
 
 .ga-diff-modal .n-card__content {
+  min-height: 0;
+  overflow: hidden;
   padding: 0;
+}
+
+.ga-diff-modal .n-card__footer {
+  padding: 12px 16px;
 }
 
 /* ─── diff2html 暗黑模式覆盖：把 light 变量重映射到 diff2html 内置的 dark 变量 ─── */

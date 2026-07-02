@@ -65,7 +65,7 @@ type ChapterAssistantContextInput = {
     description: string
     content: string
   }>
-  workflowDocuments?: WorkflowDocument[]                // 当前激活分卷的流程文件
+  workflowDocuments?: WorkflowDocument[]                // 当前激活分卷的创作记忆
   knowledgeDocuments?: KnowledgeDocument[]              // 当前项目知识文档摘要
   selectedText: string                                  // 编辑器中用户选中的文本片段
   responseMode: 'freeform' | 'polish' | 'continue' | 'suggest' | 'reference'  // 响应模式

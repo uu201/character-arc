@@ -25,6 +25,7 @@ import NovelWorkflowPanel from '@/components/NovelWorkflowPanel.vue'
 import OverviewPanel from '@/components/OverviewPanel.vue'
 import GlobalAssistantPanel from '@/components/GlobalAssistantPanel.vue'
 import GlobalAssistantPage from '@/components/GlobalAssistantPage.vue'
+import GlobalAssistantV2Page from '@/components/assistantV2/GlobalAssistantV2Page.vue'
 import ProjectKnowledgePanel from '@/components/ProjectKnowledgePanel.vue'
 import WorldviewPanel from '@/components/WorldviewPanel.vue'
 import CharactersPanel from '@/components/CharactersPanel.vue'
@@ -81,12 +82,13 @@ const sidebarItems = [
   { id: 'chapters', label: '章节创作', description: '进入正文草稿与章节推进流程', icon: FileText, color: '#3b82f6' },
   { id: 'inspiration', label: '灵感模块', description: '收集标题、桥段、转折与人物动机', icon: Lightbulb, color: '#f59e0b' },
   { id: 'project-knowledge', label: '项目知识库', description: '一致性审计与从已有章节补录状态', icon: FileCheck2, color: '#14b8a6' },
-  { id: 'global-assistant', label: '全局AI助手', description: '审计、录入与跨设定修正的全局助理', icon: Sparkles, color: '#0066cc' }
+  { id: 'global-assistant', label: '全局AI助手', description: '审计、录入与跨设定修正的全局助理', icon: Sparkles, color: '#0066cc' },
+  { id: 'global-assistant-v2', label: '全局助手 v2', description: 'Runtime v2 · 多轮对话 + 暂存变更审阅', icon: Sparkles, color: '#0d7d5a' }
 ] as const
 
 const hiddenPanelLabels: Partial<Record<PanelName, string>> = {
   deconstruction: '拆书知识库',
-  workflow: '小说流程'
+  workflow: '创作记忆'
 }
 
 // 去除首尾空格后的搜索关键词
@@ -95,7 +97,9 @@ const normalizedSearch = computed(() => searchKeyword.value.trim())
 const isSearchMode = computed(() => normalizedSearch.value.length > 0)
 
 // 全局AI助手为整页助手，自带搜索/会话能力，隐藏工作台 header 的搜索与 AI助手 入口
-const isGlobalAssistantPanel = computed(() => appStore.activePanel === 'global-assistant')
+const isGlobalAssistantPanel = computed(() =>
+  appStore.activePanel === 'global-assistant' || appStore.activePanel === 'global-assistant-v2'
+)
 
 // 顶部面包屑中显示的当前视图标签
 const activeViewLabel = computed(() => {
@@ -417,6 +421,7 @@ watch(searchKeyword, (value) => {
               <OutlinePanel v-else-if="appStore.activePanel === 'outline'" key="outline" :search-query="normalizedSearch" />
               <PlotThreadsPanel v-else-if="appStore.activePanel === 'threads'" key="threads" :search-query="normalizedSearch" />
               <GlobalAssistantPage v-else-if="appStore.activePanel === 'global-assistant'" key="global-assistant" />
+              <GlobalAssistantV2Page v-else-if="appStore.activePanel === 'global-assistant-v2'" key="global-assistant-v2" />
               <SettingsPanel v-else key="settings" />
             </Transition>
           </div>

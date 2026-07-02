@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>全局助理 · Staged Changes 原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: rgba(24, 24, 27, 0.08);
+    --border-strong: rgba(24, 24, 27, 0.14);
+    --ink: #18181b;
+    --ink-2: #52525b;
+    --ink-3: #a1a1aa;
+    --ink-4: #d4d4d8;
+    --accent: #0d7d5a;
+    --accent-soft: rgba(13, 125, 90, 0.08);
+    --accent-line: rgba(13, 125, 90, 0.22);
+    --danger: #b91c1c;
+    --danger-soft: rgba(185, 28, 28, 0.06);
+    --warn: #b45309;
+    --warn-soft: rgba(180, 83, 9, 0.08);
+    --add: #047857;
+    --add-bg: rgba(4, 120, 87, 0.08);
+    --del: #b91c1c;
+    --del-bg: rgba(185, 28, 28, 0.06);
+    --radius-lg: 22px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+    --shadow-soft: 0 20px 40px -24px rgba(24, 24, 27, 0.12), 0 1px 0 rgba(255,255,255,0.6) inset;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: 'Geist', system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.005em;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr) 420px;
+    height: 100vh;
+    max-height: 100vh;
+  }
+
+  /* ---------- 左：会话列表 ---------- */
+  .sidebar {
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .sidebar-head {
+    padding: 20px 18px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-size: 13px;
+  }
+  .brand-dot {
+    width: 8px; height: 8px; border-radius: 999px;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .icon-btn {
+    width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: all .18s cubic-bezier(0.16,1,0.3,1);
+  }
+  .icon-btn:hover { background: var(--bg); color: var(--ink); }
+  .icon-btn:active { transform: translateY(1px); }
+
+  .new-btn {
+    margin: 0 14px 14px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    font-size: 13px;
+    font-weight: 500;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    cursor: pointer;
+    transition: transform .16s ease;
+  }
+  .new-btn:hover { transform: translateY(-1px); }
+  .new-btn:active { transform: translateY(0); }
+
+  .session-search {
+    margin: 0 14px 10px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--ink-3);
+    font-size: 12px;
+  }
+  .session-search input {
+    flex: 1;
+    border: none; outline: none; background: transparent;
+    font: inherit; color: var(--ink);
+  }
+
+  .session-list {
+    flex: 1;
+    overflow: auto;
+    padding: 0 8px 12px;
+  }
+  .session-group-label {
+    padding: 14px 10px 6px;
+    font-size: 11px;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .session-item {
+    padding: 9px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex; flex-direction: column; gap: 2px;
+    transition: background .15s ease;
+  }
+  .session-item:hover { background: var(--bg); }
+  .session-item.active { background: var(--accent-soft); }
+  .session-item.active .s-title { color: var(--accent); }
+  .s-title {
+    font-size: 13px; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .s-preview {
+    font-size: 11.5px; color: var(--ink-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .sidebar-foot {
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; color: var(--ink-3);
+  }
+
+  /* ---------- 中：对话主区 ---------- */
+  .main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    background: var(--bg);
+  }
+
+  .main-head {
+    padding: 14px 26px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface);
+  }
+  .main-head h1 {
+    font-size: 14px; font-weight: 500; margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .main-head .breadcrumb {
+    color: var(--ink-3);
+    font-size: 12px;
+    margin-left: 8px;
+    font-family: 'Geist Mono', monospace;
+  }
+  .head-actions { display: flex; gap: 6px; }
+
+  .chat-scroll {
+    flex: 1;
+    overflow: auto;
+    padding: 28px 26px 12px;
+  }
+  .chat-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex; flex-direction: column; gap: 22px;
+  }
+
+  .msg { display: flex; gap: 12px; }
+  .msg .avatar {
+    width: 26px; height: 26px; flex: 0 0 26px;
+    border-radius: 7px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .msg.user .avatar { background: #18181b; color: #fff; }
+  .msg.ai .avatar { background: var(--accent-soft); color: var(--accent); }
+  .msg .body { flex: 1; min-width: 0; }
+  .msg .who {
+    font-size: 11px; color: var(--ink-3);
+    margin-bottom: 4px;
+    font-family: 'Geist Mono', monospace;
+    letter-spacing: 0.02em;
+  }
+  .msg .content { color: var(--ink); font-size: 14px; }
+  .msg .content p { margin: 0 0 8px; }
+  .msg .content p:last-child { margin-bottom: 0; }
+  .msg .content code {
+    font-family: 'Geist Mono', monospace;
+    background: rgba(24,24,27,0.05);
+    padding: 1px 5px; border-radius: 4px;
+    font-size: 12.5px;
+  }
+
+  /* 工具调用日志 */
+  .tools {
+    margin-top: 10px;
+    border-left: 1px solid var(--border);
+    padding: 2px 0 2px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .tool-group-label {
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 4px;
+    font-family: 'Geist Mono', monospace;
+  }
+  .tool-row {
+    display: flex; gap: 8px; align-items: baseline;
+    font-size: 12.5px;
+    color: var(--ink-2);
+    padding: 3px 0;
+  }
+  .tool-dot {
+    width: 6px; height: 6px; border-radius: 999px;
+    background: var(--ink-4);
+    flex: 0 0 6px;
+    transform: translateY(3px);
+  }
+  .tool-row.done .tool-dot { background: var(--accent); }
+  .tool-row.running .tool-dot {
+    background: var(--warn);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  .tool-name {
+    font-family: 'Geist Mono', monospace;
+    color: var(--ink);
+    font-size: 12px;
+  }
+  .tool-args {
+    color: var(--ink-3);
+    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+  }
+  .tool-arrow { color: var(--ink-4); }
+  .tool-result {
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+
+  /* 输入区 */
+  .composer-wrap {
+    padding: 12px 26px 22px;
+    background: linear-gradient(180deg, rgba(250,250,249,0), var(--bg) 30%);
+  }
+  .composer {
+    max-width: 720px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    padding: 12px 14px 10px;
+    box-shadow: var(--shadow-soft);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .composer textarea {
+    width: 100%;
+    resize: none;
+    border: none; outline: none;
+    background: transparent;
+    font: inherit;
+    color: var(--ink);
+    min-height: 40px;
+    max-height: 180px;
+    line-height: 1.5;
+  }
+  .composer textarea::placeholder { color: var(--ink-3); }
+  .composer-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px;
+  }
+  .composer-hints { display: flex; gap: 6px; }
+  .chip {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--ink-2);
+    background: transparent;
+    cursor: pointer;
+    font-family: 'Geist Mono', monospace;
+    transition: all .15s ease;
+  }
+  .chip:hover { border-color: var(--border-strong); color: var(--ink); }
+  .send-btn {
+    padding: 7px 14px;
+    border-radius: 10px;
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    font-weight: 500;
+    font-size: 12.5px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: transform .14s ease, opacity .14s ease;
+  }
+  .send-btn:hover { transform: translateY(-1px); }
+  .send-btn:active { transform: translateY(0); }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ---------- 右：Staged Changes ---------- */
+  .stage {
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  .stage-head {
+    padding: 16px 20px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .stage-title-row {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .stage-title {
+    font-size: 13px; font-weight: 600;
+    letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .stage-count {
+    font-family: 'Geist Mono', monospace;
+    color: var(--ink-3);
+    font-size: 12px;
+  }
+  .stage-count strong { color: var(--ink); font-weight: 500; }
+  .stage-filter {
+    display: flex; gap: 4px;
+    padding: 3px;
+    background: var(--bg);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .stage-filter button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    padding: 5px 8px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    color: var(--ink-2);
+    cursor: pointer;
+    font-family: 'Geist Mono', monospace;
+    transition: all .15s ease;
+  }
+  .stage-filter button.active {
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: 0 1px 2px rgba(24,24,27,0.06);
+  }
+
+  .stage-list {
+    flex: 1;
+    overflow: auto;
+    padding: 12px 16px 16px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+
+  .change {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    padding: 12px 14px;
+    transition: border-color .18s ease, transform .18s cubic-bezier(0.16,1,0.3,1);
+    animation: fadeIn .35s cubic-bezier(0.16,1,0.3,1);
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .change:hover { border-color: var(--border-strong); }
+  .change.accepted {
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+  }
+  .change.rejected { opacity: 0.5; }
+  .change.streaming {
+    border-color: var(--warn-soft);
+    background: var(--warn-soft);
+  }
+
+  .change-head {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px;
+  }
+  .kind-tag {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(24,24,27,0.06);
+    color: var(--ink-2);
+    letter-spacing: 0.02em;
+  }
+  .kind-tag.chapter { background: rgba(13,125,90,0.1); color: var(--accent); }
+  .kind-tag.worldview { background: rgba(180,83,9,0.1); color: var(--warn); }
+  .kind-tag.character { background: rgba(30,64,175,0.1); color: #1e40af; }
+  .kind-tag.outline { background: rgba(126,34,206,0.1); color: #7e22ce; }
+  .kind-tag.constraint { background: rgba(24,24,27,0.08); color: var(--ink); }
+
+  .action-tag {
+    font-size: 10.5px;
+    font-family: 'Geist Mono', monospace;
+    color: var(--ink-3);
+  }
+  .entity-title {
+    flex: 1;
+    font-size: 13px; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .change-status {
+    font-size: 10.5px; color: var(--ink-3);
+    font-family: 'Geist Mono', monospace;
+  }
+  .change.accepted .change-status { color: var(--accent); }
+  .change.rejected .change-status { color: var(--danger); }
+
+  .change-reason {
+    font-size: 12px;
+    color: var(--ink-2);
+    margin: 4px 0 8px;
+    line-height: 1.5;
+  }
+
+  .diff {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    font-family: 'Geist Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.55;
+  }
+  .diff-line { padding: 3px 10px; white-space: pre-wrap; word-break: break-word; }
+  .diff-line.add { background: var(--add-bg); color: var(--add); }
+  .diff-line.del { background: var(--del-bg); color: var(--del); }
+  .diff-line.ctx { color: var(--ink-2); }
+  .diff-line + .diff-line { border-top: 1px solid var(--border); }
+
+  .change-actions {
+    margin-top: 10px;
+    display: flex; gap: 6px; align-items: center;
+  }
+  .btn {
+    padding: 5px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+    transition: all .15s ease;
+  }
+  .btn:hover { border-color: var(--border-strong); }
+  .btn.primary {
+    background: var(--ink);
+    color: #fff;
+    border-color: var(--ink);
+  }
+  .btn.primary:hover { transform: translateY(-1px); }
+  .btn.danger {
+    color: var(--danger);
+  }
+  .btn.danger:hover {
+    border-color: var(--danger);
+    background: var(--danger-soft);
+  }
+  .btn.ghost { border-color: transparent; color: var(--ink-2); }
+  .btn.ghost:hover { color: var(--ink); background: var(--bg); }
+  .btn.expand {
+    font-size: 11px;
+    padding: 4px 8px;
+    color: var(--ink-3);
+    border-color: transparent;
+    margin-left: auto;
+  }
+  .btn.expand:hover { color: var(--ink); background: var(--bg); }
+  .btn:active { transform: translateY(1px); }
+
+  .change-detail {
+    display: none;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+  }
+  .change.expanded .change-detail { display: block; }
+
+  .side-by-side {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    font-family: 'Geist Mono', monospace;
+    font-size: 11.5px;
+  }
+  .side-by-side .col {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: var(--bg);
+    line-height: 1.55;
+    max-height: 180px;
+    overflow: auto;
+  }
+  .side-by-side .col-head {
+    font-size: 10.5px; color: var(--ink-3);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  /* 目标匹配（未定位到目标的 update 需要用户绑定） */
+  .match-warning {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: var(--warn-soft);
+    border-radius: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+    font-size: 12px;
+    color: var(--warn);
+  }
+  .match-warning select {
+    font: inherit;
+    padding: 5px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 12px;
+  }
+
+  .stage-foot {
+    padding: 12px 16px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .stage-summary {
+    flex: 1;
+    font-size: 12px;
+    color: var(--ink-2);
+    font-family: 'Geist Mono', monospace;
+  }
+  .stage-summary strong { color: var(--ink); font-weight: 500; }
+
+  /* Empty state */
+  .empty {
+    margin: 40px 8px;
+    padding: 22px 20px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 14px;
+    text-align: center;
+    color: var(--ink-3);
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  .empty .title {
+    color: var(--ink);
+    font-weight: 500;
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+
+  /* 底部状态条 */
+  .live-strip {
+    display: flex; align-items: center; gap: 6px;
+    font-family: 'Geist Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+  .live-strip .dot {
+    width: 6px; height: 6px; border-radius: 999px;
+    background: var(--warn);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .live-strip.idle .dot { background: var(--ink-4); animation: none; }
+  .live-strip.done .dot { background: var(--accent); animation: none; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- =============== 左侧：会话历史 =============== -->
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span>全局助理</span>
+      </div>
+      <button class="icon-btn" title="设置">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+
+    <button class="new-btn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      新建对话
+    </button>
+
+    <div class="session-search">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input placeholder="搜索会话..." />
+    </div>
+
+    <div class="session-list">
+      <div class="session-group-label">今天</div>
+      <div class="session-item active">
+        <div class="s-title">重构第三章打斗戏节奏</div>
+        <div class="s-preview">edit_chapter · 3 项暂存中</div>
+      </div>
+      <div class="session-item">
+        <div class="s-title">校对世界观「元素亲和」条目</div>
+        <div class="s-preview">已提交 · 2 项写回</div>
+      </div>
+
+      <div class="session-group-label">昨天</div>
+      <div class="session-item">
+        <div class="s-title">林砚池人物设定深化</div>
+        <div class="s-preview">已提交 · 5 项写回</div>
+      </div>
+      <div class="session-item">
+        <div class="s-title">主线剧情线索梳理</div>
+        <div class="s-preview">已忽略</div>
+      </div>
+
+      <div class="session-group-label">本周</div>
+      <div class="session-item">
+        <div class="s-title">第七章伏笔连贯性检查</div>
+        <div class="s-preview">read_chapter · 只读</div>
+      </div>
+    </div>
+
+    <div class="sidebar-foot">
+      <span>《北境孤鸣》</span>
+      <span style="font-family: 'Geist Mono', monospace;">v1.12.2</span>
+    </div>
+  </aside>
+
+  <!-- =============== 中：对话主区 =============== -->
+  <main class="main">
+    <header class="main-head">
+      <div>
+        <h1>重构第三章打斗戏节奏
+          <span class="breadcrumb">· 项目: 北境孤鸣 / 章节: 第三章 · 破晓前</span>
+        </h1>
+      </div>
+      <div class="head-actions">
+        <div class="live-strip" id="live-strip">
+          <span class="dot"></span>
+          <span id="live-label">执行中</span>
+        </div>
+        <button class="icon-btn" title="导出">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M20 21H4"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="chat-scroll">
+      <div class="chat-inner">
+
+        <!-- 用户消息 -->
+        <div class="msg user">
+          <div class="avatar">Z</div>
+          <div class="body">
+            <div class="who">你 · 14:22</div>
+            <div class="content">
+              <p>第三章打斗戏节奏太拖，中段两个内心独白破坏了紧凑感。帮我压一压，同时补一条「破军刀法·裂云」的招式说明到世界观，主角出招时用得上。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI 消息 -->
+        <div class="msg ai">
+          <div class="avatar">AI</div>
+          <div class="body">
+            <div class="who">助理 · 14:22</div>
+            <div class="content">
+              <p>先看一下第三章现况和已有的刀法体系条目，找到「破军」相关设定后再动手。</p>
+            </div>
+
+            <div class="tools">
+              <div class="tool-group-label">读取</div>
+              <div class="tool-row done">
+                <span class="tool-dot"></span>
+                <span class="tool-name">read_chapter</span>
+                <span class="tool-args">chapter_id="第三章"</span>
+                <span class="tool-arrow">→</span>
+                <span class="tool-result">3,124 字 · 12 段落</span>
+              </div>
+              <div class="tool-row done">
+                <span class="tool-dot"></span>
+                <span class="tool-name">search_project</span>
+                <span class="tool-args">q="破军刀法"</span>
+                <span class="tool-arrow">→</span>
+                <span class="tool-result">2 条 · worldview/武学体系</span>
+              </div>
+              <div class="tool-row done">
+                <span class="tool-dot"></span>
+                <span class="tool-name">read_project_data</span>
+                <span class="tool-args">entity_type=worldview id=wv_072</span>
+                <span class="tool-arrow">→</span>
+                <span class="tool-result">「破军刀法」总纲 · 未记录招式细节</span>
+              </div>
+
+              <div class="tool-group-label" style="margin-top:6px">暂存</div>
+              <div class="tool-row done">
+                <span class="tool-dot"></span>
+                <span class="tool-name">stage_chapter_edit</span>
+                <span class="tool-args">edit_type=replace</span>
+                <span class="tool-arrow">→</span>
+                <span class="tool-result">暂存 #a4f1 · 压缩内心独白</span>
+              </div>
+              <div class="tool-row done">
+                <span class="tool-dot"></span>
+                <span class="tool-name">stage_worldview</span>
+                <span class="tool-args">action=update match="破军刀法"</span>
+                <span class="tool-arrow">→</span>
+                <span class="tool-result">暂存 #b02c · 追加「裂云」招式</span>
+              </div>
+              <div class="tool-row running">
+                <span class="tool-dot"></span>
+                <span class="tool-name">stage_character</span>
+                <span class="tool-args">action=update match="沈砚舟"</span>
+                <span class="tool-arrow">→</span>
+                <span class="tool-result">生成中…</span>
+              </div>
+            </div>
+
+            <div class="content" style="margin-top:12px">
+              <p>已就绪的两处修改已推到右侧暂存区。主角招式改动会牵动他的战斗风格标签，正在同步一条人物卡更新，稍后你逐条确认即可。</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <textarea placeholder="继续追问，或让助理调整某处暂存的变更…"></textarea>
+        <div class="composer-foot">
+          <div class="composer-hints">
+            <button class="chip">@章节</button>
+            <button class="chip">@人物</button>
+            <button class="chip">/技能</button>
+          </div>
+          <button class="send-btn">
+            发送
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- =============== 右：Staged Changes =============== -->
+  <aside class="stage">
+    <div class="stage-head">
+      <div class="stage-title-row">
+        <div class="stage-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2v4"/><path d="M12 18v4"/><path d="m4.93 4.93 2.83 2.83"/><path d="m16.24 16.24 2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="m4.93 19.07 2.83-2.83"/><path d="m16.24 7.76 2.83-2.83"/></svg>
+          <span>暂存变更</span>
+        </div>
+        <div class="stage-count"><strong id="pending-count">3</strong> 待审查 · <strong id="accepted-count">0</strong> 已确认</div>
+      </div>
+      <div class="stage-filter">
+        <button class="active" data-filter="all">全部</button>
+        <button data-filter="chapter">章节</button>
+        <button data-filter="setting">设定</button>
+        <button data-filter="pending">待审查</button>
+      </div>
+    </div>
+
+    <div class="stage-list" id="stage-list">
+
+      <!-- 变更 1：章节 -->
+      <div class="change" data-kind="chapter" data-status="pending">
+        <div class="change-head">
+          <span class="kind-tag chapter">CHAPTER</span>
+          <span class="action-tag">replace</span>
+          <span class="entity-title">第三章 · 破晓前</span>
+          <span class="change-status">待审查</span>
+        </div>
+        <div class="change-reason">压缩中段第 6-7 段内心独白，改为一句留白衔接下一次刀锋交击，紧凑感回升。</div>
+        <div class="diff">
+          <div class="diff-line ctx">…刀锋斜削而下，风声撕裂夜色。</div>
+          <div class="diff-line del">- 他忽然想起了三年前那个雨夜，师父将这把破军递到他手里时说过的话——</div>
+          <div class="diff-line del">- "刀不是用来防的，是用来断的。你还没懂断字。"</div>
+          <div class="diff-line del">- 想到这里，沈砚舟的呼吸乱了半拍。</div>
+          <div class="diff-line add">+ 他没有想师父。刀锋在夜色里只剩一个字：断。</div>
+          <div class="diff-line ctx">对面来人已欺近三步…</div>
+        </div>
+        <div class="change-actions">
+          <button class="btn primary" data-act="accept">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>
+            确认
+          </button>
+          <button class="btn danger" data-act="reject">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            忽略
+          </button>
+          <button class="btn expand" data-act="expand">展开全文对比 →</button>
+        </div>
+        <div class="change-detail">
+          <div class="side-by-side">
+            <div class="col">
+              <div class="col-head">原文</div>
+              …刀锋斜削而下，风声撕裂夜色。他忽然想起了三年前那个雨夜，师父将这把破军递到他手里时说过的话——"刀不是用来防的，是用来断的。你还没懂断字。"想到这里，沈砚舟的呼吸乱了半拍。对面来人已欺近三步…
+            </div>
+            <div class="col">
+              <div class="col-head">修改后</div>
+              …刀锋斜削而下，风声撕裂夜色。他没有想师父。刀锋在夜色里只剩一个字：断。对面来人已欺近三步…
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 变更 2：世界观 -->
+      <div class="change" data-kind="worldview" data-status="pending">
+        <div class="change-head">
+          <span class="kind-tag worldview">WORLDVIEW</span>
+          <span class="action-tag">update</span>
+          <span class="entity-title">破军刀法</span>
+          <span class="change-status">待审查</span>
+        </div>
+        <div class="change-reason">追加第三式「裂云」的招式描述，与本章沈砚舟出招节奏契合。</div>
+        <div class="diff">
+          <div class="diff-line ctx">## 破军刀法</div>
+          <div class="diff-line ctx">总纲：以断念为诀，三式为体…</div>
+          <div class="diff-line ctx">- 第一式「破军」：正锋直斩，破防不破人。</div>
+          <div class="diff-line ctx">- 第二式「衔霜」：反手挑刃，专克双兵刃者。</div>
+          <div class="diff-line add">+ 第三式「裂云」：起手沉肩，收势时以刀背带出一道半圆气劲，用于近身反打，代价是三息之内不能再次挥刀。</div>
+        </div>
+        <div class="change-actions">
+          <button class="btn primary" data-act="accept">确认</button>
+          <button class="btn danger" data-act="reject">忽略</button>
+          <button class="btn ghost" data-act="edit">编辑</button>
+        </div>
+      </div>
+
+      <!-- 变更 3：人物 · 未匹配 -->
+      <div class="change streaming" data-kind="character" data-status="pending">
+        <div class="change-head">
+          <span class="kind-tag character">CHARACTER</span>
+          <span class="action-tag">update</span>
+          <span class="entity-title">沈砚舟</span>
+          <span class="change-status">生成中…</span>
+        </div>
+        <div class="change-reason">在战斗风格标签中追加「近身反打」，与「裂云」招式呼应。</div>
+        <div class="diff">
+          <div class="diff-line ctx">tags: [ "沉默寡言", "刀客", "北境流亡" ]</div>
+          <div class="diff-line add">+ tags: [ "沉默寡言", "刀客", "北境流亡", "近身反打" ]</div>
+        </div>
+        <div class="match-warning">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+            <span>存在两个同名人物，请选择要更新的目标：</span>
+          </div>
+          <select>
+            <option>沈砚舟（主角 · char_001）</option>
+            <option>沈砚舟（回忆篇 · char_047）</option>
+          </select>
+        </div>
+        <div class="change-actions">
+          <button class="btn primary" disabled data-act="accept">确认</button>
+          <button class="btn danger" data-act="reject">忽略</button>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="stage-foot">
+      <div class="stage-summary">
+        <strong id="foot-pending">3</strong> 项待处理
+        <span style="color: var(--ink-3);"> · </span>
+        <span style="color: var(--ink-3);" id="foot-hint">AI 仍在生成</span>
+      </div>
+      <button class="btn ghost" id="reject-all">全部忽略</button>
+      <button class="btn primary" id="commit-all">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+        全部写回
+      </button>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+  // 交互：accept / reject / expand
+  document.querySelectorAll('.change').forEach((card) => {
+    card.addEventListener('click', (e) => {
+      const target = e.target.closest('button');
+      if (!target) return;
+      const act = target.dataset.act;
+      if (!act) return;
+      if (act === 'accept') {
+        card.classList.remove('rejected', 'streaming');
+        card.classList.add('accepted');
+        card.dataset.status = 'accepted';
+        card.querySelector('.change-status').textContent = '已确认';
+      } else if (act === 'reject') {
+        card.classList.remove('accepted', 'streaming');
+        card.classList.add('rejected');
+        card.dataset.status = 'rejected';
+        card.querySelector('.change-status').textContent = '已忽略';
+      } else if (act === 'expand') {
+        card.classList.toggle('expanded');
+        target.textContent = card.classList.contains('expanded')
+          ? '收起全文对比 ↑'
+          : '展开全文对比 →';
+      }
+      updateCounts();
+    });
+  });
+
+  // 过滤器
+  document.querySelectorAll('.stage-filter button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.stage-filter button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const f = btn.dataset.filter;
+      document.querySelectorAll('.change').forEach((c) => {
+        const k = c.dataset.kind;
+        const s = c.dataset.status;
+        let show = true;
+        if (f === 'chapter') show = k === 'chapter';
+        else if (f === 'setting') show = k !== 'chapter';
+        else if (f === 'pending') show = s === 'pending';
+        c.style.display = show ? '' : 'none';
+      });
+    });
+  });
+
+  function updateCounts() {
+    const all = document.querySelectorAll('.change');
+    let pending = 0, accepted = 0;
+    all.forEach(c => {
+      if (c.dataset.status === 'pending') pending++;
+      if (c.dataset.status === 'accepted') accepted++;
+    });
+    document.getElementById('pending-count').textContent = pending;
+    document.getElementById('accepted-count').textContent = accepted;
+    document.getElementById('foot-pending').textContent = pending;
+  }
+
+  // 批量操作
+  document.getElementById('commit-all').addEventListener('click', () => {
+    document.querySelectorAll('.change[data-status="pending"]').forEach(c => {
+      c.classList.add('accepted');
+      c.classList.remove('streaming');
+      c.dataset.status = 'accepted';
+      c.querySelector('.change-status').textContent = '已确认';
+    });
+    updateCounts();
+    // 模拟写回后清空
+    setTimeout(() => {
+      document.getElementById('foot-hint').textContent = '已全部写回';
+      const strip = document.getElementById('live-strip');
+      strip.classList.add('done');
+      document.getElementById('live-label').textContent = '完成';
+    }, 400);
+  });
+  document.getElementById('reject-all').addEventListener('click', () => {
+    document.querySelectorAll('.change[data-status="pending"]').forEach(c => {
+      c.classList.add('rejected');
+      c.classList.remove('streaming');
+      c.dataset.status = 'rejected';
+      c.querySelector('.change-status').textContent = '已忽略';
+    });
+    updateCounts();
+  });
+</script>
+
+</body>
+</html>

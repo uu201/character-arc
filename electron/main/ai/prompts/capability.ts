@@ -12,7 +12,7 @@ type PromptCapabilityDefinition = { label: string; systemNote: string; userRule:
 
 /** 所有功能模块的完整定义映射 */
 const PROMPT_CAPABILITY_DEFINITIONS: Record<PromptCapabilityId, PromptCapabilityDefinition> = {
-  workflow: { label: '小说流程与项目文件', systemNote: '可以读写 task_plan、findings、progress、current_status、novel_setting、character_relationships、pending_hooks、resource_ledger 这些流程文件。', userRule: '流程文件是当前项目的工作记忆，应该延续已有内容，不要凭空另起一套口径。' },
+  workflow: { label: '创作记忆', systemNote: '可以读写 task_plan、findings、progress、current_status、novel_setting、character_relationships、pending_hooks、resource_ledger 这些创作记忆。', userRule: '创作记忆是当前项目的长期上下文，应该延续已有内容，不要凭空另起一套口径。' },
   worldview: { label: '世界观设定', systemNote: '可以引用世界背景、规则、势力、历史等设定条目。设定吃书禁止：前文已写明的设定，后文不能矛盾覆盖；若必须修改，要明确说明覆盖了哪些旧设定。不要整段讲百科——设定必须在场景里落地。', userRule: '世界观内容必须服务当前项目，不能把未锁定设定写成正式事实。设定融入剧情，不要大段复制粘贴背景介绍。' },
   characters: { label: '角色图鉴', systemNote: '可以使用角色姓名、定位、描述、标签等角色信息。角色行为必须由过往经历+当前利益+性格底色共同驱动，严禁反派降智或主角圣母。配角不能是工具人，必须有算盘、恐惧、筹码、误判与反扑。人设防崩：任何反常行为必须用前文铺垫解释，不能靠"突然顿悟"或"心软"搪塞。', userRule: '角色行为和新增角色必须尽量嵌入现有角色网络，避免孤立路人。反派和配角必须基于其已知信息和利益行动，不能为了推剧情而降智。' },
   relations: { label: '关系与组织', systemNote: '可以使用组织、角色关系、成员归属、阵营立场等结构化关系信息。配角不能是工具人，必须有算盘、恐惧、筹码、误判与反扑。冲突必须由利益驱动。严禁无理由的爱/恨——所有关系的改变必须有事件驱动和铺垫。', userRule: '如果关系、组织或归属会影响冲突、措辞或行动，优先把这些因素纳入输出。冲突必须由利益驱动，配角必须有反扑。' },
@@ -23,7 +23,7 @@ const PROMPT_CAPABILITY_DEFINITIONS: Record<PromptCapabilityId, PromptCapability
   'writing-style': { label: '写作风格', systemNote: '可以读取项目默认风格名称和风格提示词。', userRule: '风格要作为约束参与生成，但不能盖过当前任务本身。' },
   'project-skills': { label: '项目级 skills', systemNote: '可以吸收当前项目启用的 skills 内容和阶段规则。', userRule: '只有在当前任务相关时才引用 skills，且优先延续其约束而不是照抄措辞。' },
   versioning: { label: '版本与回写', systemNote: '可以结合章节版本、恢复、正文插入、替换选区、设为标题或摘要这些能力思考输出形式。', userRule: '输出应尽量适配软件现有回写方式。' },
-  'import-export': { label: '导入导出', systemNote: '项目支持结构化导入导出和模块级数据迁移。', userRule: '涉及迁移、补档或流程文件生成时，要保持字段结构稳定。' },
+  'import-export': { label: '导入导出', systemNote: '项目支持结构化导入导出和模块级数据迁移。', userRule: '涉及迁移、补档或创作记忆生成时，要保持字段结构稳定。' },
   settings: { label: '设置与模型配置', systemNote: '项目具有模型设置、主题和自动保存等配置能力。', userRule: '不要假设存在未实现的远程协作、社区、云同步或插件市场能力。' }
 }
 

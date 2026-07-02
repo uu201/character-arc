@@ -45,6 +45,10 @@ let stopRailResize: (() => void) | null = null
 
 const hasThread = computed(() => Boolean(a.messages.value.length || a.isSending.value || a.isRunningAudit.value))
 const railStyle = computed(() => ({ width: `${railWidth.value}px` }))
+const diffReviewMode = computed<'default' | 'chapter'>(() => {
+  const actionable = a.proposalDiffFiles.value.filter((file) => file.action !== 'note')
+  return actionable.length > 0 && actionable.every((file) => file.kind === 'chapter') ? 'chapter' : 'default'
+})
 
 const modeDotClass = (mode: string): string =>
   mode === 'audit' ? 'audit' : mode === 'ingest' ? 'ingest' : 'correct'
@@ -582,6 +586,7 @@ watch(
     </div>
     <GlobalAssistantDiffReviewDialog
       v-model:show="showDiffReview"
+      :review-mode="diffReviewMode"
       :summary="a.proposal.value?.summary || ''"
       :patch="a.proposalDiffPatch.value"
       :files="a.proposalDiffFiles.value"

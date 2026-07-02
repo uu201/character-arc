@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Assistant Runtime · v2 原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#fafaf9;--surface:#fff;--surface-2:#f5f5f4;
+  --border:rgba(24,24,27,.08);--border-strong:rgba(24,24,27,.14);
+  --ink:#18181b;--ink-2:#52525b;--ink-3:#a1a1aa;--ink-4:#d4d4d8;
+  --accent:#0d7d5a;--accent-soft:rgba(13,125,90,.08);--accent-line:rgba(13,125,90,.22);
+  --warn:#b45309;--warn-soft:rgba(180,83,9,.08);
+  --danger:#b91c1c;--danger-soft:rgba(185,28,28,.06);
+  --add:#047857;--add-bg:rgba(4,120,87,.09);--del:#b91c1c;--del-bg:rgba(185,28,28,.07);
+  --radius-lg:22px;--radius-md:12px;--radius-sm:8px;
+  --shadow-soft:0 20px 40px -24px rgba(24,24,27,.12);
+  --shadow-pop:0 12px 32px -12px rgba(24,24,27,.18),0 0 0 1px rgba(24,24,27,.06);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{font-family:'Geist',system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;letter-spacing:-.005em}
+button{font:inherit;color:inherit}
+.app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+/* -------- 顶部：Surface 切换 -------- */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 22px;border-bottom:1px solid var(--border);background:var(--surface);gap:14px;flex-shrink:0}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;letter-spacing:-.02em;font-size:13px}
+.brand-dot{width:8px;height:8px;border-radius:999px;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.surface-switch{display:flex;gap:4px;padding:3px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px}
+.surface-switch button{background:transparent;border:none;padding:6px 14px;border-radius:7px;font-size:12.5px;color:var(--ink-2);cursor:pointer;font-family:'Geist Mono',monospace;transition:all .15s ease;display:flex;align-items:center;gap:6px}
+.surface-switch button.active{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(24,24,27,.06)}
+.surface-switch .kbd{font-size:10px;padding:1px 5px;border-radius:4px;background:var(--surface-2);border:1px solid var(--border);color:var(--ink-3)}
+.surface-switch button.active .kbd{background:var(--bg)}
+.top-actions{display:flex;align-items:center;gap:8px;font-family:'Geist Mono',monospace;font-size:11.5px;color:var(--ink-3)}
+.icon-btn{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--ink-2);cursor:pointer;transition:all .18s cubic-bezier(0.16,1,0.3,1)}
+.icon-btn:hover{background:var(--bg);color:var(--ink)}
+.icon-btn:active{transform:translateY(1px)}
+/* -------- 视图容器 -------- */
+.view{display:none;flex:1;min-height:0;overflow:hidden}
+.view.active{display:grid}
+.view.global{grid-template-columns:220px minmax(0,1fr) 420px}
+.view.chapter{grid-template-columns:180px minmax(0,1fr) 360px}
+/* -------- 通用面板样式 -------- */
+.panel{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;min-width:0}
+.panel.right{border-right:none;border-left:1px solid var(--border)}
+.panel-head{padding:14px 16px 10px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.panel-head h2{font-size:12px;font-weight:600;margin:0;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.panel-scroll{flex:1;overflow:auto;min-height:0}
+/* -------- 通用按钮 -------- */
+.btn{padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--ink);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s ease}
+.btn:hover{border-color:var(--border-strong)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+.btn.primary:hover{transform:translateY(-1px)}
+.btn.primary:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.btn.danger{color:var(--danger)}
+.btn.danger:hover{border-color:var(--danger);background:var(--danger-soft)}
+.btn.ghost{border-color:transparent;color:var(--ink-2)}
+.btn.ghost:hover{color:var(--ink);background:var(--surface-2)}
+.btn.accent{background:var(--accent);color:#fff;border-color:var(--accent)}
+/* -------- Session 列表 -------- */
+.new-btn{margin:0 12px 10px;padding:8px 10px;border-radius:9px;background:var(--ink);color:#fff;border:none;font-size:12.5px;font-weight:500;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:transform .16s ease}
+.new-btn:hover{transform:translateY(-1px)}
+.session-search{margin:0 12px 10px;display:flex;align-items:center;gap:6px;padding:6px 9px;border:1px solid var(--border);border-radius:8px;color:var(--ink-3);font-size:12px}
+.session-search input{flex:1;border:none;outline:none;background:transparent;font:inherit;color:var(--ink)}
+.session-group{padding:12px 10px 4px;font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;font-family:'Geist Mono',monospace}
+.session-item{margin:0 8px;padding:8px 10px;border-radius:8px;cursor:pointer;display:flex;flex-direction:column;gap:2px;transition:background .15s ease}
+.session-item:hover{background:var(--surface-2)}
+.session-item.active{background:var(--accent-soft)}
+.session-item.active .s-title{color:var(--accent)}
+.s-title{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-preview{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'Geist Mono',monospace}
+.s-meta{font-size:10.5px;color:var(--ink-3);display:flex;gap:8px;margin-top:2px;font-family:'Geist Mono',monospace}
+.s-meta .dot{width:5px;height:5px;border-radius:999px;background:var(--accent);display:inline-block;align-self:center}
+/* -------- Turn 结构 -------- */
+.main-head{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--surface);flex-shrink:0}
+.main-head-title{display:flex;align-items:baseline;gap:10px}
+.main-head h1{font-size:14px;font-weight:500;margin:0;letter-spacing:-.01em}
+.breadcrumb{color:var(--ink-3);font-size:11.5px;font-family:'Geist Mono',monospace}
+.chat-scroll{flex:1;overflow:auto;min-height:0;padding:22px 26px 12px;background:var(--bg)}
+.chat-inner{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:0}
+.turn{position:relative;padding:0 0 26px;border-left:1px solid transparent;margin-left:-14px;padding-left:14px}
+.turn+.turn{border-top:1px dashed var(--border);padding-top:22px;margin-top:0}
+.turn-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--ink-3);letter-spacing:.04em}
+.turn-header .turn-idx{padding:2px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface)}
+.turn-header .turn-status{display:flex;align-items:center;gap:5px}
+.turn-header .turn-status .dot{width:5px;height:5px;border-radius:999px;background:var(--accent)}
+.turn-header .turn-status.streaming .dot{background:var(--warn);animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.msg{display:flex;gap:11px;margin-bottom:12px}
+.avatar{width:26px;height:26px;flex:0 0 26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;letter-spacing:-.01em}
+.msg.user .avatar{background:#18181b;color:#fff}
+.msg.ai .avatar{background:var(--accent-soft);color:var(--accent)}
+.msg .body{flex:1;min-width:0}
+.msg .who{font-size:10.5px;color:var(--ink-3);margin-bottom:3px;font-family:'Geist Mono',monospace;letter-spacing:.02em}
+.msg .content{color:var(--ink);font-size:14px}
+.msg .content p{margin:0 0 8px}.msg .content p:last-child{margin-bottom:0}
+.msg .content code{font-family:'Geist Mono',monospace;background:rgba(24,24,27,.05);padding:1px 5px;border-radius:4px;font-size:12.5px}
+/* -------- 工具事件 -------- */
+.tools{margin-top:6px;padding:8px 0 4px 12px;border-left:1px solid var(--border);display:flex;flex-direction:column;gap:2px}
+.tool-row{display:flex;gap:8px;align-items:baseline;font-size:12px;padding:3px 0;font-family:'Geist Mono',monospace}
+.tool-dot{width:6px;height:6px;border-radius:999px;background:var(--ink-4);flex:0 0 6px;transform:translateY(3px)}
+.tool-row.done .tool-dot{background:var(--accent)}
+.tool-row.running .tool-dot{background:var(--warn);animation:pulse 1.4s ease-in-out infinite}
+.tool-name{color:var(--ink);font-size:12px}
+.tool-args{color:var(--ink-3);font-size:11.5px}
+.tool-arrow{color:var(--ink-4);font-size:10px}
+.tool-result{color:var(--ink-2);font-size:11.5px}
+.tool-row.stage .tool-name{color:var(--accent)}
+.tool-group-label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin:6px 0 2px;font-family:'Geist Mono',monospace}
+.staged-inline-ref{margin-top:6px;padding:6px 10px;border:1px dashed var(--accent-line);border-radius:7px;background:var(--accent-soft);font-size:11.5px;color:var(--accent);display:flex;align-items:center;gap:6px;cursor:pointer;font-family:'Geist Mono',monospace}
+.staged-inline-ref:hover{background:rgba(13,125,90,.12)}
+/* -------- Composer -------- */
+.composer-wrap{padding:12px 26px 18px;background:linear-gradient(180deg,rgba(250,250,249,0),var(--bg) 30%)}
+.composer{max-width:760px;margin:0 auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:14px;padding:10px 12px 8px;box-shadow:var(--shadow-soft);display:flex;flex-direction:column;gap:6px}
+.composer textarea{width:100%;resize:none;border:none;outline:none;background:transparent;font:inherit;color:var(--ink);min-height:36px;max-height:180px;line-height:1.5}
+.composer textarea::placeholder{color:var(--ink-3)}
+.composer-foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.composer-hints{display:flex;gap:5px;flex-wrap:wrap}
+.chip{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);color:var(--ink-2);background:transparent;cursor:pointer;font-family:'Geist Mono',monospace;transition:all .15s ease}
+.chip:hover{border-color:var(--border-strong);color:var(--ink)}
+.chip.attached{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
+.send-btn{padding:6px 12px;border-radius:9px;background:var(--ink);color:#fff;border:none;font-weight:500;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:transform .14s ease}
+.send-btn:hover{transform:translateY(-1px)}
+/* -------- Staged Changes -------- */
+.stage-head{padding:14px 18px 10px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--border);flex-shrink:0}
+.stage-title-row{display:flex;align-items:center;justify-content:space-between}
+.stage-title{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);display:flex;align-items:center;gap:8px}
+.stage-count{font-family:'Geist Mono',monospace;color:var(--ink-3);font-size:11.5px}
+.stage-count strong{color:var(--ink);font-weight:500}
+.stage-filter{display:flex;gap:3px;padding:3px;background:var(--surface-2);border-radius:8px;border:1px solid var(--border)}
+.stage-filter button{flex:1;background:transparent;border:none;padding:4px 8px;border-radius:6px;font-size:11px;color:var(--ink-2);cursor:pointer;font-family:'Geist Mono',monospace;transition:all .15s ease}
+.stage-filter button.active{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(24,24,27,.06)}
+.stage-list{flex:1;overflow:auto;padding:10px 14px 14px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.change{border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:10px 12px;transition:border-color .18s ease;animation:fadeIn .35s cubic-bezier(0.16,1,0.3,1)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.change:hover{border-color:var(--border-strong)}
+.change.accepted{border-color:var(--accent-line);background:var(--accent-soft)}
+.change.rejected{opacity:.45}
+.change.streaming{border-color:var(--warn);background:var(--warn-soft)}
+.change-head{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.kind-tag{font-family:'Geist Mono',monospace;font-size:10px;padding:2px 5px;border-radius:4px;background:rgba(24,24,27,.06);color:var(--ink-2);letter-spacing:.02em}
+.kind-tag.chapter{background:rgba(13,125,90,.1);color:var(--accent)}
+.kind-tag.worldview{background:rgba(180,83,9,.1);color:var(--warn)}
+.kind-tag.character{background:rgba(30,64,175,.1);color:#1e40af}
+.kind-tag.outline{background:rgba(126,34,206,.1);color:#7e22ce}
+.action-tag{font-size:10px;font-family:'Geist Mono',monospace;color:var(--ink-3)}
+.entity-title{flex:1;font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.change-status{font-size:10px;color:var(--ink-3);font-family:'Geist Mono',monospace}
+.change.accepted .change-status{color:var(--accent)}
+.change.rejected .change-status{color:var(--danger)}
+.change-turn-ref{font-size:10px;font-family:'Geist Mono',monospace;color:var(--ink-3);margin-bottom:4px}
+.change-reason{font-size:11.5px;color:var(--ink-2);margin:2px 0 7px;line-height:1.5}
+.diff{border:1px solid var(--border);border-radius:7px;overflow:hidden;font-family:'Geist Mono',monospace;font-size:11px;line-height:1.55}
+.diff-line{padding:2px 8px;white-space:pre-wrap;word-break:break-word}
+.diff-line.add{background:var(--add-bg);color:var(--add)}
+.diff-line.del{background:var(--del-bg);color:var(--del)}
+.diff-line.ctx{color:var(--ink-2)}
+.diff-line+.diff-line{border-top:1px solid var(--border)}
+.change-actions{margin-top:8px;display:flex;gap:5px;align-items:center}
+.stage-foot{padding:10px 14px 14px;border-top:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:6px;flex-shrink:0}
+.stage-summary{flex:1;font-size:11.5px;color:var(--ink-2);font-family:'Geist Mono',monospace}
+.stage-summary strong{color:var(--ink);font-weight:500}
+/* -------- 章节编辑器视图 -------- */
+.chap-list{padding:8px 0}
+.chap-item{margin:0 8px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:12px;color:var(--ink-2);display:flex;align-items:center;justify-content:space-between}
+.chap-item:hover{background:var(--surface-2)}
+.chap-item.active{background:var(--accent-soft);color:var(--accent)}
+.chap-item .num{font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--ink-3)}
+.chap-item.active .num{color:var(--accent)}
+.editor-wrap{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--bg)}
+.editor-head{padding:14px 40px 10px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.editor-head h1{margin:0;font-size:16px;font-weight:600;letter-spacing:-.015em}
+.editor-head .meta{font-family:'Geist Mono',monospace;font-size:11px;color:var(--ink-3)}
+.editor{flex:1;overflow:auto;padding:32px 40px 60px;min-height:0}
+.editor-inner{max-width:680px;margin:0 auto;font-size:15.5px;line-height:1.9;color:#27272a;letter-spacing:.008em}
+.editor-inner p{margin:0 0 14px}
+.editor-inner .selected{background:rgba(13,125,90,.14);border-radius:2px;padding:1px 0;position:relative}
+/* Inline diff（Cursor 风格）*/
+.inline-diff{margin:6px 0;border-radius:8px;overflow:hidden;border:1px solid var(--accent-line);background:var(--surface);box-shadow:var(--shadow-soft);animation:fadeIn .3s cubic-bezier(0.16,1,0.3,1)}
+.inline-diff-body{font-family:'Geist',sans-serif;font-size:15.5px;line-height:1.85}
+.inline-diff-body .add-block{background:var(--add-bg);color:#065f46;padding:8px 14px;border-left:2px solid var(--add)}
+.inline-diff-body .del-block{background:var(--del-bg);color:#7f1d1d;padding:8px 14px;text-decoration:line-through;text-decoration-color:rgba(185,28,28,.4);border-left:2px solid var(--del)}
+.inline-diff-bar{padding:6px 12px;background:var(--surface-2);border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;font-family:'Geist Mono',monospace;font-size:11px}
+.inline-diff-bar .label{color:var(--ink-3);flex:1;display:flex;align-items:center;gap:6px}
+.inline-diff-bar .label .badge{padding:2px 5px;border-radius:4px;background:var(--surface);border:1px solid var(--border);color:var(--ink-2);font-size:10px}
+.inline-diff-bar .kbd{font-size:10px;padding:1px 5px;border-radius:4px;background:var(--surface);border:1px solid var(--border);color:var(--ink-2)}
+/* Inline selection bubble */
+.bubble{position:absolute;top:-52px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:11px;padding:5px 6px;display:flex;align-items:center;gap:3px;box-shadow:var(--shadow-pop);animation:bubbleIn .25s cubic-bezier(0.16,1,0.3,1);white-space:nowrap;z-index:20}
+@keyframes bubbleIn{from{opacity:0;transform:translate(-50%,4px)}to{opacity:1;transform:translate(-50%,0)}}
+.bubble::after{content:'';position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:5px solid var(--ink)}
+.bubble button{background:transparent;border:none;color:#fff;font-size:11.5px;padding:5px 9px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:5px;transition:background .12s ease;font-family:inherit}
+.bubble button:hover{background:rgba(255,255,255,.12)}
+.bubble .divider{width:1px;height:16px;background:rgba(255,255,255,.14)}
+.bubble .bubble-input{display:none;padding:4px 8px;gap:6px;align-items:center}
+.bubble.expanded .bubble-input{display:flex}
+.bubble.expanded .bubble-quick{display:none}
+.bubble .bubble-input input{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#fff;padding:5px 9px;border-radius:6px;font:inherit;font-size:12px;outline:none;width:220px}
+.bubble .bubble-input input::placeholder{color:rgba(255,255,255,.4)}
+/* -------- 章节右侧 AI Panel -------- */
+.cpanel-head{padding:12px 14px 8px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.cpanel-head .t{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.cpanel-mode{display:flex;gap:3px;padding:2px;background:var(--surface-2);border-radius:7px;border:1px solid var(--border)}
+.cpanel-mode button{background:transparent;border:none;padding:3px 8px;border-radius:5px;font-size:10.5px;color:var(--ink-2);cursor:pointer;font-family:'Geist Mono',monospace}
+.cpanel-mode button.active{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(24,24,27,.06)}
+.cpanel-scroll{flex:1;overflow:auto;padding:14px 14px 8px;min-height:0}
+.cpanel-composer{padding:10px 14px 14px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0}
+.cpanel-composer .composer{max-width:none;margin:0;box-shadow:none;border-radius:11px}
+/* -------- 底部架构可视化条 -------- */
+.arch-bar{border-top:1px solid var(--border);background:var(--surface);padding:8px 22px;display:flex;align-items:center;gap:18px;font-family:'Geist Mono',monospace;font-size:11px;color:var(--ink-3);flex-shrink:0;overflow-x:auto;white-space:nowrap}
+.arch-item{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.arch-item .k{color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;font-size:10px}
+.arch-item .v{color:var(--ink);padding:1px 6px;border-radius:4px;background:var(--surface-2);border:1px solid var(--border)}
+.arch-item .v.accent{color:var(--accent);background:var(--accent-soft);border-color:var(--accent-line)}
+.arch-item .v.warn{color:var(--warn);background:var(--warn-soft)}
+.arch-item .tools-list{display:flex;gap:4px}
+.arch-item .tools-list .t{padding:1px 5px;border-radius:4px;background:var(--surface-2);border:1px solid var(--border);font-size:10.5px;color:var(--ink-2)}
+.arch-item .tools-list .t.write{color:var(--accent);border-color:var(--accent-line);background:var(--accent-soft)}
+.arch-item .tools-list .t.denied{opacity:.35;text-decoration:line-through}
+.arch-item .divider{width:1px;height:14px;background:var(--border);margin:0 4px}
+/* -------- 空态 -------- */
+.empty{margin:24px 8px;padding:20px 18px;border:1px dashed var(--border-strong);border-radius:12px;text-align:center;color:var(--ink-3);font-size:12px;line-height:1.6}
+.empty .title{color:var(--ink);font-weight:500;font-size:13px;margin-bottom:4px}
+/* Recovery banner */
+.recovery{margin:0 26px 12px;padding:8px 12px;background:var(--warn-soft);border:1px solid var(--warn);border-radius:9px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--warn);max-width:760px}
+.recovery .btn{margin-left:auto}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-dot"></span>
+    <span>Assistant Runtime</span>
+    <span style="color:var(--ink-3);font-size:11px;font-family:'Geist Mono',monospace;margin-left:6px">v2 · prototype</span>
+  </div>
+  <div class="surface-switch" id="surface-switch">
+    <button class="active" data-surface="global">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+      global-page
+      <span class="kbd">1</span>
+    </button>
+    <button data-surface="chapter">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 3h11l5 5v13H4z"/><path d="M15 3v5h5"/><path d="M8 13h8M8 17h5"/></svg>
+      chapter-panel + inline
+      <span class="kbd">2</span>
+    </button>
+  </div>
+  <div class="top-actions">
+    <span>project:</span><span style="color:var(--ink)">北境孤鸣</span>
+    <span style="margin-left:6px">·</span>
+    <span>session:</span><span style="color:var(--ink)" id="top-session-id">ses_a4f1c</span>
+    <button class="icon-btn" title="设置" style="margin-left:8px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/></svg>
+    </button>
+  </div>
+</header>
+<!-- ============ Global Page Surface ============ -->
+<section class="view global active" data-view="global">
+  <aside class="panel">
+    <div class="panel-head">
+      <h2>Sessions</h2>
+      <button class="icon-btn" title="刷新">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></svg>
+      </button>
+    </div>
+    <button class="new-btn">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      新建会话
+    </button>
+    <div class="session-search">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input placeholder="搜索..." />
+    </div>
+    <div class="panel-scroll">
+      <div class="session-group">今天</div>
+      <div class="session-item active">
+        <div class="s-title">重构第三章打斗戏节奏</div>
+        <div class="s-preview">stage_chapter_edit · turn 2</div>
+        <div class="s-meta"><span class="dot"></span><span>3 staged</span><span>· 8min</span></div>
+      </div>
+      <div class="session-item">
+        <div class="s-title">校对世界观「元素亲和」</div>
+        <div class="s-preview">已提交 2 项写回</div>
+      </div>
+      <div class="session-group">昨天</div>
+      <div class="session-item">
+        <div class="s-title">林砚池人物设定深化</div>
+        <div class="s-preview">committed · 5 changes</div>
+      </div>
+      <div class="session-item">
+        <div class="s-title">主线剧情线索梳理</div>
+        <div class="s-preview">rejected · 只读会话</div>
+      </div>
+      <div class="session-group">本周</div>
+      <div class="session-item">
+        <div class="s-title">第七章伏笔连贯性检查</div>
+        <div class="s-preview">read-only · 6 turns</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="panel" style="border-right:none">
+    <header class="main-head">
+      <div class="main-head-title">
+        <h1>重构第三章打斗戏节奏</h1>
+        <span class="breadcrumb">surface: global-page · scope: project · 2 turns</span>
+      </div>
+      <button class="icon-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M20 21H4"/></svg></button>
+    </header>
+
+    <div class="chat-scroll">
+      <div class="recovery">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v4l2 2"/><circle cx="12" cy="12" r="9"/></svg>
+        <span>会话已从事件日志恢复 · replay 14 events · 上次未提交 3 项暂存变更</span>
+        <button class="btn ghost">查看</button>
+      </div>
+
+      <div class="chat-inner">
+        <!-- Turn 1 -->
+        <div class="turn">
+          <div class="turn-header">
+            <span class="turn-idx">TURN 1</span>
+            <span>14:15 · 5 events · committed</span>
+            <span class="turn-status"><span class="dot"></span>done</span>
+          </div>
+          <div class="msg user">
+            <div class="avatar">Z</div>
+            <div class="body">
+              <div class="who">You</div>
+              <div class="content"><p>先看看第三章现在什么情况，重点在打斗戏节奏。</p></div>
+            </div>
+          </div>
+          <div class="msg ai">
+            <div class="avatar">AI</div>
+            <div class="body">
+              <div class="who">Assistant</div>
+              <div class="tools">
+                <div class="tool-group-label">read</div>
+                <div class="tool-row done"><span class="tool-dot"></span><span class="tool-name">read_chapter</span><span class="tool-args">"第三章"</span><span class="tool-arrow">→</span><span class="tool-result">3,124 字 · 12 段</span></div>
+                <div class="tool-row done"><span class="tool-dot"></span><span class="tool-name">search_project</span><span class="tool-args">q="破军刀法"</span><span class="tool-arrow">→</span><span class="tool-result">2 条 · worldview</span></div>
+              </div>
+              <div class="content" style="margin-top:8px">
+                <p>第三章打斗戏在第 6-7 段被两处内心独白打断，节奏明显松。破军刀法只有总纲、缺招式细节，主角出招时读起来有点空。要不我压一压独白、顺手补一条招式说明？</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Turn 2 -->
+        <div class="turn">
+          <div class="turn-header">
+            <span class="turn-idx">TURN 2</span>
+            <span>14:22 · 8 events · staging</span>
+            <span class="turn-status streaming"><span class="dot"></span>streaming</span>
+          </div>
+          <div class="msg user">
+            <div class="avatar">Z</div>
+            <div class="body">
+              <div class="who">You</div>
+              <div class="content"><p>好，压独白、补招式说明。主角出招用得上的招式起个名叫「裂云」。</p></div>
+            </div>
+          </div>
+          <div class="msg ai">
+            <div class="avatar">AI</div>
+            <div class="body">
+              <div class="who">Assistant</div>
+              <div class="tools">
+                <div class="tool-group-label">stage</div>
+                <div class="tool-row done stage"><span class="tool-dot"></span><span class="tool-name">stage_chapter_edit</span><span class="tool-args">type=replace §6-7</span><span class="tool-arrow">→</span><span class="tool-result">#a4f1 · staged</span></div>
+                <div class="staged-inline-ref" data-scroll-to="chg-1">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+                  Change #a4f1 · CHAPTER · 第三章 §6-7 replace →
+                </div>
+                <div class="tool-row done stage"><span class="tool-dot"></span><span class="tool-name">stage_worldview</span><span class="tool-args">update "破军刀法"</span><span class="tool-arrow">→</span><span class="tool-result">#b02c · staged</span></div>
+                <div class="staged-inline-ref" data-scroll-to="chg-2">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+                  Change #b02c · WORLDVIEW · 追加「裂云」招式 →
+                </div>
+                <div class="tool-row running stage"><span class="tool-dot"></span><span class="tool-name">stage_character</span><span class="tool-args">update "沈砚舟"</span><span class="tool-arrow">→</span><span class="tool-result">生成中…</span></div>
+              </div>
+              <div class="content" style="margin-top:8px">
+                <p>压掉两处内心独白，改为一句留白衔接下一次刀锋交击；破军刀法追加第三式「裂云」，与本章出招节奏对齐。人物卡的战斗风格标签我也顺手加了「近身反打」，稍后在右侧确认。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <textarea placeholder="继续追问，或让助理调整某条暂存变更 · @change #a4f1 引用变更"></textarea>
+        <div class="composer-foot">
+          <div class="composer-hints">
+            <button class="chip attached">@第三章</button>
+            <button class="chip">@角色</button>
+            <button class="chip">/skill</button>
+          </div>
+          <button class="send-btn">发送 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 右侧：Staged Changes -->
+  <aside class="panel right">
+    <div class="stage-head">
+      <div class="stage-title-row">
+        <div class="stage-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg>
+          <span>Staged Changes</span>
+        </div>
+        <div class="stage-count"><strong id="pending-count">3</strong> pending · <strong id="accepted-count">0</strong> ok</div>
+      </div>
+      <div class="stage-filter">
+        <button class="active" data-filter="all">全部</button>
+        <button data-filter="chapter">章节</button>
+        <button data-filter="setting">设定</button>
+        <button data-filter="pending">待审</button>
+      </div>
+    </div>
+
+    <div class="stage-list" id="stage-list">
+      <!-- Change #a4f1 -->
+      <div class="change" id="chg-1" data-kind="chapter" data-status="pending">
+        <div class="change-turn-ref">from turn 2 · stage_chapter_edit</div>
+        <div class="change-head">
+          <span class="kind-tag chapter">CHAPTER</span>
+          <span class="action-tag">replace</span>
+          <span class="entity-title">第三章 §6-7</span>
+          <span class="change-status">#a4f1</span>
+        </div>
+        <div class="change-reason">压缩中段两处内心独白，改为一句留白衔接下一次刀锋交击。</div>
+        <div class="diff">
+          <div class="diff-line ctx">…刀锋斜削而下，风声撕裂夜色。</div>
+          <div class="diff-line del">- 他忽然想起了三年前那个雨夜，师父递刀时说过的话——</div>
+          <div class="diff-line del">- "刀不是用来防的，是用来断的。"</div>
+          <div class="diff-line add">+ 他没有想师父。刀锋在夜色里只剩一个字：断。</div>
+          <div class="diff-line ctx">对面来人已欺近三步…</div>
+        </div>
+        <div class="change-actions">
+          <button class="btn primary" data-act="accept"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>确认</button>
+          <button class="btn danger" data-act="reject">忽略</button>
+          <button class="btn ghost" data-act="edit">调整</button>
+        </div>
+      </div>
+
+      <!-- Change #b02c -->
+      <div class="change" id="chg-2" data-kind="worldview" data-status="pending">
+        <div class="change-turn-ref">from turn 2 · stage_worldview</div>
+        <div class="change-head">
+          <span class="kind-tag worldview">WORLDVIEW</span>
+          <span class="action-tag">update</span>
+          <span class="entity-title">破军刀法</span>
+          <span class="change-status">#b02c</span>
+        </div>
+        <div class="change-reason">追加第三式「裂云」的招式描述，与本章沈砚舟出招节奏契合。</div>
+        <div class="diff">
+          <div class="diff-line ctx">- 第一式「破军」：正锋直斩。</div>
+          <div class="diff-line ctx">- 第二式「衔霜」：反手挑刃。</div>
+          <div class="diff-line add">+ 第三式「裂云」：起手沉肩，收势以刀背带出半圆气劲，代价三息内不能再挥刀。</div>
+        </div>
+        <div class="change-actions">
+          <button class="btn primary" data-act="accept">确认</button>
+          <button class="btn danger" data-act="reject">忽略</button>
+        </div>
+      </div>
+
+      <!-- Change #c19e -->
+      <div class="change streaming" id="chg-3" data-kind="character" data-status="pending">
+        <div class="change-turn-ref">from turn 2 · stage_character</div>
+        <div class="change-head">
+          <span class="kind-tag character">CHARACTER</span>
+          <span class="action-tag">update</span>
+          <span class="entity-title">沈砚舟</span>
+          <span class="change-status">streaming…</span>
+        </div>
+        <div class="change-reason">战斗风格标签追加「近身反打」，呼应新增招式「裂云」。</div>
+        <div class="diff">
+          <div class="diff-line ctx">tags: [ "沉默寡言", "刀客", "北境流亡" ]</div>
+          <div class="diff-line add">+ tags: [ ..., "近身反打" ]</div>
+        </div>
+        <div class="change-actions">
+          <button class="btn primary" disabled data-act="accept">确认</button>
+          <button class="btn danger" data-act="reject">忽略</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage-foot">
+      <div class="stage-summary"><strong id="foot-pending">3</strong> pending · <span id="foot-hint" style="color:var(--ink-3)">agent streaming</span></div>
+      <button class="btn ghost" id="reject-all">全忽略</button>
+      <button class="btn primary" id="commit-all"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>全部写回</button>
+    </div>
+  </aside>
+</section>
+
+<!-- ============ Chapter Workspace ============ -->
+<section class="view chapter" data-view="chapter">
+  <!-- 左：章节列表 -->
+  <aside class="panel">
+    <div class="panel-head">
+      <h2>Chapters</h2>
+      <button class="icon-btn" title="add"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <div class="panel-scroll chap-list">
+      <div class="chap-item"><span>第一章 · 雪落无声</span><span class="num">01</span></div>
+      <div class="chap-item"><span>第二章 · 铁马归途</span><span class="num">02</span></div>
+      <div class="chap-item active"><span>第三章 · 破晓前</span><span class="num">03</span></div>
+      <div class="chap-item"><span>第四章 · 断刀</span><span class="num">04</span></div>
+      <div class="chap-item"><span>第五章 · 荒庙</span><span class="num">05</span></div>
+      <div class="chap-item"><span>第六章 · 旧信</span><span class="num">06</span></div>
+      <div class="chap-item"><span>第七章 · 长夜</span><span class="num">07</span></div>
+    </div>
+  </aside>
+
+  <!-- 中：编辑器 -->
+  <div class="editor-wrap">
+    <header class="editor-head">
+      <div>
+        <h1>第三章 · 破晓前</h1>
+        <div class="meta">3,124 字 · draft · 3 changes pending in this session</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn ghost">大纲</button>
+        <button class="btn ghost">摘要</button>
+      </div>
+    </header>
+    <div class="editor">
+      <div class="editor-inner">
+        <p>雪停后夜风更烈。沈砚舟立在断桥尽头，破军刀横于身前，鞘上霜迹未化。</p>
+        <p>对面来人身披黑氅，兜帽下只露出一双眼——那眼神他见过，是三年前雨夜里同一双。</p>
+        <p>"你还活着。"来人开口，声音像被砂纸磨过。</p>
+        <p>"托您的福。"沈砚舟握紧刀柄，指节泛白。桥下暗流呜咽，像谁在低声笑。</p>
+        <p>刀出鞘。<span class="selected">刀锋斜削而下，风声撕裂夜色。</span></p>
+
+        <!-- Inline diff (Cursor style)：暂存变更在编辑器里显示 -->
+        <div class="inline-diff">
+          <div class="inline-diff-body">
+            <div class="del-block">他忽然想起了三年前那个雨夜，师父将这把破军递到他手里时说过的话——"刀不是用来防的，是用来断的。你还没懂断字。"想到这里，沈砚舟的呼吸乱了半拍。</div>
+            <div class="add-block">他没有想师父。刀锋在夜色里只剩一个字：断。</div>
+          </div>
+          <div class="inline-diff-bar">
+            <span class="label"><span class="badge">STAGED</span> #a4f1 · turn 2 · stage_chapter_edit</span>
+            <button class="btn primary" data-inline="accept"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>接受</button>
+            <span class="kbd">⌘⏎</span>
+            <button class="btn danger" data-inline="reject">拒绝</button>
+            <span class="kbd">⌘⌫</span>
+          </div>
+        </div>
+
+        <p>对面来人已欺近三步，长袖翻卷间带出一道寒芒。</p>
+        <p>沈砚舟侧身让过第一刀，反手就是一记横切——刀势将起未起，破军刀身却微微一颤，像是在犹豫。</p>
+        <p>那犹豫只有半息，可对方等的正是这半息。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右：Chapter AI Panel -->
+  <aside class="panel right">
+    <div class="cpanel-head">
+      <div class="t">Chapter Panel</div>
+      <div class="cpanel-mode">
+        <button class="active">chat</button>
+        <button>diagnose</button>
+        <button>polish</button>
+      </div>
+    </div>
+    <div class="cpanel-scroll">
+      <div class="turn" style="padding-bottom:16px">
+        <div class="turn-header"><span class="turn-idx">TURN 1</span><span class="turn-status"><span class="dot"></span>done</span></div>
+        <div class="msg user">
+          <div class="avatar">Z</div>
+          <div class="body">
+            <div class="who">You</div>
+            <div class="content"><p>选中这段太拖，帮我压紧节奏。</p></div>
+          </div>
+        </div>
+        <div class="msg ai">
+          <div class="avatar">AI</div>
+          <div class="body">
+            <div class="who">Assistant</div>
+            <div class="tools">
+              <div class="tool-row done"><span class="tool-dot"></span><span class="tool-name">read_chapter</span><span class="tool-args">selection §6-7</span></div>
+              <div class="tool-row done stage"><span class="tool-dot"></span><span class="tool-name">stage_chapter_edit</span><span class="tool-args">replace</span><span class="tool-arrow">→</span><span class="tool-result">inline preview</span></div>
+            </div>
+            <div class="content" style="margin-top:6px"><p>已在正文位置放好预览。按 <span class="kbd" style="font-family:'Geist Mono',monospace;font-size:10px;padding:1px 4px;border:1px solid var(--border);border-radius:3px">⌘⏎</span> 接受，或继续追问。</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cpanel-composer">
+      <div class="composer">
+        <textarea placeholder="询问选段、要求修改，或让 AI 生成候选…"></textarea>
+        <div class="composer-foot">
+          <div class="composer-hints">
+            <button class="chip attached">@selection</button>
+            <button class="chip">@第三章</button>
+          </div>
+          <button class="send-btn">发送</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Inline selection bubble（浮在选中文本上方）-->
+  <div class="bubble" id="bubble">
+    <div class="bubble-quick" style="display:flex;align-items:center;gap:3px">
+      <button data-bubble="polish"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>润色</button>
+      <button data-bubble="tighten">压紧节奏</button>
+      <button data-bubble="continue">续写一段</button>
+      <div class="divider"></div>
+      <button data-bubble="ask" id="bubble-ask"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22C6.5 22 2 17.5 2 12S6.5 2 12 2s10 4.5 10 10-4.5 10-10 10z"/><path d="M8 9h.01M12 9h.01M16 9h.01"/></svg>问 AI</button>
+    </div>
+    <div class="bubble-input">
+      <input placeholder="对这段说点什么… (Enter 发送 / Esc 取消)" autofocus />
+      <button data-bubble="submit"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    </div>
+  </div>
+</section>
+<!-- ============ 底部：Runtime 架构可视化 ============ -->
+<footer class="arch-bar" id="arch-bar">
+  <div class="arch-item"><span class="k">surface</span><span class="v accent" id="arch-surface">global-page</span></div>
+  <div class="divider"></div>
+  <div class="arch-item"><span class="k">scope</span><span class="v" id="arch-scope">project</span></div>
+  <div class="divider"></div>
+  <div class="arch-item"><span class="k">auto-commit</span><span class="v" id="arch-autocommit">off</span></div>
+  <div class="divider"></div>
+  <div class="arch-item"><span class="k">context providers</span>
+    <div class="tools-list" id="arch-providers">
+      <span class="t">project-brief</span><span class="t">worldview</span><span class="t">characters</span><span class="t">outline</span><span class="t">recent-messages</span>
+    </div>
+  </div>
+  <div class="divider"></div>
+  <div class="arch-item"><span class="k">tools</span>
+    <div class="tools-list" id="arch-tools">
+      <span class="t">read_chapter</span>
+      <span class="t">read_project_data</span>
+      <span class="t">search_project</span>
+      <span class="t write">stage_chapter_edit</span>
+      <span class="t write">stage_worldview</span>
+      <span class="t write">stage_character</span>
+      <span class="t write">stage_outline</span>
+      <span class="t write">stage_constraint</span>
+      <span class="t">skill_load</span>
+    </div>
+  </div>
+  <div class="divider"></div>
+  <div class="arch-item"><span class="k">events</span><span class="v" id="arch-events">14 replayed · 8 streaming</span></div>
+</footer>
+</div>
+<script>
+// Surface 切换 + 架构条同步
+const SURFACES = {
+  global: {
+    surface: 'global-page',
+    scope: 'project',
+    autoCommit: 'off · 全部走暂存',
+    providers: ['project-brief','worldview','characters','outline','recent-messages','plot-threads','constraints'],
+    tools: [
+      {n:'read_chapter'},{n:'read_project_data'},{n:'search_project'},{n:'list_chapters'},
+      {n:'stage_chapter_edit',w:true},{n:'stage_worldview',w:true},{n:'stage_character',w:true},
+      {n:'stage_organization',w:true},{n:'stage_outline',w:true},{n:'stage_constraint',w:true},
+      {n:'stage_plot_thread',w:true},{n:'skill_load'},{n:'skill_list'}
+    ],
+    events: '14 replayed · 8 streaming'
+  },
+  chapter: {
+    surface: 'chapter-panel',
+    scope: 'chapter:cha_003',
+    autoCommit: 'on · 内联预览',
+    providers: ['current-chapter','selection','recent-messages','worldview(top10)','characters(scene)','outline(current-volume)'],
+    tools: [
+      {n:'read_chapter'},{n:'read_project_data'},{n:'search_project'},
+      {n:'stage_chapter_edit',w:true},{n:'skill_load'},{n:'skill_list'},
+      {n:'stage_worldview',denied:true},{n:'stage_character',denied:true},
+      {n:'stage_outline',denied:true},{n:'stage_constraint',denied:true}
+    ],
+    events: '3 replayed · 2 streaming'
+  }
+};
+
+function renderArch(key){
+  const s = SURFACES[key];
+  document.getElementById('arch-surface').textContent = s.surface;
+  document.getElementById('arch-scope').textContent = s.scope;
+  const ac = document.getElementById('arch-autocommit');
+  ac.textContent = s.autoCommit;
+  ac.classList.toggle('accent', s.autoCommit.startsWith('on'));
+  ac.classList.toggle('warn', s.autoCommit.startsWith('off'));
+  document.getElementById('arch-providers').innerHTML =
+    s.providers.map(p=>`<span class="t">${p}</span>`).join('');
+  document.getElementById('arch-tools').innerHTML =
+    s.tools.map(t=>`<span class="t${t.w?' write':''}${t.denied?' denied':''}">${t.n}</span>`).join('');
+  document.getElementById('arch-events').textContent = s.events;
+}
+
+document.getElementById('surface-switch').addEventListener('click',(e)=>{
+  const btn = e.target.closest('button[data-surface]');
+  if(!btn) return;
+  const key = btn.dataset.surface;
+  document.querySelectorAll('#surface-switch button').forEach(b=>b.classList.toggle('active', b===btn));
+  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active', v.dataset.view===key));
+  renderArch(key);
+});
+
+// 键盘快捷键
+document.addEventListener('keydown',(e)=>{
+  if(e.key==='1' && !e.target.closest('input,textarea')){
+    document.querySelector('#surface-switch button[data-surface="global"]').click();
+  }else if(e.key==='2' && !e.target.closest('input,textarea')){
+    document.querySelector('#surface-switch button[data-surface="chapter"]').click();
+  }
+});
+
+// Staged Changes 交互
+document.querySelectorAll('.change').forEach((card)=>{
+  card.addEventListener('click',(e)=>{
+    const t = e.target.closest('button');
+    if(!t) return;
+    const act = t.dataset.act;
+    if(act==='accept'){
+      card.classList.remove('rejected','streaming');
+      card.classList.add('accepted');
+      card.dataset.status='accepted';
+      card.querySelector('.change-status').textContent='已确认';
+    }else if(act==='reject'){
+      card.classList.remove('accepted','streaming');
+      card.classList.add('rejected');
+      card.dataset.status='rejected';
+      card.querySelector('.change-status').textContent='已忽略';
+    }
+    updateCounts();
+  });
+});
+
+document.querySelectorAll('.stage-filter button').forEach((btn)=>{
+  btn.addEventListener('click',()=>{
+    btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const f = btn.dataset.filter;
+    document.querySelectorAll('#stage-list .change').forEach((c)=>{
+      const k=c.dataset.kind,s=c.dataset.status;
+      let show=true;
+      if(f==='chapter') show=k==='chapter';
+      else if(f==='setting') show=k!=='chapter';
+      else if(f==='pending') show=s==='pending';
+      c.style.display = show?'':'none';
+    });
+  });
+});
+
+function updateCounts(){
+  let p=0,a=0;
+  document.querySelectorAll('#stage-list .change').forEach(c=>{
+    if(c.dataset.status==='pending') p++;
+    if(c.dataset.status==='accepted') a++;
+  });
+  const pc=document.getElementById('pending-count'); if(pc) pc.textContent=p;
+  const ac=document.getElementById('accepted-count'); if(ac) ac.textContent=a;
+  const fp=document.getElementById('foot-pending'); if(fp) fp.textContent=p;
+}
+
+document.getElementById('commit-all')?.addEventListener('click',()=>{
+  document.querySelectorAll('#stage-list .change[data-status="pending"]').forEach(c=>{
+    c.classList.add('accepted'); c.classList.remove('streaming');
+    c.dataset.status='accepted';
+    c.querySelector('.change-status').textContent='已确认';
+  });
+  updateCounts();
+  document.getElementById('foot-hint').textContent='已全部写回';
+});
+document.getElementById('reject-all')?.addEventListener('click',()=>{
+  document.querySelectorAll('#stage-list .change[data-status="pending"]').forEach(c=>{
+    c.classList.add('rejected'); c.classList.remove('streaming');
+    c.dataset.status='rejected';
+    c.querySelector('.change-status').textContent='已忽略';
+  });
+  updateCounts();
+});
+
+// Inline selection bubble：跟随 .selected 元素定位
+function positionBubble(){
+  const sel = document.querySelector('.chapter .selected');
+  const bubble = document.getElementById('bubble');
+  if(!sel || !bubble || !document.querySelector('.view.chapter.active')){
+    if(bubble) bubble.style.display='none';
+    return;
+  }
+  const r = sel.getBoundingClientRect();
+  bubble.style.display='flex';
+  bubble.style.position='fixed';
+  bubble.style.top = (r.top - 46) + 'px';
+  bubble.style.left = (r.left + r.width/2) + 'px';
+}
+window.addEventListener('resize', positionBubble);
+document.querySelector('.editor')?.addEventListener('scroll', positionBubble);
+setTimeout(positionBubble, 100);
+
+// Bubble 展开为输入
+document.getElementById('bubble-ask')?.addEventListener('click',()=>{
+  document.getElementById('bubble').classList.add('expanded');
+  positionBubble();
+  setTimeout(()=>document.querySelector('#bubble input')?.focus(),50);
+});
+document.querySelector('#bubble input')?.addEventListener('keydown',(e)=>{
+  if(e.key==='Escape'){
+    document.getElementById('bubble').classList.remove('expanded');
+    positionBubble();
+  }
+});
+
+// Inline diff 接受 / 拒绝
+document.querySelectorAll('[data-inline]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    const wrap = b.closest('.inline-diff');
+    const act = b.dataset.inline;
+    if(act==='accept'){
+      wrap.querySelector('.del-block').remove();
+      const add = wrap.querySelector('.add-block');
+      const p = document.createElement('p'); p.textContent = add.textContent;
+      wrap.replaceWith(p);
+    }else{
+      wrap.querySelector('.add-block').remove();
+      const del = wrap.querySelector('.del-block');
+      const p = document.createElement('p'); p.textContent = del.textContent;
+      wrap.replaceWith(p);
+    }
+  });
+});
+
+// 初始化
+renderArch('global');
+</script>
+</body>
+</html>

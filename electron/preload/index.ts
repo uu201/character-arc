@@ -197,5 +197,49 @@ contextBridge.exposeInMainWorld('characterArc', {
   // ── 番茄风向标 ──
   /** 抓取番茄风向标榜单数据（主进程带本地缓存，force=true 时强制刷新） */
   fetchFanqieTrends: (path: string, force = false) =>
-    ipcRenderer.invoke('characterarc:fanqie-trends-fetch', { path, force })
+    ipcRenderer.invoke('characterarc:fanqie-trends-fetch', { path, force }),
+
+  // ── Assistant Runtime v2 ──
+  /**
+   * 全新一代 AI 助手运行时。命名空间 `characterarc:assistant:*`，
+   * 与旧的 `ai:*` 通道并存。Phase 1 阶段：Session/Stage 类可用，
+   * Turn 类需 Phase 2 后端注入 executionPlan + committer 才能真正响应。
+   */
+  assistant: {
+    // Session
+    sessionList: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:session:list', toIpcPayload(payload)),
+    sessionCreate: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:session:create', toIpcPayload(payload)),
+    sessionDelete: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:session:delete', toIpcPayload(payload)),
+    sessionLoad: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:session:load', toIpcPayload(payload)),
+    sessionRename: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:session:rename', toIpcPayload(payload)),
+    // Turn
+    turnSend: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:turn:send', toIpcPayload(payload)),
+    turnCancel: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:turn:cancel', toIpcPayload(payload)),
+    // Stage
+    stageList: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:stage:list', toIpcPayload(payload)),
+    stageAccept: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:stage:accept', toIpcPayload(payload)),
+    stageReject: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:stage:reject', toIpcPayload(payload)),
+    stageCommit: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:stage:commit', toIpcPayload(payload)),
+    stageBindTarget: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:stage:bind-target', toIpcPayload(payload)),
+    /** 订阅主进程推送的 TurnEvent 流。返回 unsubscribe 函数。 */
+    onEvent: (callback: (payload: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
+      ipcRenderer.on('characterarc:assistant:event:stream', listener)
+      return () => {
+        ipcRenderer.removeListener('characterarc:assistant:event:stream', listener)
+      }
+    }
+  }
 })

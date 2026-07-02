@@ -166,8 +166,8 @@ function toolScopeLabel(scope: string): string {
     deconstruction_library: '拆书知识库',
     reference_works: '参考书',
     chapters: '章节',
-    workflow_documents: '工作流文档',
-    workflowDocuments: '工作流文档',
+    workflow_documents: '创作记忆',
+    workflowDocuments: '创作记忆',
     project_constraints: '项目约束',
     projectConstraints: '项目约束'
   }
@@ -267,17 +267,97 @@ function normalizeDiffText(value: unknown): string {
 
 function stripHtmlForDiff(html: string): string {
   return html
+    .replace(/<\/(p|div|li|h[1-6]|blockquote)>\s*/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
 function escapeDiffPath(value: string): string {
   return value.replace(/\s+/g, '_').replace(/[\\]/g, '/')
+}
+
+function includesAnyText(text: string, keywords: string[]): boolean {
+  return keywords.some((keyword) => text.includes(keyword))
+}
+
+function hasConcreteChapterEditDirection(prompt: string): boolean {
+  const normalized = prompt.replace(/\s+/g, '')
+  return includesAnyText(normalized, [
+    '润色',
+    '改写',
+    '重写',
+    '扩写',
+    '续写',
+    '精简',
+    '压缩',
+    '删除',
+    '删掉',
+    '删减',
+    '拆长句',
+    '拆句',
+    '断句',
+    '分段',
+    '段落控',
+    '段落控制',
+    '调整段落',
+    '调整节奏',
+    '节奏',
+    '开头',
+    '开篇',
+    '结尾',
+    '对白',
+    '对话',
+    '描写',
+    '心理',
+    '动作',
+    '氛围',
+    '冲突',
+    '悬念',
+    '爽点',
+    '疲软',
+    '拖沓',
+    '水分',
+    '冗余',
+    '机械',
+    '模板感',
+    '降低AI感',
+    '降低ai感',
+    '去AI味',
+    '去ai味',
+    '按建议改',
+    '按你说的改',
+    '应用修改',
+    '写回正文'
+  ])
+}
+
+function hasVagueChapterEditIntent(prompt: string): boolean {
+  const normalized = prompt.replace(/\s+/g, '')
+  const mentionsChapterTarget = (
+    /第[零一二两三四五六七八九十百\d]+章/.test(normalized)
+    || includesAnyText(normalized, ['当前章节', '章节正文', '章节内容', '小说正文', '正文内容'])
+  )
+  const asksToEdit = includesAnyText(normalized, ['修改', '改一下', '调整', '优化', '处理'])
+  return mentionsChapterTarget && asksToEdit && !hasConcreteChapterEditDirection(normalized)
+}
+
+function buildGlobalChapterIntentHint(prompt: string): string {
+  if (!hasVagueChapterEditIntent(prompt)) return ''
+  return [
+    '意图判读提示（仅供你结合用户原话复核，不替代你的判断）：',
+    '- 初步意图：指定章节的修改意向，但缺少具体修改方向。',
+    '- 期望工具动作：可以先用 list_chapters / read_chapter 定位并读取目标章节，然后给出简短诊断、可选修改方向或追问用户想改什么。',
+    '- 禁止动作：不要调用 edit_chapter，不要生成写回提案，也不要直接输出整章改写稿。'
+  ].join('\n')
 }
 
 function createUnifiedPatch(file: GlobalAssistantProposalDiffFile): string {
@@ -1694,6 +1774,8 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
     try {
       const selectedChapter = appStore.selectedChapter
+      const intentHint = buildGlobalChapterIntentHint(prompt)
+      const userPromptForAi = intentHint ? `${intentHint}\n\n原始用户请求：\n${prompt}` : prompt
       const response = await window.characterArc.startAiAgentStream(toIpcPayload({
         task: 'global-assistant',
         clientKey: AI_TASK_KEY,
@@ -1713,7 +1795,8 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
           chapterSummary: selectedChapter?.summary ?? '',
           chapterStatus: selectedChapter?.status ?? '',
           chapterWordTarget: selectedChapter?.wordTarget ?? '',
-          userPrompt: prompt,
+          userPrompt: userPromptForAi,
+          originalUserPrompt: prompt,
           enabledContextModules: [
             'chapter',
             'worldview',

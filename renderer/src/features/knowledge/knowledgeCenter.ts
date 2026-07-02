@@ -77,7 +77,7 @@ const PROJECT_SOURCE_TYPES = new Set<KnowledgeDocumentSourceType>([
 const KNOWLEDGE_SOURCE_TYPE_LABELS: Record<KnowledgeDocumentSourceType, string> = {
   'reference-summary': '拆书总纲',
   'reference-chunk': '拆书分块',
-  'workflow-document': '流程文档',
+  'workflow-document': '创作记忆',
   'canon-fact': '设定事实',
   'chapter-summary': '章节摘要'
 }

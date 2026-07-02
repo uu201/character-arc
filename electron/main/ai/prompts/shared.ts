@@ -23,7 +23,7 @@ export function formatRetrievedKnowledge(knowledge?: AiTaskKnowledgeContext['use
   const referenceKnowledge = knowledge.filter((item) => resolveKnowledgeSourceGroupLabel(item.sourceType) === '参考资料')
 
   return [
-    formatSection('项目记忆', projectKnowledge, '以下是当前项目自身的设定/流程文档/章节摘要，写作时必须保持与之一致，不能矛盾。'),
+    formatSection('项目记忆', projectKnowledge, '以下是当前项目自身的设定/创作记忆/章节摘要，写作时必须保持与之一致，不能矛盾。'),
     formatSection(
       '参考资料',
       referenceKnowledge,
@@ -44,7 +44,7 @@ function resolveKnowledgeSourceTypeLabel(sourceType: string): string {
   switch (sourceType) {
     case 'canon-fact': return '项目 canon'
     case 'chapter-summary': return '章节摘要'
-    case 'workflow-document': return '流程文档'
+    case 'workflow-document': return '创作记忆'
     case 'reference-summary': return '拆书总纲'
     case 'reference-chunk':
     default: return '拆书分块/原文'

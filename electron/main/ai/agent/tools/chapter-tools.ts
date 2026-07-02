@@ -12,13 +12,80 @@ import {
 export type ChapterToolCallbacks = {
   currentChapterId: string
   useDiffReview?: boolean
+  originalUserPrompt?: string
+  blockVagueChapterEdit?: boolean
   onEditApplied?: (chapterId: string, editType: string, preview: string, versionId: string) => void
   onEditProposed?: (chapterId: string, proposalId: string, editType: string, preview: string, oldContent: string, newContent: string) => void
 }
 
 export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
-  const { currentChapterId, useDiffReview, onEditApplied, onEditProposed } = callbacks
+  const { currentChapterId, useDiffReview, originalUserPrompt = '', blockVagueChapterEdit, onEditApplied, onEditProposed } = callbacks
   const virtualContent = new Map<string, string>()
+
+  function includesAnyText(text: string, keywords: string[]): boolean {
+    return keywords.some((keyword) => text.includes(keyword))
+  }
+
+  function hasConcreteChapterEditDirection(prompt: string): boolean {
+    const normalized = prompt.replace(/\s+/g, '')
+    return includesAnyText(normalized, [
+      '润色',
+      '改写',
+      '重写',
+      '扩写',
+      '续写',
+      '精简',
+      '压缩',
+      '删除',
+      '删掉',
+      '删减',
+      '拆长句',
+      '拆句',
+      '断句',
+      '分段',
+      '段落控',
+      '段落控制',
+      '调整段落',
+      '调整节奏',
+      '节奏',
+      '开头',
+      '开篇',
+      '结尾',
+      '对白',
+      '对话',
+      '描写',
+      '心理',
+      '动作',
+      '氛围',
+      '冲突',
+      '悬念',
+      '爽点',
+      '疲软',
+      '拖沓',
+      '水分',
+      '冗余',
+      '机械',
+      '模板感',
+      '降低AI感',
+      '降低ai感',
+      '去AI味',
+      '去ai味',
+      '按建议改',
+      '按你说的改',
+      '应用修改',
+      '写回正文'
+    ])
+  }
+
+  function hasVagueChapterEditIntent(prompt: string): boolean {
+    const normalized = prompt.replace(/\s+/g, '')
+    const mentionsChapterTarget = (
+      /第[零一二两三四五六七八九十百\d]+章/.test(normalized)
+      || includesAnyText(normalized, ['当前章节', '章节正文', '章节内容', '小说正文', '正文内容'])
+    )
+    const asksToEdit = includesAnyText(normalized, ['修改', '改一下', '调整', '优化', '处理'])
+    return mentionsChapterTarget && asksToEdit && !hasConcreteChapterEditDirection(normalized)
+  }
 
   function normalizeChapterRef(value: string): string {
     return value
@@ -198,6 +265,12 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
       }
     },
     handler: async (input, ctx) => {
+      if (blockVagueChapterEdit && hasVagueChapterEditIntent(originalUserPrompt)) {
+        return {
+          content: '用户当前只表达了想修改某一章，但没有说明修改目标、风格或问题点。不要生成章节写回提案；请先读取目标章节，给出简短诊断和可选修改方向，或追问用户想怎么改。'
+        }
+      }
+
       const rawChapterRef = String(input.chapter_id || currentChapterId).trim()
       if (!rawChapterRef) {
         return { content: '没有提供章节引用，也没有当前激活章节，所以无法修改正文。请先用 list_chapters 查看项目章节，并自行判断目标章节。', isError: true }

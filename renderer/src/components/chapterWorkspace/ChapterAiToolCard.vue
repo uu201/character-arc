@@ -44,7 +44,7 @@ const toolLabel = computed(() => {
         'deconstructionLibrary': '读取拆书知识库',
         'deconstruction_library': '读取拆书知识库',
         'reference_works': '读取参考书',
-        'workflow_documents': '读取工作流文档',
+        'workflow_documents': '读取创作记忆',
         'project_constraints': '读取项目约束',
         'style': '读取写作风格'
       }

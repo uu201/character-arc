@@ -12,6 +12,7 @@ import type {
 import { registerAiIpcHandlers } from './ai/ipc'
 import { type ReferenceNovelLocalContext } from './referenceAnalysis'
 import { registerMainIpcHandlers } from './register-main-ipc'
+import { bootstrapAssistantRuntime } from './ai/runtime-v2/bootstrap'
 import { initRegistry as initSkillRegistry } from './ai/skills'
 import { createWindowManager } from './window-manager'
 import {
@@ -573,6 +574,22 @@ registerAiIpcHandlers({
   emitAiRunEvent: emitAiRunEvent as (payload: { projectId: string; meta: Record<string, unknown> }) => void,
   emitChapterStateWarnings,
   emitChapterPostGenerationIssues
+})
+
+// ── Assistant Runtime v2（Phase 2）──
+// bootstrap 一步到位注册 IPC + Provider + Executor + Committer。
+// 所有通道（Session / Turn / Stage）都可用，chapter 变更端到端可写回；
+// 其他 kind 的写回按 Phase 2 后续 roadmap 补齐。
+bootstrapAssistantRuntime({
+  ensureDb: ensureWorkspaceDb,
+  getSnapshot: () => latestWorkspaceSnapshot,
+  refreshSnapshot: async () => {
+    const db = await ensureWorkspaceDb()
+    const snapshot = readWorkspaceSnapshot(db)
+    if (!snapshot) return
+    updateLatestWorkspaceSnapshot(snapshot)
+    windowManager.broadcastWindowEvent('characterarc:workspace-sync-event', snapshot)
+  }
 })
 
 // ── 应用生命周期 ──

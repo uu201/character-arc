@@ -25,7 +25,7 @@ const archiveModuleOptions: Array<{ label: string; value: CharacterArcProjectArc
   { label: '伏笔线', value: 'plotThreads' },
   { label: '章节正文', value: 'chapters' },
   { label: '章节版本', value: 'chapterVersions' },
-  { label: '流程文档', value: 'workflowDocuments' },
+  { label: '创作记忆', value: 'workflowDocuments' },
   { label: '知识文档', value: 'knowledgeDocuments' },
   { label: '参考作品', value: 'referenceWorks' },
   { label: 'AI 运行记录', value: 'aiRuns' },

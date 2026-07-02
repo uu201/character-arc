@@ -98,11 +98,11 @@ export async function runAgentTask(
         '',
         '- Decide which project modules to inspect before answering. Do not rely only on short summaries when the request depends on concrete project facts.',
         '- Prefer `read_project_data` without `entity_type` to get a quick index, then read only the modules that matter.',
-        '- Use narrow reads whenever possible: `summary_only=true` for reconnaissance, `limit` to avoid over-reading, `entity_id` for exact entities, and `doc_key` for workflow documents.',
+        '- Use narrow reads whenever possible: `summary_only=true` for reconnaissance, `limit` to avoid over-reading, `entity_id` for exact entities, and `doc_key` for creative memory.',
         '- When the user asks what skills exist, what skills are enabled, or asks to summarize every skill, you must call `skill_list` first and answer from its result. The skill index above is only the current task-matched subset, not the complete registry.',
         '- Do not rely on the static skill list alone. When the task may benefit from project skills, you must decide which skills are relevant and explicitly call `skill_load` yourself before concluding.',
         '- Use `search_project` first when the user mentions a specific concept, role, event, clue, workflow artifact, or rule and you are not sure where it lives.',
-        '- Treat `project_constraints` as hard boundaries and `workflow_documents` as live planning artifacts. If they may affect the answer, inspect them before concluding.',
+        '- Treat `project_constraints` as hard boundaries and `workflow_documents` as creative memory. If they may affect the answer, inspect them before concluding.',
         '- Prefer targeted reads over loading every module. Read just enough context to answer well.',
         '- After using tools, produce a direct answer for the user instead of stopping at notes or partial findings.'
       ].join('\n')
@@ -126,6 +126,8 @@ export async function runAgentTask(
 
   const chapterTools = createChapterTools({
     currentChapterId: chapterId || '',
+    originalUserPrompt: String(task.context.originalUserPrompt ?? task.context.userPrompt ?? ''),
+    blockVagueChapterEdit: task.task === 'global-assistant',
     onEditApplied: NOOP_AGENT_HANDLERS.onEditApplied
   })
 
