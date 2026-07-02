@@ -3,10 +3,12 @@
  *
  * 会话 / Turn / Event 的 SQLite 持久化层。
  *
- * 三张新表（与旧 `assistant_sessions` 并存，Phase 3 迁移后合并）：
+ * 四张新表（与旧 `assistant_sessions` 并存，Phase 3 迁移后合并）：
  *   - assistant_sessions_v2   会话元数据（surface / scope / title）
  *   - assistant_turns         一次用户输入 → 一次 agent loop 的顶层记录
  *   - assistant_events        Turn 内的流式事件 append-only 日志（支持刷新 replay）
+ *   - assistant_staged_changes 统一变更暂存区（支持重启恢复待处理卡片）
+ *   - assistant_turn_states   Planner / Evidence Ledger / 可续跑状态
  *
  * 所有事件（reasoning/chunk/tool_use/tool_result/staged_change/done…）都落到
  * assistant_events。断线/刷新后前端只需 `replayTurn(turnId)` 拉全量事件即可还原状态。
@@ -60,12 +62,57 @@ export function initAssistantRuntimeSchema(db: DatabaseSync): void {
       FOREIGN KEY (turn_id) REFERENCES assistant_turns (id) ON DELETE CASCADE
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS assistant_staged_changes (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      tool_use_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL,
+      action TEXT NOT NULL,
+      entity_id TEXT NOT NULL DEFAULT '',
+      entity_title TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      before_text TEXT NOT NULL,
+      after_text TEXT NOT NULL,
+      chapter_html_json TEXT NOT NULL DEFAULT '',
+      entity_payload_json TEXT NOT NULL DEFAULT '',
+      candidates_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES assistant_sessions_v2 (id) ON DELETE CASCADE,
+      FOREIGN KEY (turn_id) REFERENCES assistant_turns (id) ON DELETE CASCADE
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS assistant_turn_states (
+      turn_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      phase TEXT NOT NULL,
+      batch_index INTEGER NOT NULL DEFAULT 0,
+      plan_json TEXT NOT NULL DEFAULT '{}',
+      ledger_json TEXT NOT NULL DEFAULT '{}',
+      resumable INTEGER NOT NULL DEFAULT 0,
+      continuation_prompt TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (turn_id) REFERENCES assistant_turns (id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES assistant_sessions_v2 (id) ON DELETE CASCADE
+    ) STRICT;
+
     CREATE INDEX IF NOT EXISTS idx_assistant_sessions_v2_project
       ON assistant_sessions_v2 (project_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_assistant_turns_session
       ON assistant_turns (session_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_assistant_events_turn_seq
       ON assistant_events (turn_id, seq);
+    CREATE INDEX IF NOT EXISTS idx_assistant_staged_changes_session
+      ON assistant_staged_changes (session_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_assistant_staged_changes_turn
+      ON assistant_staged_changes (turn_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_assistant_staged_changes_tool
+      ON assistant_staged_changes (tool_use_id);
+    CREATE INDEX IF NOT EXISTS idx_assistant_turn_states_session
+      ON assistant_turn_states (session_id, updated_at DESC);
   `)
 }
 
@@ -90,6 +137,17 @@ export interface ListSessionsFilter {
 export interface CreateTurnInput {
   sessionId: string
   userMessage: string
+}
+
+export interface UpsertTurnStateInput {
+  turnId: string
+  sessionId: string
+  phase: string
+  batchIndex?: number
+  planJson: string
+  ledgerJson: string
+  resumable: boolean
+  continuationPrompt?: string
 }
 
 // ============================================================================
@@ -186,6 +244,7 @@ export class ConversationManager {
     insertEvent: StatementSync
     listEventsByTurn: StatementSync
     maxSeqByTurn: StatementSync
+    upsertTurnState: StatementSync
   }
 
   constructor(private readonly db: DatabaseSync) {
@@ -245,6 +304,20 @@ export class ConversationManager {
       ),
       maxSeqByTurn: db.prepare(
         `SELECT MAX(seq) AS max_seq FROM assistant_events WHERE turn_id = ?`
+      ),
+      upsertTurnState: db.prepare(
+        `INSERT INTO assistant_turn_states
+         (turn_id, session_id, phase, batch_index, plan_json, ledger_json, resumable, continuation_prompt, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(turn_id) DO UPDATE SET
+           session_id = excluded.session_id,
+           phase = excluded.phase,
+           batch_index = excluded.batch_index,
+           plan_json = excluded.plan_json,
+           ledger_json = excluded.ledger_json,
+           resumable = excluded.resumable,
+           continuation_prompt = excluded.continuation_prompt,
+           updated_at = excluded.updated_at`
       )
     }
   }
@@ -426,5 +499,21 @@ export class ConversationManager {
       turn: this.getTurn(turnId),
       events: this.listEvents(turnId)
     }
+  }
+
+  upsertTurnState(input: UpsertTurnStateInput): void {
+    const now = new Date().toISOString()
+    this.stmts.upsertTurnState.run(
+      input.turnId,
+      input.sessionId,
+      input.phase,
+      input.batchIndex ?? 0,
+      input.planJson,
+      input.ledgerJson,
+      input.resumable ? 1 : 0,
+      input.continuationPrompt ?? '',
+      now,
+      now
+    )
   }
 }

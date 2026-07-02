@@ -7,6 +7,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import { ConversationManager } from './conversation-manager'
+import { stagedChangesStore } from './staged-changes-store'
 
 let sharedConversation: ConversationManager | null = null
 let ensureDbFn: (() => Promise<DatabaseSync>) | null = null
@@ -21,6 +22,7 @@ export async function getSharedConversation(): Promise<ConversationManager> {
   if (sharedConversation) return sharedConversation
   if (!ensureDbFn) throw new Error('Runtime state not configured; call configureRuntimeState first.')
   const db = await ensureDbFn()
+  stagedChangesStore.configure(db)
   sharedConversation = new ConversationManager(db)
   return sharedConversation
 }

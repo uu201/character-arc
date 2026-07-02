@@ -239,6 +239,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
         :messages="assistant.messages.value"
         :is-streaming="assistant.isStreaming.value"
         @open-knowledge="openKnowledgeDocument"
+        @continue="assistant.continueWithPrompt"
       />
 
       <div v-else class="starter">

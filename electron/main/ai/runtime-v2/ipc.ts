@@ -10,6 +10,7 @@
  */
 
 import { ipcMain } from 'electron'
+import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import {
   ASSISTANT_IPC_CHANNELS,
@@ -20,15 +21,19 @@ import {
   type StageCommitRequest,
   type StageRejectRequest,
   type SurfaceDefinition,
+  type TurnEvent,
   type TurnCancelRequest,
   type TurnSendRequest
 } from '@shared/assistant-runtime'
-import type { AppSettings } from '../shared-types'
+import type { AiTaskName, AppSettings } from '../shared-types'
 import type { Tool } from '../agent/tools/types'
+import { buildRunMeta } from '../runtime/run-meta'
 import type { ConversationManager } from './conversation-manager'
 import { stagedChangesStore, type StagedChangeCommitter } from './staged-changes-store'
-import { AgentLoop, type ToolFactory } from './agent-loop'
+import { AgentLoop, type AgentLoopRunResult, type ToolFactory } from './agent-loop'
 import { configureRuntimeState, getSharedConversation } from './state'
+import type { EvidenceLedger } from './evidence-ledger'
+import type { AssistantRuntimePlan } from './planner'
 
 /** Phase 2 才注入的执行计划解析器：把 Surface + user request → prompt + tools。 */
 export type ResolveTurnExecutionPlan = (params: {
@@ -44,6 +49,8 @@ export type ResolveTurnExecutionPlan = (params: {
   tools: Tool[] | ToolFactory
   settings: AppSettings
   maxOutputTokens?: number
+  runtimePlan: AssistantRuntimePlan
+  evidenceLedger: EvidenceLedger
 }>
 
 /** 外部依赖注入。 */
@@ -54,6 +61,8 @@ export interface AssistantIpcDeps {
   resolveTurnExecutionPlan?: ResolveTurnExecutionPlan
   /** Phase 2 注入。缺省时 stage:commit 通道拒绝服务。 */
   commitChange?: StagedChangeCommitter
+  /** 可选：把 v2 turn 记录到既有 AI 运行日志。 */
+  emitAiRunEvent?: (payload: { projectId: string; meta: Record<string, unknown> }) => void
 }
 
 // ============================================================================
@@ -85,6 +94,106 @@ function requireDep<K extends keyof AssistantIpcDeps>(
     )
   }
   return value as NonNullable<AssistantIpcDeps[K]>
+}
+
+function taskForSurface(surface: SurfaceDefinition): AiTaskName {
+  return surface.id === 'chapter-panel' || surface.id === 'inline-selection'
+    ? 'chapter-assistant'
+    : 'global-assistant'
+}
+
+function chapterIdFromScope(scopeRef?: string): string | undefined {
+  const ref = String(scopeRef ?? '').trim()
+  if (!ref) return undefined
+  const match = ref.match(/chapter:([^#]+)/)
+  if (match?.[1]) return match[1]
+  return ref.startsWith('chapter-') ? ref : undefined
+}
+
+function runStatusFromTurn(status: AgentLoopRunResult['status']): 'running' | 'success' | 'error' | 'canceled' {
+  if (status === 'done') return 'success'
+  if (status === 'error' || status === 'canceled') return status
+  return 'running'
+}
+
+function emitTurnRunLog(params: {
+  session: AssistantSession
+  surface: SurfaceDefinition
+  request: TurnSendRequest
+  settings: AppSettings
+  startedAt: string
+  result: AgentLoopRunResult
+}): void {
+  const emit = deps?.emitAiRunEvent
+  if (!emit) return
+  const finishedAt = new Date().toISOString()
+  const meta = buildRunMeta(
+    taskForSurface(params.surface),
+    params.session.projectId,
+    chapterIdFromScope(params.session.scopeRef),
+    params.settings,
+    runStatusFromTurn(params.result.status),
+    params.startedAt,
+    finishedAt,
+    params.result.usage,
+    [],
+    [],
+    false,
+    params.result.finalText || params.result.error || params.request.userMessage,
+    params.result.error ?? '',
+    `assistant-v2:${params.surface.id}:${params.session.id}`
+  )
+  emit({
+    projectId: params.session.projectId,
+    meta: {
+      id: randomUUID(),
+      ...meta,
+      toolCalls: params.result.toolCalls,
+      agentIterations: params.result.agentIterations
+    }
+  })
+}
+
+function shouldOfferContinuation(
+  runtimePlan: AssistantRuntimePlan,
+  ledger: ReturnType<EvidenceLedger['snapshot']>,
+  result: AgentLoopRunResult
+): boolean {
+  return result.status === 'done' && (runtimePlan.requiresBatching || ledger.budgetExhausted)
+}
+
+function persistTurnRuntimeState(params: {
+  conversation: ConversationManager
+  sessionId: string
+  turnId: string
+  runtimePlan: AssistantRuntimePlan
+  ledger: ReturnType<EvidenceLedger['snapshot']>
+  resumable: boolean
+}): void {
+  params.conversation.upsertTurnState({
+    turnId: params.turnId,
+    sessionId: params.sessionId,
+    phase: params.resumable ? 'awaiting-continue' : 'done',
+    planJson: JSON.stringify(params.runtimePlan),
+    ledgerJson: JSON.stringify(params.ledger),
+    resumable: params.resumable,
+    continuationPrompt: params.resumable ? params.runtimePlan.continuationPrompt : ''
+  })
+}
+
+function appendRuntimeEvent(
+  conversation: ConversationManager,
+  push: (evt: AssistantEventPush) => void,
+  sessionId: string,
+  turnId: string,
+  event: TurnEvent
+): void {
+  const persisted = conversation.appendEvent(turnId, event)
+  push({
+    sessionId,
+    turnId,
+    event: { ...event, seq: persisted.seq } as TurnEvent
+  })
 }
 
 // ============================================================================
@@ -193,6 +302,7 @@ function registerTurnHandlers(): void {
       const cm = await getConversation()
       const session = cm.getSession(payload.sessionId)
       if (!session) throw new Error(`session not found: ${payload.sessionId}`)
+      const startedAt = new Date().toISOString()
 
       // 组装执行计划（Phase 2 实现），拿到 systemPrompt + tools + settings
       const plan = await resolvePlan({
@@ -231,6 +341,35 @@ function registerTurnHandlers(): void {
         onTurnCreated: (turnId) => activeTurns.set(turnId, controller)
       })
       activeTurns.delete(result.turnId)
+      const ledgerSnapshot = plan.evidenceLedger.snapshot()
+      const resumable = shouldOfferContinuation(plan.runtimePlan, ledgerSnapshot, result)
+      persistTurnRuntimeState({
+        conversation: cm,
+        sessionId: session.id,
+        turnId: result.turnId,
+        runtimePlan: plan.runtimePlan,
+        ledger: ledgerSnapshot,
+        resumable
+      })
+      if (resumable) {
+        appendRuntimeEvent(cm, emitter, session.id, result.turnId, {
+          kind: 'resumable',
+          seq: 0,
+          label: plan.runtimePlan.continuationLabel,
+          prompt: plan.runtimePlan.continuationPrompt,
+          reason: ledgerSnapshot.budgetExhausted
+            ? '本批读取预算已用完，建议进入下一批。'
+            : '这是分批任务，建议按下一批继续推进。'
+        })
+      }
+      emitTurnRunLog({
+        session,
+        surface: payload.surface,
+        request: payload,
+        settings: plan.settings,
+        startedAt,
+        result
+      })
       return result
     }
   )
@@ -262,6 +401,7 @@ function registerStageHandlers(): void {
   ipcMain.handle(
     ASSISTANT_IPC_CHANNELS.STAGE_LIST,
     async (_event, payload: StageListRequest) => {
+      await getConversation()
       return stagedChangesStore.list(
         {
           status: payload.status as never,
@@ -276,6 +416,7 @@ function registerStageHandlers(): void {
   ipcMain.handle(
     ASSISTANT_IPC_CHANNELS.STAGE_ACCEPT,
     async (_event, payload: StageAcceptRequest) => {
+      await getConversation()
       return stagedChangesStore.accept(payload.changeIds)
     }
   )
@@ -283,6 +424,7 @@ function registerStageHandlers(): void {
   ipcMain.handle(
     ASSISTANT_IPC_CHANNELS.STAGE_REJECT,
     async (_event, payload: StageRejectRequest) => {
+      await getConversation()
       return stagedChangesStore.reject(payload.changeIds)
     }
   )
@@ -290,6 +432,7 @@ function registerStageHandlers(): void {
   ipcMain.handle(
     ASSISTANT_IPC_CHANNELS.STAGE_BIND_TARGET,
     async (_event, payload: StageBindTargetRequest) => {
+      await getConversation()
       const updated = stagedChangesStore.bindTarget(payload.changeId, payload.entityId)
       return updated ?? null
     }
@@ -298,6 +441,7 @@ function registerStageHandlers(): void {
   ipcMain.handle(
     ASSISTANT_IPC_CHANNELS.STAGE_COMMIT,
     async (_event, payload: StageCommitRequest) => {
+      await getConversation()
       const committer = requireDep('commitChange')
       return stagedChangesStore.commit(committer, {
         changeIds: payload.changeIds

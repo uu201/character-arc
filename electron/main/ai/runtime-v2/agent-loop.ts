@@ -21,7 +21,8 @@ import type {
 import type {
   AiAgentStreamHandlers,
   AiRunUsage,
-  AppSettings
+  AppSettings,
+  ToolCallTrace
 } from '../shared-types'
 import type { Tool } from '../agent/tools/types'
 import { runAgent } from '../agent/run-agent'
@@ -62,6 +63,8 @@ export interface AgentLoopRunResult {
   finalText: string
   status: TurnStatus
   usage?: AiRunUsage
+  toolCalls: ToolCallTrace[]
+  agentIterations: number
   error?: string
 }
 
@@ -109,7 +112,12 @@ export class AgentLoop {
    * onEditApplied / onEditProposed 保留空实现，供旧的 edit_chapter 工具兼容
    * （Phase 2 移除旧工具后即可删掉）。
    */
-  private buildHandlers(sessionId: string, turnId: string): AiAgentStreamHandlers {
+  private buildHandlers(
+    sessionId: string,
+    turnId: string,
+    toolCalls: ToolCallTrace[]
+  ): AiAgentStreamHandlers {
+    const toolArgs = new Map<string, Record<string, unknown>>()
     return {
       onTextDelta: (delta) => {
         this.dispatch(sessionId, turnId, { kind: 'chunk', seq: 0, delta })
@@ -118,6 +126,7 @@ export class AgentLoop {
         this.dispatch(sessionId, turnId, { kind: 'reasoning', seq: 0, delta })
       },
       onToolUseStart: (toolUseId, toolName, args) => {
+        toolArgs.set(toolUseId, args)
         this.dispatch(sessionId, turnId, {
           kind: 'tool_use_start',
           seq: 0,
@@ -126,7 +135,7 @@ export class AgentLoop {
           args
         })
       },
-      onToolResult: (toolUseId, _toolName, content, isError, durationMs) => {
+      onToolResult: (toolUseId, toolName, content, isError, durationMs) => {
         this.dispatch(sessionId, turnId, {
           kind: 'tool_result',
           seq: 0,
@@ -134,6 +143,13 @@ export class AgentLoop {
           content,
           isError,
           durationMs
+        })
+        toolCalls.push({
+          tool: toolName,
+          args: toolArgs.get(toolUseId) ?? {},
+          durationMs,
+          status: isError ? 'error' : 'ok',
+          ...(isError ? { error: content.slice(0, 240) } : {})
         })
       },
       onAgentStatus: (message) => {
@@ -206,6 +222,8 @@ export class AgentLoop {
 
     let finalText = ''
     let usage: AiRunUsage | undefined
+    let agentIterations = 0
+    const toolCalls: ToolCallTrace[] = []
     let status: TurnStatus = 'done'
     let errorMessage: string | undefined
 
@@ -219,12 +237,16 @@ export class AgentLoop {
           signal: options.signal,
           projectId: options.session.projectId
         },
-        handlers: this.buildHandlers(sessionId, turnId),
+        handlers: this.buildHandlers(sessionId, turnId, toolCalls),
         maxTokens: options.maxOutputTokens,
         maxSteps: options.maxSteps ?? options.surface.maxSteps
       })
       finalText = result.finalText
       usage = result.usage
+      agentIterations = result.iterations
+      if (toolCalls.length === 0 && result.toolCalls.length > 0) {
+        toolCalls.push(...result.toolCalls)
+      }
       // 若模型未产出任何可见文本，拒绝静默 done——转成 error 并附带诊断信息，
       // 便于定位到 provider/model 层的兼容问题（如中转站不吐流式正文、
       // 只返回工具调用但没最终答复等）。
@@ -268,6 +290,8 @@ export class AgentLoop {
       finalText,
       status,
       usage,
+      toolCalls,
+      agentIterations,
       error: errorMessage
     }
   }

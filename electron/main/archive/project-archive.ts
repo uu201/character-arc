@@ -7,12 +7,26 @@ import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 
 import { getWorkspaceDirPath } from '../workspace-store'
+import { stagedChangesStore } from '../ai/runtime-v2/staged-changes-store'
 import {
   normalizeWorkspacePayload,
   type WorkspaceKnowledgeDocument,
   type WorkspacePayload,
   type WorkspaceReferenceWork
 } from '../workspace-types'
+import type {
+  AssistantSession,
+  AssistantTurn,
+  PersistedTurnEvent,
+  StagedChange,
+  StagedChangeAction,
+  StagedChangeCandidate,
+  StagedChangeKind,
+  StagedChangeStatus,
+  SurfaceId,
+  TurnEvent,
+  TurnStatus
+} from '@shared/assistant-runtime'
 
 export type ProjectArchiveModule =
   | 'project'
@@ -54,9 +68,65 @@ type ProjectArchiveContent = {
   manifest: ProjectArchiveManifest
   project: ProjectRecord
   workspace: ProjectWorkspace
+  assistantV2: AssistantV2Archive
   knowledgeDocuments: Array<WorkspaceKnowledgeDocument & { projectId?: string }>
   referenceWorks: WorkspaceReferenceWork[]
   referenceNovelAssets: Map<string, Buffer>
+}
+
+type AssistantV2Archive = {
+  sessions: AssistantSession[]
+  turns: AssistantTurn[]
+  events: PersistedTurnEvent[]
+  stagedChanges: StagedChange[]
+}
+
+interface AssistantV2SessionRow {
+  id: string
+  project_id: string
+  surface_id: string
+  scope_ref: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+interface AssistantV2TurnRow {
+  id: string
+  session_id: string
+  user_message: string
+  assistant_message: string
+  status: string
+  created_at: string
+}
+
+interface AssistantV2EventRow {
+  id: string
+  turn_id: string
+  seq: number
+  kind: string
+  payload_json: string
+  created_at: string
+}
+
+interface AssistantV2StagedChangeRow {
+  id: string
+  session_id: string
+  turn_id: string
+  tool_use_id: string
+  kind: string
+  action: string
+  entity_id: string
+  entity_title: string
+  reason: string
+  before_text: string
+  after_text: string
+  chapter_html_json: string
+  entity_payload_json: string
+  candidates_json: string
+  status: string
+  created_at: string
+  updated_at: string
 }
 
 type ExportProjectArchiveOptions = {
@@ -167,9 +237,214 @@ function readProjectKnowledgeDocuments(
   }))
 }
 
+function createEmptyAssistantV2Archive(): AssistantV2Archive {
+  return {
+    sessions: [],
+    turns: [],
+    events: [],
+    stagedChanges: []
+  }
+}
+
+function normalizeAssistantV2Archive(value: Partial<AssistantV2Archive> | undefined): AssistantV2Archive {
+  return {
+    sessions: Array.isArray(value?.sessions) ? value.sessions : [],
+    turns: Array.isArray(value?.turns) ? value.turns : [],
+    events: Array.isArray(value?.events) ? value.events : [],
+    stagedChanges: Array.isArray(value?.stagedChanges) ? value.stagedChanges : []
+  }
+}
+
+function rowToAssistantV2Session(row: AssistantV2SessionRow): AssistantSession {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    surfaceId: row.surface_id as SurfaceId,
+    scopeRef: row.scope_ref || undefined,
+    title: row.title,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+function rowToAssistantV2Turn(row: AssistantV2TurnRow): AssistantTurn {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    userMessage: row.user_message,
+    assistantMessage: row.assistant_message,
+    status: row.status as TurnStatus,
+    createdAt: row.created_at
+  }
+}
+
+function rowToAssistantV2Event(row: AssistantV2EventRow): PersistedTurnEvent {
+  return {
+    id: row.id,
+    turnId: row.turn_id,
+    seq: row.seq,
+    kind: row.kind as TurnEvent['kind'],
+    payloadJson: row.payload_json,
+    createdAt: row.created_at
+  }
+}
+
+function rowToAssistantV2StagedChange(row: AssistantV2StagedChangeRow): StagedChange {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    turnId: row.turn_id,
+    toolUseId: row.tool_use_id || undefined,
+    kind: row.kind as StagedChangeKind,
+    action: row.action as StagedChangeAction,
+    entityId: row.entity_id || undefined,
+    entityTitle: row.entity_title,
+    reason: row.reason,
+    before: row.before_text,
+    after: row.after_text,
+    chapterHtml: parseJson(row.chapter_html_json, undefined as StagedChange['chapterHtml']),
+    entityPayload: parseJson(row.entity_payload_json, undefined as StagedChange['entityPayload']),
+    candidates: parseJson(row.candidates_json, undefined as StagedChangeCandidate[] | undefined),
+    status: row.status as StagedChangeStatus,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+function readAssistantV2Archive(db: DatabaseSync, projectId: string): AssistantV2Archive {
+  const sessions = (db.prepare(`
+    SELECT * FROM assistant_sessions_v2
+    WHERE project_id = ?
+    ORDER BY created_at ASC, rowid ASC
+  `).all(projectId) as unknown as AssistantV2SessionRow[]).map(rowToAssistantV2Session)
+
+  if (sessions.length === 0) return createEmptyAssistantV2Archive()
+
+  const turns = (db.prepare(`
+    SELECT t.*
+    FROM assistant_turns t
+    JOIN assistant_sessions_v2 s ON s.id = t.session_id
+    WHERE s.project_id = ?
+    ORDER BY t.created_at ASC, t.rowid ASC
+  `).all(projectId) as unknown as AssistantV2TurnRow[]).map(rowToAssistantV2Turn)
+
+  const events = (db.prepare(`
+    SELECT e.*
+    FROM assistant_events e
+    JOIN assistant_turns t ON t.id = e.turn_id
+    JOIN assistant_sessions_v2 s ON s.id = t.session_id
+    WHERE s.project_id = ?
+    ORDER BY e.created_at ASC, e.seq ASC, e.rowid ASC
+  `).all(projectId) as unknown as AssistantV2EventRow[]).map(rowToAssistantV2Event)
+
+  const stagedChanges = (db.prepare(`
+    SELECT c.*
+    FROM assistant_staged_changes c
+    JOIN assistant_sessions_v2 s ON s.id = c.session_id
+    WHERE s.project_id = ?
+    ORDER BY c.created_at ASC, c.rowid ASC
+  `).all(projectId) as unknown as AssistantV2StagedChangeRow[]).map(rowToAssistantV2StagedChange)
+
+  return { sessions, turns, events, stagedChanges }
+}
+
+function writeAssistantV2Archive(
+  db: DatabaseSync,
+  projectId: string,
+  archive: AssistantV2Archive,
+  overwrite: boolean
+): void {
+  if (overwrite) {
+    db.prepare(`DELETE FROM assistant_sessions_v2 WHERE project_id = ?`).run(projectId)
+  }
+
+  const insertSession = db.prepare(`
+    INSERT OR REPLACE INTO assistant_sessions_v2
+      (id, project_id, surface_id, scope_ref, title, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `)
+  const insertTurn = db.prepare(`
+    INSERT OR REPLACE INTO assistant_turns
+      (id, session_id, user_message, assistant_message, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+  const insertEvent = db.prepare(`
+    INSERT OR REPLACE INTO assistant_events
+      (id, turn_id, seq, kind, payload_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+  const insertStagedChange = db.prepare(`
+    INSERT OR REPLACE INTO assistant_staged_changes (
+      id, session_id, turn_id, tool_use_id, kind, action, entity_id,
+      entity_title, reason, before_text, after_text, chapter_html_json,
+      entity_payload_json, candidates_json, status, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  for (const session of archive.sessions) {
+    insertSession.run(
+      session.id,
+      projectId,
+      session.surfaceId,
+      session.scopeRef ?? '',
+      session.title,
+      session.createdAt,
+      session.updatedAt
+    )
+  }
+
+  for (const turn of archive.turns) {
+    insertTurn.run(
+      turn.id,
+      turn.sessionId,
+      turn.userMessage,
+      turn.assistantMessage,
+      turn.status,
+      turn.createdAt
+    )
+  }
+
+  for (const event of archive.events) {
+    insertEvent.run(
+      event.id,
+      event.turnId,
+      event.seq,
+      event.kind,
+      event.payloadJson,
+      event.createdAt
+    )
+  }
+
+  for (const change of archive.stagedChanges) {
+    insertStagedChange.run(
+      change.id,
+      change.sessionId,
+      change.turnId,
+      change.toolUseId ?? '',
+      change.kind,
+      change.action,
+      change.entityId ?? '',
+      change.entityTitle,
+      change.reason,
+      change.before,
+      change.after,
+      change.chapterHtml ? JSON.stringify(change.chapterHtml) : '',
+      change.entityPayload ? JSON.stringify(change.entityPayload) : '',
+      JSON.stringify(change.candidates ?? []),
+      change.status,
+      change.createdAt,
+      change.updatedAt
+    )
+  }
+
+  stagedChangesStore.reloadFromDatabase()
+}
+
 function buildManifest(
   project: ProjectRecord,
   workspace: ProjectWorkspace,
+  assistantV2: AssistantV2Archive,
   knowledgeDocuments: WorkspaceKnowledgeDocument[],
   referenceWorks: WorkspaceReferenceWork[],
   assetCount: number
@@ -199,7 +474,14 @@ function buildManifest(
       knowledgeDocuments: { count: knowledgeDocuments.length },
       referenceWorks: { count: referenceWorks.length },
       aiRuns: { count: workspace.aiRuns.length },
-      assistantSessions: { count: workspace.globalAssistantSessions.length + workspace.messages.length },
+      assistantSessions: {
+        count:
+          workspace.globalAssistantSessions.length +
+          workspace.messages.length +
+          assistantV2.sessions.length +
+          assistantV2.turns.length +
+          assistantV2.stagedChanges.length
+      },
       referenceNovelAssets: { count: assetCount }
     }
   }
@@ -221,6 +503,7 @@ export async function exportProjectArchive(options: ExportProjectArchiveOptions)
   const referenceIdSet = new Set(project.selectedReferenceWorkIds ?? [])
   const referenceWorks = snapshot.referenceWorks.filter((work) => referenceIdSet.has(work.id))
   const knowledgeDocuments = readProjectKnowledgeDocuments(options.db, project.id)
+  const assistantV2 = readAssistantV2Archive(options.db, project.id)
   const zip = new JSZip()
   const assetDir = join(getWorkspaceDirPath(), 'reference-novels')
   let assetCount = 0
@@ -233,7 +516,7 @@ export async function exportProjectArchive(options: ExportProjectArchiveOptions)
     assetCount++
   }
 
-  const manifest = buildManifest(project, workspace, knowledgeDocuments, referenceWorks, assetCount)
+  const manifest = buildManifest(project, workspace, assistantV2, knowledgeDocuments, referenceWorks, assetCount)
   addJson(zip, 'manifest.json', manifest)
   addJson(zip, 'project.json', project)
   addJson(zip, 'workspace/worldview.json', workspace.worldviewEntries)
@@ -260,7 +543,8 @@ export async function exportProjectArchive(options: ExportProjectArchiveOptions)
   addJson(zip, 'workspace/assistantSessions.json', {
     messages: workspace.messages,
     globalAssistantSessions: workspace.globalAssistantSessions,
-    activeGlobalAssistantSessionId: workspace.activeGlobalAssistantSessionId
+    activeGlobalAssistantSessionId: workspace.activeGlobalAssistantSessionId,
+    assistantV2
   })
 
   await writeFile(options.filePath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
@@ -308,6 +592,7 @@ async function readArchiveContent(filePath: string): Promise<ProjectArchiveConte
     messages?: ProjectWorkspace['messages']
     globalAssistantSessions?: ProjectWorkspace['globalAssistantSessions']
     activeGlobalAssistantSessionId?: string
+    assistantV2?: Partial<AssistantV2Archive>
   }>(zip, 'workspace/assistantSessions.json', {})
 
   const workspace: ProjectWorkspace = {
@@ -339,6 +624,7 @@ async function readArchiveContent(filePath: string): Promise<ProjectArchiveConte
     manifest,
     project,
     workspace,
+    assistantV2: normalizeAssistantV2Archive(assistantPayload.assistantV2),
     knowledgeDocuments: await readZipJson(zip, 'workspace/knowledgeDocuments.json', []),
     referenceWorks: await readZipJson(zip, 'workspace/referenceWorks.json', []),
     referenceNovelAssets: assets
@@ -359,6 +645,52 @@ function expandModules(modules?: ProjectArchiveModule[]): Set<ProjectArchiveModu
 function mapId(map: Map<string, string>, oldId: string | undefined): string {
   if (!oldId) return ''
   return map.get(oldId) ?? oldId
+}
+
+function remapAssistantEventPayload(payloadJson: string, idMap: Map<string, string>): string {
+  const payload = parseJson<Record<string, unknown> | null>(payloadJson, null)
+  if (!payload || typeof payload !== 'object') return payloadJson
+  const next = { ...payload }
+  if (typeof next.changeId === 'string') next.changeId = mapId(idMap, next.changeId)
+  return JSON.stringify(next)
+}
+
+function remapAssistantV2Archive(
+  archive: AssistantV2Archive,
+  targetProjectId: string,
+  idMap: Map<string, string>,
+  modules: Set<ProjectArchiveModule>
+): AssistantV2Archive {
+  if (!modules.has('assistantSessions')) return createEmptyAssistantV2Archive()
+  return {
+    sessions: archive.sessions.map((session) => ({
+      ...session,
+      id: mapId(idMap, session.id),
+      projectId: targetProjectId
+    })),
+    turns: archive.turns.map((turn) => ({
+      ...turn,
+      id: mapId(idMap, turn.id),
+      sessionId: mapId(idMap, turn.sessionId)
+    })),
+    events: archive.events.map((event) => ({
+      ...event,
+      id: mapId(idMap, event.id),
+      turnId: mapId(idMap, event.turnId),
+      payloadJson: remapAssistantEventPayload(event.payloadJson, idMap)
+    })),
+    stagedChanges: archive.stagedChanges.map((change) => ({
+      ...change,
+      id: mapId(idMap, change.id),
+      sessionId: mapId(idMap, change.sessionId),
+      turnId: mapId(idMap, change.turnId),
+      entityId: change.entityId ? mapId(idMap, change.entityId) : undefined,
+      candidates: change.candidates?.map((candidate) => ({
+        ...candidate,
+        entityId: mapId(idMap, candidate.entityId)
+      }))
+    }))
+  }
 }
 
 function remapArchiveContent(
@@ -392,6 +724,10 @@ function remapArchiveContent(
   for (const message of content.workspace.messages) assign(message.id, 'message')
   for (const session of content.workspace.globalAssistantSessions) assign(session.id, 'session')
   for (const run of content.workspace.aiRuns) assign(run.id, 'airun')
+  for (const session of content.assistantV2.sessions) assign(session.id, 'session-v2')
+  for (const turn of content.assistantV2.turns) assign(turn.id, 'turn')
+  for (const event of content.assistantV2.events) assign(event.id, 'event')
+  for (const change of content.assistantV2.stagedChanges) assign(change.id, 'stage')
 
   const project: ProjectRecord = {
     ...content.project,
@@ -514,11 +850,13 @@ function remapArchiveContent(
       assets.set(mapId(idMap, oldId), data)
     }
   }
+  const assistantV2 = remapAssistantV2Archive(content.assistantV2, targetProjectId, idMap, modules)
 
   return {
     ...content,
     project,
     workspace,
+    assistantV2,
     knowledgeDocuments,
     referenceWorks,
     referenceNovelAssets: assets
@@ -687,6 +1025,14 @@ export async function importProjectArchive(options: ImportProjectArchiveOptions)
 
   const normalized = normalizeWorkspacePayload(nextPayload)
   options.writeWorkspaceSnapshot(options.db, normalized)
+  if (modules.has('assistantSessions')) {
+    writeAssistantV2Archive(
+      options.db,
+      targetProjectId,
+      incoming.assistantV2,
+      options.mode === 'overwrite-project'
+    )
+  }
   await restoreReferenceNovelAssets(incoming.referenceNovelAssets)
   return { selectedProjectId: targetProjectId }
 }

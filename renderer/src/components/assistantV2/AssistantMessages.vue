@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { SquareTerminal } from 'lucide-vue-next'
 import type { AssistantMessageView, AssistantToolCallView } from '@/composables/useAssistant'
 
 const MD_ALLOWED_TAGS = [
@@ -26,50 +27,25 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'open-knowledge', documentId?: string): void
+  (e: 'continue', prompt: string): void
 }>()
 
 const scrollRef = ref<HTMLDivElement | null>(null)
 
 watch(
-  () => props.messages.map((m) => m.assistantMessage + m.toolCalls.length + m.status).join('|'),
+  () => props.messages.map((m) => [
+    m.assistantMessage,
+    m.reasoning.length,
+    m.flowBlocks.length,
+    m.toolCalls.map((t) => `${t.status}:${t.resultPreview?.length ?? 0}`).join(','),
+    m.status
+  ].join(':')).join('|'),
   async () => {
     await nextTick()
     const el = scrollRef.value
     if (el) el.scrollTop = el.scrollHeight
   }
 )
-
-function groupToolCalls(calls: AssistantToolCallView[]): {
-  label: string
-  items: AssistantToolCallView[]
-}[] {
-  const groups: Record<string, AssistantToolCallView[]> = {}
-  for (const c of calls) {
-    const key = classify(c.toolName)
-    if (!groups[key]) groups[key] = []
-    groups[key].push(c)
-  }
-  const order: [string, string][] = [
-    ['search', '搜索线索'],
-    ['read', '读取资料'],
-    ['stage', '产出暂存'],
-    ['skill', '加载技能'],
-    ['knowledge', '沉淀知识'],
-    ['other', '其他动作']
-  ]
-  return order
-    .filter(([k]) => groups[k])
-    .map(([k, label]) => ({ label, items: groups[k] }))
-}
-
-function classify(name: string): string {
-  if (name.startsWith('search_')) return 'search'
-  if (name.startsWith('read_') || name.startsWith('list_')) return 'read'
-  if (name.startsWith('stage_')) return 'stage'
-  if (name.startsWith('skill_')) return 'skill'
-  if (name.startsWith('knowledge_')) return 'knowledge'
-  return 'other'
-}
 
 /** 人类可读的工具动作说明。 */
 function describeToolAction(t: AssistantToolCallView): string {
@@ -112,6 +88,39 @@ function canOpenKnowledge(t: AssistantToolCallView): boolean {
   return t.toolName === 'knowledge_save_document' && t.status === 'ok'
 }
 
+function isEvidenceTool(name: string): boolean {
+  return name === 'search_project' ||
+    name === 'read_project_data' ||
+    name === 'read_chapter' ||
+    name === 'list_chapters'
+}
+
+function evidenceLabel(t: AssistantToolCallView): string {
+  if (t.toolName === 'search_project') return `搜索：${short(t.args.query ?? t.args.q, 28)}`
+  if (t.toolName === 'read_project_data') return `读取资料：${short(t.args.entity_type ?? '项目索引', 28)}`
+  if (t.toolName === 'read_chapter') return `读取章节：${short(t.args.chapter_id ?? '当前章节', 28)}`
+  if (t.toolName === 'list_chapters') return '章节列表'
+  return t.toolName
+}
+
+function toolStatusText(t: AssistantToolCallView): string {
+  if (t.status === 'running') return '进行中'
+  if (t.status === 'error') return '失败'
+  return '完成'
+}
+
+function commandLabel(t: AssistantToolCallView): string {
+  return isEvidenceTool(t.toolName) ? evidenceLabel(t) : describeToolAction(t)
+}
+
+function commandSummary(calls: AssistantToolCallView[]): string {
+  const running = calls.filter((c) => c.status === 'running').length
+  const failed = calls.filter((c) => c.status === 'error').length
+  if (running > 0) return `正在运行 ${running} 条命令`
+  if (failed > 0) return `已运行 ${calls.length} 条命令，${failed} 条失败`
+  return `已运行 ${calls.length} 条命令`
+}
+
 const hasContent = computed(() => props.messages.length > 0)
 </script>
 
@@ -119,71 +128,94 @@ const hasContent = computed(() => props.messages.length > 0)
   <div ref="scrollRef" class="messages">
     <div v-if="!hasContent" class="empty">
       <div class="title">开始一段对话</div>
-      <div class="hint">试试问："介绍项目里的第一个人物" 或"帮我优化第一章的开头"</div>
+      <div class="hint">
+        {{ props.isStreaming ? '正在思考…' : '试试问："介绍项目里的第一个人物" 或"帮我优化第一章的开头"' }}
+      </div>
     </div>
 
-    <div v-for="msg in props.messages" :key="msg.turnId" class="turn">
-      <!-- 用户消息 -->
-      <div class="msg user">
-        <div class="avatar">你</div>
-        <div class="body">
-          <div class="content">{{ msg.userMessage }}</div>
-        </div>
+    <article v-for="msg in props.messages" :key="msg.turnId" class="turn-entry">
+      <div class="user-entry">
+        <div class="entry-label">用户提问</div>
+        <div class="user-content">{{ msg.userMessage }}</div>
       </div>
 
-      <!-- 助手消息 -->
-      <div class="msg ai">
-        <div class="avatar">AI</div>
-        <div class="body">
-          <!-- 工具调用日志 · 分组 + 人类可读描述 -->
-          <div v-if="msg.toolCalls.length > 0" class="tools">
-            <div v-for="group in groupToolCalls(msg.toolCalls)" :key="group.label" class="tool-group">
-              <div class="tool-group-label">{{ group.label }}</div>
-              <div v-for="t in group.items" :key="t.toolUseId" class="tool-row" :class="t.status">
-                <span class="tool-dot" />
-                <span class="tool-action">{{ describeToolAction(t) }}</span>
-                <span v-if="t.status === 'ok' && t.resultPreview" class="tool-result">{{ short(t.resultPreview, 80) }}</span>
-                <span v-else-if="t.status === 'error'" class="tool-result err">{{ short(t.resultPreview, 80) }}</span>
-                <span v-else-if="t.status === 'running'" class="tool-result running">进行中</span>
-                <button
-                  v-if="canOpenKnowledge(t)"
-                  type="button"
-                  class="tool-open"
-                  @click="emit('open-knowledge', knowledgeDocumentId(t))"
+      <template v-if="msg.flowBlocks.length > 0">
+        <template v-for="block in msg.flowBlocks" :key="block.id">
+          <div
+            v-if="block.kind === 'reasoning'"
+            class="assistant-copy markdown-body"
+            v-html="renderMarkdown(block.content)"
+          />
+
+          <details v-else-if="block.kind === 'commands'" class="command-block">
+            <summary class="command-summary">
+              <SquareTerminal class="summary-icon" :size="15" :stroke-width="1.75" />
+              <span>{{ commandSummary(block.commands) }}</span>
+            </summary>
+
+            <div class="command-details">
+              <div
+                v-for="item in block.commands"
+                :key="item.toolUseId"
+                class="command-item"
+                :class="item.status"
+              >
+                <div class="command-item-head">
+                  <span class="command-state" />
+                  <span class="command-title">{{ commandLabel(item) }}</span>
+                  <span class="command-meta">
+                    {{ toolStatusText(item) }}<template v-if="item.durationMs"> · {{ item.durationMs }}ms</template>
+                  </span>
+                  <button
+                    v-if="canOpenKnowledge(item)"
+                    type="button"
+                    class="tool-open"
+                    @click.stop="emit('open-knowledge', knowledgeDocumentId(item))"
+                  >
+                    打开
+                  </button>
+                </div>
+                <details
+                  v-if="item.resultPreview"
+                  class="command-preview"
                 >
-                  打开
-                </button>
+                  <summary>查看返回内容</summary>
+                  <pre>{{ item.resultPreview }}</pre>
+                </details>
               </div>
             </div>
-          </div>
-
-          <!-- 推理内容（可选） -->
-          <details v-if="msg.reasoning" class="reasoning">
-            <summary>思考过程</summary>
-            <div class="reasoning-body">{{ msg.reasoning }}</div>
           </details>
 
-          <!-- 主体回复 · markdown 渲染 -->
-          <div v-if="msg.assistantMessage" class="content markdown-body">
-            <span v-html="renderMarkdown(msg.assistantMessage)" />
-            <span v-if="msg.status === 'streaming'" class="cursor">▍</span>
+          <div
+            v-else
+            class="assistant-copy markdown-body"
+          >
+            <span v-html="renderMarkdown(block.content)" />
+            <span v-if="msg.status === 'streaming' && block.id === msg.flowBlocks[msg.flowBlocks.length - 1]?.id" class="cursor">▍</span>
           </div>
+        </template>
+      </template>
+      <div v-else-if="msg.status === 'streaming'" class="assistant-copy thinking-copy">
+        我正在分析你的问题，并按需读取项目上下文。
+      </div>
 
-          <!-- 错误 -->
-          <div v-if="msg.error" class="error-block">
-            <div class="error-title">出错了</div>
-            <div class="error-body">{{ msg.error }}</div>
-          </div>
+      <div v-if="msg.error" class="error-block">
+        <div class="error-title">出错了</div>
+        <div class="error-body">{{ msg.error }}</div>
+      </div>
 
-          <!-- 状态标签 -->
-          <div v-if="msg.status === 'canceled'" class="status-tag">已取消</div>
+      <div v-if="msg.status === 'canceled'" class="status-tag">已取消</div>
+
+      <div v-if="msg.resumable && msg.status === 'done'" class="continue-line">
+        <SquareTerminal class="summary-icon" :size="15" :stroke-width="1.75" />
+        <div class="continue-copy">
+          <span>{{ msg.resumable.reason || '可以基于现有证据继续下一批读取与分析。' }}</span>
+          <button type="button" class="resume-btn" @click="emit('continue', msg.resumable.prompt)">
+            {{ msg.resumable.label || '继续' }}
+          </button>
         </div>
       </div>
-    </div>
-
-    <div v-if="props.isStreaming && props.messages[props.messages.length - 1]?.assistantMessage === ''" class="hint-line">
-      正在思考…
-    </div>
+    </article>
   </div>
 </template>
 
@@ -191,10 +223,10 @@ const hasContent = computed(() => props.messages.length > 0)
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 32px 12px;
+  padding: 24px 28px 18px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 30px;
   min-width: 0;
   min-height: 0;
 }
@@ -213,67 +245,60 @@ const hasContent = computed(() => props.messages.length > 0)
   font-size: 13px;
   color: var(--arc-text-hint);
 }
-.turn {
+.turn-entry {
+  width: min(100%, 900px);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
   min-width: 0;
 }
-.msg {
+.user-entry {
   display: flex;
-  gap: 12px;
-  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
 }
-.avatar {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  border-radius: 7px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
+.entry-label {
+  color: var(--arc-text-hint);
+  font-size: 12px;
+  line-height: 1.4;
 }
-.msg.user .avatar {
-  background: var(--arc-text-primary);
-  color: var(--arc-bg-body);
-}
-.msg.ai .avatar {
-  background: var(--arc-primary-soft);
-  color: var(--arc-primary);
-}
-.body {
-  flex: 1;
-  min-width: 0;
-}
-.content {
-  font-size: 14px;
-  line-height: 1.6;
+.user-content,
+.assistant-copy {
   color: var(--arc-text-primary);
+  font-size: 15px;
+  line-height: 1.8;
   word-break: break-word;
 }
-.msg.user .content {
+.user-content {
   white-space: pre-wrap;
 }
-.markdown-body :deep(p) { margin: 0 0 8px; }
+.thinking-copy {
+  color: var(--arc-text-secondary);
+}
+.markdown-body :deep(p) { margin: 0 0 10px; }
 .markdown-body :deep(p:last-child) { margin-bottom: 0; }
 .markdown-body :deep(h1),
 .markdown-body :deep(h2),
 .markdown-body :deep(h3),
 .markdown-body :deep(h4) {
   font-weight: 600;
-  margin: 12px 0 6px;
+  margin: 14px 0 7px;
   color: var(--arc-text-primary);
 }
-.markdown-body :deep(h1) { font-size: 17px; }
-.markdown-body :deep(h2) { font-size: 15.5px; }
-.markdown-body :deep(h3) { font-size: 14px; }
+.markdown-body :deep(h1) { font-size: 18px; }
+.markdown-body :deep(h2) { font-size: 16.5px; }
+.markdown-body :deep(h3) { font-size: 15px; }
+.markdown-body :deep(h4) { font-size: 14px; }
 .markdown-body :deep(ul),
-.markdown-body :deep(ol) { margin: 4px 0 8px; padding-left: 22px; }
-.markdown-body :deep(li) { margin: 2px 0; }
+.markdown-body :deep(ol) {
+  margin: 4px 0 10px;
+  padding-left: 22px;
+}
+.markdown-body :deep(li) {
+  margin: 3px 0;
+}
 .markdown-body :deep(code) {
-  font-family: monospace;
+  font-family: var(--v2-mono);
   font-size: 12.5px;
   background: var(--arc-bg-weak);
   padding: 1px 5px;
@@ -284,18 +309,17 @@ const hasContent = computed(() => props.messages.length > 0)
   border-radius: 6px;
   padding: 10px 12px;
   overflow-x: auto;
-  margin: 6px 0;
+  margin: 8px 0;
 }
 .markdown-body :deep(pre code) {
   background: transparent;
   padding: 0;
-  font-size: 12.5px;
 }
 .markdown-body :deep(blockquote) {
   border-left: 3px solid var(--arc-border-strong);
   padding: 2px 0 2px 10px;
   color: var(--arc-text-secondary);
-  margin: 6px 0;
+  margin: 8px 0;
 }
 .markdown-body :deep(a) {
   color: var(--arc-primary);
@@ -306,7 +330,7 @@ const hasContent = computed(() => props.messages.length > 0)
 }
 .markdown-body :deep(table) {
   border-collapse: collapse;
-  margin: 6px 0;
+  margin: 8px 0;
 }
 .markdown-body :deep(th),
 .markdown-body :deep(td) {
@@ -317,7 +341,7 @@ const hasContent = computed(() => props.messages.length > 0)
 .markdown-body :deep(hr) {
   border: none;
   border-top: 1px solid var(--arc-border);
-  margin: 10px 0;
+  margin: 12px 0;
 }
 .cursor {
   display: inline-block;
@@ -328,103 +352,131 @@ const hasContent = computed(() => props.messages.length > 0)
 @keyframes blink {
   50% { opacity: 0; }
 }
-.tools {
-  margin: 4px 0 10px;
-  padding: 4px 0 4px 12px;
-  border-left: 1px solid var(--arc-border);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+@keyframes pulse {
+  50% { opacity: 0.35; }
 }
-.tool-group {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+.command-block {
+  display: block;
 }
-.tool-group-label {
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--arc-text-hint);
-  margin-bottom: 3px;
-  font-family: var(--v2-mono);
-}
-.tool-row {
-  display: flex;
+.command-summary {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  align-items: baseline;
-  font-size: 12px;
-  padding: 3px 0;
+  color: var(--arc-text-hint);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.45;
+  list-style: none;
+  user-select: none;
+}
+.command-summary::-webkit-details-marker,
+.command-preview summary::-webkit-details-marker {
+  display: none;
+}
+.command-summary::marker,
+.command-preview summary::marker {
+  content: '';
+}
+.command-block[open] > .command-summary {
   color: var(--arc-text-secondary);
+}
+.summary-icon {
+  flex: 0 0 auto;
+  color: currentColor;
+}
+.command-details {
+  margin: 10px 0 0 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.command-item {
+  min-width: 0;
+  color: var(--arc-text-secondary);
+  font-size: 12.5px;
   line-height: 1.5;
 }
-.tool-dot {
+.command-item-head {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.command-state {
   width: 6px;
   height: 6px;
   border-radius: 999px;
   background: var(--arc-text-hint);
-  flex: 0 0 6px;
-  transform: translateY(3px);
+  transform: translateY(-1px);
 }
-.tool-row.ok .tool-dot { background: var(--arc-primary); }
-.tool-row.error .tool-dot { background: var(--v2-danger); }
-.tool-row.running .tool-dot { background: var(--v2-warn); animation: pulse 1.4s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: 0.35; } }
-.tool-action {
-  color: var(--arc-text-primary);
-  flex-shrink: 0;
+.command-item.ok .command-state {
+  background: var(--arc-primary);
 }
-.tool-result {
-  color: var(--arc-text-hint);
-  font-size: 11.5px;
-  font-family: var(--v2-mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.command-item.error .command-state {
+  background: var(--v2-danger);
+}
+.command-item.running .command-state {
+  background: var(--v2-warn);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.command-title {
   min-width: 0;
+  overflow: hidden;
+  color: var(--arc-text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.tool-result.err { color: var(--v2-danger); }
-.tool-result.running { color: var(--v2-warn); }
+.command-meta {
+  color: var(--arc-text-hint);
+  font-family: var(--v2-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
 .tool-open {
-  flex: 0 0 auto;
-  border: 1px solid var(--arc-border);
-  border-radius: 6px;
-  background: var(--arc-bg-surface);
+  border: 0;
+  background: transparent;
   color: var(--arc-primary);
   cursor: pointer;
-  font-size: 11px;
-  padding: 1px 6px;
-}
-.tool-open:hover {
-  border-color: var(--arc-primary);
-  background: var(--arc-primary-soft);
-}
-.reasoning {
-  margin-bottom: 8px;
   font-size: 12px;
+  padding: 0;
+}
+.tool-open:hover,
+.resume-btn:hover {
+  text-decoration: underline;
+}
+.command-preview {
+  margin: 6px 0 0 16px;
+}
+.command-preview summary {
+  width: fit-content;
   color: var(--arc-text-hint);
-}
-.reasoning summary {
   cursor: pointer;
-  padding: 4px 0;
+  font-size: 12px;
+  list-style: none;
 }
-.reasoning-body {
+.command-preview pre {
+  margin: 7px 0 0;
+  max-height: 220px;
+  overflow: auto;
   padding: 8px 10px;
+  border-left: 2px solid var(--arc-border);
   background: var(--arc-bg-weak);
-  border-radius: 6px;
-  white-space: pre-wrap;
   color: var(--arc-text-secondary);
+  font-family: var(--v2-mono);
+  font-size: 11.5px;
+  line-height: 1.62;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .error-block {
-  margin-top: 6px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(185, 28, 28, 0.06);
-  border: 1px solid rgba(185, 28, 28, 0.2);
-  font-size: 12.5px;
+  padding-left: 10px;
+  border-left: 2px solid var(--v2-danger);
+  font-size: 13px;
 }
 .error-title {
-  color: #b91c1c;
+  color: var(--v2-danger);
   font-weight: 600;
   margin-bottom: 3px;
 }
@@ -433,19 +485,61 @@ const hasContent = computed(() => props.messages.length > 0)
   white-space: pre-wrap;
   word-break: break-word;
 }
-.status-tag {
-  display: inline-block;
-  margin-top: 6px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  background: var(--arc-bg-weak);
+.continue-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   color: var(--arc-text-hint);
+  font-size: 13px;
+  line-height: 1.5;
 }
-.hint-line {
+.continue-copy {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.resume-btn {
+  border: 0;
+  background: transparent;
+  color: var(--arc-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0;
+}
+.status-tag {
   color: var(--arc-text-hint);
   font-size: 12px;
-  padding: 4px 40px;
-  font-family: monospace;
+}
+
+@media (max-width: 720px) {
+  .messages {
+    padding: 18px 16px 14px;
+    gap: 26px;
+  }
+  .turn-entry {
+    gap: 16px;
+  }
+  .user-content,
+  .assistant-copy {
+    font-size: 14px;
+    line-height: 1.72;
+  }
+  .command-details {
+    margin-left: 22px;
+  }
+  .command-item-head {
+    grid-template-columns: 8px minmax(0, 1fr);
+  }
+  .command-title {
+    white-space: normal;
+  }
+  .command-meta,
+  .tool-open {
+    grid-column: 2;
+    justify-self: start;
+  }
 }
 </style>

@@ -583,6 +583,7 @@ registerAiIpcHandlers({
 bootstrapAssistantRuntime({
   ensureDb: ensureWorkspaceDb,
   getSnapshot: () => latestWorkspaceSnapshot,
+  emitAiRunEvent: emitAiRunEvent as (payload: { projectId: string; meta: Record<string, unknown> }) => void,
   refreshSnapshot: async () => {
     const db = await ensureWorkspaceDb()
     const snapshot = readWorkspaceSnapshot(db)

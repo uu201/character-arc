@@ -109,7 +109,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       const content = errored
         ? String(event.error ?? '')
         : typeof event.output === 'string' ? event.output : JSON.stringify(event.output ?? '')
-      params.handlers.onToolResult(id, event.toolCall.toolName, content.slice(0, 200), errored, durationMs)
+      params.handlers.onToolResult(id, event.toolCall.toolName, content.slice(0, 800), errored, durationMs)
       toolCalls.push({
         tool: event.toolCall.toolName,
         args: (event.toolCall.input as Record<string, unknown>) ?? {},

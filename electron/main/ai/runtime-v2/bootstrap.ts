@@ -24,6 +24,8 @@ export interface BootstrapAssistantRuntimeDeps {
   ensureDb: () => Promise<DatabaseSync>
   /** 拿 latest workspace snapshot（AppSettings 与项目数据）。 */
   getSnapshot: () => WorkspacePayload | null
+  /** 复用 v1 AI 运行日志通道，把 v2 turn 写入项目运行记录。 */
+  emitAiRunEvent?: (payload: { projectId: string; meta: Record<string, unknown> }) => void
   /** 写库成功后刷新主进程快照并通知渲染进程。 */
   refreshSnapshot?: () => Promise<void>
 }
@@ -62,6 +64,7 @@ export function bootstrapAssistantRuntime(deps: BootstrapAssistantRuntimeDeps): 
   registerAssistantIpcHandlers({
     ensureDb: deps.ensureDb,
     resolveTurnExecutionPlan,
-    commitChange
+    commitChange,
+    emitAiRunEvent: deps.emitAiRunEvent
   })
 }

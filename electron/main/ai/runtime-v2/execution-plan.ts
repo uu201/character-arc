@@ -29,11 +29,13 @@ import { type ToolFactory } from './agent-loop'
 import type { ResolveTurnExecutionPlan } from './ipc'
 import type { SnapshotAccessor } from './providers/shared'
 import { saveRuntimeKnowledgeDocument } from './knowledge-writer'
+import { createEvidenceLedger, wrapToolsWithRuntimeBudget } from './evidence-ledger'
+import { createRuntimePlan } from './planner'
 
 /** 输出预算的下限。推理模型会把 reasoning 也算进 maxOutputTokens，不能太紧。 */
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000
-const GLOBAL_CONTEXT_BUDGET_TOKENS = 24000
-const CHAPTER_CONTEXT_BUDGET_TOKENS = 12000
+const GLOBAL_CONTEXT_BUDGET_TOKENS = 12000
+const CHAPTER_CONTEXT_BUDGET_TOKENS = 8000
 const SELECTION_CONTEXT_BUDGET_TOKENS = 6000
 
 export interface CreateExecutionPlannerDeps {
@@ -61,10 +63,18 @@ export function createExecutionPlanner(
     const settings = normalizeSettings(rawSettings)
     validateSettings(settings)
 
-    // 1. 构建上下文
-    const contextBudgetTokens = resolveContextBudgetTokens(surface)
-    const contextResult = await contextBuilder.build(surface, {
-      surface,
+    // 1. Planner：先决定本轮是轻量对话、审计、修正还是分批任务。
+    const runtimePlan = createRuntimePlan({ surface, request })
+    const evidenceLedger = createEvidenceLedger()
+
+    // 2. Context Router：只注入与本轮 intent 相关的最小上下文，其余靠工具按需读取。
+    const routedSurface = {
+      ...surface,
+      contextProviders: runtimePlan.contextProviders
+    }
+    const contextBudgetTokens = resolveContextBudgetTokens(routedSurface, runtimePlan.contextMode)
+    const contextResult = await contextBuilder.build(routedSurface, {
+      surface: routedSurface,
       sessionId: session.id,
       projectId: session.projectId,
       scopeRef: session.scopeRef,
@@ -74,9 +84,12 @@ export function createExecutionPlanner(
 
     // 2. 拼 system prompt
     const systemPrompt = buildAssistantSystemPrompt({
-      surface,
+      surface: routedSurface,
       intentHint: request.intentHint,
-      contextBlock
+      contextBlock: [
+        `## Runtime v2 分批计划\n\n${runtimePlan.guidance}`,
+        contextBlock
+      ].filter(Boolean).join('\n\n---\n\n')
     })
 
     // 3. 组装工具集
@@ -136,7 +149,11 @@ export function createExecutionPlanner(
         stageChapterEdit,
         ...stageEntityTools
       ]
-      return filterToolsBySurface(combined, surface)
+      return wrapToolsWithRuntimeBudget(
+        filterToolsBySurface(combined, surface),
+        runtimePlan,
+        evidenceLedger
+      )
     }
 
     // 4. 输出 token 预算
@@ -149,12 +166,19 @@ export function createExecutionPlanner(
       systemPrompt,
       tools: toolFactory,
       settings,
-      maxOutputTokens
+      maxOutputTokens,
+      runtimePlan,
+      evidenceLedger
     }
   }
 }
 
-function resolveContextBudgetTokens(surface: { id: string; scope: string }): number {
+function resolveContextBudgetTokens(
+  surface: { id: string; scope: string },
+  contextMode: 'minimal' | 'targeted' | 'chapter'
+): number {
+  if (contextMode === 'minimal') return Math.min(GLOBAL_CONTEXT_BUDGET_TOKENS, 5000)
+  if (contextMode === 'chapter') return CHAPTER_CONTEXT_BUDGET_TOKENS
   if (surface.id === 'global-page' || surface.id === 'global-panel' || surface.scope === 'project') {
     return GLOBAL_CONTEXT_BUDGET_TOKENS
   }

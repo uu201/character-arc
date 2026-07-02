@@ -33,13 +33,31 @@ export interface AssistantToolCallView {
   durationMs?: number
 }
 
+export type AssistantMessageBlock =
+  | {
+      id: string
+      kind: 'reasoning' | 'assistant'
+      content: string
+    }
+  | {
+      id: string
+      kind: 'commands'
+      commands: AssistantToolCallView[]
+    }
+
 export interface AssistantMessageView {
   turnId: string
   userMessage: string
   assistantMessage: string
   reasoning: string
   toolCalls: AssistantToolCallView[]
+  flowBlocks: AssistantMessageBlock[]
   stagedChangeIds: string[]
+  resumable?: {
+    label: string
+    prompt: string
+    reason?: string
+  }
   status: 'streaming' | 'done' | 'canceled' | 'error'
   error?: string
   createdAt: string
@@ -104,33 +122,74 @@ export function useAssistant(options: UseAssistantOptions) {
     assistantMessage: string
     reasoning: string
     toolCalls: AssistantToolCallView[]
+    flowBlocks: AssistantMessageBlock[]
     stagedChangeIds: string[]
+    resumable?: AssistantMessageView['resumable']
     finalError?: string
   } {
     let assistantMessage = ''
     let reasoning = ''
     const toolCalls: AssistantToolCallView[] = []
+    const flowBlocks: AssistantMessageBlock[] = []
+    const toolById = new Map<string, AssistantToolCallView>()
     const stagedChangeIds: string[] = []
+    let resumable: AssistantMessageView['resumable']
     let finalError: string | undefined
+    let forceNewCommandBlock = false
+
+    function appendTextBlock(kind: 'reasoning' | 'assistant', seq: number, delta: string): void {
+      forceNewCommandBlock = false
+      const last = flowBlocks[flowBlocks.length - 1]
+      if (last?.kind === kind) {
+        last.content += delta
+        return
+      }
+      flowBlocks.push({
+        id: `${kind}-${seq}`,
+        kind,
+        content: delta
+      })
+    }
+
+    function appendCommand(call: AssistantToolCallView, seq: number): void {
+      const last = flowBlocks[flowBlocks.length - 1]
+      if (last?.kind === 'commands' && !forceNewCommandBlock) {
+        last.commands.push(call)
+        forceNewCommandBlock = false
+        return
+      }
+      flowBlocks.push({
+        id: `commands-${seq}`,
+        kind: 'commands',
+        commands: [call]
+      })
+      forceNewCommandBlock = false
+    }
 
     for (const evt of events) {
       switch (evt.kind) {
         case 'chunk':
           assistantMessage += evt.delta
+          appendTextBlock('assistant', evt.seq, evt.delta)
           break
         case 'reasoning':
           reasoning += evt.delta
+          appendTextBlock('reasoning', evt.seq, evt.delta)
           break
-        case 'tool_use_start':
-          toolCalls.push({
+        case 'tool_use_start': {
+          const call: AssistantToolCallView = {
             toolUseId: evt.toolUseId,
             toolName: evt.toolName,
             args: evt.args,
             status: 'running'
-          })
+          }
+          toolCalls.push(call)
+          toolById.set(evt.toolUseId, call)
+          appendCommand(call, evt.seq)
           break
+        }
         case 'tool_result': {
-          const existing = toolCalls.find((tc) => tc.toolUseId === evt.toolUseId)
+          const existing = toolById.get(evt.toolUseId)
           if (existing) {
             existing.status = evt.isError ? 'error' : 'ok'
             existing.resultPreview = evt.content.slice(0, 200)
@@ -141,8 +200,23 @@ export function useAssistant(options: UseAssistantOptions) {
         case 'staged_change':
           stagedChangeIds.push(evt.changeId)
           break
+        case 'resumable':
+          resumable = {
+            label: evt.label,
+            prompt: evt.prompt,
+            reason: evt.reason
+          }
+          break
+        case 'agent_status': {
+          const last = flowBlocks[flowBlocks.length - 1]
+          if (last?.kind === 'commands') forceNewCommandBlock = true
+          break
+        }
         case 'done':
-          if (evt.content && !assistantMessage) assistantMessage = evt.content
+          if (evt.content && !assistantMessage) {
+            assistantMessage = evt.content
+            appendTextBlock('assistant', evt.seq, evt.content)
+          }
           break
         case 'error':
           finalError = evt.error
@@ -152,20 +226,28 @@ export function useAssistant(options: UseAssistantOptions) {
       }
     }
 
-    return { assistantMessage, reasoning, toolCalls, stagedChangeIds, finalError }
+    return { assistantMessage, reasoning, toolCalls, flowBlocks, stagedChangeIds, resumable, finalError }
   }
 
   const messages = computed<AssistantMessageView[]>(() => {
     return turns.value.map((turn) => {
       const events = eventsByTurn.value.get(turn.id) ?? []
       const folded = foldTurnEvents(events)
+      const assistantMessage = folded.assistantMessage || turn.assistantMessage
+      const flowBlocks = folded.flowBlocks.length > 0
+        ? folded.flowBlocks
+        : assistantMessage
+          ? [{ id: `assistant-${turn.id}`, kind: 'assistant' as const, content: assistantMessage }]
+          : []
       return {
         turnId: turn.id,
         userMessage: turn.userMessage,
-        assistantMessage: folded.assistantMessage || turn.assistantMessage,
+        assistantMessage,
         reasoning: folded.reasoning,
         toolCalls: folded.toolCalls,
+        flowBlocks,
         stagedChangeIds: folded.stagedChangeIds,
+        resumable: folded.resumable,
         status: turn.status,
         error: folded.finalError,
         createdAt: turn.createdAt
@@ -360,23 +442,25 @@ export function useAssistant(options: UseAssistantOptions) {
   // Turn 操作
   // ==========================================================================
 
-  async function send(sendOptions: AssistantSendOptions = {}): Promise<void> {
-    const text = composerValue.value.trim()
-    if (!text || isStreaming.value) return
+  async function sendText(text: string, sendOptions: AssistantSendOptions = {}): Promise<void> {
+    const trimmedText = text.trim()
+    if (!trimmedText || isStreaming.value) return
     let sessionId = activeSessionId.value
     if (!sessionId) {
-      const session = await createSession(deriveSessionTitle(text))
+      const session = await createSession(deriveSessionTitle(trimmedText))
       if (!session) return
       sessionId = session.id
     } else {
       // 已有会话但仍是默认标题（如通过"新建对话"按钮创建）：用首条提问摘要覆盖
       const current = sessions.value.find((s) => s.id === sessionId)
       if (current && isDefaultTitle(current.title)) {
-        void renameSession(sessionId, deriveSessionTitle(text))
+        void renameSession(sessionId, deriveSessionTitle(trimmedText))
       }
     }
 
-    composerValue.value = ''
+    if (composerValue.value.trim() === trimmedText) {
+      composerValue.value = ''
+    }
     lastError.value = null
 
     // 先乐观塞一个 streaming turn（真实 turnId 由后端事件确认）
@@ -386,7 +470,7 @@ export function useAssistant(options: UseAssistantOptions) {
       {
         id: optimisticTurnId,
         sessionId,
-        userMessage: text,
+        userMessage: trimmedText,
         assistantMessage: '',
         status: 'streaming',
         createdAt: new Date().toISOString()
@@ -398,7 +482,7 @@ export function useAssistant(options: UseAssistantOptions) {
       const result = await A.turnSend({
         sessionId,
         surface: options.surface,
-        userMessage: text,
+        userMessage: trimmedText,
         intentHint: sendOptions.intentHint,
         attachments: sendOptions.attachments
       })
@@ -414,6 +498,16 @@ export function useAssistant(options: UseAssistantOptions) {
       turns.value = turns.value.filter((t) => t.id !== optimisticTurnId)
       lastError.value = e instanceof Error ? e.message : String(e)
     }
+  }
+
+  async function send(sendOptions: AssistantSendOptions = {}): Promise<void> {
+    await sendText(composerValue.value, sendOptions)
+  }
+
+  async function continueWithPrompt(prompt: string): Promise<void> {
+    await sendText(prompt, {
+      intentHint: `assistant-v2:continue`
+    })
   }
 
   async function cancel(): Promise<void> {
@@ -491,6 +585,7 @@ export function useAssistant(options: UseAssistantOptions) {
     deleteSession,
     renameSession,
     send,
+    continueWithPrompt,
     cancel,
     acceptChanges,
     rejectChanges,

@@ -86,6 +86,7 @@ export type TurnEvent =
   | { kind: 'staged_change'; seq: number; changeId: string; toolUseId?: string }
   | { kind: 'staged_change_updated'; seq: number; changeId: string; status: StagedChangeStatus }
   | { kind: 'agent_status'; seq: number; message: string }
+  | { kind: 'resumable'; seq: number; label: string; prompt: string; reason?: string }
   | { kind: 'done'; seq: number; content: string }
   | { kind: 'canceled'; seq: number; content?: string }
   | { kind: 'error'; seq: number; error: string }
@@ -292,6 +293,8 @@ export interface TurnSendRequest {
   attachments?: TurnAttachment[]
   /** 若命中已知快捷指令（如 /polish），前端可以显式传，减少模型推断。 */
   intentHint?: string
+  /** 继续某个未完成批次时传入原 turnId，便于后端后续关联 phase state。 */
+  resumeOfTurnId?: string
 }
 
 export interface TurnAttachment {
