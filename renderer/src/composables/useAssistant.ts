@@ -349,8 +349,20 @@ export function useAssistant(options: UseAssistantOptions) {
       isInitializing.value = false
       return
     }
+    const scopeRef = options.scopeRef?.()
+    if (options.scopeRef && !scopeRef) {
+      sessions.value = []
+      activeSessionId.value = null
+      turns.value = []
+      eventsByTurn.value = new Map()
+      stagedChanges.value = []
+      streamingTurnId.value = null
+      isInitializing.value = false
+      return
+    }
+    isInitializing.value = true
     try {
-      const list = await A.sessionList({ projectId: pid, surfaceId: options.surface.id })
+      const list = await A.sessionList({ projectId: pid, surfaceId: options.surface.id, scopeRef })
       sessions.value = list
       if (!activeSessionId.value && list.length > 0) {
         await switchSession(list[0].id)
@@ -503,6 +515,7 @@ export function useAssistant(options: UseAssistantOptions) {
       const result = await A.turnSend({
         sessionId,
         surface: options.surface,
+        scopeRef: options.scopeRef?.(),
         userMessage: trimmedText,
         intentHint: sendOptions.intentHint,
         attachments: sendOptions.attachments

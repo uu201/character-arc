@@ -130,7 +130,7 @@ function emitTurnRunLog(params: {
   const meta = buildRunMeta(
     taskForSurface(params.surface),
     params.session.projectId,
-    chapterIdFromScope(params.session.scopeRef),
+    chapterIdFromScope(params.request.scopeRef ?? params.session.scopeRef),
     params.settings,
     runStatusFromTurn(params.result.status),
     params.startedAt,

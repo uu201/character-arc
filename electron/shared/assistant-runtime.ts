@@ -284,6 +284,8 @@ export type AssistantIpcChannel =
 export interface TurnSendRequest {
   sessionId: string
   surface: SurfaceDefinition
+  /** 本次发送时的实时上下文锚点。缺省时回落到 session.scopeRef。 */
+  scopeRef?: string
   /** 用户消息原始文本。 */
   userMessage: string
   /**

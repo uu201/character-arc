@@ -67,6 +67,7 @@ export function createExecutionPlanner(
     // 1. Planner：先决定本轮是轻量对话、审计、修正还是分批任务。
     const runtimePlan = createRuntimePlan({ surface, request })
     const evidenceLedger = createEvidenceLedger()
+    const activeScopeRef = request.scopeRef ?? session.scopeRef
 
     // 2. Context Router：只注入与本轮 intent 相关的最小上下文，其余靠工具按需读取。
     const routedSurface = {
@@ -78,7 +79,7 @@ export function createExecutionPlanner(
       surface: routedSurface,
       sessionId: session.id,
       projectId: session.projectId,
-      scopeRef: session.scopeRef,
+      scopeRef: activeScopeRef,
       budgetTokens: contextBudgetTokens
     })
     const contextBlock = assembleContextBlock(contextResult)
@@ -99,7 +100,7 @@ export function createExecutionPlanner(
     //    - 技能：skill_list / skill_load / (skill_run_script 由内置 skill 决定)
     //    - 知识：knowledge_save_document（直接写入项目知识库，并刷新 workspace snapshot）
     //    - 变更暂存：stage_chapter_edit（工厂形态，闭包 turnId/sessionId）
-    const currentChapterId = extractCurrentChapterId(session.scopeRef) ?? ''
+    const currentChapterId = extractCurrentChapterId(activeScopeRef) ?? ''
     const chapterReadTools = createChapterTools({
       currentChapterId,
       useDiffReview: false

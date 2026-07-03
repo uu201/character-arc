@@ -1,6 +1,6 @@
 import type { ContextProviderId, SurfaceDefinition, TurnSendRequest } from '@shared/assistant-runtime'
 
-export type AssistantPlanIntent = 'chat' | 'audit' | 'correct' | 'ingest' | 'edit'
+export type AssistantPlanIntent = 'chat' | 'audit' | 'correct' | 'ingest' | 'edit' | 'entity-edit'
 export type AssistantContextMode = 'minimal' | 'targeted' | 'chapter'
 
 export interface AssistantRuntimePlan {
@@ -93,18 +93,29 @@ export function createRuntimePlan(params: {
 }
 
 function resolveIntent(request: TurnSendRequest, surface: SurfaceDefinition): AssistantPlanIntent {
-  const hint = request.intentHint ?? ''
-  if (hint.endsWith(':audit')) return 'audit'
-  if (hint.endsWith(':correct')) return 'correct'
-  if (hint.endsWith(':ingest')) return 'ingest'
   if (surface.scope === 'chapter' || surface.scope === 'selection') return 'edit'
 
   const text = request.userMessage.replace(/\s+/g, '')
   if (/(审计|检查|矛盾|风险|OOC|ooc|连续性|伏笔)/.test(text)) return 'audit'
+  if (hasEntityEditIntent(text) || hasFrameworkAdviceRequest(text)) return 'entity-edit'
   if (/(修正|纠正|统一|跑偏|冲突|不一致)/.test(text)) return 'correct'
   if (/(录入|沉淀|整理成设定|保存|记忆)/.test(text)) return 'ingest'
   if (/(改写|润色|续写|扩写|重写|修改正文|章节)/.test(text)) return 'edit'
+  const hint = request.intentHint ?? ''
+  if (hint.endsWith(':audit')) return 'audit'
+  if (hint.endsWith(':correct')) return 'correct'
+  if (hint.endsWith(':ingest')) return 'ingest'
   return 'chat'
+}
+
+function hasEntityEditIntent(text: string): boolean {
+  const mentionsEntity = /(设定|人设|人物|角色|组织|势力|世界观|大纲|线索)/.test(text)
+  const asksToChange = /(修改|改一下|调整|优化|处理|重写|改写|重做|替换|补充|新增|删除|完全重写)/.test(text)
+  return mentionsEntity && asksToChange
+}
+
+function hasFrameworkAdviceRequest(text: string): boolean {
+  return /(已有|现有)?(故事)?框架.*(建议|方案|提案|怎么改)|根据.*(框架|故事框架).*(建议|方案|提案|怎么改)/.test(text)
 }
 
 function shouldBatch(text: string, intent: AssistantPlanIntent): boolean {
@@ -127,6 +138,9 @@ function resolveContextProviders(
   if (intent === 'correct') {
     return [...BASE_CONTEXT, 'constraints', 'worldview', 'characters', 'outline']
   }
+  if (intent === 'entity-edit') {
+    return [...BASE_CONTEXT, 'constraints', 'worldview', 'characters', 'organizations', 'outline', 'plot-threads', 'workflow-documents']
+  }
   if (intent === 'ingest') {
     return [...BASE_CONTEXT, 'constraints']
   }
@@ -143,6 +157,8 @@ function buildContinuationPrompt(intent: AssistantPlanIntent): string {
       return '继续上一轮录入整理，基于已有资料处理下一批内容，避免重复读取已经确认的证据。'
     case 'edit':
       return '继续上一轮章节处理，先复述已确认的修改方向，再读取必要片段并产出下一批可审阅修改。'
+    case 'entity-edit':
+      return '继续上一轮实体设定修改，先复述已确认的目标实体和改动方向，再基于项目框架补足方案并产出可审阅的暂存变更。'
     default:
       return '继续上一轮分析，先复述已确认事实，再按需补读少量证据并给出阶段结论。'
   }
@@ -156,6 +172,9 @@ function buildGuidance(intent: AssistantPlanIntent, requiresBatching: boolean): 
     batch,
     `识别意图：${intent}。`,
     '默认先读索引/摘要；只有目标明确且必须核对原文时才读全文。',
-    '每批读取预算有限，读完后必须总结已确认事实、证据来源和下一步缺口。'
+    '每批读取预算有限，读完后必须总结已确认事实、证据来源和下一步缺口。',
+    intent === 'entity-edit'
+      ? '实体设定修改任务：若目标实体和改动方向已在当前或最近对话中明确，不要继续列问题拖延；基于项目框架补足合理细节，给出2-3个可选方案，或在用户已选方向时直接调用对应 stage_* 产出暂存变更。用户说"根据已有框架给建议"时，只围绕上一轮目标实体给建议，不要转成全项目审计。'
+      : ''
   ].join('\n')
 }
