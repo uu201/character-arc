@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { SquareTerminal } from 'lucide-vue-next'
+import { Sparkles, SquareTerminal, UserRound } from 'lucide-vue-next'
 import type { AssistantMessageView, AssistantToolCallView } from '@/composables/useAssistant'
 
 const MD_ALLOWED_TAGS = [
@@ -133,17 +133,33 @@ const hasContent = computed(() => props.messages.length > 0)
       </div>
     </div>
 
-    <article v-for="msg in props.messages" :key="msg.turnId" class="turn-entry">
+    <article
+      v-for="(msg, index) in props.messages"
+      :key="msg.turnId"
+      class="turn-entry"
+      :class="{ 'is-first': index === 0 }"
+    >
       <div class="user-entry">
-        <div class="entry-label">用户提问</div>
+        <div class="user-avatar">
+          <UserRound :size="14" :stroke-width="1.9" />
+        </div>
         <div class="user-content">{{ msg.userMessage }}</div>
       </div>
+
+      <div class="assistant-block">
+        <div class="assistant-head">
+          <span class="assistant-mark">
+            <Sparkles :size="12" :stroke-width="2" />
+          </span>
+          <span class="assistant-name">全局助手</span>
+          <span v-if="msg.status === 'streaming'" class="assistant-state">生成中</span>
+        </div>
 
       <template v-if="msg.flowBlocks.length > 0">
         <template v-for="block in msg.flowBlocks" :key="block.id">
           <div
             v-if="block.kind === 'reasoning'"
-            class="assistant-copy markdown-body"
+            class="assistant-copy reasoning-copy markdown-body"
             v-html="renderMarkdown(block.content)"
           />
 
@@ -196,7 +212,9 @@ const hasContent = computed(() => props.messages.length > 0)
         </template>
       </template>
       <div v-else-if="msg.status === 'streaming'" class="assistant-copy thinking-copy">
-        我正在分析你的问题，并按需读取项目上下文。
+        <span class="thinking-dots"><i /><i /><i /></span>
+        正在分析你的问题，并按需读取项目上下文。
+      </div>
       </div>
 
       <div v-if="msg.error" class="error-block">
@@ -226,7 +244,7 @@ const hasContent = computed(() => props.messages.length > 0)
   padding: 24px 28px 18px;
   display: flex;
   flex-direction: column;
-  gap: 30px;
+  gap: 26px;
   min-width: 0;
   min-height: 0;
 }
@@ -249,18 +267,32 @@ const hasContent = computed(() => props.messages.length > 0)
   width: min(100%, 900px);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   min-width: 0;
+  padding-top: 30px;
+  border-top: 1px solid var(--arc-border);
+}
+.turn-entry.is-first {
+  padding-top: 0;
+  border-top: none;
 }
 .user-entry {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
+  align-items: flex-start;
+  gap: 10px;
 }
-.entry-label {
-  color: var(--arc-text-hint);
-  font-size: 12px;
-  line-height: 1.4;
+.user-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--arc-bg-surface);
+  border: 1px solid var(--arc-border-strong);
+  color: var(--arc-text-secondary);
+  transform: translateY(1px);
 }
 .user-content,
 .assistant-copy {
@@ -270,10 +302,77 @@ const hasContent = computed(() => props.messages.length > 0)
   word-break: break-word;
 }
 .user-content {
+  flex: 1;
+  min-width: 0;
   white-space: pre-wrap;
+  font-weight: 500;
+}
+.assistant-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.assistant-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.assistant-mark {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--arc-primary-soft);
+  color: var(--arc-primary);
+}
+.assistant-name {
+  color: var(--arc-text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.assistant-state {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--v2-warn-soft);
+  color: var(--v2-warn);
+  font-family: var(--v2-mono);
+  font-size: 10.5px;
 }
 .thinking-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--arc-text-secondary);
+}
+.thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.thinking-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--arc-text-hint);
+  animation: thinking-bounce 1.3s ease-in-out infinite;
+}
+.thinking-dots i:nth-child(2) { animation-delay: 0.18s; }
+.thinking-dots i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes thinking-bounce {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+.reasoning-copy {
+  padding-left: 12px;
+  border-left: 2px solid var(--arc-border-strong);
+  color: var(--arc-text-secondary);
+  font-size: 14px;
+  line-height: 1.75;
 }
 .markdown-body :deep(p) { margin: 0 0 10px; }
 .markdown-body :deep(p:last-child) { margin-bottom: 0; }
@@ -517,10 +616,11 @@ const hasContent = computed(() => props.messages.length > 0)
 @media (max-width: 720px) {
   .messages {
     padding: 18px 16px 14px;
-    gap: 26px;
+    gap: 22px;
   }
   .turn-entry {
-    gap: 16px;
+    gap: 14px;
+    padding-top: 22px;
   }
   .user-content,
   .assistant-copy {

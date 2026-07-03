@@ -24,6 +24,7 @@ import { filterToolsBySurface } from './permission'
 import { buildAssistantSystemPrompt } from './system-prompt'
 import { stagedChangesStore } from './staged-changes-store'
 import { makeStageChapterEditTool } from './tools/stage-chapter-edit'
+import { makeStageChapterCreateTool } from './tools/stage-chapter-create'
 import { makeStageEntitiesTools } from './tools/stage-entities'
 import { type ToolFactory } from './agent-loop'
 import type { ResolveTurnExecutionPlan } from './ipc'
@@ -133,6 +134,14 @@ export function createExecutionPlanner(
         stagedStore: stagedChangesStore,
         currentChapterId
       })
+      const stageChapterCreate = makeStageChapterCreateTool({
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        projectId: ctx.projectId,
+        stagedStore: stagedChangesStore,
+        snapshot: deps.snapshot,
+        currentChapterId
+      })
       const stageEntityTools = makeStageEntitiesTools({
         sessionId: ctx.sessionId,
         turnId: ctx.turnId,
@@ -147,6 +156,7 @@ export function createExecutionPlanner(
         ...knowledgeTools,
         ...skillTools,
         stageChapterEdit,
+        stageChapterCreate,
         ...stageEntityTools
       ]
       return wrapToolsWithRuntimeBudget(

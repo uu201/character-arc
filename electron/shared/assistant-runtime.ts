@@ -116,8 +116,8 @@ export type StagedChangeKind =
   | 'plot_thread'
   | 'workflow_document'
 
-/** create = 新增实体；update = 修改已有实体（entityId 必填）。 */
-export type StagedChangeAction = 'create' | 'update'
+/** create = 新增实体；update = 修改已有实体（entityId 必填）；delete = 删除已有实体（entityId 必填）。 */
+export type StagedChangeAction = 'create' | 'update' | 'delete'
 
 /** 变更生命周期状态。 */
 export type StagedChangeStatus =

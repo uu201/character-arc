@@ -21,6 +21,45 @@ export interface AssistantRuntimePlan {
 
 const BASE_CONTEXT: ContextProviderId[] = ['project-brief', 'recent-messages', 'skill-index']
 
+/** 具体的章节修改方向词——命中说明用户已给出明确改法，无需追问。对齐 v1。 */
+const CONCRETE_EDIT_DIRECTIONS = [
+  '润色', '改写', '重写', '扩写', '续写', '精简', '压缩', '删除', '删掉', '删减',
+  '拆长句', '拆句', '断句', '分段', '段落控', '段落控制', '调整段落', '调整节奏', '节奏',
+  '开头', '开篇', '结尾', '对白', '对话', '描写', '心理', '动作', '氛围', '冲突',
+  '悬念', '爽点', '疲软', '拖沓', '水分', '冗余', '机械', '模板感',
+  '降低ai感', '去ai味', '按建议改', '按你说的改', '应用修改', '写回正文'
+]
+
+function hasConcreteChapterEditDirection(normalized: string): boolean {
+  const lower = normalized.toLowerCase()
+  return CONCRETE_EDIT_DIRECTIONS.some((kw) => lower.includes(kw))
+}
+
+/** 指向了章节但没给具体改法——需要提示助手先读取/追问，别直接动手改正文。对齐 v1。 */
+function hasVagueChapterEditIntent(userMessage: string): boolean {
+  const normalized = userMessage.replace(/\s+/g, '')
+  const mentionsChapterTarget =
+    /第[零一二两三四五六七八九十百\d]+章/.test(normalized) ||
+    ['当前章节', '章节正文', '章节内容', '小说正文', '正文内容'].some((kw) => normalized.includes(kw))
+  const asksToEdit = ['修改', '改一下', '调整', '优化', '处理'].some((kw) => normalized.includes(kw))
+  return mentionsChapterTarget && asksToEdit && !hasConcreteChapterEditDirection(normalized)
+}
+
+/**
+ * 模糊章节编辑意图提示（对齐 v1 buildGlobalChapterIntentHint）：
+ * 用户指定了章节却没说怎么改时，提示助手先读取定位 + 追问方向，禁止直接暂存整章改写。
+ * 仅在 global（非 chapter/selection surface）场景注入——章节场景本就以改写为主。
+ */
+function buildVagueEditNote(): string {
+  return [
+    '',
+    '意图判读提示（仅供你结合用户原话复核，不替代你的判断）：',
+    '- 初步意图：指定章节的修改意向，但缺少具体修改方向。',
+    '- 期望动作：先用 list_chapters / read_chapter 定位并读取目标章节，然后给出简短诊断、可选修改方向或追问用户想改什么。',
+    '- 禁止动作：不要调用 stage_chapter_edit 暂存整章改写，也不要直接输出整章改写稿。'
+  ].join('\n')
+}
+
 export function createRuntimePlan(params: {
   surface: SurfaceDefinition
   request: TurnSendRequest
@@ -29,6 +68,12 @@ export function createRuntimePlan(params: {
   const requiresBatching = shouldBatch(params.request.userMessage, intent)
   const isChapterSurface = params.surface.scope === 'chapter' || params.surface.scope === 'selection'
   const isEdit = intent === 'edit'
+
+  // 全局场景下检测"指向章节但方向模糊"的编辑意图，追加提示阻止直接改正文。
+  // 章节 surface 本就以改写为主，不注入此提示。
+  const vagueEditNote = !isChapterSurface && hasVagueChapterEditIntent(params.request.userMessage)
+    ? buildVagueEditNote()
+    : ''
 
   return {
     intent,
@@ -43,7 +88,7 @@ export function createRuntimePlan(params: {
     requiresBatching,
     continuationLabel: requiresBatching ? '继续分析下一批' : '继续补充证据',
     continuationPrompt: buildContinuationPrompt(intent),
-    guidance: buildGuidance(intent, requiresBatching)
+    guidance: buildGuidance(intent, requiresBatching) + vagueEditNote
   }
 }
 

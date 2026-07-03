@@ -82,15 +82,63 @@ function statusLabel(status: string): string {
   }
 }
 
+function actionLabel(action: string): string {
+  switch (action) {
+    case 'create': return '新增'
+    case 'update': return '修改'
+    case 'delete': return '删除'
+    default: return action
+  }
+}
+
+function splitLines(text: string): string[] {
+  return text.split(/\n+/).map((s) => s.trim()).filter(Boolean)
+}
+
+/**
+ * 基于 LCS 的行级 diff（对齐 v1 段落对照思路）：
+ * 相比旧的 Set 去重实现，能保留重复行、按原文顺序交错输出增删，
+ * 编辑过的段落不会被错误地整段标为"删+增"。
+ */
+function diffRows(before: string, after: string): Array<{ type: 'del' | 'add' | 'context'; line: string }> {
+  const b = splitLines(before)
+  const a = splitLines(after)
+  const n = b.length
+  const m = a.length
+  // LCS 长度表
+  const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i][j] = b[i] === a[j]
+        ? lcs[i + 1][j + 1] + 1
+        : Math.max(lcs[i + 1][j], lcs[i][j + 1])
+    }
+  }
+  const rows: Array<{ type: 'del' | 'add' | 'context'; line: string }> = []
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (b[i] === a[j]) {
+      rows.push({ type: 'context', line: b[i] })
+      i++; j++
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      rows.push({ type: 'del', line: b[i] })
+      i++
+    } else {
+      rows.push({ type: 'add', line: a[j] })
+      j++
+    }
+  }
+  while (i < n) { rows.push({ type: 'del', line: b[i] }); i++ }
+  while (j < m) { rows.push({ type: 'add', line: a[j] }); j++ }
+  return rows
+}
+
 function computeDiff(before: string, after: string): { added: string[]; removed: string[] } {
-  // 简化 diff：按段落切分，粗粒度对比
-  const b = before.split(/\n+/).map((s) => s.trim()).filter(Boolean)
-  const a = after.split(/\n+/).map((s) => s.trim()).filter(Boolean)
-  const bSet = new Set(b)
-  const aSet = new Set(a)
+  const rows = diffRows(before, after)
   return {
-    added: a.filter((line) => !bSet.has(line)),
-    removed: b.filter((line) => !aSet.has(line))
+    added: rows.filter((r) => r.type === 'add').map((r) => r.line),
+    removed: rows.filter((r) => r.type === 'del').map((r) => r.line)
   }
 }
 
@@ -109,12 +157,8 @@ function reviewNext(): void {
   reviewingId.value = next?.id ?? null
 }
 
-function diffBlocks(change: StagedChange): Array<{ type: 'del' | 'add'; line: string }> {
-  const diff = computeDiff(change.before, change.after)
-  return [
-    ...diff.removed.map((line) => ({ type: 'del' as const, line })),
-    ...diff.added.map((line) => ({ type: 'add' as const, line }))
-  ]
+function diffBlocks(change: StagedChange): Array<{ type: 'del' | 'add' | 'context'; line: string }> {
+  return diffRows(change.before, change.after)
 }
 
 function hasTargetCandidates(change: StagedChange): boolean {
@@ -141,7 +185,7 @@ function bindTarget(changeId: string, entityId: string): void {
       <div class="review-meta">
         <div>
           <span>动作</span>
-          <strong>{{ reviewingChange.action }}</strong>
+          <strong :class="'action-' + reviewingChange.action">{{ actionLabel(reviewingChange.action) }}</strong>
         </div>
         <div v-if="reviewingChange.entityId">
           <span>目标</span>
@@ -179,7 +223,7 @@ function bindTarget(changeId: string, entityId: string): void {
               class="review-diff-line"
               :class="block.type"
             >
-              <span>{{ block.type === 'add' ? '+' : '-' }}</span>
+              <span>{{ block.type === 'add' ? '+' : block.type === 'del' ? '-' : ' ' }}</span>
               <p>{{ block.line }}</p>
             </div>
           </div>
@@ -255,7 +299,7 @@ function bindTarget(changeId: string, entityId: string): void {
           <span class="entity">{{ c.entityTitle }}</span>
           <span class="status-pill" :class="c.status">{{ statusLabel(c.status) }}</span>
         </div>
-        <div class="action-line">{{ c.action }}</div>
+        <div class="action-line" :class="'action-' + c.action">{{ actionLabel(c.action) }}</div>
         <div class="reason">{{ c.reason }}</div>
 
         <div v-if="hasTargetCandidates(c)" class="target-box compact">
@@ -538,6 +582,12 @@ function bindTarget(changeId: string, entityId: string): void {
   background: var(--v2-del-bg, rgba(185, 28, 28, 0.07));
   color: var(--v2-del, #b91c1c);
 }
+.review-diff-line.context {
+  color: var(--arc-text-hint);
+}
+.review-diff-line.context span {
+  color: transparent;
+}
 .review-empty {
   padding: 14px;
   border: 1px dashed var(--arc-border-strong);
@@ -714,6 +764,19 @@ function bindTarget(changeId: string, entityId: string): void {
   color: var(--arc-text-hint);
   font-family: var(--v2-mono, monospace);
   margin-bottom: 4px;
+}
+.action-line.action-delete {
+  color: var(--v2-del, #b91c1c);
+  font-weight: 600;
+}
+.action-line.action-create {
+  color: var(--v2-add, #047857);
+}
+strong.action-delete {
+  color: var(--v2-del, #b91c1c);
+}
+strong.action-create {
+  color: var(--v2-add, #047857);
 }
 .status-pill {
   flex: 0 0 auto;

@@ -26,6 +26,7 @@ import type {
 } from '../shared-types'
 import type { Tool } from '../agent/tools/types'
 import { runAgent } from '../agent/run-agent'
+import { isToolUseNotSupportedError } from '../provider'
 import type { ConversationManager } from './conversation-manager'
 import type { StagedChangesStore } from './staged-changes-store'
 
@@ -273,7 +274,9 @@ export class AgentLoop {
         })
       } else {
         status = 'error'
-        errorMessage = e instanceof Error ? e.message : String(e)
+        errorMessage = isToolUseNotSupportedError(e)
+          ? '当前模型不支持工具调用（tool_use），无法驱动全局助手 v2 的读取与暂存流程。请在设置中切换到支持工具调用的模型（如 Claude / GPT 系列）后重试。'
+          : e instanceof Error ? e.message : String(e)
         this.dispatch(sessionId, turnId, {
           kind: 'error',
           seq: 0,

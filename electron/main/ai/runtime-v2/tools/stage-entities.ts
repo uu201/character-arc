@@ -150,6 +150,42 @@ function readBoolean(input: Record<string, unknown>, key: string, fallback: bool
   return typeof value === 'boolean' ? value : fallback
 }
 
+/**
+ * 长文本合并（write_mode='merge' 时用）：把新内容并入旧内容而非覆盖。
+ * - 任一为空 → 取另一个；存在包含关系 → 取更完整的；否则旧 + 空行 + 新。
+ */
+function mergeLongText(currentValue: string, incomingValue: string): string {
+  const currentText = currentValue.trim()
+  const incomingText = incomingValue.trim()
+  if (!incomingText) return currentText
+  if (!currentText) return incomingText
+  if (currentText.includes(incomingText)) return currentText
+  if (incomingText.includes(currentText)) return incomingText
+  return `${currentText}\n\n${incomingText}`
+}
+
+/** update 写入模式：默认 replace（整体替换）；merge=把新内容追加/并入旧内容。 */
+function readWriteMode(input: Record<string, unknown>): 'replace' | 'merge' {
+  return readString(input, 'write_mode') === 'merge' ? 'merge' : 'replace'
+}
+
+/** 对单个长文本字段按 write_mode 解析出最终值（在工具层算好，保证暂存 diff = 最终写回）。 */
+function resolveLongText(mode: 'replace' | 'merge', currentValue: string, incomingValue: string): string {
+  return mode === 'merge' ? mergeLongText(currentValue, incomingValue) : incomingValue
+}
+
+/** update/delete 通用的 action 校验。 */
+function isKnownAction(action: string): action is 'create' | 'update' | 'delete' {
+  return action === 'create' || action === 'update' || action === 'delete'
+}
+
+/** 共享的 write_mode 输入 schema 片段。 */
+const WRITE_MODE_SCHEMA = {
+  type: 'string',
+  enum: ['replace', 'merge'],
+  description: 'update 时的写入模式：replace=用新内容整体替换旧内容（默认）；merge=把新内容并入旧内容末尾，用于补充而非重写。'
+} as const
+
 function readWorkflowDocumentKey(value: string): WorkflowDocumentKey | null {
   return WORKFLOW_DOCUMENT_KEYS.has(value as WorkflowDocumentKey) ? value as WorkflowDocumentKey : null
 }
@@ -235,17 +271,18 @@ export function makeStageWorldviewTool(deps: StageEntitiesToolDeps): Tool {
     definition: {
       name: 'stage_worldview',
       description:
-        '暂存世界观/设定条目的新增或修改，不直接写库。create 需提供 type/title/content；update 需提供 match_id 或 match_title，并提供要改的新字段。reason 会显示在暂存卡片上。',
+        '暂存世界观/设定条目的新增、修改或删除，不直接写库。create 需提供 type/title/content；update 需提供 match_id 或 match_title，并提供要改的新字段；delete 需提供 match_id 或 match_title。reason 会显示在暂存卡片上。',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['create', 'update'], description: 'create=新增；update=修改已有条目。' },
-          match_id: { type: 'string', description: 'update 可选：目标世界观条目 ID。' },
-          match_title: { type: 'string', description: 'update 可选：目标世界观标题，支持精确或唯一包含匹配。' },
+          action: { type: 'string', enum: ['create', 'update', 'delete'], description: 'create=新增；update=修改；delete=删除已有条目。' },
+          match_id: { type: 'string', description: 'update/delete 可选：目标世界观条目 ID。' },
+          match_title: { type: 'string', description: 'update/delete 可选：目标世界观标题，支持精确或唯一包含匹配。' },
           type: { type: 'string', description: '设定分类，如 地理/法则/势力/历史。create 必填；update 可选。' },
           title: { type: 'string', description: '设定标题。create 必填；update 可选。' },
           content: { type: 'string', description: '设定正文。create 必填；update 可选。' },
-          reason: { type: 'string', description: '简短说明为什么要新增/修改。' }
+          write_mode: WRITE_MODE_SCHEMA,
+          reason: { type: 'string', description: '简短说明为什么要新增/修改/删除。' }
         },
         required: ['action', 'reason']
       }
@@ -256,8 +293,8 @@ export function makeStageWorldviewTool(deps: StageEntitiesToolDeps): Tool {
 
       const action = readString(input, 'action')
       const reason = readString(input, 'reason') || '（未提供理由）'
-      if (action !== 'create' && action !== 'update') {
-        return { content: 'action 必须是 create 或 update。', isError: true }
+      if (!isKnownAction(action)) {
+        return { content: 'action 必须是 create、update 或 delete。', isError: true }
       }
 
       if (action === 'create') {
@@ -294,10 +331,29 @@ export function makeStageWorldviewTool(deps: StageEntitiesToolDeps): Tool {
       if (!matched.ok) return { content: matched.message, isError: true }
 
       const before = matched.entity
+
+      if (action === 'delete') {
+        const change = deps.stagedStore.add({
+          sessionId: deps.sessionId,
+          turnId: deps.turnId,
+          kind: 'worldview',
+          action: 'delete',
+          entityId: before.id,
+          entityTitle: before.title,
+          reason,
+          before: renderWorldviewText(before),
+          after: ''
+        })
+        return { content: `已暂存世界观删除（change_id=${change.id}）：${before.title}。尚未写回，需用户确认。` }
+      }
+
+      const writeMode = readWriteMode(input)
       const payload = {
         type: hasOwn(input, 'type') ? readString(input, 'type') : before.type,
         title: hasOwn(input, 'title') ? readString(input, 'title') : before.title,
-        content: hasOwn(input, 'content') ? readString(input, 'content') : before.content
+        content: hasOwn(input, 'content')
+          ? resolveLongText(writeMode, before.content, readString(input, 'content'))
+          : before.content
       }
       if (!payload.title || !payload.content) {
         return { content: 'update 后的 title 和 content 不能为空。', isError: true }
@@ -325,18 +381,19 @@ export function makeStageCharacterTool(deps: StageEntitiesToolDeps): Tool {
     definition: {
       name: 'stage_character',
       description:
-        '暂存人物卡新增或修改，不直接写库。create 需提供 name/role/description；update 需提供 match_id 或 match_name，并提供要改的新字段。tags 接受字符串数组。',
+        '暂存人物卡新增、修改或删除，不直接写库。create 需提供 name/role/description；update 需提供 match_id 或 match_name，并提供要改的新字段；delete 需提供 match_id 或 match_name。tags 接受字符串数组。',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['create', 'update'], description: 'create=新增；update=修改已有人物。' },
-          match_id: { type: 'string', description: 'update 可选：目标人物 ID。' },
-          match_name: { type: 'string', description: 'update 可选：目标人物姓名，支持精确或唯一包含匹配。' },
+          action: { type: 'string', enum: ['create', 'update', 'delete'], description: 'create=新增；update=修改；delete=删除已有人物。' },
+          match_id: { type: 'string', description: 'update/delete 可选：目标人物 ID。' },
+          match_name: { type: 'string', description: 'update/delete 可选：目标人物姓名，支持精确或唯一包含匹配。' },
           name: { type: 'string', description: '人物姓名。create 必填；update 可选。' },
           role: { type: 'string', description: '人物定位/身份。create 必填；update 可选。' },
           description: { type: 'string', description: '人物卡正文描述。create 必填；update 可选。' },
           tags: { type: 'array', items: { type: 'string' }, description: '人物标签数组，如 ["主角","复仇线"]。' },
-          reason: { type: 'string', description: '简短说明为什么要新增/修改。' }
+          write_mode: WRITE_MODE_SCHEMA,
+          reason: { type: 'string', description: '简短说明为什么要新增/修改/删除。' }
         },
         required: ['action', 'reason']
       }
@@ -347,8 +404,8 @@ export function makeStageCharacterTool(deps: StageEntitiesToolDeps): Tool {
 
       const action = readString(input, 'action')
       const reason = readString(input, 'reason') || '（未提供理由）'
-      if (action !== 'create' && action !== 'update') {
-        return { content: 'action 必须是 create 或 update。', isError: true }
+      if (!isKnownAction(action)) {
+        return { content: 'action 必须是 create、update 或 delete。', isError: true }
       }
 
       if (action === 'create') {
@@ -386,10 +443,29 @@ export function makeStageCharacterTool(deps: StageEntitiesToolDeps): Tool {
       if (!matched.ok) return { content: matched.message, isError: true }
 
       const before = matched.entity
+
+      if (action === 'delete') {
+        const change = deps.stagedStore.add({
+          sessionId: deps.sessionId,
+          turnId: deps.turnId,
+          kind: 'character',
+          action: 'delete',
+          entityId: before.id,
+          entityTitle: before.name,
+          reason,
+          before: renderCharacterText(before),
+          after: ''
+        })
+        return { content: `已暂存人物删除（change_id=${change.id}）：${before.name}。尚未写回，需用户确认。` }
+      }
+
+      const writeMode = readWriteMode(input)
       const payload = {
         name: hasOwn(input, 'name') ? readString(input, 'name') : before.name,
         role: hasOwn(input, 'role') ? readString(input, 'role') : before.role,
-        description: hasOwn(input, 'description') ? readString(input, 'description') : before.description,
+        description: hasOwn(input, 'description')
+          ? resolveLongText(writeMode, before.description, readString(input, 'description'))
+          : before.description,
         tags: hasOwn(input, 'tags') ? readTags(input.tags) : before.tags.map((tag) => tag.label)
       }
       if (!payload.name || !payload.description) {
@@ -418,19 +494,20 @@ export function makeStageOutlineTool(deps: StageEntitiesToolDeps): Tool {
     definition: {
       name: 'stage_outline',
       description:
-        '暂存大纲节点新增或修改，不直接写库。create 需提供 title/summary，可选 volume_id/word_target/conflict；update 需提供 match_id 或 match_title，并提供要改的新字段。',
+        '暂存大纲节点新增、修改或删除，不直接写库。create 需提供 title/summary，可选 volume_id/word_target/conflict；update 需提供 match_id 或 match_title，并提供要改的新字段；delete 需提供 match_id 或 match_title。',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['create', 'update'], description: 'create=新增；update=修改已有大纲节点。' },
-          match_id: { type: 'string', description: 'update 可选：目标大纲节点 ID。' },
-          match_title: { type: 'string', description: 'update 可选：目标大纲标题，支持精确或唯一包含匹配。' },
+          action: { type: 'string', enum: ['create', 'update', 'delete'], description: 'create=新增；update=修改；delete=删除已有大纲节点。' },
+          match_id: { type: 'string', description: 'update/delete 可选：目标大纲节点 ID。' },
+          match_title: { type: 'string', description: 'update/delete 可选：目标大纲标题，支持精确或唯一包含匹配。' },
           volume_id: { type: 'string', description: 'create/update 可选：所属分卷 ID。缺省使用当前项目第一个分卷。' },
           title: { type: 'string', description: '大纲节点标题。create 必填；update 可选。' },
           word_target: { type: 'string', description: '预估字数，如 "预估 3000字"。' },
           conflict: { type: 'string', description: '一句话核心冲突。' },
           summary: { type: 'string', description: '剧情推进摘要。create 必填；update 可选。' },
-          reason: { type: 'string', description: '简短说明为什么要新增/修改。' }
+          write_mode: WRITE_MODE_SCHEMA,
+          reason: { type: 'string', description: '简短说明为什么要新增/修改/删除。' }
         },
         required: ['action', 'reason']
       }
@@ -441,8 +518,8 @@ export function makeStageOutlineTool(deps: StageEntitiesToolDeps): Tool {
 
       const action = readString(input, 'action')
       const reason = readString(input, 'reason') || '（未提供理由）'
-      if (action !== 'create' && action !== 'update') {
-        return { content: 'action 必须是 create 或 update。', isError: true }
+      if (!isKnownAction(action)) {
+        return { content: 'action 必须是 create、update 或 delete。', isError: true }
       }
 
       if (action === 'create') {
@@ -482,12 +559,31 @@ export function makeStageOutlineTool(deps: StageEntitiesToolDeps): Tool {
       if (!matched.ok) return { content: matched.message, isError: true }
 
       const before = matched.entity
+
+      if (action === 'delete') {
+        const change = deps.stagedStore.add({
+          sessionId: deps.sessionId,
+          turnId: deps.turnId,
+          kind: 'outline',
+          action: 'delete',
+          entityId: before.id,
+          entityTitle: before.title,
+          reason,
+          before: renderOutlineText(before),
+          after: ''
+        })
+        return { content: `已暂存大纲删除（change_id=${change.id}）：${before.title}。尚未写回，需用户确认。` }
+      }
+
+      const writeMode = readWriteMode(input)
       const payload = {
         volumeId: hasOwn(input, 'volume_id') ? readString(input, 'volume_id') : before.volumeId,
         title: hasOwn(input, 'title') ? readString(input, 'title') : before.title,
         wordTarget: hasOwn(input, 'word_target') ? readString(input, 'word_target') : before.wordTarget,
         conflict: hasOwn(input, 'conflict') ? readString(input, 'conflict') : before.conflict,
-        summary: hasOwn(input, 'summary') ? readString(input, 'summary') : before.summary
+        summary: hasOwn(input, 'summary')
+          ? resolveLongText(writeMode, before.summary, readString(input, 'summary'))
+          : before.summary
       }
       if (!payload.title || !payload.summary) {
         return { content: 'update 后的 title 和 summary 不能为空。', isError: true }
@@ -515,18 +611,19 @@ export function makeStageOrganizationTool(deps: StageEntitiesToolDeps): Tool {
     definition: {
       name: 'stage_organization',
       description:
-        '暂存组织/势力条目的新增或修改，不直接写库。create 需提供 name/type/description；update 需提供 match_id 或 match_name，并提供要改的新字段。',
+        '暂存组织/势力条目的新增、修改或删除，不直接写库。create 需提供 name/type/description；update 需提供 match_id 或 match_name，并提供要改的新字段；delete 需提供 match_id 或 match_name。',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['create', 'update'], description: 'create=新增；update=修改已有组织。' },
-          match_id: { type: 'string', description: 'update 可选：目标组织 ID。' },
-          match_name: { type: 'string', description: 'update 可选：目标组织名称，支持精确或唯一包含匹配。' },
+          action: { type: 'string', enum: ['create', 'update', 'delete'], description: 'create=新增；update=修改；delete=删除已有组织。' },
+          match_id: { type: 'string', description: 'update/delete 可选：目标组织 ID。' },
+          match_name: { type: 'string', description: 'update/delete 可选：目标组织名称，支持精确或唯一包含匹配。' },
           name: { type: 'string', description: '组织名称。create 必填；update 可选。' },
           type: { type: 'string', description: '组织类型，如 帝国/商会/反抗军/宗门。create 必填；update 可选。' },
           description: { type: 'string', description: '组织描述。create 必填；update 可选。' },
           motto: { type: 'string', description: '组织信条/口号。' },
-          reason: { type: 'string', description: '简短说明为什么要新增/修改。' }
+          write_mode: WRITE_MODE_SCHEMA,
+          reason: { type: 'string', description: '简短说明为什么要新增/修改/删除。' }
         },
         required: ['action', 'reason']
       }
@@ -537,8 +634,8 @@ export function makeStageOrganizationTool(deps: StageEntitiesToolDeps): Tool {
 
       const action = readString(input, 'action')
       const reason = readString(input, 'reason') || '（未提供理由）'
-      if (action !== 'create' && action !== 'update') {
-        return { content: 'action 必须是 create 或 update。', isError: true }
+      if (!isKnownAction(action)) {
+        return { content: 'action 必须是 create、update 或 delete。', isError: true }
       }
 
       if (action === 'create') {
@@ -575,10 +672,29 @@ export function makeStageOrganizationTool(deps: StageEntitiesToolDeps): Tool {
       if (!matched.ok) return { content: matched.message, isError: true }
 
       const before = matched.entity
+
+      if (action === 'delete') {
+        const change = deps.stagedStore.add({
+          sessionId: deps.sessionId,
+          turnId: deps.turnId,
+          kind: 'organization',
+          action: 'delete',
+          entityId: before.id,
+          entityTitle: before.name,
+          reason,
+          before: renderOrganizationText(before),
+          after: ''
+        })
+        return { content: `已暂存组织删除（change_id=${change.id}）：${before.name}。尚未写回，需用户确认。` }
+      }
+
+      const writeMode = readWriteMode(input)
       const payload = {
         name: hasOwn(input, 'name') ? readString(input, 'name') : before.name,
         type: hasOwn(input, 'type') ? readString(input, 'type') : before.type,
-        description: hasOwn(input, 'description') ? readString(input, 'description') : before.description,
+        description: hasOwn(input, 'description')
+          ? resolveLongText(writeMode, before.description, readString(input, 'description'))
+          : before.description,
         motto: hasOwn(input, 'motto') ? readString(input, 'motto') : before.motto
       }
       if (!payload.name || !payload.type || !payload.description) {
@@ -606,20 +722,21 @@ export function makeStageConstraintTool(deps: StageEntitiesToolDeps): Tool {
     definition: {
       name: 'stage_constraint',
       description:
-        '暂存项目级硬约束/红线新增或修改，不直接写库。约束会写入项目知识库 canon-fact/global-constraint。',
+        '暂存项目级硬约束/红线新增、修改或删除，不直接写库。约束会写入项目知识库 canon-fact/global-constraint。',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['create', 'update'], description: 'create=新增；update=修改已有约束。' },
-          match_id: { type: 'string', description: 'update 可选：目标约束知识文档 ID。' },
-          match_title: { type: 'string', description: 'update 可选：目标约束标题。' },
+          action: { type: 'string', enum: ['create', 'update', 'delete'], description: 'create=新增；update=修改；delete=删除已有约束。' },
+          match_id: { type: 'string', description: 'update/delete 可选：目标约束知识文档 ID。' },
+          match_title: { type: 'string', description: 'update/delete 可选：目标约束标题。' },
           title: { type: 'string', description: '约束标题。create 必填；update 可选。' },
           content: { type: 'string', description: '约束正文。create 必填；update 可选。' },
           scope: { type: 'string', description: '适用范围，默认 project。' },
           weight: { type: 'string', enum: ['core', 'important', 'supporting'], description: '约束权重。' },
           locked: { type: 'boolean', description: '是否锁定。' },
           keywords: { type: 'array', items: { type: 'string' }, description: '关键词数组。' },
-          reason: { type: 'string', description: '简短说明为什么要新增/修改。' }
+          write_mode: WRITE_MODE_SCHEMA,
+          reason: { type: 'string', description: '简短说明为什么要新增/修改/删除。' }
         },
         required: ['action', 'reason']
       }
@@ -631,8 +748,8 @@ export function makeStageConstraintTool(deps: StageEntitiesToolDeps): Tool {
 
       const action = readString(input, 'action')
       const reason = readString(input, 'reason') || '（未提供理由）'
-      if (action !== 'create' && action !== 'update') {
-        return { content: 'action 必须是 create 或 update。', isError: true }
+      if (!isKnownAction(action)) {
+        return { content: 'action 必须是 create、update 或 delete。', isError: true }
       }
 
       const knowledgeDocuments = snapshot?.knowledgeDocuments ?? []
@@ -681,17 +798,6 @@ export function makeStageConstraintTool(deps: StageEntitiesToolDeps): Tool {
 
       const before = matched.entity
       const meta = before.metadata ?? {}
-      const payload = {
-        title: hasOwn(input, 'title') ? readString(input, 'title') : before.title,
-        content: hasOwn(input, 'content') ? readString(input, 'content') : before.content,
-        scope: hasOwn(input, 'scope') ? readString(input, 'scope') : String(meta.scope ?? 'project'),
-        weight: hasOwn(input, 'weight') ? readString(input, 'weight') : String(meta.weight ?? 'core'),
-        locked: hasOwn(input, 'locked') ? readBoolean(input, 'locked', true) : meta.locked !== false,
-        keywords: hasOwn(input, 'keywords') ? readTags(input.keywords) : before.keywords
-      }
-      if (!payload.title || !payload.content) {
-        return { content: 'update 后的 title 和 content 不能为空。', isError: true }
-      }
       const beforeText = renderConstraintText({
         title: before.title,
         content: before.content,
@@ -700,6 +806,36 @@ export function makeStageConstraintTool(deps: StageEntitiesToolDeps): Tool {
         locked: meta.locked !== false,
         keywords: before.keywords
       })
+
+      if (action === 'delete') {
+        const change = deps.stagedStore.add({
+          sessionId: deps.sessionId,
+          turnId: deps.turnId,
+          kind: 'constraint',
+          action: 'delete',
+          entityId: before.id,
+          entityTitle: before.title,
+          reason,
+          before: beforeText,
+          after: ''
+        })
+        return { content: `已暂存项目约束删除（change_id=${change.id}）：${before.title}。尚未写回，需用户确认。` }
+      }
+
+      const writeMode = readWriteMode(input)
+      const payload = {
+        title: hasOwn(input, 'title') ? readString(input, 'title') : before.title,
+        content: hasOwn(input, 'content')
+          ? resolveLongText(writeMode, before.content, readString(input, 'content'))
+          : before.content,
+        scope: hasOwn(input, 'scope') ? readString(input, 'scope') : String(meta.scope ?? 'project'),
+        weight: hasOwn(input, 'weight') ? readString(input, 'weight') : String(meta.weight ?? 'core'),
+        locked: hasOwn(input, 'locked') ? readBoolean(input, 'locked', true) : meta.locked !== false,
+        keywords: hasOwn(input, 'keywords') ? readTags(input.keywords) : before.keywords
+      }
+      if (!payload.title || !payload.content) {
+        return { content: 'update 后的 title 和 content 不能为空。', isError: true }
+      }
       const change = deps.stagedStore.add({
         sessionId: deps.sessionId,
         turnId: deps.turnId,
@@ -722,20 +858,21 @@ export function makeStagePlotThreadTool(deps: StageEntitiesToolDeps): Tool {
     definition: {
       name: 'stage_plot_thread',
       description:
-        '暂存剧情线索/伏笔新增或修改，不直接写库。create 需提供 title/description；update 需提供 match_id 或 match_title。',
+        '暂存剧情线索/伏笔新增、修改或删除，不直接写库。create 需提供 title/description；update/delete 需提供 match_id 或 match_title。',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['create', 'update'], description: 'create=新增；update=修改已有线索。' },
-          match_id: { type: 'string', description: 'update 可选：目标线索 ID。' },
-          match_title: { type: 'string', description: 'update 可选：目标线索标题。' },
+          action: { type: 'string', enum: ['create', 'update', 'delete'], description: 'create=新增；update=修改；delete=删除已有线索。' },
+          match_id: { type: 'string', description: 'update/delete 可选：目标线索 ID。' },
+          match_title: { type: 'string', description: 'update/delete 可选：目标线索标题。' },
           title: { type: 'string', description: '线索标题。create 必填；update 可选。' },
           description: { type: 'string', description: '线索描述。create 必填；update 可选。' },
           opened_in_chapter_id: { type: 'string', description: '埋设章节 ID。' },
           closed_in_chapter_id: { type: 'string', description: '收束章节 ID。resolved 时可填。' },
           status: { type: 'string', enum: ['open', 'resolved'], description: '线索状态。' },
           tags: { type: 'array', items: { type: 'string' }, description: '标签数组。' },
-          reason: { type: 'string', description: '简短说明为什么要新增/修改。' }
+          write_mode: WRITE_MODE_SCHEMA,
+          reason: { type: 'string', description: '简短说明为什么要新增/修改/删除。' }
         },
         required: ['action', 'reason']
       }
@@ -746,8 +883,8 @@ export function makeStagePlotThreadTool(deps: StageEntitiesToolDeps): Tool {
 
       const action = readString(input, 'action')
       const reason = readString(input, 'reason') || '（未提供理由）'
-      if (action !== 'create' && action !== 'update') {
-        return { content: 'action 必须是 create 或 update。', isError: true }
+      if (!isKnownAction(action)) {
+        return { content: 'action 必须是 create、update 或 delete。', isError: true }
       }
 
       if (action === 'create') {
@@ -786,9 +923,28 @@ export function makeStagePlotThreadTool(deps: StageEntitiesToolDeps): Tool {
       if (!matched.ok) return { content: matched.message, isError: true }
 
       const before = matched.entity
+
+      if (action === 'delete') {
+        const change = deps.stagedStore.add({
+          sessionId: deps.sessionId,
+          turnId: deps.turnId,
+          kind: 'plot_thread',
+          action: 'delete',
+          entityId: before.id,
+          entityTitle: before.title,
+          reason,
+          before: renderPlotThreadText(before),
+          after: ''
+        })
+        return { content: `已暂存剧情线索删除（change_id=${change.id}）：${before.title}。尚未写回，需用户确认。` }
+      }
+
+      const writeMode = readWriteMode(input)
       const payload = {
         title: hasOwn(input, 'title') ? readString(input, 'title') : before.title,
-        description: hasOwn(input, 'description') ? readString(input, 'description') : before.description,
+        description: hasOwn(input, 'description')
+          ? resolveLongText(writeMode, before.description, readString(input, 'description'))
+          : before.description,
         openedInChapterId: hasOwn(input, 'opened_in_chapter_id') ? readString(input, 'opened_in_chapter_id') : before.openedInChapterId,
         closedInChapterId: hasOwn(input, 'closed_in_chapter_id') ? readString(input, 'closed_in_chapter_id') : before.closedInChapterId,
         status: hasOwn(input, 'status') ? readString(input, 'status') : before.status,

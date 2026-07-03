@@ -59,7 +59,7 @@ function countChars(html: string): number {
   return stripHtmlTags(html).replace(/\s/g, '').length
 }
 
-function textToHtmlParagraphs(text: string): string {
+export function textToHtmlParagraphs(text: string): string {
   return text
     .split(/\n{2,}|\n/)
     .filter(Boolean)
