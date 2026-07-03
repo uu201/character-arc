@@ -53,7 +53,7 @@ function handleKeydown(event: KeyboardEvent) {
           <span v-if="props.isStreaming" class="streaming-hint">
             <span class="streaming-dot" />AI 正在回答<template v-if="props.streamingCharCount && props.streamingCharCount > 0"> · 已生成 {{ props.streamingCharCount }} 字</template>
           </span>
-          <span v-else>发送后会显示在暂存区，需要你逐条确认。</span>
+          <span v-else>AI的修改会显示在暂存区，需要你逐条确认。</span>
         </div>
         <div class="actions">
           <NButton
