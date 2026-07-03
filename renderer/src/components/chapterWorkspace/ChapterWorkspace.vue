@@ -1,11 +1,32 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { Minimize } from 'lucide-vue-next'
 import ChapterTreeSidebar from './ChapterTreeSidebar.vue'
 import ChapterEditorPane from './ChapterEditorPane.vue'
-import ChapterAiPanel from './ChapterAiPanel.vue'
+import ChapterAiPanelV2 from './ChapterAiPanelV2.vue'
 import ChapterFirstDraftConfigDialog from './ChapterFirstDraftConfigDialog.vue'
 import type { FirstDraftConfig } from './useChapterFirstDraft'
+import type { SurfaceDefinition } from '@shared/assistant-runtime'
+import { useAssistant } from '@/composables/useAssistant'
+import { useAppStore } from '@/stores/app'
+
+const appStore = useAppStore()
+const { selectedProjectId, selectedChapter } = storeToRefs(appStore)
+
+// 章节 AI 助手实例：上移到此处，不依赖 ChapterAiPanelV2 是否挂载
+const CHAPTER_SURFACE: SurfaceDefinition = {
+  id: 'chapter-panel',
+  scope: 'chapter',
+  autoCommit: false,
+  maxSteps: 6
+}
+
+const assistant = useAssistant({
+  projectId: () => selectedProjectId.value,
+  surface: CHAPTER_SURFACE,
+  scopeRef: () => selectedChapter.value ? `chapter:${selectedChapter.value.id}` : undefined
+})
 
 const COMPACT_BREAKPOINT = 1180
 const COMPACT_BREAKPOINT_AI_OPEN = 1440
@@ -41,7 +62,7 @@ const gridStyle = computed(() => {
   return { gridTemplateColumns: aiOpen.value ? `280px 1fr 4px ${effectiveAiWidth.value}px` : '280px 1fr' }
 })
 
-const aiPanelRef = ref<InstanceType<typeof ChapterAiPanel> | null>(null)
+const aiPanelRef = ref<InstanceType<typeof ChapterAiPanelV2> | null>(null)
 
 function toggleAi(): void {
   aiOpen.value = !aiOpen.value
@@ -57,10 +78,14 @@ function toggleSidebar(): void {
 
 function handleSelectionAction(action: string, text: string): void {
   aiOpen.value = true
-  const snippet = text.length > 60 ? text.slice(0, 60) + '...' : text
-  const prompt = `[${action}] ${snippet}`
+  // 先把选区文本同步到 store，让 AI 面板的 hasSelection 能感知到
+  const chapterId = appStore.selectedChapter?.id
+  if (chapterId && text) {
+    appStore.updateChapterSelection({ chapterId, text })
+  }
+  // 把完整文本传给 AI 面板（不截断），面板的 sendPromptWithAction 会利用 store 选区拼接上下文
   nextTick(() => {
-    aiPanelRef.value?.sendPrompt(prompt)
+    aiPanelRef.value?.sendPromptWithAction(action, text)
   })
 }
 
@@ -166,7 +191,7 @@ onBeforeUnmount(() => {
       @mousedown="startPanelDrag"
       @dblclick="handlePanelDblClick"
     />
-    <ChapterAiPanel v-if="aiOpen" ref="aiPanelRef" class="ws-ai" @close="aiOpen = false" @generate-draft="handleGenerateDraft" />
+    <ChapterAiPanelV2 v-if="aiOpen" ref="aiPanelRef" :assistant="assistant" class="ws-ai" @close="aiOpen = false" @generate-draft="handleGenerateDraft" />
     <button v-if="focusMode" class="focus-exit" @click="toggleFocus">
       <Minimize :size="13" />
       <span>退出专注 (Esc)</span>

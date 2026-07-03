@@ -23,6 +23,7 @@ function renderMarkdown(content: string): string {
 const props = defineProps<{
   messages: AssistantMessageView[]
   isStreaming: boolean
+  assistantName?: string
 }>()
 
 const emit = defineEmits<{
@@ -151,7 +152,7 @@ const hasContent = computed(() => props.messages.length > 0)
           <span class="assistant-mark">
             <Sparkles :size="12" :stroke-width="2" />
           </span>
-          <span class="assistant-name">全局助手</span>
+          <span class="assistant-name">{{ props.assistantName ?? '全局助手' }}</span>
           <span v-if="msg.status === 'streaming'" class="assistant-state">生成中</span>
         </div>
 
@@ -180,7 +181,7 @@ const hasContent = computed(() => props.messages.length > 0)
                   <span class="command-state" />
                   <span class="command-title">{{ commandLabel(item) }}</span>
                   <span class="command-meta">
-                    {{ toolStatusText(item) }}<template v-if="item.durationMs"> · {{ item.durationMs }}ms</template>
+                    {{ toolStatusText(item) }}
                   </span>
                   <button
                     v-if="canOpenKnowledge(item)"

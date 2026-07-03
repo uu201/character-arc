@@ -250,7 +250,7 @@ export async function computeChapterEdit(
   chapterId: string,
   edit: ChapterEdit,
   overrideContent?: string
-): Promise<{ oldContent: string; newContent: string; preview: string; chapterTitle: string }> {
+): Promise<{ oldContent: string; newContent: string; preview: string; chapterTitle: string; beforeFragment: string; afterFragment: string }> {
   const db = await ensureWorkspaceDb()
 
   const row = db.prepare(
@@ -299,7 +299,15 @@ export async function computeChapterEdit(
     throw new Error(`Unsupported operation: ${edit.operation}`)
   }
 
-  return { oldContent, newContent, preview, chapterTitle }
+  return {
+    oldContent,
+    newContent,
+    preview,
+    chapterTitle,
+    // 只包含变更片段，用于 diff 展示（不是整章）
+    beforeFragment: edit.operation === 'replace' ? (edit.search?.trim() ?? '') : '',
+    afterFragment: edit.content
+  }
 }
 
 export async function commitChapterEdit(

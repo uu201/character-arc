@@ -43,7 +43,14 @@ export function ensureInitialized(): boolean {
  * @returns skill 定义数组
  */
 export function getAllSkills(projectId?: string): SkillDefinition[] {
-  return Array.from(skillMaps.get(resolveRegistryKey(projectId))?.values() ?? [])
+  const key = resolveRegistryKey(projectId)
+  const projectMap = skillMaps.get(key)
+  const sharedMap = key !== '_shared' ? skillMaps.get('_shared') : undefined
+  if (!sharedMap) return Array.from(projectMap?.values() ?? [])
+  if (!projectMap) return Array.from(sharedMap.values())
+  const merged = new Map(sharedMap)
+  for (const [k, v] of projectMap) merged.set(k, v)
+  return Array.from(merged.values())
 }
 
 /**
@@ -53,7 +60,9 @@ export function getAllSkills(projectId?: string): SkillDefinition[] {
  * @returns 匹配的 skill 定义，未找到时返回 undefined
  */
 export function getSkillById(id: string, projectId?: string): SkillDefinition | undefined {
-  return skillMaps.get(resolveRegistryKey(projectId))?.get(id)
+  const key = resolveRegistryKey(projectId)
+  return skillMaps.get(key)?.get(id)
+    ?? (key !== '_shared' ? skillMaps.get('_shared')?.get(id) : undefined)
 }
 
 /**

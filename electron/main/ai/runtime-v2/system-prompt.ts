@@ -48,7 +48,16 @@ function buildSurfaceHint(surface: SurfaceDefinition): string {
         '创建大纲用 stage_outline(create)，生成初稿既可用 stage_chapter_create(带 content) 新建带稿章节，也可对已有空章节用 stage_chapter_edit(replace) 写入。'
       ].join('\n')
     case 'chapter-panel':
-      return `【当前场景】章节创作助手。用户正在编辑某个章节。你的动手范围主要是当前章节的正文修改（stage_chapter_edit）；其他项目资料只读不改。`
+      return [
+        '【当前场景】章节创作助手。用户正在编辑某个章节。你的动手范围主要是当前章节的正文修改（stage_chapter_edit）；其他项目资料只读不改。',
+        '',
+        '【技能使用】上下文中提供了可用技能列表（skill-index）。有适用技能时，优先用 skill_load 加载技能，按技能指导操作，效果通常优于直接凭经验改写。常用技能示例：润色类、节奏类、风格迁移类、降低AI感等。',
+        '',
+        '【选区约束】如果用户消息中包含 `【选中内容】...【用户指令】...` 格式，代表用户只选中了部分文本：',
+        '- 只对选中内容进行修改，不要扩展到整章',
+        '- 调用 stage_chapter_edit 时，operation 用 replace，search 参数填选中文本的原文（或其中足以唯一定位的片段）',
+        '- 禁止把整章内容当作修改目标'
+      ].join('\n')
     case 'inline-selection':
       return `【当前场景】章节内联小助手。用户选中了一段文本并在弹起的小气泡里对你说话。默认对准选中区间做局部改写；不要扩大范围到整章。`
     default:

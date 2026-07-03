@@ -119,17 +119,30 @@ textarea::placeholder {
   color: var(--arc-text-hint);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
+  overflow: hidden;
 }
 .mode-chip {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-width: 160px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--arc-primary-soft);
   color: var(--arc-primary);
   font-size: 11px;
   font-weight: 600;
+}
+.hint > span:not(.mode-chip) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
 }
 .actions {
   display: flex;

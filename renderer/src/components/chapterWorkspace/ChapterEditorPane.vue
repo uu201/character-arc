@@ -87,6 +87,9 @@ function dismissPostGenerationIssues(): void {
 const selToolbarVisible = ref(false)
 const selToolbarTop = ref(0)
 const selToolbarLeft = ref(0)
+// 在 selectionchange 时缓存选区文本——mousedown 时浏览器会清除 window.getSelection()，
+// click 时用这个缓存值兜底，避免 handleSelAction 读到空选区。
+let cachedSelectionText = ''
 const scrollRef = ref<HTMLDivElement | null>(null)
 const editorRef = ref<InstanceType<typeof SimpleChapterEditor> | null>(null)
 const findBarRef = ref<InstanceType<typeof EditorFindBar> | null>(null)
@@ -186,19 +189,24 @@ function handleSelectionChange(): void {
   const sel = window.getSelection()
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
     selToolbarVisible.value = false
+    cachedSelectionText = ''
     return
   }
   const range = sel.getRangeAt(0)
   const scrollEl = scrollRef.value
   if (!scrollEl || !scrollEl.contains(range.commonAncestorContainer)) {
     selToolbarVisible.value = false
+    cachedSelectionText = ''
     return
   }
   const rect = range.getBoundingClientRect()
   if (rect.width === 0 && rect.height === 0) {
     selToolbarVisible.value = false
+    cachedSelectionText = ''
     return
   }
+  // 在工具栏显示前缓存选区文本，mousedown 时浏览器会清除 window.getSelection()
+  cachedSelectionText = sel.toString().trim()
   const scrollRect = scrollEl.getBoundingClientRect()
   const toolbarH = 36
   const gap = 6
@@ -216,8 +224,10 @@ function handleSelectionChange(): void {
 }
 
 function handleSelAction(action: string): void {
+  // 优先读实时选区，若浏览器已因 mousedown 清除则用缓存值兜底
   const sel = window.getSelection()
-  const text = sel?.toString().trim() ?? ''
+  const text = sel?.toString().trim() || cachedSelectionText
+  cachedSelectionText = ''
   if (!text) return
   selToolbarVisible.value = false
   emit('selectionAction', action, text)

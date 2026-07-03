@@ -145,6 +145,14 @@ export function makeStageChapterEditTool(deps: StageChapterEditToolDeps): Tool {
         return { content: e instanceof Error ? e.message : String(e), isError: true }
       }
 
+      // 章节面板只允许修改当前章节，禁止跨章节编辑
+      if (deps.currentChapterId && chapterId !== deps.currentChapterId) {
+        return {
+          content: `章节助理只能修改当前章节。如需编辑其他章节请切换到对应章节后再操作。`,
+          isError: true
+        }
+      }
+
       const operation = String(input.operation) as 'replace' | 'insert' | 'append'
       const content = String(input.content || '')
       const search = input.search ? String(input.search) : undefined
@@ -175,8 +183,9 @@ export function makeStageChapterEditTool(deps: StageChapterEditToolDeps): Tool {
           entityId: chapterId,
           entityTitle: computed.chapterTitle,
           reason,
-          before: stripHtml(computed.oldContent),
-          after: stripHtml(computed.newContent),
+          // 只存变更片段（前/后），不存整章，避免 diff 展示整篇文章
+          before: computed.beforeFragment,
+          after: computed.afterFragment,
           chapterHtml: { old: computed.oldContent, new: computed.newContent }
         })
 

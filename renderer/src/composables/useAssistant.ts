@@ -72,6 +72,8 @@ export interface UseAssistantOptions {
   projectId: () => string
   /** 该 Surface 的声明。 */
   surface: SurfaceDefinition
+  /** 上下文锚点，如 'chapter:cha_042'；切换章节时会刷新。 */
+  scopeRef?: () => string | undefined
 }
 
 export interface AssistantSendOptions {
@@ -386,6 +388,7 @@ export function useAssistant(options: UseAssistantOptions) {
     const session = await A.sessionCreate({
       projectId: pid,
       surfaceId: options.surface.id,
+      scopeRef: options.scopeRef?.(),
       title: title || `新会话 · ${new Date().toLocaleString()}`
     })
     sessions.value = [session, ...sessions.value]
@@ -566,6 +569,19 @@ export function useAssistant(options: UseAssistantOptions) {
     },
     { immediate: true }
   )
+
+  // scopeRef 变化（切换章节）→ 重新拉会话列表
+  if (options.scopeRef) {
+    watch(
+      () => options.scopeRef!(),
+      async (newRef, oldRef) => {
+        if (newRef !== oldRef) {
+          activeSessionId.value = null
+          await reloadSessions()
+        }
+      }
+    )
+  }
 
   return {
     // state
