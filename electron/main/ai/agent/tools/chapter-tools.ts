@@ -402,7 +402,7 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
   const listChapters: Tool = {
     definition: {
       name: 'list_chapters',
-      description: 'List all chapters in the current project.',
+      description: 'List drafted chapters in the current project. This does not list outline-only future chapters; use read_project_data(entity_type="outline") for chapter outlines such as "第十三章".',
       inputSchema: {
         type: 'object',
         properties: {}
@@ -411,7 +411,7 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
     handler: async (_input, ctx) => {
       const chapters = await listProjectChapters(ctx.projectId)
       if (chapters.length === 0) {
-        return { content: 'No chapters exist in the current project.' }
+        return { content: 'No drafted chapters exist in the current project. If the user asks about planned chapters, read_project_data(entity_type="outline") instead.' }
       }
 
       const lines = chapters.map((chapter, index) =>

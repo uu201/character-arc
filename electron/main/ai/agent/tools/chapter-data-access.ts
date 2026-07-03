@@ -131,6 +131,47 @@ function matchesQuery(query: string, ...fields: string[]): boolean {
   return fields.some((field) => field.toLowerCase().includes(query))
 }
 
+function normalizeNaturalRef(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[《》「」『』“”"']/g, '')
+}
+
+function parseOrdinalRef(value: string): number | null {
+  const normalized = normalizeNaturalRef(value)
+  const arabic = normalized.match(/^第?(\d+)章?$/)
+  if (arabic) return Number(arabic[1])
+
+  const digits: Record<string, number> = {
+    零: 0,
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9
+  }
+  const chinese = normalized.match(/^第?([零一二两三四五六七八九十百]+)章?$/)
+  if (!chinese) return null
+  const raw = chinese[1]
+  if (raw === '十') return 10
+  const tenIndex = raw.indexOf('十')
+  if (tenIndex >= 0) {
+    const before = raw.slice(0, tenIndex)
+    const after = raw.slice(tenIndex + 1)
+    const tens = before ? digits[before] ?? 0 : 1
+    const ones = after ? digits[after] ?? 0 : 0
+    return tens * 10 + ones
+  }
+  return digits[raw] ?? null
+}
+
 function readPublicReferenceWorkRows(db: Awaited<ReturnType<typeof ensureWorkspaceDb>>): Record<string, unknown>[] {
   return db.prepare('SELECT id, title, source, notes, file_name, analysis_json FROM reference_works ORDER BY created_at DESC, rowid DESC').all() as Record<string, unknown>[]
 }
@@ -469,7 +510,22 @@ export async function searchProjectData(
   }
 
   if (shouldSearch('outline')) {
-    const rows = db.prepare('SELECT id, title, summary, conflict FROM outline_items WHERE project_id = ?').all(projectId) as Record<string, unknown>[]
+    const rows = db.prepare('SELECT id, title, summary, conflict FROM outline_items WHERE project_id = ? ORDER BY sort_order').all(projectId) as Record<string, unknown>[]
+    const ordinal = parseOrdinalRef(query)
+    if (ordinal !== null && ordinal >= 1 && ordinal <= rows.length) {
+      const row = rows[ordinal - 1]
+      const id = String(row.id)
+      const title = String(row.title)
+      const summary = String(row.summary ?? '')
+      const conflict = String(row.conflict ?? '')
+      push({
+        entityType: 'outline',
+        entityId: id,
+        type: 'outline',
+        title: `${ordinal}. ${title}`,
+        content: truncateSnippet([summary, conflict].filter(Boolean).join(' | '))
+      })
+    }
     for (const row of rows) {
       if (results.length >= maxResults) break
       const id = String(row.id)

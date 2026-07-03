@@ -137,8 +137,8 @@ async function buildIndex(projectId: string): Promise<string> {
   const relationships = db.prepare('SELECT id, from_character_id, to_character_id, type FROM character_relationships WHERE project_id = ?').all(projectId) as { id: string; from_character_id: string; to_character_id: string; type: string }[]
   if (relationships.length) sections.push(`## Relationships (${relationships.length})\n${relationships.map((item) => `- [${item.id}] ${item.from_character_id} -> ${item.to_character_id}${item.type ? ` (${item.type})` : ''}`).join('\n')}`)
 
-  const outline = db.prepare('SELECT id, title FROM outline_items WHERE project_id = ?').all(projectId) as { id: string; title: string }[]
-  if (outline.length) sections.push(`## Outline (${outline.length})\n${outline.map((item) => `- [${item.id}] ${item.title}`).join('\n')}`)
+  const outline = db.prepare('SELECT id, title FROM outline_items WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string }[]
+  if (outline.length) sections.push(`## Outline (${outline.length})\n${outline.map((item, index) => `- ${index + 1}. [${item.id}] ${item.title}`).join('\n')}`)
 
   const chapters = db.prepare('SELECT id, title, status FROM chapters WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string; status: string }[]
   if (chapters.length) sections.push(`## Chapters (${chapters.length})\n${chapters.map((item) => `- [${item.id}] ${item.title}${item.status ? ` (${item.status})` : ''}`).join('\n')}`)
@@ -194,6 +194,68 @@ function withLimitNote(body: string, originalCount: number, limit?: number): str
     return `${body}\n\n(Showing ${limit} of ${originalCount} items.)`
   }
   return body
+}
+
+function normalizeNaturalRef(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[《》「」『』“”"']/g, '')
+}
+
+function parseOrdinalRef(value: string): number | null {
+  const normalized = normalizeNaturalRef(value)
+  const arabic = normalized.match(/^第?(\d+)章?$/)
+  if (arabic) return Number(arabic[1])
+
+  const digits: Record<string, number> = {
+    零: 0,
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9
+  }
+  const chinese = normalized.match(/^第?([零一二两三四五六七八九十百]+)章?$/)
+  if (!chinese) return null
+  const raw = chinese[1]
+  if (raw === '十') return 10
+  const tenIndex = raw.indexOf('十')
+  if (tenIndex >= 0) {
+    const before = raw.slice(0, tenIndex)
+    const after = raw.slice(tenIndex + 1)
+    const tens = before ? digits[before] ?? 0 : 1
+    const ones = after ? digits[after] ?? 0 : 0
+    return tens * 10 + ones
+  }
+  return digits[raw] ?? null
+}
+
+function resolveOrderedEntity<T extends { id: string; title: string }>(
+  rows: T[],
+  ref: string
+): T | undefined {
+  const rawRef = ref.trim()
+  const direct = rows.find((row) => row.id === rawRef)
+  if (direct) return direct
+
+  const ordinal = parseOrdinalRef(rawRef)
+  if (ordinal !== null && ordinal >= 1 && ordinal <= rows.length) {
+    return rows[ordinal - 1]
+  }
+
+  const normalizedRef = normalizeNaturalRef(rawRef)
+  const exact = rows.find((row) => normalizeNaturalRef(row.title) === normalizedRef)
+  if (exact) return exact
+
+  const contains = rows.filter((row) => normalizeNaturalRef(row.title).includes(normalizedRef))
+  return contains.length === 1 ? contains[0] : undefined
 }
 
 async function readEntities(projectId: string, options: ReadEntitiesOptions): Promise<string> {
@@ -309,17 +371,17 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       return withLimitNote(body, rows.length, limit)
     }
     case 'outline': {
+      const rows = db.prepare('SELECT id, title, summary, conflict, word_target FROM outline_items WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string; summary: string; conflict: string; word_target: string }[]
+      if (!rows.length) return 'No outline items.'
       if (entityId) {
-        const row = db.prepare('SELECT title, summary, conflict, word_target FROM outline_items WHERE id = ? AND project_id = ?').get(entityId, projectId) as { title: string; summary: string; conflict: string; word_target: string } | undefined
+        const row = resolveOrderedEntity(rows, entityId)
         if (!row) return `Outline item not found: ${entityId}`
         return [`## ${row.title}`, row.summary, row.conflict ? `Conflict: ${row.conflict}` : '', row.word_target ? `Word target: ${row.word_target}` : ''].filter(Boolean).join('\n')
       }
-      const rows = db.prepare('SELECT id, title, summary, conflict FROM outline_items WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string; summary: string; conflict: string }[]
-      if (!rows.length) return 'No outline items.'
       const limitedRows = applyLimit(rows, limit)
       const body = summaryOnly
-        ? limitedRows.map((row) => `- [${row.id}] ${row.title}: ${truncateText(row.summary, 120)}`).join('\n')
-        : limitedRows.map((row) => `## ${row.title}\n${row.summary}${row.conflict ? `\nConflict: ${row.conflict}` : ''}`).join('\n\n')
+        ? limitedRows.map((row, index) => `- ${index + 1}. [${row.id}] ${row.title}: ${truncateText(row.summary, 120)}`).join('\n')
+        : limitedRows.map((row, index) => `## ${index + 1}. ${row.title}\n${row.summary}${row.conflict ? `\nConflict: ${row.conflict}` : ''}`).join('\n\n')
       return withLimitNote(body, rows.length, limit)
     }
     case 'chapters': {

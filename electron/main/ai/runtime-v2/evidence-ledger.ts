@@ -117,9 +117,10 @@ function coerceLightweightArgs(
   }
   if (toolName === 'read_project_data') {
     const hasPreciseTarget = Boolean(String(next.entity_id ?? '').trim() || String(next.doc_key ?? '').trim())
+    const entityType = String(next.entity_type ?? '').trim()
     if (!hasPreciseTarget || !plan.allowFullProjectModuleRead) {
       if (next.summary_only !== false || !hasPreciseTarget) next.summary_only = true
-      if (typeof next.limit !== 'number') next.limit = plan.defaultReadLimit
+      if (typeof next.limit !== 'number' && entityType !== 'outline') next.limit = plan.defaultReadLimit
     }
   }
   if (toolName === 'read_chapter') {

@@ -11,16 +11,19 @@
  *   7. 返回 { systemPrompt, tools, settings, maxOutputTokens }
  */
 
-import type { AppSettings } from '../shared-types'
+import type { AiTaskName, AiTaskPayload, AppSettings } from '../shared-types'
+import type { AssistantSession, SurfaceDefinition, TurnSendRequest } from '@shared/assistant-runtime'
 import type { Tool } from '../agent/tools/types'
+import { buildSkillIndex } from '../agent/system-prompt'
 import { createChapterTools } from '../agent/tools/chapter-tools'
 import { createProjectDataTools } from '../agent/tools/project-data-tools'
 import { createKnowledgeTools } from '../agent/tools/knowledge-tools'
 import { createSkillTools } from '../agent/tools/skill-tools'
-import { getAllSkills, getSkillById } from '../skills'
+import { getAllSkills, getSkillById, resolveTaskSkills, isSkillEnabledForTask } from '../skills'
+import type { SkillDefinition, SkillStageId } from '../skills'
 import { normalizeSettings, validateSettings } from '../settings'
 import { assembleContextBlock, contextBuilder, estimateTokens } from './context-builder'
-import { filterToolsBySurface } from './permission'
+import { filterToolsBySurface, isToolAllowed, resolveAllowedMatchers } from './permission'
 import { buildAssistantSystemPrompt } from './system-prompt'
 import { stagedChangesStore } from './staged-changes-store'
 import { makeStageChapterEditTool } from './tools/stage-chapter-edit'
@@ -28,10 +31,10 @@ import { makeStageChapterCreateTool } from './tools/stage-chapter-create'
 import { makeStageEntitiesTools } from './tools/stage-entities'
 import { type ToolFactory } from './agent-loop'
 import type { ResolveTurnExecutionPlan } from './ipc'
-import type { SnapshotAccessor } from './providers/shared'
+import { getProjectView, type SnapshotAccessor } from './providers/shared'
 import { saveRuntimeKnowledgeDocument } from './knowledge-writer'
 import { createEvidenceLedger, wrapToolsWithRuntimeBudget } from './evidence-ledger'
-import { createRuntimePlan } from './planner'
+import { createRuntimePlan, type AssistantRuntimePlan } from './planner'
 
 /** 输出预算的下限。推理模型会把 reasoning 也算进 maxOutputTokens，不能太紧。 */
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000
@@ -83,6 +86,20 @@ export function createExecutionPlanner(
       budgetTokens: contextBudgetTokens
     })
     const contextBlock = assembleContextBlock(contextResult)
+    const skillTask = createV2SkillTask({
+      session,
+      surface,
+      request,
+      settings,
+      snapshot,
+      runtimePlan,
+      activeScopeRef
+    })
+    const { projectId, skills: selectedSkills } = await resolveTaskSkills(skillTask)
+    const matchedSkillDefs = selectedSkills
+      .map((sel) => getSkillById(sel.id, projectId || undefined))
+      .filter((skill): skill is SkillDefinition => Boolean(skill))
+    const skillPromptBlock = buildV2SkillPromptBlock(matchedSkillDefs, surface)
 
     // 2. 拼 system prompt
     const systemPrompt = buildAssistantSystemPrompt({
@@ -90,6 +107,7 @@ export function createExecutionPlanner(
       intentHint: request.intentHint,
       contextBlock: [
         `## Runtime v2 分批计划\n\n${runtimePlan.guidance}`,
+        skillPromptBlock,
         contextBlock
       ].filter(Boolean).join('\n\n---\n\n')
     })
@@ -121,8 +139,7 @@ export function createExecutionPlanner(
     const skillTools = createSkillTools({
       resolveSkill: (id) => getSkillById(id, session.projectId || undefined),
       listSkills: () => getAllSkills(session.projectId || undefined),
-      // v0.1 简化：只要 skill 自身启用就允许
-      resolveSkillEnabled: (skill) => skill.enabled !== false,
+      resolveSkillEnabled: (skill) => isSkillEnabledForTask(skillTask, skill.id, projectId),
       // 只允许 builtin skill 跑脚本，跟旧路径一致
       allowScriptExecution: (skill) => skill.scope === 'builtin'
     })
@@ -182,6 +199,111 @@ export function createExecutionPlanner(
       evidenceLedger
     }
   }
+}
+
+function taskForSurface(surface: SurfaceDefinition): AiTaskName {
+  return surface.id === 'chapter-panel' || surface.id === 'inline-selection'
+    ? 'chapter-assistant'
+    : 'global-assistant'
+}
+
+function stripSkillFrontmatter(content: string): string {
+  const match = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
+  if (!match) return content
+  return content.slice(match[0].length)
+}
+
+function hasSkillToolAccess(surface: SurfaceDefinition): boolean {
+  const matchers = resolveAllowedMatchers(surface)
+  return isToolAllowed('skill_load', matchers)
+}
+
+function buildV2SkillPromptBlock(
+  skills: SkillDefinition[],
+  surface: SurfaceDefinition
+): string {
+  if (!skills.length) return ''
+
+  const requiredSkills = skills.filter((skill) => skill.manifest.required)
+  const optionalSkills = skills.filter((skill) => !skill.manifest.required)
+  const sections: string[] = []
+
+  if (requiredSkills.length > 0) {
+    sections.push([
+      '## 强制生效的 SKILLS（已直接注入，无需调用 skill_load）',
+      '',
+      ...requiredSkills.map((skill) => {
+        const body = stripSkillFrontmatter(skill.content).trim().slice(0, 2000)
+        return `### ${skill.name}\n${body}`
+      })
+    ].join('\n'))
+  }
+
+  if (optionalSkills.length > 0 && hasSkillToolAccess(surface)) {
+    sections.push(buildSkillIndex(optionalSkills))
+  }
+
+  return sections.filter(Boolean).join('\n\n')
+}
+
+function createV2SkillTask(params: {
+  session: AssistantSession
+  surface: SurfaceDefinition
+  request: TurnSendRequest
+  settings: AppSettings
+  snapshot: ReturnType<SnapshotAccessor['getSnapshot']>
+  runtimePlan: AssistantRuntimePlan
+  activeScopeRef?: string
+}): AiTaskPayload {
+  const view = getProjectView(params.snapshot, params.session.projectId)
+  const project = view?.project
+  const workspace = view?.workspace
+  const chapterId = extractCurrentChapterId(params.activeScopeRef)
+  const chapter = chapterId
+    ? workspace?.chapters.find((item) => item.id === chapterId)
+    : undefined
+  const outlineItem = chapter?.outlineItemId
+    ? workspace?.outlineItems.find((item) => item.id === chapter.outlineItemId)
+    : undefined
+
+  return {
+    task: taskForSurface(params.surface),
+    settings: params.settings,
+    context: {
+      projectId: params.session.projectId,
+      projectTitle: project?.title ?? '',
+      projectGenre: project?.genre ?? '',
+      projectNovelLength: project?.novelLength ?? '',
+      projectSkills: project?.projectSkills ?? [],
+      userPrompt: params.request.userMessage,
+      originalUserPrompt: params.request.userMessage,
+      quickAction: params.request.intentHint ?? '',
+      stageId: resolveSkillStage(params.runtimePlan, params.surface, params.request.userMessage),
+      chapterId: chapter?.id ?? '',
+      chapterTitle: chapter?.title ?? '',
+      chapterSummary: chapter?.summary ?? '',
+      currentOutlineSummary: outlineItem?.summary ?? '',
+      currentOutlineConflict: outlineItem?.conflict ?? '',
+      focusType: params.request.attachments?.map((item) => item.kind).join(',') ?? ''
+    }
+  }
+}
+
+function resolveSkillStage(
+  runtimePlan: AssistantRuntimePlan,
+  surface: SurfaceDefinition,
+  userMessage: string
+): SkillStageId | undefined {
+  const text = userMessage.replace(/\s+/g, '')
+  if (/(拆书|参考书|对标|风格分析|参考分析)/.test(text)) return 'reference'
+  if (/(大纲|剧情节点|分卷|卷纲)/.test(text)) return 'outline'
+  if (surface.scope === 'chapter' || surface.scope === 'selection') return 'draft'
+  if (/(正文|章节|润色|改写|续写|扩写|初稿)/.test(text)) return 'draft'
+  if (/(简介|立意|卖点|题材|开书|项目初始化)/.test(text)) return 'premise'
+  if (runtimePlan.intent === 'entity-edit' || runtimePlan.intent === 'ingest' || runtimePlan.intent === 'correct') {
+    return 'setting'
+  }
+  return undefined
 }
 
 function resolveContextBudgetTokens(
