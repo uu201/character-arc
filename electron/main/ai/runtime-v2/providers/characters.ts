@@ -9,8 +9,8 @@ import type {
 import type { ContextProvider } from '../context-builder'
 import { getProjectView, makeSlice, type SnapshotAccessor } from './shared'
 
-const DESC_LIMIT = 400
-const MAX_CHARACTERS = 12
+const DESC_LIMIT = 1200
+const MAX_CHARACTERS = 80
 
 export function makeCharactersProvider(
   accessor: SnapshotAccessor

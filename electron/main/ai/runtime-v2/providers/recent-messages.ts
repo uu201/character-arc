@@ -13,8 +13,8 @@ import type { ContextProvider } from '../context-builder'
 import type { ConversationManager } from '../conversation-manager'
 import { makeSlice } from './shared'
 
-const MAX_TURNS = 6
-const MSG_LIMIT = 400
+const MAX_TURNS = 24
+const MSG_LIMIT = 1600
 
 function trim(text: string, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit)}…` : text

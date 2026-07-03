@@ -90,22 +90,22 @@ export function makeOrganizationsProvider(accessor: SnapshotAccessor): ContextPr
         return null
       }
 
-      const orgLines = workspace.organizations.slice(0, 8).map((org) =>
-        `- 组织：**${org.name}**（${org.type || '未分类'}）${org.motto ? `｜信条：${org.motto}` : ''}：${truncate(org.description, 220)}`
+      const orgLines = workspace.organizations.slice(0, 40).map((org) =>
+        `- 组织：**${org.name}**（${org.type || '未分类'}）${org.motto ? `｜信条：${org.motto}` : ''}：${truncate(org.description, 800)}`
       )
 
       const charNames = new Map(workspace.characters.map((c) => [c.id, c.name]))
-      const relLines = workspace.characterRelationships.slice(0, 10).map((rel) => {
+      const relLines = workspace.characterRelationships.slice(0, 60).map((rel) => {
         const from = charNames.get(rel.fromCharacterId) ?? rel.fromCharacterId
         const to = charNames.get(rel.toCharacterId) ?? rel.toCharacterId
-        return `- 关系：${from} → ${to}（${rel.type}，强度 ${rel.intensity}）：${truncate(rel.description, 160)}`
+        return `- 关系：${from} → ${to}（${rel.type}，强度 ${rel.intensity}）：${truncate(rel.description, 500)}`
       })
 
       const orgNames = new Map(workspace.organizations.map((o) => [o.id, o.name]))
-      const memberLines = workspace.organizationMemberships.slice(0, 10).map((m) => {
+      const memberLines = workspace.organizationMemberships.slice(0, 60).map((m) => {
         const character = charNames.get(m.characterId) ?? m.characterId
         const organization = orgNames.get(m.organizationId) ?? m.organizationId
-        return `- 归属：${character} → ${organization}${m.role ? `（${m.role}）` : ''}${m.notes ? `：${truncate(m.notes, 120)}` : ''}`
+        return `- 归属：${character} → ${organization}${m.role ? `（${m.role}）` : ''}${m.notes ? `：${truncate(m.notes, 400)}` : ''}`
       })
 
       const lines = [...orgLines, ...relLines, ...memberLines]
@@ -128,11 +128,11 @@ export function makeOutlineProvider(accessor: SnapshotAccessor): ContextProvider
       const lines = view.workspace.outlineItems
         .slice()
         .sort((a, b) => a.sortOrder - b.sortOrder)
-        .slice(0, 18)
+        .slice(0, 120)
         .map((item) => {
           const volume = volumes.get(item.volumeId)
           const prefix = volume ? `【${volume}】` : ''
-          return `- ${prefix}**${item.title}**（${item.status}，${item.wordTarget || '未定字数'}）：${item.conflict ? `${item.conflict}｜` : ''}${truncate(item.summary, 180)}`
+          return `- ${prefix}**${item.title}**（${item.status}，${item.wordTarget || '未定字数'}）：${item.conflict ? `${item.conflict}｜` : ''}${truncate(item.summary, 500)}`
         })
 
       const remaining = view.workspace.outlineItems.length - lines.length
@@ -155,10 +155,10 @@ export function makePlotThreadsProvider(accessor: SnapshotAccessor): ContextProv
       const view = getProjectView(accessor.getSnapshot(), request.projectId)
       if (!view || !view.workspace.plotThreads.length) return null
       const chapterTitles = new Map(view.workspace.chapters.map((c) => [c.id, c.title]))
-      const lines = view.workspace.plotThreads.slice(0, 14).map((thread) => {
+      const lines = view.workspace.plotThreads.slice(0, 60).map((thread) => {
         const opened = chapterTitles.get(thread.openedInChapterId) ?? thread.openedInChapterId
         const closed = thread.closedInChapterId ? (chapterTitles.get(thread.closedInChapterId) ?? thread.closedInChapterId) : ''
-        return `- **${thread.title}**（${thread.status}）${opened ? `｜埋设：${opened}` : ''}${closed ? `｜收束：${closed}` : ''}${tags(thread.tags)}：${truncate(thread.description, 180)}`
+        return `- **${thread.title}**（${thread.status}）${opened ? `｜埋设：${opened}` : ''}${closed ? `｜收束：${closed}` : ''}${tags(thread.tags)}：${truncate(thread.description, 500)}`
       })
       return makeSlice('plot-threads', 48, '剧情线索 / 伏笔', lines.join('\n'))
     }
@@ -174,7 +174,7 @@ export function makeConstraintsProvider(accessor: SnapshotAccessor): ContextProv
     async build(request: ContextBuildRequest): Promise<ContextSlice | null> {
       const docs = projectDocuments(accessor, request.projectId)
         .filter((doc) => doc.sourceType === 'canon-fact' && doc.sourceLabel === 'global-constraint')
-        .slice(0, 12)
+        .slice(0, 40)
       if (!docs.length) return null
 
       const lines = docs.map((doc) => {
@@ -182,7 +182,7 @@ export function makeConstraintsProvider(accessor: SnapshotAccessor): ContextProv
         const scope = typeof metadata.scope === 'string' ? metadata.scope : 'project'
         const weight = typeof metadata.weight === 'string' ? metadata.weight : ''
         const locked = metadata.locked === true ? '｜锁定' : ''
-        return `- **${doc.title}**（${scope}${weight ? ` / ${weight}` : ''}${locked}）：${truncate(doc.content || doc.summary, 260)}`
+        return `- **${doc.title}**（${scope}${weight ? ` / ${weight}` : ''}${locked}）：${truncate(doc.content || doc.summary, 1000)}`
       })
       return makeSlice('constraints', 85, '项目级约束', lines.join('\n'))
     }
@@ -201,8 +201,8 @@ export function makeInspirationProvider(accessor: SnapshotAccessor): ContextProv
       const lines = view.workspace.inspirationEntries
         .slice()
         .sort((a, b) => a.sortOrder - b.sortOrder)
-        .slice(0, 10)
-        .map((item) => `- **${item.title}**（${item.type} / ${item.source}）${tags(item.tags)}：${truncate(item.content, 160)}`)
+        .slice(0, 40)
+        .map((item) => `- **${item.title}**（${item.type} / ${item.source}）${tags(item.tags)}：${truncate(item.content, 500)}`)
       return makeSlice('inspiration', 35, '灵感卡', lines.join('\n'))
     }
   }
@@ -217,10 +217,10 @@ export function makeKnowledgeProvider(accessor: SnapshotAccessor): ContextProvid
     async build(request: ContextBuildRequest): Promise<ContextSlice | null> {
       const docs = projectDocuments(accessor, request.projectId)
         .filter((doc) => !(doc.sourceType === 'canon-fact' && doc.sourceLabel === 'global-constraint'))
-        .slice(0, 10)
+        .slice(0, 40)
       if (!docs.length) return null
       const lines = docs.map((doc) =>
-        `- **${doc.title}**（${doc.sourceType}${doc.sourceLabel ? ` / ${doc.sourceLabel}` : ''}）：${truncate(doc.summary || doc.content, 180)}`
+        `- **${doc.title}**（${doc.sourceType}${doc.sourceLabel ? ` / ${doc.sourceLabel}` : ''}）：${truncate(doc.summary || doc.content, 500)}`
       )
       return makeSlice('knowledge', 40, '项目知识库', lines.join('\n'))
     }
@@ -267,12 +267,12 @@ export function makeWorkflowDocumentsProvider(accessor: SnapshotAccessor): Conte
           if (keyDelta !== 0) return keyDelta
           return a.sourceOrder - b.sourceOrder
         })
-        .slice(0, 8)
+        .slice(0, 24)
       if (!docs.length) return null
       const lines = docs.map((doc) => {
         const title = WORKFLOW_DOCUMENT_TITLES[doc.key] ?? doc.title
         const active = doc.volumeId === activeVolumeId ? '当前分卷 / ' : ''
-        return `- **${active}${doc.volumeTitle} / ${title}**${doc.updatedAt ? `（${doc.updatedAt}）` : ''}：${truncate(doc.content, 260)}`
+        return `- **${active}${doc.volumeTitle} / ${title}**${doc.updatedAt ? `（${doc.updatedAt}）` : ''}：${truncate(doc.content, 1000)}`
       })
       lines.push('使用方式：这是项目的长期创作记忆。需要更新计划、状态、进度、伏笔、素材时，优先用 stage_workflow_document 暂存修改。')
       return makeSlice('workflow-documents', 62, '创作记忆', lines.join('\n'))
@@ -289,10 +289,10 @@ export function makeSkillIndexProvider(accessor: SnapshotAccessor): ContextProvi
     async build(request: ContextBuildRequest): Promise<ContextSlice | null> {
       const view = getProjectView(accessor.getSnapshot(), request.projectId)
       if (!view) return null
-      const skills = (view.project.projectSkills ?? []).filter((skill) => skill.enabled !== false).slice(0, 12)
+      const skills = (view.project.projectSkills ?? []).filter((skill) => skill.enabled !== false).slice(0, 40)
       if (!skills.length) return null
       const lines = skills.map((skill) =>
-        `- ${skill.name || skill.id}（${skill.id}）：${truncate(skill.description || '', 120)}`
+        `- ${skill.name || skill.id}（${skill.id}）：${truncate(skill.description || '', 300)}`
       )
       return makeSlice('skill-index', 30, '当前项目启用 skills', lines.join('\n'))
     }

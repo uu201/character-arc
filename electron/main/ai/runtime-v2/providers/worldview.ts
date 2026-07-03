@@ -10,10 +10,10 @@ import type {
 import type { ContextProvider } from '../context-builder'
 import { getProjectView, makeSlice, type SnapshotAccessor } from './shared'
 
-/** 单条 content 摘要上限。避免 10 条长文档撑爆预算。 */
-const ENTRY_CONTENT_LIMIT = 500
+/** 单条 content 摘要上限。长上下文模式下尽量保留更多设定，最终由 ContextBuilder 压缩兜底。 */
+const ENTRY_CONTENT_LIMIT = 1500
 /** 最多列出条目数。超过则提示可调 search_project 精读。 */
-const MAX_ENTRIES = 12
+const MAX_ENTRIES = 80
 
 export function makeWorldviewProvider(
   accessor: SnapshotAccessor

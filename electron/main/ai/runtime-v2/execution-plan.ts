@@ -36,11 +36,14 @@ import { saveRuntimeKnowledgeDocument } from './knowledge-writer'
 import { createEvidenceLedger, wrapToolsWithRuntimeBudget } from './evidence-ledger'
 import { createRuntimePlan, type AssistantRuntimePlan } from './planner'
 
-/** 输出预算的下限。推理模型会把 reasoning 也算进 maxOutputTokens，不能太紧。 */
-const DEFAULT_MAX_OUTPUT_TOKENS = 16000
-const GLOBAL_CONTEXT_BUDGET_TOKENS = 12000
-const CHAPTER_CONTEXT_BUDGET_TOKENS = 8000
-const SELECTION_CONTEXT_BUDGET_TOKENS = 6000
+/** 大多数主流长上下文模型的保守窗口。实际 provider 若更小，会由压缩层兜底。 */
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 128000
+/** 输出预算包含 reasoning token，保留足够空间给回答/工具规划，不随 prompt 无限放大。 */
+const DEFAULT_MAX_OUTPUT_TOKENS = 32000
+const CONTEXT_RESERVE_TOKENS = DEFAULT_MAX_OUTPUT_TOKENS
+const LARGE_CONTEXT_BUDGET_TOKENS = DEFAULT_CONTEXT_WINDOW_TOKENS - CONTEXT_RESERVE_TOKENS
+const MINIMAL_CONTEXT_BUDGET_TOKENS = 32000
+const SELECTION_CONTEXT_BUDGET_TOKENS = 64000
 
 export interface CreateExecutionPlannerDeps {
   snapshot: SnapshotAccessor
@@ -185,9 +188,9 @@ export function createExecutionPlanner(
     }
 
     // 4. 输出 token 预算
-    const maxOutputTokens = Math.max(
-      estimateTokens(systemPrompt) + 6000,
-      DEFAULT_MAX_OUTPUT_TOKENS
+    const maxOutputTokens = Math.min(
+      DEFAULT_MAX_OUTPUT_TOKENS,
+      Math.max(estimateTokens(systemPrompt) + 6000, 16000)
     )
 
     return {
@@ -310,13 +313,13 @@ function resolveContextBudgetTokens(
   surface: { id: string; scope: string },
   contextMode: 'minimal' | 'targeted' | 'chapter'
 ): number {
-  if (contextMode === 'minimal') return Math.min(GLOBAL_CONTEXT_BUDGET_TOKENS, 5000)
-  if (contextMode === 'chapter') return CHAPTER_CONTEXT_BUDGET_TOKENS
+  if (contextMode === 'minimal') return MINIMAL_CONTEXT_BUDGET_TOKENS
+  if (contextMode === 'chapter') return LARGE_CONTEXT_BUDGET_TOKENS
   if (surface.id === 'global-page' || surface.id === 'global-panel' || surface.scope === 'project') {
-    return GLOBAL_CONTEXT_BUDGET_TOKENS
+    return LARGE_CONTEXT_BUDGET_TOKENS
   }
   if (surface.id === 'chapter-panel' || surface.scope === 'chapter') {
-    return CHAPTER_CONTEXT_BUDGET_TOKENS
+    return LARGE_CONTEXT_BUDGET_TOKENS
   }
   return SELECTION_CONTEXT_BUDGET_TOKENS
 }

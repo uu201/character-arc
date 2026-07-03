@@ -48,7 +48,7 @@ function buildSurfaceHint(surface: SurfaceDefinition): string {
         '- 删：上述实体工具 action=delete（需 match_id 或标题定位）。删除属破坏性操作，务必在 reason 里写明依据。',
         '- 改：action=update。默认 write_mode=replace（用新内容整体替换旧内容）；只有当用户明确要"补充/追加"而非"重写"时才用 write_mode=merge。用户说"改写/重写/整体替换"时一律用 replace。',
         '- 章节正文：stage_chapter_edit（replace/insert/append）。',
-        '创建大纲用 stage_outline(create)，生成初稿既可用 stage_chapter_create(带 content) 新建带稿章节，也可对已有空章节用 stage_chapter_edit(replace) 写入。'
+        '创建大纲用 stage_outline(create)，生成初稿既可用 stage_chapter_create(带 content) 新建带稿章节，也可对已有空章节用 stage_chapter_edit(replace) 写入。按某个大纲节点生成新章节时，必须把该大纲节点的 entity_id 填入 stage_chapter_create 的 outline_item_id。'
       ].join('\n')
     case 'chapter-panel':
       return [

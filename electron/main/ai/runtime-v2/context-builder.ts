@@ -8,8 +8,8 @@
  *  1. Provider 注册制：每个数据源实现 `ContextProvider`，按 id 挂载
  *  2. Surface 声明所需的 provider 集合（未声明则用全部适用者）
  *  3. 按 `priority` 降序调用 `build`，累积 token 预算
- *  4. 超预算的 provider 被 **降级为占位 slice**（保留 heading + 一行提示），
- *     并明确告诉模型"可通过 read_ / search_ 系列工具补齐"——学 Claude CLI 的做法
+ *  4. 超预算的 provider 会先压缩为 head/tail 摘要；仍放不下时才降级为占位 slice，
+ *     并明确告诉模型"可通过 read_ / search_ 系列工具补齐"——接近 Codex 的上下文压缩思路
  *  5. 最终 `assembleContextBlock` 拼装成 markdown 段落，注入 system prompt
  */
 
@@ -68,16 +68,58 @@ export function estimateTokens(text: string): number {
 
 /** 构建结果，供上层拼装 prompt 与 UI 展示。 */
 export interface BuildResult {
-  /** 最终参与 prompt 的 slice 列表（含 truncated 占位）。 */
+  /** 最终参与 prompt 的 slice 列表（含压缩/占位）。 */
   slices: ContextSlice[]
   /** 总 token 消耗（含占位说明本身的开销）。 */
   usedTokens: number
+  /** 因预算不足而被压缩保留的 provider id 列表。 */
+  compressedProviderIds: string[]
   /** 因预算不足而降级为占位的 provider id 列表。 */
   truncatedProviderIds: string[]
 }
 
 const DEFAULT_TRUNCATION_HINT =
   '内容较多，此处省略。若需了解详情，可调用相应工具（read_project_data / search_project / read_chapter）主动查询。'
+const MIN_COMPRESSED_SLICE_TOKENS = 240
+
+function buildCompressedBody(
+  body: string,
+  tokenBudget: number,
+  hint: string
+): string | null {
+  if (tokenBudget < MIN_COMPRESSED_SLICE_TOKENS) return null
+
+  const originalTokens = estimateTokens(body)
+  let charBudget = Math.max(400, Math.floor(tokenBudget / 0.8))
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const marker = [
+      `【上下文已压缩：原约 ${originalTokens} tokens，保留开头和结尾。】`,
+      hint,
+      ''
+    ].join('\n')
+    const availableChars = Math.max(200, charBudget - marker.length - 80)
+    const headChars = Math.ceil(availableChars * 0.62)
+    const tailChars = Math.max(120, availableChars - headChars)
+    const head = body.slice(0, headChars).trim()
+    const tail = body.slice(Math.max(headChars, body.length - tailChars)).trim()
+    const omitted = Math.max(0, body.length - head.length - tail.length)
+    const compressed = [
+      marker,
+      head,
+      '',
+      `...（中间已压缩 ${omitted} 字；需要完整内容请调用对应读取工具）...`,
+      '',
+      tail
+    ].join('\n')
+
+    if (estimateTokens(compressed) <= tokenBudget) {
+      return compressed
+    }
+    charBudget = Math.floor(charBudget * 0.72)
+  }
+
+  return null
+}
 
 /**
  * 构建器主类。整个 Runtime 一个单例即可；provider 在启动阶段注册完毕。
@@ -135,6 +177,7 @@ export class ContextBuilder {
   ): Promise<BuildResult> {
     const applicable = this.resolveApplicable(surface)
     const slices: ContextSlice[] = []
+    const compressedProviderIds: string[] = []
     const truncatedProviderIds: string[] = []
     let remaining = request.budgetTokens
 
@@ -156,8 +199,26 @@ export class ContextBuilder {
         continue
       }
 
-      // 超预算：降级为占位 slice
       const hint = provider.truncationHint ?? DEFAULT_TRUNCATION_HINT
+      const compressedBody = buildCompressedBody(slice.body, remaining, hint)
+      if (compressedBody) {
+        const compressed: ContextSlice = {
+          providerId: slice.providerId,
+          priority: slice.priority,
+          heading: `${slice.heading}（已压缩）`,
+          body: compressedBody,
+          estimatedTokens: estimateTokens(compressedBody) + estimateTokens(slice.heading) + 4,
+          truncated: true
+        }
+        if (compressed.estimatedTokens <= remaining) {
+          slices.push(compressed)
+          remaining -= compressed.estimatedTokens
+          compressedProviderIds.push(String(slice.providerId))
+          continue
+        }
+      }
+
+      // 连压缩摘要都放不下：降级为占位 slice。
       const placeholder: ContextSlice = {
         providerId: slice.providerId,
         priority: slice.priority,
@@ -179,6 +240,7 @@ export class ContextBuilder {
     return {
       slices,
       usedTokens: request.budgetTokens - remaining,
+      compressedProviderIds,
       truncatedProviderIds
     }
   }
@@ -205,11 +267,18 @@ export function assembleContextBlock(result: BuildResult): string {
   const sections = result.slices.map((s) => `## ${s.heading}\n\n${s.body}`)
   let out = sections.join('\n\n---\n\n')
 
-  if (result.truncatedProviderIds.length > 0) {
+  if (result.compressedProviderIds.length > 0 || result.truncatedProviderIds.length > 0) {
+    const notes = []
+    if (result.compressedProviderIds.length > 0) {
+      notes.push(`已压缩模块：${result.compressedProviderIds.join(', ')}`)
+    }
+    if (result.truncatedProviderIds.length > 0) {
+      notes.push(`已省略模块：${result.truncatedProviderIds.join(', ')}`)
+    }
     out +=
       '\n\n---\n\n' +
-      `> 上下文预算受限，以下模块已省略：${result.truncatedProviderIds.join(', ')}。` +
-      '若与用户需求相关，请主动调用 read_project_data / search_project / read_chapter 等工具查询。'
+      `> 上下文接近模型窗口，${notes.join('；')}。` +
+      '若与用户需求相关，请主动调用 read_project_data / search_project / read_chapter 等工具查询完整内容。'
   }
 
   return out

@@ -17,8 +17,8 @@ import {
   type SnapshotAccessor
 } from './shared'
 
-/** 章节内容截断上限（保守估算 ~1500 tokens）。 */
-const CHAPTER_CONTENT_MAX_CHARS = 5000
+/** 章节内容截断上限。v2 默认走长上下文窗口，尽量保留整章，最终由 ContextBuilder 压缩兜底。 */
+const CHAPTER_CONTENT_MAX_CHARS = 60000
 
 function stripHtml(html: string): string {
   return html

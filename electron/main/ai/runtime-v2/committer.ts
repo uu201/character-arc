@@ -639,14 +639,25 @@ async function commitChapterCreate(
   const summary = stringField(payload, 'summary')
   const wordTarget = stringField(payload, 'wordTarget') || stringField(payload, 'word_target', '预估 3000字')
   const content = change.chapterHtml?.new ?? ''
-  const volumeId = await ensureOutlineVolume(projectId, stringField(payload, 'volumeId') || stringField(payload, 'volume_id'))
+  const outlineItemId = stringField(payload, 'outlineItemId') || stringField(payload, 'outline_item_id')
+  const outlineItem = outlineItemId
+    ? db.prepare('SELECT id, volume_id FROM outline_items WHERE id = ? AND project_id = ?')
+      .get(outlineItemId, projectId) as { id: string; volume_id: string } | undefined
+    : undefined
+  if (outlineItemId && !outlineItem) {
+    return { changeId: change.id, ok: false, error: `大纲节点不存在，无法绑定：${outlineItemId}` }
+  }
+  const volumeId = await ensureOutlineVolume(
+    projectId,
+    outlineItem?.volume_id || stringField(payload, 'volumeId') || stringField(payload, 'volume_id')
+  )
 
   const id = `chapter-${randomUUID()}`
   const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS value FROM chapters WHERE project_id = ? AND volume_id = ?')
     .get(projectId, volumeId) as { value: number } | undefined
   db.prepare(`
-    INSERT INTO chapters (id, project_id, volume_id, title, summary, status, word_target, content, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, projectId, volumeId, title, summary, 'draft', wordTarget, content, Number(maxOrder?.value ?? -1) + 1)
+    INSERT INTO chapters (id, project_id, volume_id, outline_item_id, title, summary, status, word_target, content, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, projectId, volumeId, outlineItem?.id || '', title, summary, 'draft', wordTarget, content, Number(maxOrder?.value ?? -1) + 1)
   return { changeId: change.id, ok: true, entityId: id }
 }
