@@ -6,6 +6,7 @@ const props = defineProps<{
   modelValue: string
   isStreaming: boolean
   modeLabel?: string
+  streamingCharCount?: number
 }>()
 
 const emit = defineEmits<{
@@ -38,7 +39,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 <template>
   <div class="composer-wrap">
-    <div class="composer">
+    <div class="composer" :class="{ streaming: props.isStreaming }">
       <textarea
         ref="textareaRef"
         :value="props.modelValue"
@@ -49,7 +50,10 @@ function handleKeydown(event: KeyboardEvent) {
       <div class="foot">
         <div class="hint">
           <span v-if="props.modeLabel" class="mode-chip">{{ props.modeLabel }}</span>
-          <span>发送后会显示在暂存区，需要你逐条确认。</span>
+          <span v-if="props.isStreaming" class="streaming-hint">
+            <span class="streaming-dot" />AI 正在回答<template v-if="props.streamingCharCount && props.streamingCharCount > 0"> · 已生成 {{ props.streamingCharCount }} 字</template>
+          </span>
+          <span v-else>发送后会显示在暂存区，需要你逐条确认。</span>
         </div>
         <div class="actions">
           <NButton
@@ -90,6 +94,11 @@ function handleKeydown(event: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.composer.streaming {
+  border-color: rgba(13, 125, 90, 0.4);
+  box-shadow: 0 0 0 3px rgba(13, 125, 90, 0.06), var(--arc-shadow-md);
 }
 textarea {
   width: 100%;
@@ -137,12 +146,30 @@ textarea::placeholder {
   font-size: 11px;
   font-weight: 600;
 }
-.hint > span:not(.mode-chip) {
+.hint > span:not(.mode-chip):not(.streaming-hint) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex-shrink: 1;
+}
+.streaming-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--arc-primary);
+  font-weight: 500;
+}
+.streaming-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--arc-primary);
+  animation: streamPulse 1.4s ease-in-out infinite;
+}
+@keyframes streamPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 .actions {
   display: flex;

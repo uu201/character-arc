@@ -287,15 +287,11 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
     </div>
 
     <div v-else class="chat-pane">
-      <div v-if="assistant.isStreaming.value" class="stream-strip">
-        <span class="stream-dot" />
-        生成中
-      </div>
-
       <AssistantMessages
-        v-if="assistant.messages.value.length > 0 || assistant.isStreaming.value"
+        v-if="assistant.messages.value.length > 0 || assistant.isStreaming.value || assistant.isInitializing.value"
         :messages="assistant.messages.value"
         :is-streaming="assistant.isStreaming.value"
+        :is-initializing="assistant.isInitializing.value"
         assistant-name="创作助理"
         @continue="assistant.continueWithPrompt"
       />
@@ -345,6 +341,7 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
       <AssistantComposer
         v-model="composerValue"
         :is-streaming="assistant.isStreaming.value"
+        :streaming-char-count="assistant.streamingCharCount.value"
         :mode-label="hasSelection ? selectionHint : currentMode.label"
         @send="sendWithMode"
         @cancel="assistant.cancel()"
@@ -681,35 +678,6 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
   border-color: var(--arc-primary);
   background: var(--arc-primary-soft);
   color: var(--arc-primary);
-}
-
-.stream-strip {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid rgba(180, 83, 9, 0.2);
-  border-radius: 999px;
-  background: var(--arc-bg-surface);
-  color: var(--v2-warn);
-  font-family: var(--v2-mono);
-  font-size: 11px;
-  padding: 4px 8px;
-}
-
-.stream-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--v2-warn);
-  animation: pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  50% { opacity: 0.35; }
 }
 
 .err-banner {

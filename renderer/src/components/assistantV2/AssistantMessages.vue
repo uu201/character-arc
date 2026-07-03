@@ -23,6 +23,7 @@ function renderMarkdown(content: string): string {
 const props = defineProps<{
   messages: AssistantMessageView[]
   isStreaming: boolean
+  isInitializing?: boolean
   assistantName?: string
 }>()
 
@@ -127,7 +128,23 @@ const hasContent = computed(() => props.messages.length > 0)
 
 <template>
   <div ref="scrollRef" class="messages">
-    <div v-if="!hasContent" class="empty">
+    <!-- 骨架屏：初始加载中 -->
+    <div v-if="props.isInitializing && !hasContent" class="skeleton">
+      <div class="skeleton-item user">
+        <div class="skeleton-avatar" />
+        <div class="skeleton-bubble" />
+      </div>
+      <div class="skeleton-item assistant">
+        <div class="skeleton-avatar" />
+        <div class="skeleton-content">
+          <div class="skeleton-line" />
+          <div class="skeleton-line" />
+          <div class="skeleton-line short" />
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="!hasContent" class="empty">
       <div class="title">开始一段对话</div>
       <div class="hint">
         {{ props.isStreaming ? '正在思考…' : '试试问："介绍项目里的第一个人物" 或"帮我优化第一章的开头"' }}
@@ -249,6 +266,58 @@ const hasContent = computed(() => props.messages.length > 0)
   min-width: 0;
   min-height: 0;
 }
+/* ── Skeleton 加载占位 ── */
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 8px 0;
+  pointer-events: none;
+}
+.skeleton-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.skeleton-item.user {
+  flex-direction: row-reverse;
+}
+.skeleton-avatar {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--arc-border-strong);
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+.skeleton-bubble {
+  width: 200px;
+  height: 36px;
+  border-radius: 12px;
+  background: var(--arc-border-strong);
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+.skeleton-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+.skeleton-line {
+  height: 13px;
+  border-radius: 6px;
+  background: var(--arc-border-strong);
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+.skeleton-line.short {
+  width: 55%;
+}
+@keyframes shimmer {
+  0%, 100% { opacity: 0.45; }
+  50%       { opacity: 0.2;  }
+}
+
 .empty {
   margin: auto;
   text-align: center;
@@ -340,8 +409,8 @@ const hasContent = computed(() => props.messages.length > 0)
   align-items: center;
   padding: 1px 8px;
   border-radius: 999px;
-  background: var(--v2-warn-soft);
-  color: var(--v2-warn);
+  background: var(--arc-primary-soft);
+  color: var(--arc-primary);
   font-family: var(--v2-mono);
   font-size: 10.5px;
 }

@@ -1168,8 +1168,8 @@ input {
   --assistant-border: #2d313c;
   --assistant-border-strong: #3a3f4d;
   --assistant-text: #f3f4f6;
-  --assistant-text-muted: #b0b8c7;
-  --assistant-text-hint: #8c96a8;
+  --assistant-text-muted: #c4cad6;
+  --assistant-text-hint: #a8b1c2;
   --assistant-accent-soft: color-mix(in srgb, var(--arc-primary) 14%, #17181d);
   --assistant-accent-strong: color-mix(in srgb, var(--arc-primary) 22%, #17181d);
 }

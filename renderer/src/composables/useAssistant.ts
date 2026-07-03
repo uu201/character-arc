@@ -100,6 +100,16 @@ export function useAssistant(options: UseAssistantOptions) {
   const streamingTurnId = ref<string | null>(null)
   const isStreaming = computed(() => streamingTurnId.value !== null)
 
+  // 流式生成时已累积的 assistant 文字数（用于 Composer 进度提示）
+  const streamingCharCount = computed(() => {
+    if (!streamingTurnId.value) return 0
+    const events = eventsByTurn.value.get(streamingTurnId.value) ?? []
+    return events.reduce((sum, e) => (e.kind === 'chunk' ? sum + (e.delta?.length ?? 0) : sum), 0)
+  })
+
+  // === 初始化加载状态 ===
+  const isInitializing = ref(true)
+
   // === 暂存变更 ===
   const stagedChanges = ref<StagedChange[]>([])
   const pendingStaged = computed(() =>
@@ -336,6 +346,7 @@ export function useAssistant(options: UseAssistantOptions) {
     const pid = options.projectId()
     if (!pid) {
       sessions.value = []
+      isInitializing.value = false
       return
     }
     try {
@@ -343,9 +354,13 @@ export function useAssistant(options: UseAssistantOptions) {
       sessions.value = list
       if (!activeSessionId.value && list.length > 0) {
         await switchSession(list[0].id)
+      } else {
+        // 没有会话时也标记加载完成
+        isInitializing.value = false
       }
     } catch (e) {
       lastError.value = e instanceof Error ? e.message : String(e)
+      isInitializing.value = false
     }
   }
 
@@ -366,6 +381,9 @@ export function useAssistant(options: UseAssistantOptions) {
       map.set(p.turnId, list)
     }
     eventsByTurn.value = map
+
+    // 首次加载完成
+    isInitializing.value = false
   }
 
   async function reloadStaged(): Promise<void> {
@@ -590,6 +608,8 @@ export function useAssistant(options: UseAssistantOptions) {
     activeSession,
     messages,
     isStreaming,
+    isInitializing,
+    streamingCharCount,
     stagedChanges,
     pendingStaged,
     acceptedStaged,
