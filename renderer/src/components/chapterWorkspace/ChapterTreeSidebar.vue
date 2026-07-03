@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ArrowLeft, ChevronDown, ChevronsDownUp, FilePlus, FileText, FolderPlus, MoreVertical, Plus, Search } from 'lucide-vue-next'
-import { NDropdown, NTag, NTooltip, useDialog, useMessage } from 'naive-ui'
+import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTag, NTooltip, useDialog, useMessage } from 'naive-ui'
 import ChapterMetaDialog from './ChapterMetaDialog.vue'
 import { useAppStore } from '@/stores/app'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
 import { getChapterCharacterCount, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
-import type { ChapterDraft } from '@/types/app'
-import type { DropdownOption } from 'naive-ui'
+import type { ChapterDraft, OutlineItem } from '@/types/app'
+import type { DropdownOption, SelectOption } from 'naive-ui'
 import { toIpcPayload } from '@/utils/ipcPayload'
 
 const emit = defineEmits<{
@@ -23,6 +23,12 @@ const collapsed = reactive<Record<string, boolean>>({})
 
 const metaDialogVisible = ref(false)
 const metaDialogChapter = ref<ChapterDraft | null>(null)
+const createDialogVisible = ref(false)
+const createForm = reactive({
+  volumeId: '',
+  outlineItemId: '',
+  title: ''
+})
 
 const chapterMenuOptions: DropdownOption[] = [
   { key: 'edit', label: '编辑章节信息' },
@@ -55,6 +61,31 @@ const allCollapsed = computed(() =>
   appStore.outlineVolumes.length > 0 && appStore.outlineVolumes.every((v) => collapsed[v.id])
 )
 
+const createOutlineOptions = computed<SelectOption[]>(() => {
+  const targetVolumeId = createForm.volumeId
+  const items = appStore.outlineItems.filter((item) => !targetVolumeId || item.volumeId === targetVolumeId)
+  return items.map((item) => {
+    const linkedCount = appStore.chapters.filter((chapter) => chapter.outlineItemId === item.id).length
+    return {
+      label: linkedCount > 0 ? `${item.title} · 已关联 ${linkedCount} 章，可继续绑定` : item.title,
+      value: item.id
+    }
+  })
+})
+
+const selectedCreateOutline = computed<OutlineItem | null>(() =>
+  appStore.outlineItems.find((item) => item.id === createForm.outlineItemId) ?? null
+)
+
+watch(
+  () => createForm.outlineItemId,
+  () => {
+    const item = selectedCreateOutline.value
+    if (!item) return
+    createForm.title = item.title
+  }
+)
+
 function toggleVolume(id: string): void {
   collapsed[id] = !collapsed[id]
 }
@@ -62,6 +93,42 @@ function toggleVolume(id: string): void {
 function toggleCollapseAll(): void {
   const next = !allCollapsed.value
   for (const v of appStore.outlineVolumes) collapsed[v.id] = next
+}
+
+function openCreateDialog(volumeId?: string): void {
+  const targetVolumeId = volumeId ?? ''
+  const firstOutline = appStore.outlineItems.find((item) => !targetVolumeId || item.volumeId === targetVolumeId)
+  createForm.volumeId = targetVolumeId
+  createForm.outlineItemId = firstOutline?.id ?? ''
+  createForm.title = firstOutline?.title ?? ''
+  createDialogVisible.value = true
+}
+
+function closeCreateDialog(): void {
+  createDialogVisible.value = false
+}
+
+function submitCreateChapter(): void {
+  const item = selectedCreateOutline.value
+  if (!item) {
+    message.warning('请先选择要绑定的大纲节点')
+    return
+  }
+  if (!createForm.title.trim()) {
+    message.warning('请填写章节标题')
+    return
+  }
+
+  appStore.createChapterFromOutlineItem(item)
+  appStore.updateChapter(appStore.selectedChapterId, {
+    title: createForm.title.trim()
+  })
+  appStore.updateOutlineItem(item.id, {
+    status: item.status === 'done' ? 'done' : 'drafting'
+  })
+  message.success('已根据大纲新建章节')
+  closeCreateDialog()
+  emit('navigate')
 }
 
 function formatStatus(status: ChapterDraft['status']): string {
@@ -157,7 +224,7 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
       </n-tooltip>
       <n-tooltip trigger="hover" placement="bottom">
         <template #trigger>
-          <button class="icon-btn flex" @click="appStore.createChapter()"><FilePlus :size="14" /></button>
+          <button class="icon-btn flex" @click="openCreateDialog()"><FilePlus :size="14" /></button>
         </template>
         新建章节
       </n-tooltip>
@@ -208,7 +275,7 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
               </span>
             </n-dropdown>
           </button>
-          <button class="chapter-add" @click="appStore.createChapter(group.volume.id)">
+          <button class="chapter-add" @click="openCreateDialog(group.volume.id)">
             <Plus :size="12" /> 新增章节
           </button>
         </div>
@@ -223,6 +290,37 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
       v-model:show="metaDialogVisible"
       :chapter="metaDialogChapter"
     />
+
+    <NModal
+      v-model:show="createDialogVisible"
+      preset="card"
+      title="新建章节"
+      :style="{ width: 'min(520px, 92vw)' }"
+      :bordered="false"
+    >
+      <NForm label-placement="top">
+        <NFormItem label="选择大纲">
+          <NSelect
+            v-model:value="createForm.outlineItemId"
+            :options="createOutlineOptions"
+            placeholder="选择要写作的大纲节点"
+            filterable
+          />
+        </NFormItem>
+        <NFormItem label="章节标题">
+          <NInput v-model:value="createForm.title" placeholder="选择大纲后自动带入标题" />
+        </NFormItem>
+      </NForm>
+
+      <template #footer>
+        <div class="create-actions">
+          <NButton round strong @click="closeCreateDialog">取消</NButton>
+          <NButton type="primary" round strong :disabled="!selectedCreateOutline" @click="submitCreateChapter">
+            创建章节
+          </NButton>
+        </div>
+      </template>
+    </NModal>
   </aside>
 </template>
 
@@ -450,5 +548,11 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
   border-top: 1px solid var(--arc-border);
   font-size: 11px;
   color: var(--arc-text-hint);
+}
+
+.create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 </style>
