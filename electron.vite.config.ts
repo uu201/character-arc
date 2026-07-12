@@ -6,11 +6,15 @@ export default defineConfig({
   main: {
     build: {
       outDir: 'dist-electron/main',
-      lib: {
-        entry: resolve(__dirname, 'electron/main/index.ts')
-      },
       rollupOptions: {
-        external: ['@node-rs/jieba', '@node-rs/jieba/dict.js']
+        input: {
+          index: resolve(__dirname, 'electron/main/index.ts'),
+          'archive/project-archive-import-worker': resolve(__dirname, 'electron/main/archive/project-archive-import-worker.ts')
+        },
+        external: ['@node-rs/jieba', '@node-rs/jieba/dict.js'],
+        output: {
+          entryFileNames: '[name].js'
+        }
       }
     },
     resolve: {

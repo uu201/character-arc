@@ -97,7 +97,10 @@ async function confirmArchiveImport(): Promise<void> {
       return
     }
 
-    await appStore.initialize()
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+    if (result.selectedProjectId && !appStore.projects.some((project) => project.id === result.selectedProjectId)) {
+      await appStore.initialize()
+    }
     if (result.selectedProjectId) {
       appStore.openProject(result.selectedProjectId)
     }

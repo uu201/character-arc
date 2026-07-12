@@ -16,7 +16,7 @@ import { getWorkspaceDirPath } from './workspace-store'
 import {
   exportProjectArchive,
   getProjectArchiveDefaultName,
-  importProjectArchive,
+  importProjectArchiveInWorker,
   inspectProjectArchive,
   type ProjectArchiveImportMode,
   type ProjectArchiveModule
@@ -237,19 +237,18 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     }
 
     try {
-      const db = await deps.ensureWorkspaceDb()
-      const result = await importProjectArchive({
-        db,
+      await deps.ensureWorkspaceDb()
+      const result = await importProjectArchiveInWorker({
         filePath,
         mode: request.mode ?? 'new-project',
         targetProjectId: request.targetProjectId,
-        modules: request.modules,
-        readWorkspaceSnapshot: deps.readWorkspaceSnapshot as (db: DatabaseSync) => WorkspacePayload | null,
-        writeWorkspaceSnapshot: deps.writeWorkspaceSnapshot as (db: DatabaseSync, payload: WorkspacePayload) => void
+        modules: request.modules
       })
+      const db = await deps.ensureWorkspaceDb()
       const workspace = deps.readWorkspaceSnapshot(db)
       if (workspace) {
         deps.setLatestWorkspaceSnapshot(workspace)
+        deps.windowManager.broadcastWindowEvent('characterarc:workspace-sync-event', workspace)
       }
       return { success: true, canceled: false, selectedProjectId: result.selectedProjectId }
     } catch (error) {

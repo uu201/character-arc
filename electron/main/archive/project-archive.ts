@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
+import { Worker } from 'node:worker_threads'
 
 import { getWorkspaceDirPath } from '../workspace-store'
 import { stagedChangesStore } from '../ai/runtime-v2/staged-changes-store'
@@ -145,6 +146,20 @@ type ImportProjectArchiveOptions = {
   readWorkspaceSnapshot: (db: DatabaseSync) => WorkspacePayload | null
   writeWorkspaceSnapshot: (db: DatabaseSync, payload: WorkspacePayload) => void
 }
+
+type ImportProjectArchiveWorkerRequest = {
+  filePath: string
+  mode: ProjectArchiveImportMode
+  targetProjectId?: string
+  modules?: ProjectArchiveModule[]
+  workspaceDir: string
+}
+
+type ImportProjectArchiveWorkerInput = Omit<ImportProjectArchiveWorkerRequest, 'workspaceDir'>
+
+type ImportProjectArchiveWorkerResponse =
+  | { success: true; selectedProjectId: string }
+  | { success: false; error: string }
 
 const ALL_ARCHIVE_MODULES: ProjectArchiveModule[] = [
   'project',
@@ -1035,4 +1050,41 @@ export async function importProjectArchive(options: ImportProjectArchiveOptions)
   }
   await restoreReferenceNovelAssets(incoming.referenceNovelAssets)
   return { selectedProjectId: targetProjectId }
+}
+
+export async function importProjectArchiveInWorker(
+  options: ImportProjectArchiveWorkerInput
+): Promise<{ selectedProjectId: string }> {
+  return await new Promise<{ selectedProjectId: string }>((resolve, reject) => {
+    let settled = false
+    const worker = new Worker(new URL('../archive/project-archive-import-worker.js', import.meta.url), {
+      workerData: {
+        ...options,
+        workspaceDir: getWorkspaceDirPath()
+      }
+    })
+
+    worker.once('message', (message: ImportProjectArchiveWorkerResponse) => {
+      if (settled) return
+      settled = true
+      if (message?.success) {
+        resolve({ selectedProjectId: message.selectedProjectId })
+      } else {
+        reject(new Error(message?.error ?? '导入项目归档失败'))
+      }
+    })
+
+    worker.once('error', (error) => {
+      if (settled) return
+      settled = true
+      reject(error)
+    })
+
+    worker.once('exit', (code) => {
+      if (!settled && code !== 0) {
+        settled = true
+        reject(new Error(`导入项目归档 worker 退出，代码 ${code}`))
+      }
+    })
+  })
 }

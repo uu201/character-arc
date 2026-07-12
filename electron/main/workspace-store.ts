@@ -1,4 +1,3 @@
-import { app } from 'electron'
 import { join } from 'node:path'
 import { mkdir, readFile } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
@@ -21,6 +20,10 @@ const WORKSPACE_DB = 'workspace.db'
 const WORKSPACE_FILE = 'workspace.json'
 
 export function getWorkspaceDirPath(): string {
+  const override = process.env.CHARACTERARC_WORKSPACE_DIR?.trim()
+  if (override) return override
+  const electronRequire = eval('require') as NodeJS.Require
+  const { app } = electronRequire('electron') as { app: { getPath: (name: 'userData') => string } }
   return join(app.getPath('userData'), 'data')
 }
 
