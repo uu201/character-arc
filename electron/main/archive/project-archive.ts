@@ -145,6 +145,7 @@ type ImportProjectArchiveOptions = {
   modules?: ProjectArchiveModule[]
   readWorkspaceSnapshot: (db: DatabaseSync) => WorkspacePayload | null
   writeWorkspaceSnapshot: (db: DatabaseSync, payload: WorkspacePayload) => void
+  onProgress?: (payload: ProjectArchiveImportProgressPayload) => void
 }
 
 type ImportProjectArchiveWorkerRequest = {
@@ -157,7 +158,14 @@ type ImportProjectArchiveWorkerRequest = {
 
 type ImportProjectArchiveWorkerInput = Omit<ImportProjectArchiveWorkerRequest, 'workspaceDir'>
 
+export type ProjectArchiveImportProgressPayload = {
+  phase: 'preparing' | 'reading' | 'mapping' | 'merging' | 'writing' | 'assistant' | 'assets' | 'syncing' | 'done' | 'error'
+  message: string
+  percent: number
+}
+
 type ImportProjectArchiveWorkerResponse =
+  | { type: 'progress'; payload: ProjectArchiveImportProgressPayload }
   | { success: true; selectedProjectId: string }
   | { success: false; error: string }
 
@@ -952,12 +960,14 @@ async function restoreReferenceNovelAssets(assets: Map<string, Buffer>): Promise
 }
 
 export async function importProjectArchive(options: ImportProjectArchiveOptions): Promise<{ selectedProjectId: string }> {
+  options.onProgress?.({ phase: 'preparing', message: '正在读取当前工作区...', percent: 6 })
   const snapshot = options.readWorkspaceSnapshot(options.db)
   if (!snapshot) {
     throw new Error('当前工作区尚未初始化，无法导入项目归档。')
   }
 
   const modules = expandModules(options.modules)
+  options.onProgress?.({ phase: 'reading', message: '正在读取备份文件...', percent: 18 })
   const sourceContent = await readArchiveContent(options.filePath)
   const targetProjectId =
     options.mode === 'new-project'
@@ -967,6 +977,7 @@ export async function importProjectArchive(options: ImportProjectArchiveOptions)
     throw new Error('没有可覆盖的目标项目。')
   }
 
+  options.onProgress?.({ phase: 'mapping', message: '正在整理备份中的项目数据...', percent: 36 })
   const incoming = remapArchiveContent(sourceContent, targetProjectId, modules)
   const nextPayload: WorkspacePayload = {
     ...snapshot,
@@ -974,6 +985,7 @@ export async function importProjectArchive(options: ImportProjectArchiveOptions)
     selectedProjectId: targetProjectId
   }
 
+  options.onProgress?.({ phase: 'merging', message: '正在合并所选模块...', percent: 54 })
   if (options.mode === 'new-project') {
     nextPayload.projects = [...snapshot.projects, incoming.project]
     nextPayload.workspaces = {
@@ -1039,8 +1051,10 @@ export async function importProjectArchive(options: ImportProjectArchiveOptions)
   }
 
   const normalized = normalizeWorkspacePayload(nextPayload)
+  options.onProgress?.({ phase: 'writing', message: '正在写入本地数据库...', percent: 72 })
   options.writeWorkspaceSnapshot(options.db, normalized)
   if (modules.has('assistantSessions')) {
+    options.onProgress?.({ phase: 'assistant', message: '正在恢复助手会话...', percent: 84 })
     writeAssistantV2Archive(
       options.db,
       targetProjectId,
@@ -1048,29 +1062,37 @@ export async function importProjectArchive(options: ImportProjectArchiveOptions)
       options.mode === 'overwrite-project'
     )
   }
+  options.onProgress?.({ phase: 'assets', message: '正在恢复参考原文资产...', percent: 92 })
   await restoreReferenceNovelAssets(incoming.referenceNovelAssets)
   return { selectedProjectId: targetProjectId }
 }
 
 export async function importProjectArchiveInWorker(
-  options: ImportProjectArchiveWorkerInput
+  options: ImportProjectArchiveWorkerInput & {
+    onProgress?: (payload: ProjectArchiveImportProgressPayload) => void
+  }
 ): Promise<{ selectedProjectId: string }> {
   return await new Promise<{ selectedProjectId: string }>((resolve, reject) => {
     let settled = false
+    const { onProgress, ...workerOptions } = options
     const worker = new Worker(new URL('../archive/project-archive-import-worker.js', import.meta.url), {
       workerData: {
-        ...options,
+        ...workerOptions,
         workspaceDir: getWorkspaceDirPath()
       }
     })
 
-    worker.once('message', (message: ImportProjectArchiveWorkerResponse) => {
+    worker.on('message', (message: ImportProjectArchiveWorkerResponse) => {
+      if ('type' in message && message.type === 'progress') {
+        onProgress?.(message.payload)
+        return
+      }
       if (settled) return
       settled = true
-      if (message?.success) {
+      if ('success' in message && message.success) {
         resolve({ selectedProjectId: message.selectedProjectId })
       } else {
-        reject(new Error(message?.error ?? '导入项目归档失败'))
+        reject(new Error('error' in message ? message.error : '导入项目归档失败'))
       }
     })
 

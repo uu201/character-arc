@@ -173,6 +173,14 @@ contextBridge.exposeInMainWorld('characterArc', {
       ipcRenderer.removeListener('characterarc:reference-import-progress', listener)
     }
   },
+  /** 监听项目备份导入进度 */
+  onProjectArchiveImportProgress: (callback: (payload: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
+    ipcRenderer.on('characterarc:project-archive-import-progress', listener)
+    return () => {
+      ipcRenderer.removeListener('characterarc:project-archive-import-progress', listener)
+    }
+  },
 
   // ── AI 助手会话 ──
   listSessions: (projectId: string) => ipcRenderer.invoke('characterarc:session-list', projectId),

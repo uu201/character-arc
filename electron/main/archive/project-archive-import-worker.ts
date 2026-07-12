@@ -25,7 +25,8 @@ async function run(): Promise<void> {
       targetProjectId: request.targetProjectId,
       modules: request.modules,
       readWorkspaceSnapshot,
-      writeWorkspaceSnapshot
+      writeWorkspaceSnapshot,
+      onProgress: (payload) => parentPort?.postMessage({ type: 'progress', payload })
     })
     parentPort?.postMessage({ success: true, selectedProjectId: result.selectedProjectId })
   } catch (error) {

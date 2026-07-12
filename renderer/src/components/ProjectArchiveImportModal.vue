@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { NButton, NFormItem, NModal, NRadioButton, NRadioGroup, NSelect, useMessage } from 'naive-ui'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { NButton, NFormItem, NModal, NProgress, NRadioButton, NRadioGroup, NSelect, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 
 const appStore = useAppStore()
@@ -14,6 +14,11 @@ const archiveTargetProjectId = ref('')
 const archiveSelectedModules = ref<CharacterArcProjectArchiveModule[]>([])
 const isInspectingArchive = ref(false)
 const isImportingArchive = ref(false)
+const archiveImportProgress = ref<CharacterArcProjectArchiveImportProgressPayload>({
+  phase: 'preparing',
+  message: '正在准备导入任务...',
+  percent: 0
+})
 
 const archiveModuleOptions: Array<{ label: string; value: CharacterArcProjectArchiveModule }> = [
   { label: '项目信息', value: 'project' },
@@ -44,6 +49,27 @@ const projectSelectOptions = computed(() =>
     value: project.id
   }))
 )
+
+const archiveImportProgressPercent = computed(() =>
+  Math.min(100, Math.max(0, Math.round(archiveImportProgress.value.percent)))
+)
+
+const archiveImportProgressStatus = computed(() =>
+  archiveImportProgress.value.phase === 'error'
+    ? 'error'
+    : archiveImportProgress.value.phase === 'done'
+      ? 'success'
+      : 'default'
+)
+
+const cleanupArchiveImportProgress = window.characterArc.onProjectArchiveImportProgress((payload) => {
+  if (!isImportingArchive.value) return
+  archiveImportProgress.value = payload
+})
+
+onBeforeUnmount(() => {
+  cleanupArchiveImportProgress()
+})
 
 function resetArchiveModules(): void {
   archiveSelectedModules.value = archiveModuleOptions.map((option) => option.value)
@@ -84,6 +110,11 @@ async function confirmArchiveImport(): Promise<void> {
     return
   }
 
+  archiveImportProgress.value = {
+    phase: 'preparing',
+    message: '正在准备导入任务...',
+    percent: 0
+  }
   isImportingArchive.value = true
   try {
     const result = await window.characterArc.importProjectArchive({
@@ -112,6 +143,9 @@ async function confirmArchiveImport(): Promise<void> {
 }
 
 function closeArchiveImportModal(): void {
+  if (isImportingArchive.value) {
+    return
+  }
   archiveImportModalVisible.value = false
   archiveImportPreview.value = null
   archiveImportFilePath.value = ''
@@ -131,6 +165,8 @@ defineExpose({
     style="width: min(920px, calc(100vw - 32px));"
     title="导入项目归档"
     :bordered="false"
+    :mask-closable="!isImportingArchive"
+    :close-on-esc="!isImportingArchive"
     @close="closeArchiveImportModal"
   >
     <div class="import-modal-body">
@@ -150,6 +186,7 @@ defineExpose({
                 v-for="option in archiveModeOptions"
                 :key="option.value"
                 :value="option.value"
+                :disabled="isImportingArchive"
               >
                 {{ option.label }}
               </n-radio-button>
@@ -161,6 +198,7 @@ defineExpose({
               v-model:value="archiveTargetProjectId"
               :options="projectSelectOptions"
               placeholder="请选择要覆盖的项目"
+              :disabled="isImportingArchive"
             />
           </n-form-item>
         </div>
@@ -185,6 +223,7 @@ defineExpose({
               type="checkbox"
               :value="option.value"
               :checked="archiveSelectedModules.includes(option.value)"
+              :disabled="isImportingArchive"
               @change="
                 archiveSelectedModules = archiveSelectedModules.includes(option.value)
                   ? archiveSelectedModules.filter((item) => item !== option.value)
@@ -200,12 +239,41 @@ defineExpose({
 
     <template #footer>
       <div class="setting-actions">
-        <n-button round strong @click="closeArchiveImportModal">取消</n-button>
-        <n-button type="primary" round strong :loading="isImportingArchive" @click="confirmArchiveImport">
+        <n-button round strong :disabled="isImportingArchive" @click="closeArchiveImportModal">取消</n-button>
+        <n-button type="primary" round strong :loading="isImportingArchive" :disabled="isImportingArchive" @click="confirmArchiveImport">
           开始导入
         </n-button>
       </div>
     </template>
+  </n-modal>
+
+  <n-modal
+    :show="isImportingArchive"
+    preset="card"
+    class="arc-editor-modal archive-progress-modal"
+    style="width: min(460px, calc(100vw - 32px));"
+    title="正在导入备份"
+    :bordered="false"
+    :closable="false"
+    :mask-closable="false"
+    :close-on-esc="false"
+  >
+    <div class="archive-progress-body">
+      <div class="archive-progress-head">
+        <strong>{{ archiveImportProgressPercent }}%</strong>
+        <span>{{ archiveImportProgress.message }}</span>
+      </div>
+      <n-progress
+        type="line"
+        :percentage="archiveImportProgressPercent"
+        :status="archiveImportProgressStatus"
+        :show-indicator="false"
+        :height="8"
+      />
+      <div class="archive-progress-note">
+        导入期间请保持软件开启，完成后窗口会自动关闭。
+      </div>
+    </div>
   </n-modal>
 </template>
 
@@ -283,6 +351,49 @@ defineExpose({
 .archive-import-modal {
   width: min(920px, calc(100vw - 32px));
   max-width: min(920px, calc(100vw - 32px));
+}
+
+.archive-progress-modal {
+  width: min(460px, calc(100vw - 32px));
+  max-width: min(460px, calc(100vw - 32px));
+}
+
+.archive-progress-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.archive-progress-head {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 12px;
+}
+
+.archive-progress-head strong {
+  color: var(--arc-primary);
+  font-size: 24px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.archive-progress-head span {
+  min-width: 0;
+  color: var(--arc-text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.archive-progress-note {
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--arc-bg-surface) 82%, transparent);
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px 12px;
 }
 
 .archive-mode-group {

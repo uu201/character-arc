@@ -18,6 +18,7 @@ import {
   getProjectArchiveDefaultName,
   importProjectArchiveInWorker,
   inspectProjectArchive,
+  type ProjectArchiveImportProgressPayload,
   type ProjectArchiveImportMode,
   type ProjectArchiveModule
 } from './archive/project-archive'
@@ -232,26 +233,38 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
   ipcMain.handle('characterarc:import-project-archive', async (_event, payload: unknown) => {
     const request = (payload ?? {}) as ProjectArchiveImportRequest
     const filePath = String(request.filePath ?? '').trim()
+    const sendProgress = (progress: ProjectArchiveImportProgressPayload): void => {
+      _event.sender.send('characterarc:project-archive-import-progress', progress)
+    }
     if (!filePath) {
       return { success: false, canceled: false, error: '缺少要导入的项目归档文件。' }
     }
 
     try {
+      sendProgress({ phase: 'preparing', message: '正在准备导入任务...', percent: 2 })
       await deps.ensureWorkspaceDb()
       const result = await importProjectArchiveInWorker({
         filePath,
         mode: request.mode ?? 'new-project',
         targetProjectId: request.targetProjectId,
-        modules: request.modules
+        modules: request.modules,
+        onProgress: sendProgress
       })
+      sendProgress({ phase: 'syncing', message: '正在刷新工作区数据...', percent: 96 })
       const db = await deps.ensureWorkspaceDb()
       const workspace = deps.readWorkspaceSnapshot(db)
       if (workspace) {
         deps.setLatestWorkspaceSnapshot(workspace)
         deps.windowManager.broadcastWindowEvent('characterarc:workspace-sync-event', workspace)
       }
+      sendProgress({ phase: 'done', message: '导入完成', percent: 100 })
       return { success: true, canceled: false, selectedProjectId: result.selectedProjectId }
     } catch (error) {
+      sendProgress({
+        phase: 'error',
+        message: error instanceof Error ? error.message : '导入项目归档失败',
+        percent: 100
+      })
       return {
         success: false,
         canceled: false,

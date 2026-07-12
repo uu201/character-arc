@@ -147,6 +147,12 @@ declare global {
     chunkLabel?: string
   }
 
+  type CharacterArcProjectArchiveImportProgressPayload = {
+    phase: 'preparing' | 'reading' | 'mapping' | 'merging' | 'writing' | 'assistant' | 'assets' | 'syncing' | 'done' | 'error'
+    message: string
+    percent: number
+  }
+
   type CharacterArcAiRunEventPayload = {
     projectId: string
     meta: Omit<import('@/types/app').AiRunRecord, 'projectId'>
@@ -490,6 +496,7 @@ declare global {
       }>
       onWorkspaceSync: (callback: (payload: unknown) => void) => () => void
       onReferenceImportProgress: (callback: (payload: CharacterArcReferenceImportProgressPayload) => void) => () => void
+      onProjectArchiveImportProgress: (callback: (payload: CharacterArcProjectArchiveImportProgressPayload) => void) => () => void
       checkUpdate: () => Promise<{
         success: boolean
         result?: {
