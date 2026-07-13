@@ -32,6 +32,7 @@ const createForm = reactive({
   title: ''
 })
 const volumeForm = reactive({
+  bindVolumeId: '',
   title: '',
   wordTarget: '',
   summary: ''
@@ -44,7 +45,7 @@ const chapterMenuOptions: DropdownOption[] = [
 ]
 
 const volumeMenuOptions = computed<DropdownOption[]>(() => [
-  { key: 'edit', label: '编辑分卷' },
+  { key: 'edit', label: '编辑分卷信息' },
   { key: 'delete', label: '删除分卷', disabled: appStore.outlineVolumes.length <= 1 }
 ])
 
@@ -73,8 +74,21 @@ const allCollapsed = computed(() =>
   appStore.outlineVolumes.length > 0 && appStore.outlineVolumes.every((v) => collapsed[v.id])
 )
 
+const createVolumeOptions = computed<SelectOption[]>(() =>
+  appStore.outlineVolumes.map((volume, index) => ({
+    label: formatVolumeLabel(volume, index, 'formal'),
+    value: volume.id
+  }))
+)
+
+const bindVolumeOptions = computed<SelectOption[]>(() => [
+  { label: '新建一条分卷信息', value: '' },
+  ...createVolumeOptions.value
+])
+
 const createOutlineOptions = computed<SelectOption[]>(() => {
   const targetVolumeId = createForm.volumeId
+  if (!targetVolumeId) return []
   const items = appStore.outlineItems.filter((item) => !targetVolumeId || item.volumeId === targetVolumeId)
   return items.map((item) => {
     const linkedCount = appStore.chapters.filter((chapter) => chapter.outlineItemId === item.id).length
@@ -86,7 +100,16 @@ const createOutlineOptions = computed<SelectOption[]>(() => {
 })
 
 const selectedCreateOutline = computed<OutlineItem | null>(() =>
-  appStore.outlineItems.find((item) => item.id === createForm.outlineItemId) ?? null
+  appStore.outlineItems.find((item) => item.id === createForm.outlineItemId && item.volumeId === createForm.volumeId) ?? null
+)
+
+watch(
+  () => createForm.volumeId,
+  (volumeId) => {
+    const firstOutline = appStore.outlineItems.find((item) => item.volumeId === volumeId)
+    createForm.outlineItemId = firstOutline?.id ?? ''
+    createForm.title = firstOutline?.title ?? ''
+  }
 )
 
 watch(
@@ -111,11 +134,12 @@ function allowDigitsOnly(value: string): boolean {
   return /^\d*$/.test(value)
 }
 
-function openVolumeDialog(volume: OutlineVolume): void {
-  editingVolumeId.value = volume.id
-  volumeForm.title = volume.title
-  volumeForm.wordTarget = normalizeVolumeWordTarget(volume.wordTarget) || '50000'
-  volumeForm.summary = volume.summary
+function openVolumeDialog(volume?: OutlineVolume): void {
+  editingVolumeId.value = volume?.id ?? null
+  volumeForm.bindVolumeId = ''
+  volumeForm.title = volume?.title ?? ''
+  volumeForm.wordTarget = normalizeVolumeWordTarget(volume?.wordTarget) || '50000'
+  volumeForm.summary = volume?.summary ?? ''
   volumeDialogVisible.value = true
 }
 
@@ -123,19 +147,47 @@ function closeVolumeDialog(): void {
   volumeDialogVisible.value = false
 }
 
+function handleBindVolumeChange(volumeId: string): void {
+  volumeForm.bindVolumeId = volumeId
+  if (!volumeId) {
+    volumeForm.title = ''
+    volumeForm.wordTarget = '50000'
+    volumeForm.summary = ''
+    return
+  }
+
+  const volume = appStore.outlineVolumes.find((item) => item.id === volumeId)
+  if (!volume) return
+  volumeForm.title = volume.title
+  volumeForm.wordTarget = normalizeVolumeWordTarget(volume.wordTarget) || '50000'
+  volumeForm.summary = volume.summary
+}
+
 function submitVolume(): void {
-  if (!editingVolumeId.value) return
   if (!volumeForm.title.trim()) {
     message.warning('请填写分卷标题')
     return
   }
 
-  appStore.updateOutlineVolume(editingVolumeId.value, {
+  const payload = {
     title: volumeForm.title,
     wordTarget: normalizeVolumeWordTarget(volumeForm.wordTarget),
     summary: volumeForm.summary
-  })
-  message.success('分卷信息已更新')
+  }
+
+  if (editingVolumeId.value) {
+    appStore.updateOutlineVolume(editingVolumeId.value, payload)
+    message.success('分卷信息已更新')
+  } else if (volumeForm.bindVolumeId) {
+    appStore.updateOutlineVolume(volumeForm.bindVolumeId, payload)
+    collapsed[volumeForm.bindVolumeId] = false
+    message.success('已绑定大纲分卷信息')
+  } else {
+    const volumeId = appStore.createOutlineVolume(payload)
+    collapsed[volumeId] = false
+    message.success('已新建分卷信息')
+  }
+
   closeVolumeDialog()
 }
 
@@ -179,7 +231,9 @@ function handleVolumeMenuSelect(key: string | number, volume: OutlineVolume): vo
 
 function openCreateDialog(volumeId?: string): void {
   const targetVolumeId = volumeId ?? ''
-  const firstOutline = appStore.outlineItems.find((item) => !targetVolumeId || item.volumeId === targetVolumeId)
+  const firstOutline = targetVolumeId
+    ? appStore.outlineItems.find((item) => item.volumeId === targetVolumeId)
+    : null
   createForm.volumeId = targetVolumeId
   createForm.outlineItemId = firstOutline?.id ?? ''
   createForm.title = firstOutline?.title ?? ''
@@ -191,6 +245,10 @@ function closeCreateDialog(): void {
 }
 
 function submitCreateChapter(): void {
+  if (!createForm.volumeId) {
+    message.warning('请先选择所属分卷')
+    return
+  }
   const item = selectedCreateOutline.value
   if (!item) {
     message.warning('请先选择要绑定的大纲节点')
@@ -300,9 +358,9 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
     <div class="ts-toolbar">
       <n-tooltip trigger="hover" placement="bottom">
         <template #trigger>
-          <button class="icon-btn flex" @click="appStore.createOutlineVolume()"><FolderPlus :size="14" /></button>
+          <button class="icon-btn flex" @click="openVolumeDialog()"><FolderPlus :size="14" /></button>
         </template>
-        新建分卷
+        新建分卷信息
       </n-tooltip>
       <n-tooltip trigger="hover" placement="bottom">
         <template #trigger>
@@ -381,11 +439,20 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
     <NModal
       v-model:show="volumeDialogVisible"
       preset="card"
-      title="编辑分卷"
+      :title="editingVolumeId ? '编辑分卷信息' : '新建分卷信息'"
       :style="{ width: 'min(560px, 92vw)' }"
       :bordered="false"
     >
       <NForm label-placement="top">
+        <NFormItem v-if="!editingVolumeId" label="绑定大纲分卷信息">
+          <NSelect
+            :value="volumeForm.bindVolumeId"
+            :options="bindVolumeOptions"
+            placeholder="选择已有大纲分卷，或保持新建"
+            filterable
+            @update:value="handleBindVolumeChange"
+          />
+        </NFormItem>
         <NFormItem label="分卷标题">
           <NInput v-model:value="volumeForm.title" placeholder="例如：霓虹下的老鼠" />
         </NFormItem>
@@ -407,7 +474,9 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
       <template #footer>
         <div class="create-actions">
           <NButton round strong @click="closeVolumeDialog">取消</NButton>
-          <NButton type="primary" round strong @click="submitVolume">保存修改</NButton>
+          <NButton type="primary" round strong @click="submitVolume">
+            {{ editingVolumeId ? '保存分卷信息' : (volumeForm.bindVolumeId ? '绑定分卷信息' : '创建分卷信息') }}
+          </NButton>
         </div>
       </template>
     </NModal>
@@ -420,11 +489,18 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
       :bordered="false"
     >
       <NForm label-placement="top">
+        <NFormItem label="所属分卷">
+          <NSelect
+            v-model:value="createForm.volumeId"
+            :options="createVolumeOptions"
+            placeholder="选择这一章所在的分卷"
+          />
+        </NFormItem>
         <NFormItem label="选择大纲">
           <NSelect
             v-model:value="createForm.outlineItemId"
             :options="createOutlineOptions"
-            placeholder="选择要写作的大纲节点"
+            placeholder="先选择分卷，再选择要写作的大纲节点"
             filterable
           />
         </NFormItem>
@@ -436,7 +512,7 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
       <template #footer>
         <div class="create-actions">
           <NButton round strong @click="closeCreateDialog">取消</NButton>
-          <NButton type="primary" round strong :disabled="!selectedCreateOutline" @click="submitCreateChapter">
+          <NButton type="primary" round strong :disabled="!createForm.volumeId || !selectedCreateOutline" @click="submitCreateChapter">
             创建章节
           </NButton>
         </div>
