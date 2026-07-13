@@ -21,10 +21,10 @@ const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
-const AI_TASK_EXPAND_ITEM = 'outline-item'
+const AI_TASK_EXPAND_VOLUME = 'outline-volume'
 const AI_TASK_EXPAND_VOLUME_PREFIX = 'outline-volume:'
 // 通过响应式注册表读取 loading 态，切换面板不会丢
-const isExpanding = computed(() => appStore.isAiTaskRunning(AI_TASK_EXPAND_ITEM))
+const isExpanding = computed(() => appStore.isAiTaskRunning(AI_TASK_EXPAND_VOLUME))
 function expandVolumeTaskKey(volumeId: string): string {
   return `${AI_TASK_EXPAND_VOLUME_PREFIX}${volumeId}`
 }
@@ -120,7 +120,7 @@ function handleCreateOutline(volumeId = appStore.outlineVolumes[0]?.id): void {
   editorVisible.value = true
 }
 
-// 调用 AI 接口自动扩写一个大纲节点，上下文包含已有大纲标题和世界观设定
+// 调用 AI 接口自动扩展一个新的分卷，作为大纲的上层结构
 async function handleExpandOutline(): Promise<void> {
   if (isExpanding.value) {
     return
@@ -129,51 +129,51 @@ async function handleExpandOutline(): Promise<void> {
   try {
     const result = await appStore.runTrackedAiTask(
       {
-        key: AI_TASK_EXPAND_ITEM,
+        key: AI_TASK_EXPAND_VOLUME,
         kind: 'outline',
-        label: 'AI 扩写大纲',
-        description: '正在补充一条剧情大纲节点',
+        label: 'AI 扩写分卷',
+        description: '正在规划新的大纲分卷',
         panel: 'outline',
         timeoutMs: 300_000
       },
       () =>
         window.characterArc.generateAi(toIpcPayload({
-          task: 'outline-item',
+          task: 'outline-enhance',
           settings: appStore.appSettings,
           context: {
+            mode: 'volume',
+            currentForm: { title: '', wordTarget: '50000', summary: '' },
             projectTitle: appStore.currentProject?.title,
             projectGenre: appStore.currentProject?.genre,
             writingStyleLabel: writingStyle.value.label,
             writingStylePrompt: writingStyle.value.prompt,
+            volumeTitles: appStore.outlineVolumes.map((volume) => volume.title),
             outlineTitles: appStore.outlineItems.map((item) => item.title),
-            worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
+            worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
+            characterNames: appStore.characters.map((character) => character.name)
           }
         }))
     )
 
     if (!result.success || !result.result) {
-      throw new Error(result.error ?? 'AI 扩写大纲失败，请检查模型配置')
+      throw new Error(result.error ?? 'AI 扩写分卷失败，请检查模型配置')
     }
 
-    const item = result.result as {
+    const volume = result.result as {
       title?: string
       wordTarget?: string
-      conflict?: string
       summary?: string
     }
 
-    const fallbackVolumeId = appStore.selectedChapterVolume?.id || appStore.outlineVolumes[0]?.id
-    appStore.createOutlineItem({
-      volumeId: fallbackVolumeId,
-      title: item.title ?? `第${appStore.outlineItems.length + 1}章：新剧情节点`,
-      wordTarget: String(Math.min(Number((item.wordTarget ?? '3000').replace(/\D/g, '')) || 3000, 3500)),
-      conflict: item.conflict ?? '新的冲突正在酝酿。',
-      summary: item.summary ?? 'AI 未返回有效剧情摘要',
-      status: 'planned'
+    const nextVolumeId = appStore.createOutlineVolume({
+      title: volume.title ?? `分卷 ${appStore.outlineVolumes.length + 1}`,
+      wordTarget: normalizeVolumeWordTarget(volume.wordTarget) || '50000',
+      summary: volume.summary ?? 'AI 未返回有效分卷摘要'
     })
-    message.success('AI 已补充新的大纲节点')
+    volumeCollapsed[nextVolumeId] = false
+    message.success('AI 已扩展新的分卷')
   } catch (error) {
-    message.error(error instanceof Error ? error.message : 'AI 扩写大纲失败，请检查模型配置')
+    message.error(error instanceof Error ? error.message : 'AI 扩写分卷失败，请检查模型配置')
   }
 }
 
@@ -188,8 +188,8 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
       {
         key: taskKey,
         kind: 'outline',
-        label: `AI 补全分卷·${volume.title}`,
-        description: `正在为《${volume.title}》补充 3-5 个剧情节点`,
+        label: `AI 扩写节点·${volume.title}`,
+        description: `正在为《${volume.title}》扩写 3-5 个子节点`,
         panel: 'outline',
         timeoutMs: 300_000
       },
@@ -224,14 +224,14 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
                   status: item.status
                 })),
               projectSkills,
-              userPrompt: '请优先补足当前分卷从现有节点往后最需要的 3 到 5 个剧情节点。'
+              userPrompt: '请优先扩写当前分卷从现有节点往后最需要的 3 到 5 个剧情子节点。'
             }
           }))
         })()
     )
 
     if (!result.success || !result.result) {
-      throw new Error(result.error ?? '分卷批量大纲生成失败，请检查模型配置')
+      throw new Error(result.error ?? '分卷子节点扩写失败，请检查模型配置')
     }
 
     const payload = result.result as {
@@ -261,22 +261,22 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
     appStore.appendWorkflowDocumentEntry(
       volume.id,
       'task_plan',
-      `分卷补全：${volume.title}`,
+      `节点扩写：${volume.title}`,
       [
-        `- 已为当前分卷补充 ${entries.length} 个大纲节点。`,
+        `- 已为当前分卷扩写 ${entries.length} 个大纲子节点。`,
         ...entries.map((entry, index) => `- 节点${index + 1}：${entry.title ?? `新节点 ${index + 1}`}`)
       ].join('\n')
     )
     appStore.appendWorkflowDocumentEntry(
       volume.id,
       'pending_hooks',
-      `分卷补全后待观察钩子：${volume.title}`,
+      `节点扩写后待观察钩子：${volume.title}`,
       entries.map((entry) => `- ${entry.title ?? '新节点'}：${entry.conflict ?? '待补充核心冲突'}`).join('\n')
     )
 
-    message.success(`已为 ${volume.title} 补充 ${entries.length} 个大纲节点`)
+    message.success(`已为 ${volume.title} 扩写 ${entries.length} 个大纲子节点`)
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '分卷批量大纲生成失败，请稍后重试')
+    message.error(error instanceof Error ? error.message : '分卷子节点扩写失败，请稍后重试')
   }
 }
 
@@ -702,7 +702,7 @@ watch(
         </button>
         <button class="soft-button" :disabled="isExpanding" @click="handleExpandOutline">
           <Sparkles :size="16" />
-          <span>{{ isExpanding ? '扩写中...' : 'AI 扩写大纲' }}</span>
+          <span>{{ isExpanding ? '扩写中...' : 'AI 扩写分卷' }}</span>
         </button>
       </div>
     </div>
@@ -725,7 +725,7 @@ watch(
               删除
             </n-button>
             <n-button size="small" secondary :disabled="isAnyVolumeExpanding" @click="handleExpandVolumeOutline(group.volume)">
-              {{ isExpandingVolume(group.volume.id) ? '补全中...' : 'AI补本卷' }}
+              {{ isExpandingVolume(group.volume.id) ? '扩写中...' : 'AI扩写节点' }}
             </n-button>
             <n-button size="small" type="primary" @click="handleCreateOutline(group.volume.id)">
               <template #icon><Plus :size="12" /></template>
