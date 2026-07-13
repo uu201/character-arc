@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import { ChevronDown, FilePlus2, GripVertical, MoreVertical, Plus, Rows3, Sparkles } from 'lucide-vue-next'
+import { ChevronDown, FilePlus2, GripVertical, MoreVertical, Plus, Rows3, Sparkles, Trash2 } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
 import { useAppStore } from '@/stores/app'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
-import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
+import { formatVolumeLabel, normalizeVolumeWordTarget } from '@/features/workspace/outlineVolumes'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { DropdownOption, SelectOption } from 'naive-ui'
 import type { OutlineItem, OutlineItemStatus, OutlineVolume } from '@/types/app'
@@ -103,6 +103,10 @@ const filteredOutlineGroups = computed(() => {
 })
 // 可见大纲节点的总数（用于顶部摘要显示）
 const totalVisibleItems = computed(() => filteredOutlineGroups.value.reduce((count, group) => count + group.items.length, 0))
+
+function allowDigitsOnly(value: string): boolean {
+  return /^\d*$/.test(value)
+}
 
 // 打开新建大纲节点弹窗，默认归属到指定分卷
 function handleCreateOutline(volumeId = appStore.outlineVolumes[0]?.id): void {
@@ -292,7 +296,7 @@ function openEditor(item?: OutlineItem): void {
 function openVolumeEditor(volume?: OutlineVolume): void {
   editingVolumeId.value = volume?.id ?? null
   volumeForm.title = volume?.title ?? ''
-  volumeForm.wordTarget = volume?.wordTarget ?? '目标 5万字'
+  volumeForm.wordTarget = normalizeVolumeWordTarget(volume?.wordTarget) || '50000'
   volumeForm.summary = volume?.summary ?? ''
   volumeEditorVisible.value = true
 }
@@ -330,14 +334,47 @@ function submitVolume(): void {
   }
 
   if (editingVolumeId.value) {
-    appStore.updateOutlineVolume(editingVolumeId.value, volumeForm)
+    appStore.updateOutlineVolume(editingVolumeId.value, {
+      ...volumeForm,
+      wordTarget: normalizeVolumeWordTarget(volumeForm.wordTarget)
+    })
     message.success('分卷信息已更新')
   } else {
-    appStore.createOutlineVolume(volumeForm)
+    appStore.createOutlineVolume({
+      ...volumeForm,
+      wordTarget: normalizeVolumeWordTarget(volumeForm.wordTarget)
+    })
     message.success('已新增分卷')
   }
 
   volumeEditorVisible.value = false
+}
+
+function handleDeleteVolume(volume: OutlineVolume): void {
+  if (appStore.outlineVolumes.length <= 1) {
+    message.warning('至少需要保留一个分卷')
+    return
+  }
+
+  const volumeIndex = appStore.outlineVolumes.findIndex((item) => item.id === volume.id)
+  const remainingVolumes = appStore.outlineVolumes.filter((item) => item.id !== volume.id)
+  const fallbackVolume = remainingVolumes[Math.max(0, volumeIndex - 1)] ?? remainingVolumes[0]
+  const outlineCount = appStore.outlineItems.filter((item) => item.volumeId === volume.id).length
+  const chapterCount = appStore.chapters.filter((chapter) => chapter.volumeId === volume.id).length
+  const fallbackTitle = fallbackVolume?.title ? `「${fallbackVolume.title}」` : '相邻分卷'
+
+  dialog.warning({
+    title: '确认删除分卷',
+    content: `确定要删除"${volume.title}"吗？该分卷下的 ${outlineCount} 个大纲节点和 ${chapterCount} 个章节会移至${fallbackTitle}，分卷级创作记忆将一并删除。`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    autoFocus: false,
+    closable: false,
+    onPositiveClick: () => {
+      appStore.deleteOutlineVolume(volume.id)
+      message.success('分卷已删除')
+    }
+  })
 }
 
 // 根据大纲节点创建章节草稿，将核心规划字段直接带入新章节
@@ -591,10 +628,11 @@ async function handleAiEnhanceVolume(): Promise<void> {
     }
 
     const suggested = result.result as { title?: string; wordTarget?: string; summary?: string }
+    const suggestedWordTarget = normalizeVolumeWordTarget(suggested.wordTarget)
 
     enhanceVolumeFields.value = [
       { key: 'title', label: '分卷标题', type: 'text', original: volumeForm.title, suggested: suggested.title ?? '', changed: (suggested.title ?? '') !== volumeForm.title && Boolean(suggested.title?.trim()) },
-      { key: 'wordTarget', label: '目标字数', type: 'text', original: volumeForm.wordTarget, suggested: suggested.wordTarget ?? '', changed: (suggested.wordTarget ?? '') !== volumeForm.wordTarget && Boolean(suggested.wordTarget?.trim()) },
+      { key: 'wordTarget', label: '目标字数', type: 'text', original: volumeForm.wordTarget, suggested: suggestedWordTarget, changed: suggestedWordTarget !== volumeForm.wordTarget && Boolean(suggestedWordTarget) },
       { key: 'summary', label: '分卷摘要', type: 'textarea', original: volumeForm.summary, suggested: suggested.summary ?? '', changed: (suggested.summary ?? '') !== volumeForm.summary && Boolean(suggested.summary?.trim()) }
     ]
     enhanceVolumeVisible.value = true
@@ -605,7 +643,7 @@ async function handleAiEnhanceVolume(): Promise<void> {
 
 function handleEnhanceVolumeApply(accepted: Record<string, string | string[]>): void {
   if (accepted.title != null) volumeForm.title = accepted.title as string
-  if (accepted.wordTarget != null) volumeForm.wordTarget = accepted.wordTarget as string
+  if (accepted.wordTarget != null) volumeForm.wordTarget = normalizeVolumeWordTarget(accepted.wordTarget as string)
   if (accepted.summary != null) volumeForm.summary = accepted.summary as string
   enhanceVolumeVisible.value = false
 }
@@ -682,6 +720,10 @@ watch(
           </button>
           <div class="volume-marker-actions">
             <n-button size="small" secondary @click="openVolumeEditor(group.volume)">编辑</n-button>
+            <n-button size="small" secondary type="error" @click="handleDeleteVolume(group.volume)">
+              <template #icon><Trash2 :size="12" /></template>
+              删除
+            </n-button>
             <n-button size="small" secondary :disabled="isAnyVolumeExpanding" @click="handleExpandVolumeOutline(group.volume)">
               {{ isExpandingVolume(group.volume.id) ? '补全中...' : 'AI补本卷' }}
             </n-button>
@@ -843,7 +885,9 @@ watch(
               <n-input v-model:value="volumeForm.title" placeholder="例如：霓虹下的老鼠" />
             </n-form-item>
             <n-form-item label="目标字数">
-              <n-input v-model:value="volumeForm.wordTarget" placeholder="例如：目标 5万字" />
+              <n-input v-model:value="volumeForm.wordTarget" placeholder="例如：50000" :allow-input="allowDigitsOnly">
+                <template #suffix>字</template>
+              </n-input>
             </n-form-item>
           </n-form>
         </div>

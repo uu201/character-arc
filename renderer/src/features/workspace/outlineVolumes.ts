@@ -5,7 +5,7 @@ import { createDefaultWorkflowDocuments, normalizeWorkflowDocuments } from '@/fe
 const CHINESE_NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
 
 // 分卷默认字数目标
-export const DEFAULT_VOLUME_WORD_TARGET = '目标 5万字'
+export const DEFAULT_VOLUME_WORD_TARGET = '50000'
 // 分卷默认摘要提示文案
 export const DEFAULT_VOLUME_SUMMARY = '用于承载这一卷的主线目标、阶段冲突和情绪走势。'
 
@@ -32,10 +32,20 @@ export function createOutlineVolume(overrides?: Partial<OutlineVolume>): Outline
   return {
     id: overrides?.id ?? `volume-${Date.now()}`,
     title: overrides?.title?.trim() || '故事开端',
-    wordTarget: overrides?.wordTarget?.trim() || DEFAULT_VOLUME_WORD_TARGET,
+    wordTarget: normalizeVolumeWordTarget(overrides?.wordTarget) || DEFAULT_VOLUME_WORD_TARGET,
     summary: overrides?.summary?.trim() || DEFAULT_VOLUME_SUMMARY,
     workflowDocuments: overrides?.workflowDocuments ?? createDefaultWorkflowDocuments()
   }
+}
+
+// 标准化分卷目标字数：分卷层只存纯数字，展示和提示文案由 UI 负责
+export function normalizeVolumeWordTarget(value?: string | number | null): string {
+  const raw = String(value ?? '').trim()
+  const wanMatch = raw.match(/(\d+(?:\.\d+)?)\s*万/)
+  if (wanMatch) {
+    return String(Math.round(Number(wanMatch[1]) * 10000))
+  }
+  return raw.replace(/\D/g, '')
 }
 
 // 深拷贝分卷列表（包含 workflowDocuments 的浅拷贝）
@@ -43,6 +53,7 @@ export function cloneOutlineVolumes(outlineVolumes?: OutlineVolume[]): OutlineVo
   return outlineVolumes?.length
     ? outlineVolumes.map((volume) => ({
         ...volume,
+        wordTarget: normalizeVolumeWordTarget(volume.wordTarget) || DEFAULT_VOLUME_WORD_TARGET,
         workflowDocuments: volume.workflowDocuments
           ? volume.workflowDocuments.map((doc: WorkflowDocument) => ({ ...doc }))
           : createDefaultWorkflowDocuments()

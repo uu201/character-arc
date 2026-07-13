@@ -86,7 +86,7 @@ function resolveNovelLengthPreset(length: NovelLength): NovelLengthPreset {
   if (length === 'short') {
     return {
       projectWordCount: '待统计',
-      volumeWordTarget: '预估 3万字',
+      volumeWordTarget: '30000',
       chapterWordTarget: '预估 2000字',
       volumeSummary: '用于集中推进故事主冲突，并在较短篇幅内完成完整闭环。'
     }
@@ -94,7 +94,7 @@ function resolveNovelLengthPreset(length: NovelLength): NovelLengthPreset {
 
   return {
     projectWordCount: '待统计',
-    volumeWordTarget: '预估 10万字',
+    volumeWordTarget: '100000',
     chapterWordTarget: '预估 3000字',
     volumeSummary: '用于承接作品最初的主线冲突、角色出场和后续长线铺垫。'
   }

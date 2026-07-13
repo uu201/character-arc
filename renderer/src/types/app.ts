@@ -467,7 +467,7 @@ export interface OutlineVolume {
   id: string
   /** 分卷标题，如"第一卷：开端" */
   title: string
-  /** 分卷目标字数描述 */
+  /** 分卷目标字数，仅存纯数字字符串 */
   wordTarget: string
   /** 分卷整体剧情摘要 */
   summary: string

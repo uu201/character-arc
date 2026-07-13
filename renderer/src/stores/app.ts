@@ -8,7 +8,8 @@ import { formatProjectWordCount } from '@/features/projects/wordCount'
 import { createProjectEditedAt } from '@/features/projects/lastEdited'
 import {
   buildVolumeGroups,
-  createOutlineVolume as createWorkspaceVolume
+  createOutlineVolume as createWorkspaceVolume,
+  normalizeVolumeWordTarget
 } from '@/features/workspace/outlineVolumes'
 import { getThemePreset } from '@/theme/presets'
 import { createEmptyWorkspace, normalizeGlobalAssistantProposal, mergeGlobalAssistantProposals } from '@/features/workspace/projectWorkspace'
@@ -1787,7 +1788,7 @@ export const useAppStore = defineStore('app', () => {
     const nextVolume = createWorkspaceVolume({
       id: uniqueId('volume'),
       title: payload?.title?.trim() || `分卷 ${outlineVolumes.value.length + 1}`,
-      wordTarget: payload?.wordTarget?.trim(),
+      wordTarget: normalizeVolumeWordTarget(payload?.wordTarget),
       summary: payload?.summary?.trim()
     })
 
@@ -1807,12 +1808,48 @@ export const useAppStore = defineStore('app', () => {
           ? {
               ...volume,
               title: payload.title?.trim() || volume.title,
-              wordTarget: payload.wordTarget?.trim() || volume.wordTarget,
+              wordTarget: normalizeVolumeWordTarget(payload.wordTarget) || volume.wordTarget,
               summary: payload.summary?.trim() || volume.summary
             }
           : volume
       )
     }))
+    schedulePersist('fast')
+  }
+
+  function deleteOutlineVolume(volumeId: string): void {
+    const volumeIndex = outlineVolumes.value.findIndex((volume) => volume.id === volumeId)
+    if (volumeIndex === -1 || outlineVolumes.value.length <= 1) {
+      return
+    }
+
+    let fallbackVolumeId = ''
+    updateCurrentWorkspace((workspace) => {
+      const nextVolumes = workspace.outlineVolumes.filter((volume) => volume.id !== volumeId)
+      const fallbackVolume = nextVolumes[Math.max(0, volumeIndex - 1)] ?? nextVolumes[0]
+      fallbackVolumeId = fallbackVolume?.id ?? ''
+
+      if (!fallbackVolumeId) {
+        return workspace
+      }
+
+      return {
+        ...workspace,
+        outlineVolumes: nextVolumes,
+        outlineItems: reindexOutlineItems(
+          workspace.outlineItems.map((item) =>
+            item.volumeId === volumeId ? { ...item, volumeId: fallbackVolumeId } : item
+          )
+        ),
+        chapters: workspace.chapters.map((chapter) =>
+          chapter.volumeId === volumeId ? { ...chapter, volumeId: fallbackVolumeId } : chapter
+        )
+      }
+    })
+
+    if (activeWorkflowVolumeId.value === volumeId) {
+      activeWorkflowVolumeId.value = fallbackVolumeId
+    }
     schedulePersist('fast')
   }
 
@@ -2996,6 +3033,7 @@ export const useAppStore = defineStore('app', () => {
     deleteOrganization,
     deleteOrganizationMembership,
     deleteOutlineItem,
+    deleteOutlineVolume,
     deletePlotThread,
     deleteProject,
     deleteWorldviewEntry,

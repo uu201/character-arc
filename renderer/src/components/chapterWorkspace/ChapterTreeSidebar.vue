@@ -4,9 +4,9 @@ import { ArrowLeft, ChevronDown, ChevronsDownUp, FilePlus, FileText, FolderPlus,
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTag, NTooltip, useDialog, useMessage } from 'naive-ui'
 import ChapterMetaDialog from './ChapterMetaDialog.vue'
 import { useAppStore } from '@/stores/app'
-import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
+import { formatVolumeLabel, normalizeVolumeWordTarget } from '@/features/workspace/outlineVolumes'
 import { getChapterCharacterCount, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
-import type { ChapterDraft, OutlineItem } from '@/types/app'
+import type { ChapterDraft, OutlineItem, OutlineVolume } from '@/types/app'
 import type { DropdownOption, SelectOption } from 'naive-ui'
 import { toIpcPayload } from '@/utils/ipcPayload'
 
@@ -23,11 +23,18 @@ const collapsed = reactive<Record<string, boolean>>({})
 
 const metaDialogVisible = ref(false)
 const metaDialogChapter = ref<ChapterDraft | null>(null)
+const volumeDialogVisible = ref(false)
+const editingVolumeId = ref<string | null>(null)
 const createDialogVisible = ref(false)
 const createForm = reactive({
   volumeId: '',
   outlineItemId: '',
   title: ''
+})
+const volumeForm = reactive({
+  title: '',
+  wordTarget: '',
+  summary: ''
 })
 
 const chapterMenuOptions: DropdownOption[] = [
@@ -35,6 +42,11 @@ const chapterMenuOptions: DropdownOption[] = [
   { key: 'export-txt', label: '导出 TXT' },
   { key: 'delete', label: '删除章节' }
 ]
+
+const volumeMenuOptions = computed<DropdownOption[]>(() => [
+  { key: 'edit', label: '编辑分卷' },
+  { key: 'delete', label: '删除分卷', disabled: appStore.outlineVolumes.length <= 1 }
+])
 
 const filteredGroups = computed(() => {
   const query = keyword.value.trim().toLowerCase()
@@ -93,6 +105,76 @@ function toggleVolume(id: string): void {
 function toggleCollapseAll(): void {
   const next = !allCollapsed.value
   for (const v of appStore.outlineVolumes) collapsed[v.id] = next
+}
+
+function allowDigitsOnly(value: string): boolean {
+  return /^\d*$/.test(value)
+}
+
+function openVolumeDialog(volume: OutlineVolume): void {
+  editingVolumeId.value = volume.id
+  volumeForm.title = volume.title
+  volumeForm.wordTarget = normalizeVolumeWordTarget(volume.wordTarget) || '50000'
+  volumeForm.summary = volume.summary
+  volumeDialogVisible.value = true
+}
+
+function closeVolumeDialog(): void {
+  volumeDialogVisible.value = false
+}
+
+function submitVolume(): void {
+  if (!editingVolumeId.value) return
+  if (!volumeForm.title.trim()) {
+    message.warning('请填写分卷标题')
+    return
+  }
+
+  appStore.updateOutlineVolume(editingVolumeId.value, {
+    title: volumeForm.title,
+    wordTarget: normalizeVolumeWordTarget(volumeForm.wordTarget),
+    summary: volumeForm.summary
+  })
+  message.success('分卷信息已更新')
+  closeVolumeDialog()
+}
+
+function handleDeleteVolume(volume: OutlineVolume): void {
+  if (appStore.outlineVolumes.length <= 1) {
+    message.warning('至少需要保留一个分卷')
+    return
+  }
+
+  const volumeIndex = appStore.outlineVolumes.findIndex((item) => item.id === volume.id)
+  const remainingVolumes = appStore.outlineVolumes.filter((item) => item.id !== volume.id)
+  const fallbackVolume = remainingVolumes[Math.max(0, volumeIndex - 1)] ?? remainingVolumes[0]
+  const chapterCount = appStore.chapters.filter((chapter) => chapter.volumeId === volume.id).length
+  const outlineCount = appStore.outlineItems.filter((item) => item.volumeId === volume.id).length
+  const fallbackTitle = fallbackVolume?.title ? `「${fallbackVolume.title}」` : '相邻分卷'
+
+  dialog.warning({
+    title: '确认删除分卷',
+    content: `确定要删除"${volume.title}"吗？该分卷下的 ${chapterCount} 个章节和 ${outlineCount} 个大纲节点会移至${fallbackTitle}，分卷级创作记忆将一并删除。`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    autoFocus: false,
+    closable: false,
+    onPositiveClick: () => {
+      appStore.deleteOutlineVolume(volume.id)
+      message.success('分卷已删除')
+    }
+  })
+}
+
+function handleVolumeMenuSelect(key: string | number, volume: OutlineVolume): void {
+  if (key === 'edit') {
+    openVolumeDialog(volume)
+    return
+  }
+
+  if (key === 'delete') {
+    handleDeleteVolume(volume)
+  }
 }
 
 function openCreateDialog(volumeId?: string): void {
@@ -254,6 +336,11 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
           <ChevronDown :size="13" class="chevron" />
           <span class="volume-title">{{ formatVolumeLabel(group.volume, group.index, 'compact') }}</span>
           <span class="volume-meta">{{ group.items.length }}</span>
+          <n-dropdown :options="volumeMenuOptions" placement="bottom-end" @select="(k) => handleVolumeMenuSelect(k, group.volume)">
+            <span class="volume-more" @click.stop>
+              <MoreVertical :size="12" />
+            </span>
+          </n-dropdown>
         </button>
 
         <div v-show="!collapsed[group.volume.id]" class="chapter-list">
@@ -290,6 +377,40 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
       v-model:show="metaDialogVisible"
       :chapter="metaDialogChapter"
     />
+
+    <NModal
+      v-model:show="volumeDialogVisible"
+      preset="card"
+      title="编辑分卷"
+      :style="{ width: 'min(560px, 92vw)' }"
+      :bordered="false"
+    >
+      <NForm label-placement="top">
+        <NFormItem label="分卷标题">
+          <NInput v-model:value="volumeForm.title" placeholder="例如：霓虹下的老鼠" />
+        </NFormItem>
+        <NFormItem label="目标字数">
+          <NInput v-model:value="volumeForm.wordTarget" placeholder="例如：50000" :allow-input="allowDigitsOnly">
+            <template #suffix>字</template>
+          </NInput>
+        </NFormItem>
+        <NFormItem label="分卷摘要">
+          <NInput
+            v-model:value="volumeForm.summary"
+            type="textarea"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+            placeholder="概括这一卷的主线、冲突和情绪走向..."
+          />
+        </NFormItem>
+      </NForm>
+
+      <template #footer>
+        <div class="create-actions">
+          <NButton round strong @click="closeVolumeDialog">取消</NButton>
+          <NButton type="primary" round strong @click="submitVolume">保存修改</NButton>
+        </div>
+      </template>
+    </NModal>
 
     <NModal
       v-model:show="createDialogVisible"
@@ -463,6 +584,22 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
   font-size: 11px;
   color: var(--arc-text-hint);
   font-weight: 500;
+}
+
+.volume-more {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--arc-text-hint);
+  flex-shrink: 0;
+}
+
+.volume-more:hover {
+  background: var(--arc-bg-surface-hover);
+  color: var(--arc-text-primary);
 }
 
 .chapter-list {
