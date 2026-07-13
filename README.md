@@ -12,7 +12,7 @@
 
 <p>
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
-  <img alt="Version" src="https://img.shields.io/badge/version-v1.13.0-f59e0b?style=flat-square" />
+  <img alt="Version" src="https://img.shields.io/badge/version-v1.13.1-f59e0b?style=flat-square" />
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-0ea5e9?style=flat-square" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-37-47848f?style=flat-square&logo=electron&logoColor=white" />
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3.5-42b883?style=flat-square&logo=vue.js&logoColor=white" />
