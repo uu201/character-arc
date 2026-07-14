@@ -44,7 +44,7 @@ export interface TaskHandler {
    * 未实现时 orchestrator 会回退到通用的"结构不完整"提示。
    */
   describeValidationErrors?(result: AiTaskResult): string[]
-  resolveMaxTokens?(input: PromptBuildInput): number
+  resolveMaxTokens?(input: PromptBuildInput): number | undefined
   /**
    * 本任务最多可使用的 skill 数量。默认 4。
    * 复杂任务（如 chapter-first-draft）可设为 6，让更多维度的 skill 参与。

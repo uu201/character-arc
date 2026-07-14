@@ -29,15 +29,6 @@ function formatProjectConstraints(source: unknown): string {
     .join('\n')
 }
 
-const TOKEN_PER_CHAR_GENEROUS = 0.8
-const MAX_TOKENS_FLOOR = 4000
-const MAX_TOKENS_CEIL = 12000
-
-function resolveTargetWords(context: Record<string, unknown>): number {
-  const raw = Number(context.targetWordCount ?? context.chapterWordTarget ?? 0)
-  return Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 0
-}
-
 type ChapterMemoShape = {
   currentTask?: string
   readerExpectation?: string
@@ -160,12 +151,6 @@ const handler: TaskHandler = {
   },
   validate(result: AiTaskResult): boolean {
     return Boolean((result as ChapterAssistantResult).content?.trim())
-  },
-  resolveMaxTokens(input: PromptBuildInput): number {
-    const target = resolveTargetWords(input.context)
-    if (target <= 0) return MAX_TOKENS_FLOOR
-    const cap = Math.ceil(target * 1.5 / TOKEN_PER_CHAR_GENEROUS)
-    return Math.min(Math.max(cap, MAX_TOKENS_FLOOR), MAX_TOKENS_CEIL)
   }
 }
 export default handler

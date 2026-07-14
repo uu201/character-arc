@@ -129,7 +129,8 @@ const taskObjectSchemas: Partial<Record<AiTaskName, z.ZodTypeAny>> = {
       transitionFunctions: stringField,
       decisionChecks: stringList,
       endingChanges: stringList,
-      doNotDo: stringList
+      doNotDo: stringList,
+      emotionArc: stringField
     })
   }),
   'chapter-scene-plan': z.object({

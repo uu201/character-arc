@@ -57,8 +57,8 @@ const handler: TaskHandler = {
     }
   },
   normalize(raw: string): AiTaskResult {
-    const parsed = extractJsonObject(raw) as { memo?: Partial<ChapterMemoResult['memo']> }
-    const memoRaw = parsed.memo ?? {}
+    const parsed = extractJsonObject(raw) as { memo?: Partial<ChapterMemoResult['memo']> } & Partial<ChapterMemoResult['memo']>
+    const memoRaw: Partial<ChapterMemoResult['memo']> = parsed.memo ?? parsed
     const stringArray = (v: unknown): string[] =>
       Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []
     return {
@@ -80,7 +80,6 @@ const handler: TaskHandler = {
     return Boolean(
       memo
       && memo.currentTask
-      && memo.endingChanges.length > 0
     )
   },
   resolveMaxTokens(): number {

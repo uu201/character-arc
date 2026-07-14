@@ -1,5 +1,5 @@
 import type { AiAgentStreamHandlers, AiKnowledgeDocumentDraft, AiTaskKnowledgeContext, AiTaskPayload, AiTaskResponse } from '../shared-types'
-import { normalizeSettings, validateSettings, resolveMaxTokens } from '../settings'
+import { normalizeSettings, validateSettings, resolveMaxTokens, shouldOmitMaxTokens } from '../settings'
 import { getTaskHandler } from '../tasks'
 import { resolveTaskSkills, getSkillById, getAllSkills } from '../skills'
 import { isSkillEnabledForTask } from '../skills/task-selection'
@@ -82,7 +82,9 @@ export async function runStreamingAgentTask(
   // 初稿任务按 3 倍放大确保正文可以完整输出，并对所有 Agent 路径抬高下限留足空间。
   const AGENT_MIN_OUTPUT_TOKENS = 16000
   const reasoningMultiplier = task.task === 'chapter-first-draft' ? 3 : 1
-  const maxTokens = Math.max(baseMaxTokens * reasoningMultiplier, AGENT_MIN_OUTPUT_TOKENS)
+  const maxTokens = shouldOmitMaxTokens(task.task)
+    ? undefined
+    : Math.max(baseMaxTokens * reasoningMultiplier, AGENT_MIN_OUTPUT_TOKENS)
 
   const candidateSkillDefs = candidateSkills
     .map((sel) => getSkillById(sel.id, projectId || undefined))

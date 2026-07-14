@@ -6,7 +6,7 @@ import type {
   AiTaskPayload,
   AiTaskResponse
 } from '../shared-types'
-import { normalizeSettings, validateSettings, resolveMaxTokens } from '../settings'
+import { normalizeSettings, validateSettings, resolveMaxTokens, shouldOmitMaxTokens } from '../settings'
 import { getTaskHandler } from '../tasks'
 import { getAllSkills, getSkillById, resolveTaskSkills } from '../skills'
 import { isSkillEnabledForTask } from '../skills/task-selection'
@@ -75,7 +75,7 @@ export async function runAgentTask(
   const prompt = handler.buildPrompt(input)
   const baseMaxTokens = handler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task) ?? 4096
   // 与流式 agent 路径保持一致：抬高输出预算下限，避免推理模型把预算耗在推理 token 上导致空输出。
-  const maxTokens = Math.max(baseMaxTokens, 16000)
+  const maxTokens = shouldOmitMaxTokens(task.task) ? undefined : Math.max(baseMaxTokens, 16000)
 
   const candidateSkillDefs = candidateSkills
     .map((sel) => getSkillById(sel.id, projectId || undefined))

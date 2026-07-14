@@ -157,7 +157,7 @@ export function resolveMaxTokens(task?: AiTaskPayload): number | undefined {
     case 'chapter-scene-plan':
       return 400
     case 'chapter-first-draft':
-      return 4000
+      return undefined
     case 'global-assistant':
       return 1400
     case 'global-assistant-proposal':
@@ -191,6 +191,14 @@ export function resolveMaxTokens(task?: AiTaskPayload): number | undefined {
 export function applyReasoningSafeFloor(baseMaxTokens: number | undefined): number {
   const SINGLE_SHOT_MIN_OUTPUT_TOKENS = 26000
   return Math.max(baseMaxTokens ?? SINGLE_SHOT_MIN_OUTPUT_TOKENS, SINGLE_SHOT_MIN_OUTPUT_TOKENS)
+}
+
+/**
+ * 长正文任务不主动传 maxOutputTokens，让模型/中转站按自身能力输出。
+ * JSON、小卡片、助手回复等任务仍保留预算，避免异常输出失控。
+ */
+export function shouldOmitMaxTokens(taskName: AiTaskName): boolean {
+  return taskName === 'chapter-first-draft'
 }
 
 /**

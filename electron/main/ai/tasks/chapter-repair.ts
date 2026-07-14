@@ -37,7 +37,7 @@ const AUDIT_REPAIR_SYSTEM = `你是章节修复专家。质量审计已经完成
 - 保留作者意图：修复方向是让原有意图更好地表达，而非改变方向
 
 【输出格式】
-直接输出修复后的完整章节正文。不要诊断报告，不要解释，不要 markdown 标记。直接以正文第一句开始。`
+直接输出修复后的完整章节正文。不要诊断报告，不要解释，不要 markdown 标记，不要说你是谁，不要复述问题，不要写"我理解了"或"我会"。直接以正文第一句开始。`
 
 function formatAuditIssues(issues: unknown): string {
   if (!Array.isArray(issues) || issues.length === 0) return ''
@@ -51,6 +51,55 @@ function formatAuditIssues(issues: unknown): string {
       return `[${severity}] ${category}：${ref}${hint ? `（建议：${hint}）` : ''}`
     })
     .join('\n')
+}
+
+function stripRepairPreamble(text: string): string {
+  const normalized = normalizeAssistantText(text).content.trim()
+  if (!normalized) return ''
+
+  const separator = normalized.match(/(?:^|\n)\s*(?:---+|\*\*\*+|===+)\s*(?:\n|$)/)
+  if (separator?.index !== undefined && separator.index < 2500) {
+    return normalized.slice(separator.index + separator[0].length).trim()
+  }
+
+  const lines = normalized.split(/\r?\n/)
+  let dropUntil = 0
+  let sawMetaPreamble = false
+  const metaLine = (line: string): boolean => {
+    const t = line.trim()
+    return Boolean(
+      /^I am Claude,?\s+made by Anthropic\.?$/i.test(t)
+      || /^我是\s*Claude/i.test(t)
+      || /^我(理解了|会|将|需要|来|已经|会在)/.test(t)
+      || /^这是一次.*修复/.test(t)
+      || /^需要解决/.test(t)
+      || /^以下是/.test(t)
+      || /^修复后的完整章节正文[:：]?/.test(t)
+      || /^正文[:：]?$/.test(t)
+      || /^(?:\d+\.|[-*])\s*.*(?:payoff|ending-change|关系变化|缺失|不足|强化|修复|问题)/i.test(t)
+    )
+  }
+
+  for (let i = 0; i < Math.min(lines.length, 50); i += 1) {
+    const line = lines[i].trim()
+    if (!line) {
+      if (sawMetaPreamble) dropUntil = i + 1
+      continue
+    }
+
+    if (metaLine(line) || (sawMetaPreamble && /^(?:---+|\*\*\*+|===+)$/.test(line))) {
+      sawMetaPreamble = true
+      dropUntil = i + 1
+      continue
+    }
+
+    break
+  }
+
+  if (sawMetaPreamble && dropUntil > 0) {
+    return lines.slice(dropUntil).join('\n').trim()
+  }
+  return normalized
 }
 
 /** 章节修复任务：对问题章节进行诊断并进行外科手术式重写 */
@@ -97,7 +146,7 @@ const handler: TaskHandler = {
     }
   },
   normalize(raw: string): AiTaskResult {
-    return normalizeAssistantText(raw) as AiTaskResult
+    return { content: stripRepairPreamble(raw) } as AiTaskResult
   },
   validate(result: AiTaskResult): boolean {
     return Boolean((result as ChapterAssistantResult).content?.trim())
