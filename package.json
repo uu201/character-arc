@@ -26,6 +26,7 @@
     "@tiptap/pm": "^3.22.5",
     "@tiptap/starter-kit": "^3.22.5",
     "@tiptap/vue-3": "^3.22.5",
+    "@vueuse/core": "^14.3.0",
     "ai": "^6.0.184",
     "cytoscape": "^3.33.3",
     "diff2html": "^3.4.56",

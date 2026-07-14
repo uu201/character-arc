@@ -2124,6 +2124,52 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /**
+   * 批量移动大纲节点到目标位置（跨卷自动更新 volumeId）
+   * @param outlineIds - 要移动的节点 ID 列表
+   * @param targetOutlineId - 目标位置节点 ID
+   */
+  function moveOutlineItems(outlineIds: string[], targetOutlineId: string): void {
+    updateCurrentWorkspace((workspace) => {
+      const targetIndex = workspace.outlineItems.findIndex(item => item.id === targetOutlineId)
+      const targetItem = workspace.outlineItems[targetIndex]
+
+      if (targetIndex === -1 || !targetItem) {
+        return workspace
+      }
+
+      // 移除要移动的节点
+      const remainingItems = workspace.outlineItems.filter(
+        item => !outlineIds.includes(item.id)
+      )
+
+      // 按原始顺序保留被移动的节点，并更新 volumeId
+      const movedItems = outlineIds
+        .map(id => workspace.outlineItems.find(item => item.id === id))
+        .filter((item): item is OutlineItem => Boolean(item))
+        .map(item => ({
+          ...item,
+          volumeId: targetItem.volumeId // 跨卷时自动切换
+        }))
+
+      // 重新计算目标索引
+      const newTargetIndex = remainingItems.findIndex(item => item.id === targetOutlineId)
+
+      // 插入
+      const nextOutlineItems = [
+        ...remainingItems.slice(0, newTargetIndex),
+        ...movedItems,
+        ...remainingItems.slice(newTargetIndex)
+      ]
+
+      return {
+        ...workspace,
+        outlineItems: reindexOutlineItems(nextOutlineItems)
+      }
+    })
+    schedulePersist('fast')
+  }
+
   /** 删除章节（至少保留一章），自动切换到相邻章节 */
   function deleteChapter(chapterId: string): void {
     if (chapters.value.length <= 1) {
@@ -3045,6 +3091,7 @@ export const useAppStore = defineStore('app', () => {
     messages,
     moveChapter,
     moveOutlineItem,
+    moveOutlineItems,
     openChapterStudio,
     openDeconstructionLibrary,
     openFanqieTrends,

@@ -2,6 +2,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ChevronDown, FilePlus2, GripVertical, MoreVertical, Plus, Rows3, Sparkles, Trash2 } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
+import { useEventListener } from '@vueuse/core'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { useAppStore } from '@/stores/app'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
@@ -41,6 +42,10 @@ const editingVolumeId = ref<string | null>(null) // 当前编辑的分卷 ID
 const draggingOutlineId = ref<string | null>(null) // 正在拖拽的大纲节点 ID
 const dragTargetOutlineId = ref<string | null>(null) // 拖拽目标位置的大纲节点 ID
 const focusedOutlineId = ref<string>('')
+// 多选状态
+const selectedOutlineIds = ref<Set<string>>(new Set())
+const isMultiSelectMode = computed(() => selectedOutlineIds.value.size > 1)
+const isSelectionModeActive = ref(false) // 选择模式开关
 // 大纲节点编辑表单
 const form = reactive({
   volumeId: '',
@@ -61,6 +66,92 @@ const menuOptions: DropdownOption[] = [ // 大纲节点的右键菜单选项
   { key: 'delete', label: '删除节点' }
 ]
 const volumeCollapsed = reactive<Record<string, boolean>>({})
+
+// 清空选中（ESC 键）
+useEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && selectedOutlineIds.value.size > 0) {
+    selectedOutlineIds.value.clear()
+    isSelectionModeActive.value = false
+  }
+})
+
+// 切换选择模式
+function toggleSelectionMode(): void {
+  isSelectionModeActive.value = !isSelectionModeActive.value
+  if (!isSelectionModeActive.value) {
+    selectedOutlineIds.value.clear()
+  }
+}
+
+// 全选当前可见节点
+function selectAllVisible(): void {
+  filteredOutlineGroups.value.forEach((group) => {
+    group.items.forEach((item) => {
+      selectedOutlineIds.value.add(item.id)
+    })
+  })
+}
+
+// 批量删除选中节点
+function batchDeleteSelected(): void {
+  const count = selectedOutlineIds.value.size
+  dialog.warning({
+    title: '批量删除',
+    content: `确定要删除选中的 ${count} 个大纲节点吗？此操作不可撤销。`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    autoFocus: false,
+    closable: false,
+    onPositiveClick: () => {
+      selectedOutlineIds.value.forEach((id) => {
+        appStore.deleteOutlineItem(id)
+      })
+      selectedOutlineIds.value.clear()
+      isSelectionModeActive.value = false
+      message.success(`已删除 ${count} 个节点`)
+    }
+  })
+}
+
+// 批量更新状态
+function batchUpdateStatus(status: string | OutlineItemStatus): void {
+  selectedOutlineIds.value.forEach((id) => {
+    appStore.updateOutlineItem(id, { status: status as OutlineItemStatus })
+  })
+  const count = selectedOutlineIds.value.size
+  message.success(`已更新 ${count} 个节点的状态`)
+  selectedOutlineIds.value.clear()
+  isSelectionModeActive.value = false
+}
+
+// 批量迁移相关
+const migrateModalVisible = ref(false)
+const migrateTargetVolumeId = ref<string>('')
+
+function openMigrateModal(): void {
+  if (selectedOutlineIds.value.size === 0) {
+    return
+  }
+  migrateTargetVolumeId.value = appStore.outlineVolumes[0]?.id || ''
+  migrateModalVisible.value = true
+}
+
+function submitMigrate(): void {
+  if (!migrateTargetVolumeId.value) {
+    message.warning('请选择目标分卷')
+    return
+  }
+
+  const count = selectedOutlineIds.value.size
+  selectedOutlineIds.value.forEach((id) => {
+    appStore.updateOutlineItem(id, { volumeId: migrateTargetVolumeId.value })
+  })
+
+  message.success(`已迁移 ${count} 个节点`)
+  selectedOutlineIds.value.clear()
+  isSelectionModeActive.value = false
+  migrateModalVisible.value = false
+}
 
 const progressStats = computed(() => {
   const items = appStore.outlineItems
@@ -83,6 +174,12 @@ const outlineStatusOptions: SelectOption[] = [
   { label: '已规划', value: 'planned' },
   { label: '写作中', value: 'drafting' },
   { label: '已完成', value: 'done' }
+]
+const statusDropdownOptions: DropdownOption[] = [
+  { label: '标记为点子', key: 'idea' },
+  { label: '标记为已规划', key: 'planned' },
+  { label: '标记为写作中', key: 'drafting' },
+  { label: '标记为已完成', key: 'done' }
 ]
 // 按分卷分组过滤大纲节点，搜索时在标题、冲突和剧情描述中匹配
 const filteredOutlineGroups = computed(() => {
@@ -517,15 +614,105 @@ function resolveLinkedChapterProgress(item: OutlineItem): { actual: number; targ
   return { actual, target, percent }
 }
 
+// 节点点击处理
+function handleNodeClick(item: OutlineItem, event: MouseEvent): void {
+  const id = item.id
+
+  // 选择模式激活时，默认行为是多选
+  if (isSelectionModeActive.value) {
+    event.preventDefault()
+    if (event.shiftKey && selectedOutlineIds.value.size > 0) {
+      // Shift：范围选择
+      const allIds = filteredOutlineGroups.value.flatMap(g => g.items.map(i => i.id))
+      const lastSelected = Array.from(selectedOutlineIds.value).pop()
+      if (!lastSelected) return
+
+      const start = allIds.indexOf(lastSelected)
+      const end = allIds.indexOf(id)
+      const [min, max] = [Math.min(start, end), Math.max(start, end)]
+      const range = allIds.slice(min, max + 1)
+      range.forEach(id => selectedOutlineIds.value.add(id))
+      selectedOutlineIds.value = new Set(selectedOutlineIds.value)
+    } else {
+      // 普通点击：切换选中
+      if (selectedOutlineIds.value.has(id)) {
+        selectedOutlineIds.value.delete(id)
+      } else {
+        selectedOutlineIds.value.add(id)
+      }
+      selectedOutlineIds.value = new Set(selectedOutlineIds.value)
+    }
+    return
+  }
+
+  // 非选择模式：Ctrl/Cmd 可以临时多选
+  if (event.ctrlKey || event.metaKey) {
+    event.preventDefault()
+    if (selectedOutlineIds.value.has(id)) {
+      selectedOutlineIds.value.delete(id)
+    } else {
+      selectedOutlineIds.value.add(id)
+    }
+    selectedOutlineIds.value = new Set(selectedOutlineIds.value)
+  } else if (event.shiftKey && selectedOutlineIds.value.size > 0) {
+    // Shift：范围选择
+    event.preventDefault()
+    const allIds = filteredOutlineGroups.value.flatMap(g => g.items.map(i => i.id))
+    const lastSelected = Array.from(selectedOutlineIds.value).pop()
+    if (!lastSelected) return
+
+    const start = allIds.indexOf(lastSelected)
+    const end = allIds.indexOf(id)
+    const [min, max] = [Math.min(start, end), Math.max(start, end)]
+    const range = allIds.slice(min, max + 1)
+    range.forEach(id => selectedOutlineIds.value.add(id))
+    selectedOutlineIds.value = new Set(selectedOutlineIds.value)
+  } else {
+    // 普通点击：清空选中并打开编辑
+    selectedOutlineIds.value.clear()
+    openEditor(item)
+  }
+}
+
+// 判断节点是否选中
+function isNodeSelected(id: string): boolean {
+  return selectedOutlineIds.value.has(id)
+}
+
+// 批量删除
+function handleBatchDelete(): void {
+  const count = selectedOutlineIds.value.size
+  dialog.warning({
+    title: '确认批量删除',
+    content: `确定要删除选中的 ${count} 个大纲节点吗？删除后无法恢复。`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      Array.from(selectedOutlineIds.value).forEach(id => {
+        appStore.deleteOutlineItem(id)
+      })
+      selectedOutlineIds.value.clear()
+      message.success(`已删除 ${count} 个大纲节点`)
+    }
+  })
+}
+
 // --- 拖拽排序相关函数 ---
 // 拖拽开始：记录被拖拽的大纲节点 ID
 function handleDragStart(outlineId: string, event: DragEvent): void {
+  // 如果拖拽的节点未选中，清空并只拖它
+  if (!selectedOutlineIds.value.has(outlineId)) {
+    selectedOutlineIds.value.clear()
+    selectedOutlineIds.value.add(outlineId)
+  }
+
   draggingOutlineId.value = outlineId
   dragTargetOutlineId.value = outlineId
 
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', outlineId)
+    // 传递所有选中的 ID
+    event.dataTransfer.setData('text/plain', JSON.stringify(Array.from(selectedOutlineIds.value)))
   }
 }
 
@@ -545,14 +732,72 @@ function handleDragOver(outlineId: string, event: DragEvent): void {
 // 拖拽放下：调用 store 执行大纲节点的排序移动
 function handleDrop(outlineId: string, event: DragEvent): void {
   event.preventDefault()
-  const sourceId = draggingOutlineId.value || event.dataTransfer?.getData('text/plain')
-
-  if (!sourceId || sourceId === outlineId) {
+  const dataStr = event.dataTransfer?.getData('text/plain')
+  if (!dataStr) {
     resetDragState()
     return
   }
 
-  appStore.moveOutlineItem(sourceId, outlineId)
+  let draggedIds: string[]
+  try {
+    draggedIds = JSON.parse(dataStr)
+  } catch {
+    // 兼容旧版单节点数据
+    draggedIds = [dataStr]
+  }
+
+  if (!draggedIds.length || draggedIds.includes(outlineId)) {
+    resetDragState()
+    return
+  }
+
+  // 调用批量移动
+  if (draggedIds.length === 1) {
+    appStore.moveOutlineItem(draggedIds[0], outlineId)
+  } else {
+    appStore.moveOutlineItems(draggedIds, outlineId)
+  }
+
+  selectedOutlineIds.value.clear()
+  resetDragState()
+}
+
+// 支持拖到分卷标记
+function handleDropOnVolume(volumeId: string, event: DragEvent): void {
+  event.preventDefault()
+  const dataStr = event.dataTransfer?.getData('text/plain')
+  if (!dataStr) return
+
+  let draggedIds: string[]
+  try {
+    draggedIds = JSON.parse(dataStr)
+  } catch {
+    draggedIds = [dataStr]
+  }
+
+  if (!draggedIds.length) return
+
+  // 找到该分卷的最后一个节点
+  const volumeItems = appStore.outlineItems.filter(i => i.volumeId === volumeId)
+  const lastItem = volumeItems[volumeItems.length - 1]
+
+  if (lastItem) {
+    if (draggedIds.length === 1) {
+      appStore.moveOutlineItem(draggedIds[0], lastItem.id)
+    } else {
+      appStore.moveOutlineItems(draggedIds, lastItem.id)
+    }
+  } else {
+    // 空分卷，直接更新 volumeId
+    draggedIds.forEach(id => {
+      const item = appStore.outlineItems.find(i => i.id === id)
+      if (item) {
+        appStore.updateOutlineItem(id, { volumeId })
+      }
+    })
+  }
+
+  selectedOutlineIds.value.clear()
   resetDragState()
 }
 
@@ -767,6 +1012,13 @@ watch(
         <p>按卷组织剧情骨架、冲突节拍和章节节点，方便后续创作连续推进。</p>
       </div>
       <div class="section-actions">
+        <button
+          class="soft-button"
+          :class="{ active: isSelectionModeActive }"
+          @click="toggleSelectionMode"
+        >
+          <span>{{ isSelectionModeActive ? '✓ 选择模式' : '选择模式' }}</span>
+        </button>
         <button class="soft-button neutral" @click="openVolumeEditor()">
           <Rows3 :size="16" />
           <span>新增分卷</span>
@@ -778,11 +1030,21 @@ watch(
       </div>
     </div>
 
+    <!-- 快捷键提示 -->
+    <div v-if="isSelectionModeActive && selectedOutlineIds.size === 0" class="selection-hint">
+      💡 提示：点击节点进行选择，按住 Ctrl 多选，按住 Shift 范围选择，ESC 退出
+    </div>
+
     <!-- 时间线主体 -->
     <div v-if="filteredOutlineGroups.length" class="timeline">
       <template v-for="group in filteredOutlineGroups" :key="group.volume.id">
         <!-- 分卷标记 -->
-        <div class="timeline-volume-marker">
+        <div
+          class="timeline-volume-marker"
+          @dragover.prevent="dragTargetOutlineId = `volume-${group.volume.id}`"
+          @drop="handleDropOnVolume(group.volume.id, $event)"
+          @dragleave="dragTargetOutlineId = null"
+        >
           <button class="volume-marker-btn" @click="volumeCollapsed[group.volume.id] = !volumeCollapsed[group.volume.id]">
             <span class="volume-diamond" />
             <span class="volume-label">{{ formatVolumeLabel(group.volume, group.index, 'formal') }}</span>
@@ -814,7 +1076,9 @@ watch(
             :class="{
               left: idx % 2 === 0,
               right: idx % 2 === 1,
+              selected: isNodeSelected(item.id),
               dragging: draggingOutlineId === item.id,
+              'multi-dragging': draggingOutlineId !== null && isMultiSelectMode && isNodeSelected(item.id) && draggingOutlineId !== item.id,
               'drop-target': dragTargetOutlineId === item.id && draggingOutlineId !== item.id,
               'assistant-focused': focusedOutlineId === item.id
             }"
@@ -826,7 +1090,7 @@ watch(
             @dragend="resetDragState"
           >
             <span class="timeline-dot" :class="resolveOutlineStatusMeta(item.status).tone" />
-            <article class="timeline-card" @click="openEditor(item)">
+            <article class="timeline-card" @click="handleNodeClick(item, $event)">
               <div class="card-header">
                 <GripVertical :size="13" class="card-grip" />
                 <span class="card-title">{{ item.title }}</span>
@@ -1002,6 +1266,41 @@ watch(
       @apply="handleEnhanceVolumeApply"
       @close="enhanceVolumeVisible = false"
     />
+
+    <!-- 右下角悬浮工具栏 -->
+    <Transition name="slideUp">
+      <div v-if="selectedOutlineIds.size > 0" class="floating-toolbar">
+        <div class="toolbar-info">
+          <span class="toolbar-count">已选中 {{ selectedOutlineIds.size }} 个节点</span>
+          <button class="toolbar-link" @click="selectAllVisible">全选</button>
+          <button class="toolbar-link" @click="selectedOutlineIds.clear()">清空</button>
+        </div>
+        <div class="toolbar-actions">
+          <n-button size="small" @click="openMigrateModal">迁移</n-button>
+          <n-button size="small" type="error" @click="batchDeleteSelected">删除</n-button>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- 迁移分卷弹窗 -->
+    <n-modal
+      :show="migrateModalVisible"
+      preset="dialog"
+      title="迁移节点到分卷"
+      positive-text="确认迁移"
+      negative-text="取消"
+      @positive-click="submitMigrate"
+      @negative-click="migrateModalVisible = false"
+    >
+      <n-form label-placement="top">
+        <n-form-item label="目标分卷">
+          <n-select v-model:value="migrateTargetVolumeId" :options="volumeOptions" placeholder="选择要迁移到的分卷" />
+        </n-form-item>
+      </n-form>
+      <p style="margin-top: 12px; font-size: 13px; color: var(--arc-text-hint);">
+        将 {{ selectedOutlineIds.size }} 个节点迁移到所选分卷
+      </p>
+    </n-modal>
   </section>
 </template>
 
@@ -1182,22 +1481,120 @@ watch(
   background: var(--arc-bg-surface-hover);
 }
 
+.soft-button.active {
+  background: var(--arc-primary);
+  color: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.soft-button.active:hover {
+  background: color-mix(in srgb, var(--arc-primary) 90%, black);
+}
+
 .soft-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
   transform: none;
 }
 
+/* ── 右下角悬浮工具栏 ── */
+.floating-toolbar {
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--arc-bg-surface);
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-lg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.08);
+  z-index: 100;
+  backdrop-filter: blur(10px);
+}
+
+.toolbar-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--arc-text-primary);
+}
+
+.toolbar-link {
+  background: none;
+  border: none;
+  color: var(--arc-primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 4px 8px;
+  transition: color 0.15s;
+}
+
+.toolbar-link:hover {
+  color: color-mix(in srgb, var(--arc-primary) 80%, black);
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.slideUp-enter-active,
+.slideUp-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slideUp-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.slideUp-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+/* ── 选择模式提示 ── */
+.selection-hint {
+  padding: 12px 20px;
+  margin-bottom: 20px;
+  background: color-mix(in srgb, var(--arc-info) 8%, var(--arc-bg-surface));
+  border: 1px solid color-mix(in srgb, var(--arc-info) 20%, var(--arc-border));
+  border-radius: var(--arc-radius-md);
+  color: var(--arc-text-secondary);
+  font-size: 13px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* ── 时间线 ── */
 .timeline {
   position: relative;
   padding: 8px 0 32px;
+  max-width: 720px;
+  margin: 0 auto;
 }
 
 .timeline::before {
   content: '';
   position: absolute;
-  left: 50%;
+  left: 24px;
   top: 0;
   bottom: 0;
   width: 2px;
@@ -1209,7 +1606,6 @@ watch(
     color-mix(in srgb, var(--arc-primary) 25%, var(--arc-border)) 92%,
     transparent 100%
   );
-  transform: translateX(-50%);
   border-radius: 2px;
 }
 
@@ -1297,31 +1693,26 @@ watch(
   display: flex;
   align-items: flex-start;
   margin-bottom: 28px;
-  width: 50%;
-}
-
-.timeline-node.left {
-  align-self: flex-start;
-  padding-right: 40px;
-  justify-content: flex-end;
-}
-
-.timeline-node.right {
-  align-self: flex-end;
-  margin-left: 50%;
-  padding-left: 40px;
+  width: 100%;
+  padding-left: 56px;
   justify-content: flex-start;
 }
 
+.timeline-node.left,
+.timeline-node.right,
 .timeline-node.add-node {
-  justify-content: flex-end;
-  padding-right: 40px;
+  align-self: flex-start;
+  margin-left: 0;
+  padding-right: 0;
+  padding-left: 56px;
+  justify-content: flex-start;
 }
 
 /* ── 轴线圆点 ── */
 .timeline-dot {
   position: absolute;
   top: 20px;
+  left: 17px;
   width: 14px;
   height: 14px;
   border-radius: 50%;
@@ -1337,16 +1728,11 @@ watch(
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 30%, transparent);
 }
 
-.timeline-node.left .timeline-dot {
-  right: -7px;
-}
-
-.timeline-node.right .timeline-dot {
-  left: -7px;
-}
-
+.timeline-node.left .timeline-dot,
+.timeline-node.right .timeline-dot,
 .timeline-node.add-node .timeline-dot {
-  right: -7px;
+  left: 17px;
+  right: auto;
 }
 
 .timeline-dot.ghost { background: var(--arc-text-hint); }
@@ -1357,7 +1743,7 @@ watch(
 /* ── 节点卡片 ── */
 .timeline-card {
   flex: 1;
-  max-width: 440px;
+  max-width: none;
   padding: 16px 18px 14px;
   border: 1px solid var(--arc-border);
   border-radius: var(--arc-radius-lg);
@@ -1405,6 +1791,19 @@ watch(
 .timeline-node.assistant-focused .timeline-card {
   border-color: color-mix(in srgb, var(--arc-accent) 78%, white 22%);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-accent) 18%, transparent), 0 20px 48px rgba(15, 23, 42, 0.14);
+}
+
+/* 选中状态 */
+.timeline-node.selected .timeline-card {
+  border-color: var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 12%, transparent);
+}
+
+/* 多选拖拽中 */
+.timeline-node.multi-dragging .timeline-card {
+  opacity: 0.5;
+  transform: scale(0.98);
 }
 
 .card-header {
@@ -1554,14 +1953,18 @@ watch(
     padding: 0 20px;
   }
 
-  .timeline-card {
-    max-width: 380px;
+  .timeline {
+    max-width: 600px;
   }
 }
 
 @media (max-width: 900px) {
   .outline-panel {
     padding: 0 16px;
+  }
+
+  .timeline {
+    max-width: none;
   }
 
   .timeline::before {
@@ -1587,10 +1990,6 @@ watch(
     right: auto;
   }
 
-  .timeline-card {
-    max-width: none;
-  }
-
   .timeline-volume-marker {
     align-items: flex-start;
     padding-left: 48px;
@@ -1599,6 +1998,39 @@ watch(
   .volume-summary {
     display: none;
   }
+}
+
+/* ── 多选工具栏 ── */
+.multi-select-toolbar {
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--arc-bg-surface);
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-lg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+.toolbar-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--arc-text-primary);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
 }
 
 @media (max-width: 600px) {
