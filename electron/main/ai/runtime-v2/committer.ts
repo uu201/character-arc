@@ -127,6 +127,37 @@ async function commitDelete(
   }
   const db = await ensureWorkspaceDb()
 
+  if (change.kind === 'chapter') {
+    const existing = db.prepare('SELECT id FROM chapters WHERE id = ? AND project_id = ?')
+      .get(change.entityId, projectId) as { id: string } | undefined
+    if (!existing) {
+      return { changeId: change.id, ok: false, error: `章节不存在或已删除：${change.entityId}` }
+    }
+    const count = db.prepare('SELECT COUNT(*) AS value FROM chapters WHERE project_id = ?')
+      .get(projectId) as { value: number }
+    if (Number(count.value) <= 1) {
+      return { changeId: change.id, ok: false, error: '项目至少需要保留一个章节，无法删除最后一章。' }
+    }
+
+    db.exec('BEGIN')
+    try {
+      db.prepare('DELETE FROM chapters WHERE id = ? AND project_id = ?').run(change.entityId, projectId)
+      db.prepare(`
+        DELETE FROM story_embeddings
+        WHERE project_id = ? AND source_type = 'chapter_segment' AND source_id = ?
+      `).run(projectId, change.entityId)
+      db.exec('COMMIT')
+      return { changeId: change.id, ok: true, entityId: change.entityId }
+    } catch (error) {
+      db.exec('ROLLBACK')
+      return {
+        changeId: change.id,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    }
+  }
+
   if (change.kind === 'constraint') {
     const result = db.prepare(`
       DELETE FROM knowledge_documents

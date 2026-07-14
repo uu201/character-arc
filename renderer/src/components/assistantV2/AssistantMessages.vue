@@ -99,6 +99,8 @@ function describeToolAction(t: AssistantToolCallView): string {
       return `读取${short(a.entity_type ?? '项目数据')}${a.entity_id ? ' · ' + short(a.entity_id) : ''}`
     case 'stage_chapter_edit':
       return `暂存章节修改（${short(a.operation ?? 'edit')} · ${short(a.chapter_id ?? '当前章节')}）`
+    case 'stage_chapter_delete':
+      return `暂存删除章节（${short(a.chapter_id ?? '当前章节')}）`
     case 'stage_worldview': return `暂存世界观（${short(a.action ?? 'update')}）`
     case 'stage_character': return `暂存人物卡（${short(a.action ?? 'update')}）`
     case 'stage_organization': return `暂存组织（${short(a.action ?? 'update')}）`

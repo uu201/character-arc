@@ -246,6 +246,35 @@ export async function listProjectChapters(projectId: string): Promise<ChapterSum
   }))
 }
 
+/** 将章节 ID、标题、序号或“第一章”一类自然引用解析为当前项目的章节 ID。 */
+export async function resolveProjectChapterId(projectId: string, ref: string): Promise<string> {
+  const rawRef = ref.trim()
+  if (!rawRef) return ''
+
+  const direct = await readChapterFromDb(projectId, rawRef)
+  if (direct) return direct.id
+
+  const chapters = await listProjectChapters(projectId)
+  const normalizedRef = normalizeNaturalRef(rawRef)
+  const ordinal = parseOrdinalRef(rawRef)
+  if (ordinal !== null && ordinal >= 1 && ordinal <= chapters.length) {
+    return chapters[ordinal - 1].id
+  }
+
+  const exactTitle = chapters.find((chapter) => normalizeNaturalRef(chapter.title) === normalizedRef)
+  if (exactTitle) return exactTitle.id
+
+  const titleContains = chapters.filter((chapter) => normalizeNaturalRef(chapter.title).includes(normalizedRef))
+  if (titleContains.length === 1) return titleContains[0].id
+
+  if (!chapters.length) throw new Error('当前项目还没有章节。')
+  const options = chapters
+    .slice(0, 20)
+    .map((chapter, index) => `${index + 1}. ${chapter.title}`)
+    .join('\n')
+  throw new Error(`无法定位章节“${rawRef}”。请根据章节列表自行选择最可能的目标，必要时再询问用户：\n${options}`)
+}
+
 export async function applyChapterEdit(
   projectId: string,
   chapterId: string,

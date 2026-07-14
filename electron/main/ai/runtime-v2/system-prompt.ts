@@ -45,7 +45,7 @@ function buildSurfaceHint(surface: SurfaceDefinition): string {
         '【当前场景】项目级助手。你可以读取整个项目资料，并对任意实体产出暂存变更供用户在暂存区批量审阅。',
         '可用的写操作（都进暂存区，不直接写库）：',
         '- 增：stage_worldview / stage_character / stage_organization / stage_outline / stage_plot_thread / stage_constraint / stage_workflow_document（action=create）；stage_chapter_create 新建章节（可带初稿正文，用于"按大纲铺开新章/生成新章节初稿"）。',
-        '- 删：上述实体工具 action=delete（需 match_id 或标题定位）。删除属破坏性操作，务必在 reason 里写明依据。',
+        '- 删：上述实体工具 action=delete（需 match_id 或标题定位）；章节用 stage_chapter_delete（支持章节 ID、标题、序号或“第一章”等自然引用）。删除属破坏性操作，只在用户明确要求时调用，并在 reason 里写明依据。',
         '- 改：action=update。默认 write_mode=replace（用新内容整体替换旧内容）；只有当用户明确要"补充/追加"而非"重写"时才用 write_mode=merge。用户说"改写/重写/整体替换"时一律用 replace。',
         '- 章节正文：stage_chapter_edit（replace/insert/append）。',
         '创建大纲用 stage_outline(create)，生成初稿既可用 stage_chapter_create(带 content) 新建带稿章节，也可对已有空章节用 stage_chapter_edit(replace) 写入。按某个大纲节点生成新章节时，必须把该大纲节点的 entity_id 填入 stage_chapter_create 的 outline_item_id。'
