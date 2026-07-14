@@ -7,6 +7,7 @@ import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { useAppStore } from '@/stores/app'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { formatVolumeLabel, normalizeVolumeWordTarget } from '@/features/workspace/outlineVolumes'
+import type { OutlineDropPosition } from '@/features/workspace/outlineReorder'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { DropdownOption, SelectOption } from 'naive-ui'
 import type { OutlineItem, OutlineItemStatus, OutlineVolume } from '@/types/app'
@@ -41,6 +42,8 @@ const editingOutlineId = ref<string | null>(null) // 当前编辑的大纲节点
 const editingVolumeId = ref<string | null>(null) // 当前编辑的分卷 ID
 const draggingOutlineId = ref<string | null>(null) // 正在拖拽的大纲节点 ID
 const dragTargetOutlineId = ref<string | null>(null) // 拖拽目标位置的大纲节点 ID
+const dragTargetPosition = ref<OutlineDropPosition | null>(null)
+const dragTargetVolumeId = ref<string | null>(null)
 const focusedOutlineId = ref<string>('')
 // 多选状态
 const selectedOutlineIds = ref<Set<string>>(new Set())
@@ -698,6 +701,44 @@ function handleBatchDelete(): void {
 }
 
 // --- 拖拽排序相关函数 ---
+function readDraggedOutlineIds(event: DragEvent): string[] {
+  const dataStr = event.dataTransfer?.getData('text/plain')
+  if (!dataStr) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(dataStr)
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []
+  } catch {
+    return [dataStr]
+  }
+}
+
+function resolveDropPosition(event: DragEvent): OutlineDropPosition {
+  const target = event.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+function autoScrollDragContainer(event: DragEvent): void {
+  const container = (event.currentTarget as HTMLElement).closest('.workspace-body-main')
+  if (!(container instanceof HTMLElement)) {
+    return
+  }
+
+  const rect = container.getBoundingClientRect()
+  const edgeSize = Math.min(72, rect.height / 4)
+  const maxStep = 18
+  if (event.clientY < rect.top + edgeSize) {
+    const intensity = (rect.top + edgeSize - event.clientY) / edgeSize
+    container.scrollBy({ top: -Math.ceil(maxStep * intensity) })
+  } else if (event.clientY > rect.bottom - edgeSize) {
+    const intensity = (event.clientY - (rect.bottom - edgeSize)) / edgeSize
+    container.scrollBy({ top: Math.ceil(maxStep * intensity) })
+  }
+}
+
 // 拖拽开始：记录被拖拽的大纲节点 ID
 function handleDragStart(outlineId: string, event: DragEvent): void {
   // 如果拖拽的节点未选中，清空并只拖它
@@ -707,18 +748,23 @@ function handleDragStart(outlineId: string, event: DragEvent): void {
   }
 
   draggingOutlineId.value = outlineId
-  dragTargetOutlineId.value = outlineId
+  dragTargetOutlineId.value = null
+  dragTargetPosition.value = null
+  dragTargetVolumeId.value = null
 
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
-    // 传递所有选中的 ID
     event.dataTransfer.setData('text/plain', JSON.stringify(Array.from(selectedOutlineIds.value)))
+    const dragImage = (event.currentTarget as HTMLElement).closest('.timeline-card')
+    if (dragImage instanceof HTMLElement) {
+      event.dataTransfer.setDragImage(dragImage, 24, 24)
+    }
   }
 }
 
 // 拖拽经过：更新拖拽目标位置
 function handleDragOver(outlineId: string, event: DragEvent): void {
-  if (!draggingOutlineId.value || draggingOutlineId.value === outlineId) {
+  if (!draggingOutlineId.value || selectedOutlineIds.value.has(outlineId)) {
     return
   }
 
@@ -726,77 +772,79 @@ function handleDragOver(outlineId: string, event: DragEvent): void {
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'move'
   }
+  autoScrollDragContainer(event)
   dragTargetOutlineId.value = outlineId
+  dragTargetPosition.value = resolveDropPosition(event)
+  dragTargetVolumeId.value = null
+}
+
+function handleDragLeave(outlineId: string, event: DragEvent): void {
+  const currentTarget = event.currentTarget as HTMLElement
+  const relatedTarget = event.relatedTarget
+  if (relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) {
+    return
+  }
+  if (dragTargetOutlineId.value === outlineId) {
+    dragTargetOutlineId.value = null
+    dragTargetPosition.value = null
+  }
 }
 
 // 拖拽放下：调用 store 执行大纲节点的排序移动
 function handleDrop(outlineId: string, event: DragEvent): void {
   event.preventDefault()
-  const dataStr = event.dataTransfer?.getData('text/plain')
-  if (!dataStr) {
-    resetDragState()
-    return
-  }
-
-  let draggedIds: string[]
-  try {
-    draggedIds = JSON.parse(dataStr)
-  } catch {
-    // 兼容旧版单节点数据
-    draggedIds = [dataStr]
-  }
+  const draggedIds = readDraggedOutlineIds(event)
 
   if (!draggedIds.length || draggedIds.includes(outlineId)) {
     resetDragState()
     return
   }
 
-  // 调用批量移动
-  if (draggedIds.length === 1) {
-    appStore.moveOutlineItem(draggedIds[0], outlineId)
-  } else {
-    appStore.moveOutlineItems(draggedIds, outlineId)
-  }
+  const position = dragTargetOutlineId.value === outlineId && dragTargetPosition.value
+    ? dragTargetPosition.value
+    : resolveDropPosition(event)
+  appStore.moveOutlineItems(draggedIds, outlineId, position)
 
   selectedOutlineIds.value.clear()
   resetDragState()
 }
 
-// 支持拖到分卷标记
+function handleVolumeDragOver(volumeId: string, event: DragEvent): void {
+  if (!draggingOutlineId.value) {
+    return
+  }
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  autoScrollDragContainer(event)
+  dragTargetOutlineId.value = null
+  dragTargetPosition.value = null
+  dragTargetVolumeId.value = volumeId
+}
+
+function handleVolumeDragLeave(volumeId: string, event: DragEvent): void {
+  const currentTarget = event.currentTarget as HTMLElement
+  const relatedTarget = event.relatedTarget
+  if (relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) {
+    return
+  }
+  if (dragTargetVolumeId.value === volumeId) {
+    dragTargetVolumeId.value = null
+  }
+}
+
+// 拖到分卷标记时，统一追加到该卷末尾
 function handleDropOnVolume(volumeId: string, event: DragEvent): void {
   event.preventDefault()
-  const dataStr = event.dataTransfer?.getData('text/plain')
-  if (!dataStr) return
+  const draggedIds = readDraggedOutlineIds(event)
 
-  let draggedIds: string[]
-  try {
-    draggedIds = JSON.parse(dataStr)
-  } catch {
-    draggedIds = [dataStr]
+  if (!draggedIds.length) {
+    resetDragState()
+    return
   }
 
-  if (!draggedIds.length) return
-
-  // 找到该分卷的最后一个节点
-  const volumeItems = appStore.outlineItems.filter(i => i.volumeId === volumeId)
-  const lastItem = volumeItems[volumeItems.length - 1]
-
-  if (lastItem) {
-    if (draggedIds.length === 1) {
-      appStore.moveOutlineItem(draggedIds[0], lastItem.id)
-    } else {
-      appStore.moveOutlineItems(draggedIds, lastItem.id)
-    }
-  } else {
-    // 空分卷，直接更新 volumeId
-    draggedIds.forEach(id => {
-      const item = appStore.outlineItems.find(i => i.id === id)
-      if (item) {
-        appStore.updateOutlineItem(id, { volumeId })
-      }
-    })
-  }
-
+  appStore.moveOutlineItemsToVolumeEnd(draggedIds, volumeId)
   selectedOutlineIds.value.clear()
   resetDragState()
 }
@@ -805,6 +853,8 @@ function handleDropOnVolume(volumeId: string, event: DragEvent): void {
 function resetDragState(): void {
   draggingOutlineId.value = null
   dragTargetOutlineId.value = null
+  dragTargetPosition.value = null
+  dragTargetVolumeId.value = null
 }
 
 // 处理大纲节点的下拉菜单操作：编辑或删除（删除前弹出二次确认）
@@ -1041,13 +1091,15 @@ watch(
         <!-- 分卷标记 -->
         <div
           class="timeline-volume-marker"
-          @dragover.prevent="dragTargetOutlineId = `volume-${group.volume.id}`"
+          :class="{ 'drop-target': dragTargetVolumeId === group.volume.id }"
+          @dragover="handleVolumeDragOver(group.volume.id, $event)"
           @drop="handleDropOnVolume(group.volume.id, $event)"
-          @dragleave="dragTargetOutlineId = null"
+          @dragleave="handleVolumeDragLeave(group.volume.id, $event)"
         >
           <button class="volume-marker-btn" @click="volumeCollapsed[group.volume.id] = !volumeCollapsed[group.volume.id]">
             <span class="volume-diamond" />
             <span class="volume-label">{{ formatVolumeLabel(group.volume, group.index, 'formal') }}</span>
+            <span v-if="dragTargetVolumeId === group.volume.id" class="volume-drop-label">放到卷末</span>
             <span v-if="group.volume.summary" class="volume-summary">{{ group.volume.summary }}</span>
             <ChevronDown :size="14" class="volume-chevron" :class="{ collapsed: volumeCollapsed[group.volume.id] }" />
           </button>
@@ -1079,20 +1131,30 @@ watch(
               selected: isNodeSelected(item.id),
               dragging: draggingOutlineId === item.id,
               'multi-dragging': draggingOutlineId !== null && isMultiSelectMode && isNodeSelected(item.id) && draggingOutlineId !== item.id,
-              'drop-target': dragTargetOutlineId === item.id && draggingOutlineId !== item.id,
+              'drop-before': dragTargetOutlineId === item.id && dragTargetPosition === 'before',
+              'drop-after': dragTargetOutlineId === item.id && dragTargetPosition === 'after',
               'assistant-focused': focusedOutlineId === item.id
             }"
             :data-assistant-focus-id="item.id"
-            draggable="true"
-            @dragstart="handleDragStart(item.id, $event)"
             @dragover="handleDragOver(item.id, $event)"
+            @dragleave="handleDragLeave(item.id, $event)"
             @drop="handleDrop(item.id, $event)"
-            @dragend="resetDragState"
           >
             <span class="timeline-dot" :class="resolveOutlineStatusMeta(item.status).tone" />
             <article class="timeline-card" @click="handleNodeClick(item, $event)">
               <div class="card-header">
-                <GripVertical :size="13" class="card-grip" />
+                <button
+                  class="card-grip"
+                  type="button"
+                  draggable="true"
+                  title="拖动节点"
+                  aria-label="拖动节点"
+                  @click.stop
+                  @dragstart.stop="handleDragStart(item.id, $event)"
+                  @dragend.stop="resetDragState"
+                >
+                  <GripVertical :size="14" />
+                </button>
                 <span class="card-title">{{ item.title }}</span>
                 <n-dropdown :options="menuOptions" placement="bottom-end" @select="(key) => handleMenuSelect(key, item)">
                   <button class="more-button" @click.stop>
@@ -1634,13 +1696,20 @@ watch(
   background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-surface));
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), 0 0 0 3px color-mix(in srgb, var(--arc-primary) 6%, transparent);
-  transition: box-shadow 0.2s, border-color 0.2s, background 0.2s;
+  transition: box-shadow 0.2s, border-color 0.2s, background 0.2s, transform 0.2s;
 }
 
 .volume-marker-btn:hover {
   background: color-mix(in srgb, var(--arc-primary) 9%, var(--arc-bg-surface));
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1), 0 0 0 4px color-mix(in srgb, var(--arc-primary) 10%, transparent);
   border-color: color-mix(in srgb, var(--arc-primary) 45%, var(--arc-border));
+}
+
+.timeline-volume-marker.drop-target .volume-marker-btn {
+  border-color: var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--arc-primary) 14%, transparent), 0 6px 18px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
 }
 
 .volume-diamond {
@@ -1658,6 +1727,16 @@ watch(
   font-weight: 700;
   color: var(--arc-text-primary);
   letter-spacing: -0.01em;
+}
+
+.volume-drop-label {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--arc-primary);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .volume-summary {
@@ -1782,10 +1861,32 @@ watch(
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.15);
 }
 
-.timeline-node.drop-target .timeline-card {
+.timeline-node.drop-before .timeline-card,
+.timeline-node.drop-after .timeline-card {
   border-color: var(--arc-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 18%, transparent), 0 4px 12px rgba(0, 0, 0, 0.08);
-  transform: translateY(-2px);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arc-primary) 10%, transparent), 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.timeline-node.drop-before::before,
+.timeline-node.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 56px;
+  right: 0;
+  z-index: 6;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--arc-primary);
+  box-shadow: -4px 0 0 var(--arc-primary), 0 0 0 4px color-mix(in srgb, var(--arc-primary) 10%, transparent);
+  pointer-events: none;
+}
+
+.timeline-node.drop-before::before {
+  top: -14px;
+}
+
+.timeline-node.drop-after::after {
+  bottom: -14px;
 }
 
 .timeline-node.assistant-focused .timeline-card {
@@ -1814,16 +1915,33 @@ watch(
 }
 
 .card-grip {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--arc-radius-sm);
+  align-items: center;
+  justify-content: center;
+  background: transparent;
   color: var(--arc-text-hint);
   flex-shrink: 0;
   cursor: grab;
   opacity: 0;
-  transition: opacity 0.2s, color 0.2s;
+  transition: opacity 0.2s, color 0.2s, background 0.2s;
 }
 
-.timeline-card:hover .card-grip {
-  opacity: 0.7;
+.timeline-card:hover .card-grip,
+.card-grip:focus-visible {
+  opacity: 0.8;
   color: var(--arc-text-secondary);
+}
+
+.card-grip:hover,
+.card-grip:focus-visible {
+  background: var(--arc-bg-surface-hover);
+  color: var(--arc-primary);
+  outline: none;
 }
 
 .card-grip:active {

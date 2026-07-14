@@ -11,6 +11,11 @@ import {
   createOutlineVolume as createWorkspaceVolume,
   normalizeVolumeWordTarget
 } from '@/features/workspace/outlineVolumes'
+import {
+  moveOutlineItemsAroundTarget,
+  moveOutlineItemsToVolumeEnd as reorderOutlineItemsToVolumeEnd,
+  type OutlineDropPosition
+} from '@/features/workspace/outlineReorder'
 import { getThemePreset } from '@/theme/presets'
 import { createEmptyWorkspace, normalizeGlobalAssistantProposal, mergeGlobalAssistantProposals } from '@/features/workspace/projectWorkspace'
 import { createWorkspacePersistence } from '@/features/workspace/persistence'
@@ -2098,23 +2103,35 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
-  /** 拖拽移动大纲节点位置，跨分卷时自动更新 volumeId */
-  function moveOutlineItem(outlineId: string, targetOutlineId: string): void {
-    updateCurrentWorkspace((workspace) => {
-      const sourceIndex = workspace.outlineItems.findIndex((item) => item.id === outlineId)
-      const targetIndex = workspace.outlineItems.findIndex((item) => item.id === targetOutlineId)
+  /** 拖拽移动单个大纲节点，位置语义与批量移动保持一致 */
+  function moveOutlineItem(
+    outlineId: string,
+    targetOutlineId: string,
+    position: OutlineDropPosition = 'before'
+  ): void {
+    moveOutlineItems([outlineId], targetOutlineId, position)
+  }
 
-      if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+  /**
+   * 批量移动大纲节点到目标位置（跨卷自动更新 volumeId）
+   * @param outlineIds - 要移动的节点 ID 列表
+   * @param targetOutlineId - 目标位置节点 ID
+   */
+  function moveOutlineItems(
+    outlineIds: string[],
+    targetOutlineId: string,
+    position: OutlineDropPosition = 'before'
+  ): void {
+    updateCurrentWorkspace((workspace) => {
+      const nextOutlineItems = moveOutlineItemsAroundTarget(
+        workspace.outlineItems,
+        outlineIds,
+        targetOutlineId,
+        position
+      )
+      if (nextOutlineItems === workspace.outlineItems) {
         return workspace
       }
-
-      const nextOutlineItems = [...workspace.outlineItems]
-      const [movedItem] = nextOutlineItems.splice(sourceIndex, 1)
-      const targetItem = workspace.outlineItems[targetIndex]
-      nextOutlineItems.splice(targetIndex, 0, {
-        ...movedItem,
-        volumeId: targetItem?.volumeId || movedItem.volumeId
-      })
 
       return {
         ...workspace,
@@ -2124,43 +2141,18 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
-  /**
-   * 批量移动大纲节点到目标位置（跨卷自动更新 volumeId）
-   * @param outlineIds - 要移动的节点 ID 列表
-   * @param targetOutlineId - 目标位置节点 ID
-   */
-  function moveOutlineItems(outlineIds: string[], targetOutlineId: string): void {
+  /** 将一个或多个大纲节点追加到指定分卷末尾 */
+  function moveOutlineItemsToVolumeEnd(outlineIds: string[], volumeId: string): void {
     updateCurrentWorkspace((workspace) => {
-      const targetIndex = workspace.outlineItems.findIndex(item => item.id === targetOutlineId)
-      const targetItem = workspace.outlineItems[targetIndex]
-
-      if (targetIndex === -1 || !targetItem) {
+      const nextOutlineItems = reorderOutlineItemsToVolumeEnd(
+        workspace.outlineItems,
+        outlineIds,
+        volumeId,
+        workspace.outlineVolumes.map((volume) => volume.id)
+      )
+      if (nextOutlineItems === workspace.outlineItems) {
         return workspace
       }
-
-      // 移除要移动的节点
-      const remainingItems = workspace.outlineItems.filter(
-        item => !outlineIds.includes(item.id)
-      )
-
-      // 按原始顺序保留被移动的节点，并更新 volumeId
-      const movedItems = outlineIds
-        .map(id => workspace.outlineItems.find(item => item.id === id))
-        .filter((item): item is OutlineItem => Boolean(item))
-        .map(item => ({
-          ...item,
-          volumeId: targetItem.volumeId // 跨卷时自动切换
-        }))
-
-      // 重新计算目标索引
-      const newTargetIndex = remainingItems.findIndex(item => item.id === targetOutlineId)
-
-      // 插入
-      const nextOutlineItems = [
-        ...remainingItems.slice(0, newTargetIndex),
-        ...movedItems,
-        ...remainingItems.slice(newTargetIndex)
-      ]
 
       return {
         ...workspace,
@@ -3092,6 +3084,7 @@ export const useAppStore = defineStore('app', () => {
     moveChapter,
     moveOutlineItem,
     moveOutlineItems,
+    moveOutlineItemsToVolumeEnd,
     openChapterStudio,
     openDeconstructionLibrary,
     openFanqieTrends,
