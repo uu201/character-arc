@@ -85,15 +85,9 @@ function formatResolveError(ref: string, chapters: ChapterSummaryItem[]): string
   return `无法定位章节"${ref}"。可选章节：\n${options}`
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .trim()
+function isRecoverableLocateError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /^Could not find (target|anchor) text:/.test(message)
 }
 
 export function makeStageChapterEditTool(deps: StageChapterEditToolDeps): Tool {
@@ -196,6 +190,15 @@ export function makeStageChapterEditTool(deps: StageChapterEditToolDeps): Tool {
           ].join('\n')
         }
       } catch (e) {
+        if (isRecoverableLocateError(e)) {
+          const detail = e instanceof Error ? e.message : String(e)
+          return {
+            content: [
+              `未能定位要修改的原文片段，本次没有暂存章节修改：${detail}`,
+              '请先重新读取目标章节，然后用更短、连续、逐字来自正文的 search 片段重试；如果只是加内容，改用 append 或 insert 的 start/end。'
+            ].join('\n')
+          }
+        }
         return { content: e instanceof Error ? e.message : String(e), isError: true }
       }
     }

@@ -92,26 +92,60 @@ function mapPlainIndexToHtml(html: string, plainIdx: number): number {
   return html.length
 }
 
+function buildWhitespaceInsensitiveIndex(text: string): { value: string; indexMap: number[] } {
+  let value = ''
+  const indexMap: number[] = []
+  for (let i = 0; i < text.length; i += 1) {
+    if (/\s/.test(text[i])) continue
+    value += text[i]
+    indexMap.push(i)
+  }
+  return { value, indexMap }
+}
+
+function findPlainTextRange(plain: string, search: string): { start: number; end: number } | null {
+  const target = search.trim()
+  if (!target) return null
+
+  const exactStart = plain.indexOf(target)
+  if (exactStart !== -1) {
+    return { start: exactStart, end: exactStart + target.length }
+  }
+
+  const compactTarget = target.replace(/\s+/g, '')
+  if (!compactTarget) return null
+
+  const compactPlain = buildWhitespaceInsensitiveIndex(plain)
+  const compactStart = compactPlain.value.indexOf(compactTarget)
+  if (compactStart === -1) return null
+
+  const compactEnd = compactStart + compactTarget.length - 1
+  return {
+    start: compactPlain.indexMap[compactStart],
+    end: compactPlain.indexMap[compactEnd] + 1
+  }
+}
+
 function replaceInHtml(html: string, search: string, replacement: string): string {
   const plain = stripHtmlTags(html)
-  const plainStart = plain.indexOf(search)
-  if (plainStart === -1) {
+  const range = findPlainTextRange(plain, search)
+  if (!range) {
     throw new Error(`Could not find target text: "${search.slice(0, 50)}..."`)
   }
-  const htmlStart = mapPlainIndexToHtml(html, plainStart)
-  const htmlEnd = mapPlainIndexToHtml(html, plainStart + search.length)
+  const htmlStart = mapPlainIndexToHtml(html, range.start)
+  const htmlEnd = mapPlainIndexToHtml(html, range.end)
   return html.slice(0, htmlStart) + textToHtmlParagraphs(replacement) + html.slice(htmlEnd)
 }
 
 function insertInHtml(html: string, search: string, insertionHtml: string, position: 'before' | 'after'): string {
   const plain = stripHtmlTags(html)
-  const plainStart = plain.indexOf(search)
-  if (plainStart === -1) {
+  const range = findPlainTextRange(plain, search)
+  if (!range) {
     throw new Error(`Could not find anchor text: "${search.slice(0, 50)}..."`)
   }
   const anchorIdx = position === 'before'
-    ? mapPlainIndexToHtml(html, plainStart)
-    : mapPlainIndexToHtml(html, plainStart + search.length)
+    ? mapPlainIndexToHtml(html, range.start)
+    : mapPlainIndexToHtml(html, range.end)
   return html.slice(0, anchorIdx) + insertionHtml + html.slice(anchorIdx)
 }
 
@@ -228,7 +262,6 @@ export async function applyChapterEdit(
   }
 
   const oldContent = String(row.content)
-  const plainOld = stripHtmlTags(oldContent)
 
   const versionId = randomUUID()
   db.prepare(`
@@ -258,8 +291,8 @@ export async function applyChapterEdit(
       throw new Error('replace requires search')
     }
     const searchText = edit.search.trim()
-    if (!plainOld.includes(searchText)) {
-      throw new Error(`Could not find target text: "${searchText.slice(0, 50)}..."`)
+    if (!searchText) {
+      throw new Error('replace requires search')
     }
     newContent = replaceInHtml(oldContent, searchText, edit.content)
     preview = `Replaced "${searchText.slice(0, 30)}..." -> "${edit.content.slice(0, 30)}..."`
@@ -273,7 +306,7 @@ export async function applyChapterEdit(
     } else if (edit.position === 'end' || !edit.search) {
       newContent = oldContent + htmlToInsert
     } else {
-      newContent = insertInHtml(oldContent, edit.search, htmlToInsert, edit.position ?? 'after')
+      newContent = insertInHtml(oldContent, edit.search.trim(), htmlToInsert, edit.position ?? 'after')
     }
     preview = `Inserted ${edit.content.length} chars`
   } else {
@@ -304,7 +337,6 @@ export async function computeChapterEdit(
 
   const oldContent = overrideContent ?? String(row.content)
   const chapterTitle = String(row.title)
-  const plainOld = stripHtmlTags(oldContent)
 
   let newContent: string
   let preview: string
@@ -318,8 +350,8 @@ export async function computeChapterEdit(
       throw new Error('replace requires search')
     }
     const searchText = edit.search.trim()
-    if (!plainOld.includes(searchText)) {
-      throw new Error(`Could not find target text: "${searchText.slice(0, 50)}..."`)
+    if (!searchText) {
+      throw new Error('replace requires search')
     }
     newContent = replaceInHtml(oldContent, searchText, edit.content)
     preview = `Replaced "${searchText.slice(0, 30)}..." -> "${edit.content.slice(0, 30)}..."`
@@ -333,7 +365,7 @@ export async function computeChapterEdit(
     } else if (edit.position === 'end' || !edit.search) {
       newContent = oldContent + htmlToInsert
     } else {
-      newContent = insertInHtml(oldContent, edit.search, htmlToInsert, edit.position ?? 'after')
+      newContent = insertInHtml(oldContent, edit.search.trim(), htmlToInsert, edit.position ?? 'after')
     }
     preview = `Inserted ${edit.content.length} chars`
   } else {

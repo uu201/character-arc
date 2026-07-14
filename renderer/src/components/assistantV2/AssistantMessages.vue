@@ -8,12 +8,51 @@ import type { AssistantMessageView, AssistantToolCallView } from '@/composables/
 const MD_ALLOWED_TAGS = [
   'p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote',
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th',
-  'td', 'a', 'span', 'del', 'hr'
+  'td', 'a', 'span', 'del', 'hr', 'input'
 ]
-const MD_ALLOWED_ATTR = ['class', 'href', 'target', 'rel']
+const MD_ALLOWED_ATTR = ['class', 'href', 'target', 'rel', 'type', 'checked', 'disabled']
+
+marked.setOptions({
+  breaks: true,
+  gfm: true
+})
+
+function splitTableCells(line: string): string[] {
+  const trimmed = line.trim()
+  if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) return []
+  return trimmed.slice(1, -1).split('|').map((cell) => cell.trim())
+}
+
+function isTableSeparator(line: string): boolean {
+  const cells = splitTableCells(line)
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell))
+}
+
+function normalizeMarkdownTables(content: string): string {
+  const lines = content.split('\n')
+  let inFence = false
+
+  return lines.map((line, index) => {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence
+      return line
+    }
+    if (inFence || !isTableSeparator(line) || index === 0) return line
+
+    const headerCells = splitTableCells(lines[index - 1])
+    const separatorCells = splitTableCells(line)
+    if (headerCells.length <= separatorCells.length) return line
+
+    const normalizedCells = [
+      ...separatorCells,
+      ...Array.from({ length: headerCells.length - separatorCells.length }, () => '------')
+    ]
+    return `| ${normalizedCells.join(' | ')} |`
+  }).join('\n')
+}
 
 function renderMarkdown(content: string): string {
-  const html = marked.parse(content || '', { async: false }) as string
+  const html = marked.parse(normalizeMarkdownTables(content || ''), { async: false }) as string
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: MD_ALLOWED_TAGS,
     ALLOWED_ATTR: MD_ALLOWED_ATTR
@@ -224,7 +263,7 @@ const hasContent = computed(() => props.messages.length > 0)
             v-else
             class="assistant-copy markdown-body"
           >
-            <span v-html="renderMarkdown(block.content)" />
+            <div v-html="renderMarkdown(block.content)" />
             <span v-if="msg.status === 'streaming' && block.id === msg.flowBlocks[msg.flowBlocks.length - 1]?.id" class="cursor">▍</span>
           </div>
         </template>
@@ -465,6 +504,10 @@ const hasContent = computed(() => props.messages.length > 0)
 }
 .markdown-body :deep(li) {
   margin: 3px 0;
+}
+.markdown-body :deep(input[type='checkbox']) {
+  margin: 0 6px 0 0;
+  transform: translateY(1px);
 }
 .markdown-body :deep(code) {
   font-family: var(--v2-mono);
