@@ -1,6 +1,7 @@
 import type { TaskHandler, PromptBuildInput } from './base'
 import { extractJsonObject } from './base'
 import type { AiTaskResult, ChapterMemoResult } from '../shared-types'
+import { formatProjectSkillsContext } from '../prompts/shared'
 import {
   formatWorldviewEntries, formatCharacters,
   formatCharacterRelationships,
@@ -29,8 +30,14 @@ const handler: TaskHandler = {
   outputType: 'json',
   defaultCapabilities: ['settings', 'chapters', 'worldview', 'characters', 'relations', 'outline'],
   buildPrompt(input: PromptBuildInput) {
-    const { context, capabilityPreamble } = input
+    const { context, capabilityPreamble, skillsBlock } = input
     const targetWordCount = String(context.targetWordCount ?? context.chapterWordTarget ?? '').trim()
+    const projectSkillsBlock = formatProjectSkillsContext(context.projectSkills)
+    const effectiveSkillsBlock = [projectSkillsBlock, skillsBlock].filter(Boolean).join('\n\n')
+    const skillsSection = effectiveSkillsBlock ? `\n\n本步骤启用 skills：\n${effectiveSkillsBlock}` : ''
+    const userPromptSection = String(context.userPrompt ?? '').trim()
+      ? `\n\n本步骤补充要求：${String(context.userPrompt).trim()}`
+      : ''
 
     return {
       system: `${capabilityPreamble.system}\n\n你是小说写作的章节备忘规划师。任务：严格基于"当前章节摘要"，输出本章的"写作备忘"——这是后续 Writer 写正文的硬指令，不是泛泛的写作建议。
@@ -53,7 +60,7 @@ const handler: TaskHandler = {
 - endingChanges：章尾必须发生的具体改变（数组，1-3 条，类型必须是 信息变化/关系变化/物理变化/权力变化 之一）
 - doNotDo：本章红线（数组，1-3 条具体禁忌，不要写"避免 AI 味"这种泛泛的）
 - emotionArc：本章情绪轨迹（1 句话，格式"起点情绪→转折→终点情绪"，如"安逸→被突袭打碎→自我怀疑"）`,
-      user: `${capabilityPreamble.user}\n\n请为以下章节生成写作备忘。\n\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n目标字数：${targetWordCount}\n\n当前绑定大纲：\n${formatCurrentOutlineItem(context.currentOutlineItem) || '暂无'}\n\n同一大纲拆章情况：\n${formatOutlineChapterSplit(context.outlineChapterSplit) || '未拆分或暂无前置同纲章节'}\n\n相邻章节参考：\n${formatRelatedChapters(context.relatedChapters) || '暂无'}\n\n本卷章节概览：\n${formatVolumeChapterSummaries(context.volumeChapterSummaries) || '暂无'}\n\n未收伏笔 / 活跃剧情线：\n${formatOpenPlotThreads(context.plotThreads) || '暂无'}\n\n相关世界观：\n${formatWorldviewEntries(context.worldviewEntries) || '暂无'}\n\n相关角色：\n${formatCharacters(context.characters) || '暂无'}\n\n角色关系：\n${formatCharacterRelationships(context.characterRelationships, context.characters) || '暂无'}\n\n相关大纲：\n${formatOutlineItems(context.outlineItems) || '暂无'}${formatWritingJournals(context.recentWritingJournals)}\n\n返回格式：{"memo":{"currentTask":"","readerExpectation":"","payoffs":[],"holds":[],"transitionFunctions":"","decisionChecks":[],"endingChanges":[],"doNotDo":[],"emotionArc":""}}`
+      user: `${capabilityPreamble.user}\n\n请为以下章节生成写作备忘。\n\n项目题材：${String(context.projectGenre ?? '')}\n当前分卷：${String(context.chapterVolumeTitle ?? '')}\n当前分卷摘要：${String(context.chapterVolumeSummary ?? '')}\n当前章节标题：${String(context.chapterTitle ?? '')}\n当前章节摘要：${String(context.chapterSummary ?? '')}\n目标字数：${targetWordCount}\n\n当前绑定大纲：\n${formatCurrentOutlineItem(context.currentOutlineItem) || '暂无'}\n\n同一大纲拆章情况：\n${formatOutlineChapterSplit(context.outlineChapterSplit) || '未拆分或暂无前置同纲章节'}\n\n相邻章节参考：\n${formatRelatedChapters(context.relatedChapters) || '暂无'}\n\n本卷章节概览：\n${formatVolumeChapterSummaries(context.volumeChapterSummaries) || '暂无'}\n\n未收伏笔 / 活跃剧情线：\n${formatOpenPlotThreads(context.plotThreads) || '暂无'}\n\n相关世界观：\n${formatWorldviewEntries(context.worldviewEntries) || '暂无'}\n\n相关角色：\n${formatCharacters(context.characters) || '暂无'}\n\n角色关系：\n${formatCharacterRelationships(context.characterRelationships, context.characters) || '暂无'}\n\n相关大纲：\n${formatOutlineItems(context.outlineItems) || '暂无'}${formatWritingJournals(context.recentWritingJournals)}${skillsSection}${userPromptSection}\n\n返回格式：{"memo":{"currentTask":"","readerExpectation":"","payoffs":[],"holds":[],"transitionFunctions":"","decisionChecks":[],"endingChanges":[],"doNotDo":[],"emotionArc":""}}`
     }
   },
   normalize(raw: string): AiTaskResult {

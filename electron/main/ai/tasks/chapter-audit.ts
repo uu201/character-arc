@@ -1,6 +1,7 @@
 import type { TaskHandler, PromptBuildInput } from './base'
 import { extractJsonObject } from './base'
 import type { AiTaskResult, ChapterAuditResult } from '../shared-types'
+import { formatProjectSkillsContext } from '../prompts/shared'
 
 const VALID_SEVERITIES = new Set(['critical', 'warning', 'hint'])
 const CHAPTER_AUDIT_MAX_TOKENS = 26000
@@ -22,10 +23,16 @@ const handler: TaskHandler = {
   outputType: 'json',
   defaultCapabilities: ['settings', 'chapters', 'analysis'],
   buildPrompt(input: PromptBuildInput) {
-    const { context, capabilityPreamble } = input
+    const { context, capabilityPreamble, skillsBlock } = input
     const draftText = String(context.draftText ?? '').trim()
     const memo = context.chapterMemo as Record<string, unknown> | undefined
     const targetWordCount = String(context.targetWordCount ?? '').trim()
+    const projectSkillsBlock = formatProjectSkillsContext(context.projectSkills)
+    const effectiveSkillsBlock = [projectSkillsBlock, skillsBlock].filter(Boolean).join('\n\n')
+    const extraAuditRules = [
+      effectiveSkillsBlock ? `本步骤启用 skills：\n${effectiveSkillsBlock}` : '',
+      String(context.userPrompt ?? '').trim() ? `本步骤补充审计要求：${String(context.userPrompt).trim()}` : ''
+    ].filter(Boolean).join('\n\n')
 
     const memoBlock = formatMemoForAudit(memo)
 
@@ -51,7 +58,7 @@ issue 格式：
 返回格式：{"audit":{"pass":true|false,"wordCount":0,"issues":[{"severity":"","category":"","ref":"","hint":""}]}}
 
 pass 判定：所有 critical issue 数 == 0 且 warning issue 数 <= 2 即 pass。`,
-      user: `${capabilityPreamble.user}\n\n请审计以下章节初稿。\n\n${memoBlock}\n\n目标字数：${targetWordCount}\n\n## 章节正文\n\n${draftText}\n\n返回审计 JSON。`
+      user: `${capabilityPreamble.user}\n\n请审计以下章节初稿。\n\n${memoBlock}\n\n目标字数：${targetWordCount}${extraAuditRules ? `\n\n${extraAuditRules}` : ''}\n\n## 章节正文\n\n${draftText}\n\n返回审计 JSON。`
     }
   },
   normalize(raw: string): AiTaskResult {

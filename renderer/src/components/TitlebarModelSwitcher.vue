@@ -61,6 +61,7 @@ const taskLabelMap: Record<string, string> = {
   'chapter-memo': '写作备忘',
   'chapter-audit': '章节审计',
   'chapter-repair': '章节修复',
+  'chapter-humanize': '章节去 AI 味',
   'chapter-summarize': '章节摘要',
   'chapter-scene-plan': '场景规划',
   'chapter-analysis': '章节分析',

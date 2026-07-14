@@ -79,7 +79,7 @@ const auditSummary = computed(() => {
       <div class="track">
         <div
           class="fill"
-          :class="{ shimmer: isGenerating && !isStreaming }"
+          :class="{ shimmer: isGenerating }"
           :style="{ width: `${progressPercent}%` }"
         />
       </div>

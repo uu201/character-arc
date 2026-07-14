@@ -347,7 +347,7 @@ export function buildChapterFirstDraftContext(input: ChapterFirstDraftContextInp
       summary: document.summary,
       keywords: document.keywords
     })),
-    projectSkills: input.projectSkills ?? [],
+    ...(input.projectSkills !== undefined ? { projectSkills: input.projectSkills } : {}),
     userPrompt: input.userPrompt,
     chapterMemo: input.chapterMemo ?? null,
     recentEndingsTrail: input.recentEndingsTrail ?? [],

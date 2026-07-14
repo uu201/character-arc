@@ -66,6 +66,7 @@ export type AiTaskName =
   | 'chapter-scene-plan'
   | 'chapter-memo'
   | 'chapter-audit'
+  | 'chapter-humanize'
   | 'plot-thread-detect'
   | 'project-bootstrap'
   | 'spiral-seed'

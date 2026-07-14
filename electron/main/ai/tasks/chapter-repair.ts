@@ -1,6 +1,7 @@
 import type { TaskHandler, PromptBuildInput } from './base'
 import { normalizeAssistantText } from './base'
 import type { AiTaskResult, ChapterAssistantResult } from '../shared-types'
+import { formatProjectSkillsContext } from '../prompts/shared'
 
 /** 章节修复系统提示词：定义诊断维度（风格偏移、剧情bug、角色OOC、AI痕迹、节奏失衡）和最小改动修复原则 */
 const CHAPTER_REPAIR_SYSTEM = `你是章节诊断修复专家，专精于识别和修复长篇创作中的问题章节。
@@ -113,6 +114,8 @@ const handler: TaskHandler = {
     const retrievalBlock = knowledgeBlock ? `\n\n检索到的项目记忆与参考资料：\n${knowledgeBlock}` : ''
     const auditIssuesBlock = formatAuditIssues(context.auditIssues)
     const isAuditDriven = Boolean(auditIssuesBlock)
+    const projectSkillsBlock = formatProjectSkillsContext(context.projectSkills)
+    const effectiveSkillsBlock = [projectSkillsBlock, skillsBlock].filter(Boolean).join('\n\n')
 
     const systemPrompt = isAuditDriven ? AUDIT_REPAIR_SYSTEM : CHAPTER_REPAIR_SYSTEM
 
@@ -138,7 +141,10 @@ const handler: TaskHandler = {
     }
 
     userPromptParts.push(retrievalBlock)
-    userPromptParts.push(`\n\n当前项目启用 skills：\n${skillsBlock || '暂无'}`)
+    userPromptParts.push(`\n\n本步骤启用 skills：\n${effectiveSkillsBlock || '暂无'}`)
+    if (String(context.userPrompt ?? '').trim()) {
+      userPromptParts.push(`\n\n本步骤补充修复要求：${String(context.userPrompt).trim()}`)
+    }
 
     return {
       system: `${capabilityPreamble.system}\n\n${systemPrompt}`,

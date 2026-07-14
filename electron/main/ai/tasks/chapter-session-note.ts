@@ -1,6 +1,7 @@
 import type { TaskHandler, PromptBuildInput } from './base'
 import { extractJsonObject } from './base'
 import type { AiTaskResult } from '../shared-types'
+import { formatProjectSkillsContext } from '../prompts/shared'
 
 export type ChapterSessionNoteResult = {
   sessionNote: {
@@ -15,7 +16,11 @@ const handler: TaskHandler = {
   outputType: 'json',
   defaultCapabilities: [],
   buildPrompt(input: PromptBuildInput) {
-    const { context } = input
+    const { context, skillsBlock } = input
+    const projectSkillsBlock = formatProjectSkillsContext(context.projectSkills)
+    const effectiveSkillsBlock = [projectSkillsBlock, skillsBlock].filter(Boolean).join('\n\n')
+    const skillsLine = effectiveSkillsBlock ? `\n本步骤启用 skills：\n${effectiveSkillsBlock}` : ''
+    const userPromptLine = String(context.userPrompt ?? '').trim() ? `\n补充记录要求：${String(context.userPrompt).trim()}` : ''
     return {
       system: `你是写作流程记录员。基于刚完成的章节生成过程，提取关键经验供下一章参考。只返回 JSON，不要解释。
 
@@ -28,7 +33,7 @@ const handler: TaskHandler = {
 章节摘要：${String(context.chapterSummary ?? '')}
 写作备忘中的情绪轨迹：${String(context.emotionArc ?? '未指定')}
 章节结尾片段：${String(context.endingSnippet ?? '')}
-审计结果：${String(context.auditSummary ?? '未审计')}
+审计结果：${String(context.auditSummary ?? '未审计')}${skillsLine}${userPromptLine}
 
 返回格式：{"sessionNote":{"craftDecisions":"","effectiveReferences":"","nextChapterAdvice":""}}`
     }

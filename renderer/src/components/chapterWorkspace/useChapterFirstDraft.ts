@@ -7,18 +7,94 @@ import {
   getPlainTextFromEditorContent
 } from '@/features/chapters/editorContent'
 import { formatChapterWordTargetLabel, parseChapterWordTarget } from '@/features/chapters/wordTarget'
-import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
+import { loadProjectSkillsContextByIds } from '@/features/projectSkills/context'
 import { useAppStore } from '@/stores/app'
 import type { ReferenceStyleAnalysis } from '@/types/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 
 const TASK_KEY = 'chapter-first-draft'
 
+export type FirstDraftStepId = 'memo' | 'draft' | 'audit' | 'repair' | 'humanize' | 'session-note'
+export type FirstDraftFailurePolicy = 'skip' | 'stop'
+export type FirstDraftSkillMode = 'auto' | 'manual'
+
+export type FirstDraftStepConfig = {
+  id: FirstDraftStepId
+  enabled: boolean
+  skillMode: FirstDraftSkillMode
+  skillIds: string[]
+  userPrompt: string
+  failurePolicy: FirstDraftFailurePolicy
+}
+
 export type FirstDraftConfig = {
   targetWordCount: number
   selectedReferenceWorkIds: string[]
-  enabledSkillIds: string[]
   userPrompt: string
+  steps: Record<FirstDraftStepId, FirstDraftStepConfig>
+}
+
+export const FIRST_DRAFT_STEP_DEFINITIONS: Array<{
+  id: FirstDraftStepId
+  label: string
+  description: string
+  required?: boolean
+  defaultEnabled: boolean
+  defaultFailurePolicy: FirstDraftFailurePolicy
+}> = [
+  { id: 'memo', label: '写作备忘', description: '先规划本章硬契约，供正文生成和审计使用。', defaultEnabled: true, defaultFailurePolicy: 'skip' },
+  { id: 'draft', label: '生成初稿', description: '基于章节摘要、设定、参考作品和写作备忘生成整章正文。', required: true, defaultEnabled: true, defaultFailurePolicy: 'stop' },
+  { id: 'audit', label: '章节审计', description: '检查备忘兑现、章首章尾钩子、字数和硬规则。', defaultEnabled: true, defaultFailurePolicy: 'skip' },
+  { id: 'repair', label: '自动修复', description: '当审计发现关键问题时，最小改动修复正文。', defaultEnabled: true, defaultFailurePolicy: 'skip' },
+  { id: 'humanize', label: '去 AI 味润色', description: '在修复之后整章润色，只改表达，不改剧情。', defaultEnabled: false, defaultFailurePolicy: 'skip' },
+  { id: 'session-note', label: '写作日志', description: '把本章写作经验存入项目知识，后续章节可用于保持连续；快速出稿可关闭，长篇建议保留。', defaultEnabled: true, defaultFailurePolicy: 'skip' }
+]
+
+export function createDefaultFirstDraftSteps(): Record<FirstDraftStepId, FirstDraftStepConfig> {
+  return FIRST_DRAFT_STEP_DEFINITIONS.reduce((acc, step) => {
+    acc[step.id] = {
+      id: step.id,
+      enabled: step.required ? true : step.defaultEnabled,
+      skillMode: 'auto',
+      skillIds: [],
+      userPrompt: '',
+      failurePolicy: step.defaultFailurePolicy
+    }
+    return acc
+  }, {} as Record<FirstDraftStepId, FirstDraftStepConfig>)
+}
+
+function resolveFirstDraftSteps(config: FirstDraftConfig): Record<FirstDraftStepId, FirstDraftStepConfig> {
+  const defaults = createDefaultFirstDraftSteps()
+  return FIRST_DRAFT_STEP_DEFINITIONS.reduce((acc, step) => {
+    const current = config.steps?.[step.id]
+    acc[step.id] = {
+      ...defaults[step.id],
+      ...current,
+      id: step.id,
+      enabled: step.required ? true : (current?.enabled ?? defaults[step.id].enabled),
+      skillMode: current?.skillMode === 'manual' ? 'manual' : 'auto',
+      skillIds: Array.isArray(current?.skillIds) ? [...current.skillIds] : []
+    }
+    return acc
+  }, {} as Record<FirstDraftStepId, FirstDraftStepConfig>)
+}
+
+function appendStepPrompt(base: string, stepPrompt: string): string {
+  const trimmed = stepPrompt.trim()
+  if (!trimmed) return base
+  return `${base}\n\n本步骤补充要求：${trimmed}`
+}
+
+function finalCleanGeneratedChapterText(text: string): string {
+  const normalized = text
+    .replace(/```[\w-]*\n?/g, '')
+    .replace(/```/g, '')
+    .replace(/^\s*(?:I am Claude,?\s+made by Anthropic\.?|我是\s*Claude[^\n]*|我理解了[^\n]*|以下是[^\n]*|修复后的完整章节正文[:：]?|润色后的完整章节正文[:：]?|正文[:：]?)\s*/i, '')
+    .replace(/(?:^|\n)\s*(?:---+|\*\*\*+|===+)\s*(?=\n)/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return normalized
 }
 
 function formatMemoForRepair(memo: Record<string, unknown>): string {
@@ -91,7 +167,7 @@ export type ChapterAuditPayload = {
   }>
 }
 
-type StreamTaskName = 'chapter-first-draft' | 'chapter-memo' | 'chapter-audit' | 'chapter-repair' | 'chapter-session-note'
+type StreamTaskName = 'chapter-first-draft' | 'chapter-memo' | 'chapter-audit' | 'chapter-repair' | 'chapter-humanize' | 'chapter-session-note'
 
 type StreamTaskResult = {
   text: string
@@ -140,6 +216,7 @@ export function useChapterFirstDraft(): {
 
   const progressPercent = ref(0)
   const progressText = ref('')
+  const progressFloor = ref(0)
 
   const auditResult = ref<ChapterAuditPayload | null>(null)
   const isAuditing = ref(false)
@@ -147,6 +224,13 @@ export function useChapterFirstDraft(): {
   const elapsedSeconds = ref(0)
   const isStreaming = ref(false)
   let elapsedTimer: ReturnType<typeof setInterval> | null = null
+
+  function updateProgress(nextPercent: number, text: string): void {
+    const bounded = Math.min(99, Math.max(0, Math.round(nextPercent)))
+    progressFloor.value = Math.max(progressFloor.value, bounded)
+    progressPercent.value = progressFloor.value
+    progressText.value = text
+  }
 
   function startElapsedTimer(): void {
     elapsedSeconds.value = 0
@@ -163,36 +247,40 @@ export function useChapterFirstDraft(): {
     if (!isGenerating.value) {
       progressPercent.value = 0
       progressText.value = ''
+      progressFloor.value = 0
       return
     }
     if (currentStreamTask.value === 'chapter-memo') {
-      progressPercent.value = previewContent.value.trim() ? 14 : 10
-      progressText.value = '正在生成本章写作备忘...'
+      updateProgress(previewContent.value.trim() ? 10 : 6, '正在生成本章写作备忘...')
       return
     }
     if (currentStreamTask.value === 'chapter-audit') {
-      progressPercent.value = previewContent.value.trim() ? 92 : 90
-      progressText.value = '正在审计本章质量...'
+      updateProgress(previewContent.value.trim() ? 58 : 52, '正在审计本章质量...')
       return
     }
     if (currentStreamTask.value === 'chapter-repair') {
-      progressPercent.value = previewContent.value.trim() ? 98 : 96
-      progressText.value = '正在自动修复审计问题...'
+      updateProgress(previewContent.value.trim() ? 68 : 62, '正在自动修复审计问题...')
+      return
+    }
+    if (currentStreamTask.value === 'chapter-humanize') {
+      updateProgress(previewContent.value.trim() ? 88 : 72, '正在执行去 AI 味润色...')
+      return
+    }
+    if (currentStreamTask.value === 'chapter-session-note') {
+      updateProgress(99, '正在生成写作日志...')
       return
     }
     if (!words) {
       if (reasoningContent.value) {
-        progressPercent.value = 15
-        progressText.value = '模型正在构思本章（思考中）...'
+        updateProgress(14, '模型正在构思本章（思考中）...')
         return
       }
-      progressPercent.value = 12
-      progressText.value = '正在整理大纲、文风和角色关系上下文...'
+      updateProgress(4, '正在整理大纲、文风和角色关系上下文...')
       return
     }
     const estimated = Math.round((words / target) * 100)
-    progressPercent.value = Math.min(95, Math.max(18, estimated))
-    progressText.value = `已生成 ${words} 字 / 目标 ${formatChapterWordTargetLabel(target)}（${progressPercent.value}%）`
+    const draftProgress = 15 + Math.min(35, Math.max(0, Math.round(estimated * 0.35)))
+    updateProgress(draftProgress, `已生成 ${words} 字 / 目标 ${formatChapterWordTargetLabel(target)}（${progressPercent.value}%）`)
   }
 
   function reset(finalLabel = ''): void {
@@ -201,13 +289,15 @@ export function useChapterFirstDraft(): {
     resolveStream = null
     rejectStream = null
     streamingCharCount.value = 0
+    progressFloor.value = finalLabel.includes('完成') ? 100 : progressFloor.value
+    progressPercent.value = finalLabel.includes('完成') ? 100 : progressPercent.value
+    progressText.value = finalLabel || progressText.value
     executionLabel.value = finalLabel
     isStopping.value = false
     isGenerating.value = false
     isAuditing.value = false
     isStreaming.value = false
     stopElapsedTimer()
-    recompute()
   }
 
   function releaseCurrentStreamState(): void {
@@ -230,13 +320,14 @@ export function useChapterFirstDraft(): {
   }
 
   function shouldRenderStreamPreview(task: StreamTaskName | null): boolean {
-    return task === 'chapter-first-draft' || task === 'chapter-memo' || task === 'chapter-repair'
+    return task === 'chapter-first-draft' || task === 'chapter-memo' || task === 'chapter-repair' || task === 'chapter-humanize'
   }
 
   function getActiveTaskErrorMessage(): string {
     if (currentStreamTask.value === 'chapter-memo') return 'AI 写作备忘生成失败'
     if (currentStreamTask.value === 'chapter-audit') return 'AI 章节审计失败'
     if (currentStreamTask.value === 'chapter-repair') return 'AI 章节修复失败'
+    if (currentStreamTask.value === 'chapter-humanize') return 'AI 去 AI 味润色失败'
     return 'AI 初稿生成失败'
   }
 
@@ -322,6 +413,12 @@ export function useChapterFirstDraft(): {
     } else if (task === 'chapter-memo') {
       previewTitle.value = '写作备忘实时输出'
       previewContent.value = ''
+    } else if (task === 'chapter-humanize') {
+      previewTitle.value = '去 AI 味润色实时输出'
+      previewContent.value = ''
+    } else if (task === 'chapter-repair') {
+      previewTitle.value = '自动修复实时输出'
+      previewContent.value = ''
     } else {
       previewTitle.value = '章节审计进行中'
       previewContent.value = ''
@@ -359,6 +456,9 @@ export function useChapterFirstDraft(): {
     isStopping.value = false
     isStreaming.value = false
     streamingContent.value = ''
+    progressFloor.value = 0
+    progressPercent.value = 0
+    progressText.value = ''
     auditResult.value = null
     executionLabel.value = '加载角色与关系数据'
     previewTitle.value = ''
@@ -381,6 +481,18 @@ export function useChapterFirstDraft(): {
         },
         async () => {
           const targetWordCount = config.targetWordCount || parseChapterWordTarget(chapter.wordTarget)
+          const steps = resolveFirstDraftSteps(config)
+          let latestAuditResult: ChapterAuditPayload | null = null
+          const resolveStepProjectSkills = async (stepId: FirstDraftStepId) => {
+            const step = steps[stepId]
+            if (step.skillMode !== 'manual') return undefined
+            return loadProjectSkillsContextByIds(project, step.skillIds)
+          }
+          const handleStepError = (stepId: FirstDraftStepId, error: unknown): void => {
+            if (steps[stepId].failurePolicy === 'stop') {
+              throw error instanceof Error ? error : new Error(`${steps[stepId].id} 执行失败`)
+            }
+          }
           const currentChapterIndex = appStore.chapters.findIndex((item) => item.id === chapter.id)
           const precedingChapters = appStore.chapters.slice(0, currentChapterIndex)
           const relatedChapters = precedingChapters
@@ -514,27 +626,35 @@ export function useChapterFirstDraft(): {
             }))
           }
 
-          executionLabel.value = '正在流式生成写作备忘...'
           let chapterMemo: ChapterFirstDraftContextInput['chapterMemo'] | undefined
+          if (steps.memo.enabled) {
+            executionLabel.value = '正在流式生成写作备忘...'
+            const memoHintTimer = setTimeout(() => {
+              if (currentStreamTask.value === 'chapter-memo' && !previewContent.value) {
+                executionLabel.value = 'AI 正在规划写作备忘，请稍候...'
+              }
+            }, 8000)
 
-          const memoHintTimer = setTimeout(() => {
-            if (currentStreamTask.value === 'chapter-memo' && !previewContent.value) {
-              executionLabel.value = 'AI 正在规划写作备忘，请稍候...'
+            try {
+              const memoProjectSkills = await resolveStepProjectSkills('memo')
+              const memoStream = await streamTask('chapter-memo', {
+                ...memoBaseContext,
+                ...(memoProjectSkills !== undefined ? { projectSkills: memoProjectSkills } : {}),
+                userPrompt: appendStepPrompt(config.userPrompt, steps.memo.userPrompt)
+              })
+              clearTimeout(memoHintTimer)
+              const memoResult = memoStream.result as { memo?: ChapterFirstDraftContextInput['chapterMemo'] } | undefined
+              if (memoResult?.memo) {
+                chapterMemo = memoResult.memo
+              }
+            } catch (error) {
+              clearTimeout(memoHintTimer)
+              executionLabel.value = '写作备忘生成失败，跳过直接写作...'
+              handleStepError('memo', error)
             }
-          }, 8000)
-
-          try {
-            const memoStream = await streamTask('chapter-memo', memoBaseContext)
-            clearTimeout(memoHintTimer)
-            const memoResult = memoStream.result as { memo?: ChapterFirstDraftContextInput['chapterMemo'] } | undefined
-            if (memoResult?.memo) {
-              chapterMemo = memoResult.memo
-            }
-          } catch {
-            clearTimeout(memoHintTimer)
-            executionLabel.value = '写作备忘生成失败，跳过直接写作...'
           }
 
+          const draftProjectSkills = await resolveStepProjectSkills('draft')
           const context = buildChapterFirstDraftContext({
             project,
             chapter,
@@ -555,9 +675,8 @@ export function useChapterFirstDraft(): {
             knowledgeDocuments: appStore.projectConstraints,
             chapterContent: '',
             targetWordCount,
-            userPrompt: `请生成这一章的完整初稿，目标字数约 ${targetWordCount} 字（参考值，优先保证情节自然完整）。如果当前正文为空，就从零起稿；如果当前正文不为空，也按整章重写处理，而不是续写。${config.userPrompt ? `\n\n补充要求：${config.userPrompt}` : ''}`,
-            projectSkills: (await loadEnabledProjectSkillsContext(project, 'draft'))
-              .filter((s) => config.enabledSkillIds.includes(s.id)),
+            userPrompt: appendStepPrompt(`请生成这一章的完整初稿，目标字数约 ${targetWordCount} 字（参考值，优先保证情节自然完整）。如果当前正文为空，就从零起稿；如果当前正文不为空，也按整章重写处理，而不是续写。${config.userPrompt ? `\n\n补充要求：${config.userPrompt}` : ''}`, steps.draft.userPrompt),
+            ...(draftProjectSkills !== undefined ? { projectSkills: draftProjectSkills } : {}),
             chapterMemo,
             recentEndingsTrail,
             previousChapterHandoff,
@@ -583,31 +702,39 @@ export function useChapterFirstDraft(): {
           clearTimeout(waitHintTimer)
           const fullText = draftStream.text
           if (fullText) {
-            executionLabel.value = '正在覆盖当前章节'
-            appStore.updateChapterContent(ensureEditorHtmlContent(fullText))
+            updateProgress(50, '初稿生成完成，准备进入后续检查...')
+            let finalText = fullText
+            let repairedText = ''
 
-            if (chapterMemo) {
+            if (steps.audit.enabled && chapterMemo) {
               executionLabel.value = '正在流式审计章节质量...'
               isAuditing.value = true
               try {
+                const auditProjectSkills = await resolveStepProjectSkills('audit')
                 const auditStream = await streamTask('chapter-audit', {
                   projectId: project.id,
                   chapterId: chapter.id,
                   chapterTitle: chapter.title,
                   targetWordCount,
                   draftText: fullText,
-                  chapterMemo
+                  chapterMemo,
+                  ...(auditProjectSkills !== undefined ? { projectSkills: auditProjectSkills } : {}),
+                  userPrompt: steps.audit.userPrompt
                 })
                 const auditResp = auditStream.result as { audit?: ChapterAuditPayload } | undefined
                 if (auditResp?.audit) {
-                  auditResult.value = auditResp.audit
+                  latestAuditResult = auditResp.audit
 
                   const criticalIssues = auditResp.audit.issues.filter((i) => i.severity === 'critical')
-                  if (!auditResp.audit.pass && criticalIssues.length > 0) {
+                  if (steps.repair.enabled && !auditResp.audit.pass && criticalIssues.length > 0) {
+                    auditResult.value = null
+                    isAuditing.value = false
                     executionLabel.value = `审计发现 ${criticalIssues.length} 个关键问题，正在自动修复...`
+                    updateProgress(60, `审计发现 ${criticalIssues.length} 个关键问题，准备自动修复...`)
                     previewTitle.value = '自动修复实时输出'
                     previewContent.value = ''
                     try {
+                      const repairProjectSkills = await resolveStepProjectSkills('repair')
                       const repairStream = await streamTask('chapter-repair', {
                         projectId: project.id,
                         chapterTitle: chapter.title,
@@ -618,58 +745,107 @@ export function useChapterFirstDraft(): {
                         writingStyleLabel: project.writingStylePresetId,
                         writingStylePrompt: project.writingStylePrompt,
                         auditIssues: criticalIssues,
-                        chapterMemoText: formatMemoForRepair(chapterMemo)
+                        chapterMemoText: formatMemoForRepair(chapterMemo),
+                        ...(repairProjectSkills !== undefined ? { projectSkills: repairProjectSkills } : {}),
+                        userPrompt: steps.repair.userPrompt
                       })
-                      const repairedText = repairStream.text
+                      repairedText = repairStream.text
                       if (repairedText && repairedText.length > fullText.length * 0.5) {
-                        appStore.updateChapterContent(ensureEditorHtmlContent(repairedText))
+                        finalText = repairedText
                         executionLabel.value = `已自动修复 ${criticalIssues.length} 个问题`
+                        updateProgress(70, `已自动修复 ${criticalIssues.length} 个问题`)
                       }
-                    } catch {
-                      // repair 失败不影响已生成的章节
+                    } catch (error) {
+                      auditResult.value = auditResp.audit
+                      handleStepError('repair', error)
                     }
+                  } else {
+                    auditResult.value = auditResp.audit
+                    updateProgress(auditResp.audit.pass ? 60 : 59, auditResp.audit.pass ? '章节审计通过' : '章节审计完成，未触发自动修复')
                   }
                 }
-              } catch {
-                // audit 步骤失败不影响章节落盘
+              } catch (error) {
+                handleStepError('audit', error)
               } finally {
                 isAuditing.value = false
               }
             }
 
-            // 生成写作日志（跨章节记忆）
-            try {
-              const endingSnippet = fullText.slice(-200)
-              const auditSummary = auditResult.value
-                ? (auditResult.value.pass ? '通过' : `未通过，${auditResult.value.issues.length} 个问题`)
-                : '未审计'
-              const noteStream = await streamTask('chapter-session-note', {
-                projectId: project.id,
-                chapterTitle: chapter.title,
-                chapterSummary: chapter.summary,
-                emotionArc: chapterMemo?.emotionArc ?? '',
-                endingSnippet,
-                auditSummary
-              })
-              const noteResult = noteStream.result as { sessionNote?: { craftDecisions: string; effectiveReferences: string; nextChapterAdvice: string } } | undefined
-              if (noteResult?.sessionNote) {
-                const note = noteResult.sessionNote
-                const now = new Date().toISOString()
-                appStore.mergeKnowledgeDocuments([{
-                  id: `journal-${Date.now()}`,
-                  title: `写作日志｜${chapter.title}`,
-                  sourceType: 'chapter-summary',
-                  sourceLabel: 'writing-journal',
-                  content: `技法：${note.craftDecisions}\n参考：${note.effectiveReferences}\n下章建议：${note.nextChapterAdvice}`,
-                  summary: note.nextChapterAdvice,
-                  keywords: [chapter.title, 'writing-journal'],
-                  metadata: { chapterId: chapter.id, journalType: 'writing-journal' },
-                  createdAt: now,
-                  updatedAt: now
-                }])
+            if (steps.humanize.enabled) {
+              try {
+                executionLabel.value = '正在执行去 AI 味润色...'
+                const humanizeProjectSkills = await resolveStepProjectSkills('humanize')
+                const humanizeStream = await streamTask('chapter-humanize', {
+                  projectId: project.id,
+                  chapterId: chapter.id,
+                  projectTitle: project.title,
+                  projectGenre: project.genre,
+                  chapterTitle: chapter.title,
+                  chapterSummary: chapter.summary,
+                  writingStyleLabel: project.writingStylePresetId,
+                  writingStylePrompt: project.writingStylePrompt,
+                  sourceText: finalText,
+                  ...(humanizeProjectSkills !== undefined ? { projectSkills: humanizeProjectSkills } : {}),
+                  userPrompt: steps.humanize.userPrompt
+                })
+                const humanizedText = humanizeStream.text
+                if (humanizedText && humanizedText.length > finalText.length * 0.5) {
+                  finalText = humanizedText
+                  executionLabel.value = '去 AI 味润色完成'
+                  updateProgress(90, '去 AI 味润色完成')
+                }
+              } catch (error) {
+                handleStepError('humanize', error)
               }
-            } catch {
-              // session note 失败不阻塞流程
+            }
+
+            finalText = finalCleanGeneratedChapterText(finalText)
+            if (finalText) {
+              executionLabel.value = '正在写入最终章节'
+              updateProgress(95, '正在写入最终章节...')
+              appStore.updateChapterContent(ensureEditorHtmlContent(finalText))
+            }
+
+            if (steps['session-note'].enabled) {
+              try {
+                const endingSnippet = finalText.slice(-200)
+                const auditForNote = latestAuditResult ?? auditResult.value
+                const auditSummary = auditForNote
+                  ? (auditForNote.pass ? '通过' : `未通过，${auditForNote.issues.length} 个问题`)
+                  : '未审计'
+                updateProgress(99, '正在生成写作日志...')
+                const sessionNoteProjectSkills = await resolveStepProjectSkills('session-note')
+                const noteStream = await streamTask('chapter-session-note', {
+                  projectId: project.id,
+                  chapterTitle: chapter.title,
+                  chapterSummary: chapter.summary,
+                  emotionArc: chapterMemo?.emotionArc ?? '',
+                  endingSnippet,
+                  auditSummary,
+                  finalSource: repairedText ? '修复稿' : '初稿',
+                  ...(sessionNoteProjectSkills !== undefined ? { projectSkills: sessionNoteProjectSkills } : {}),
+                  userPrompt: steps['session-note'].userPrompt
+                })
+                const noteResult = noteStream.result as { sessionNote?: { craftDecisions: string; effectiveReferences: string; nextChapterAdvice: string } } | undefined
+                if (noteResult?.sessionNote) {
+                  const note = noteResult.sessionNote
+                  const now = new Date().toISOString()
+                  appStore.mergeKnowledgeDocuments([{
+                    id: `journal-${Date.now()}`,
+                    title: `写作日志｜${chapter.title}`,
+                    sourceType: 'chapter-summary',
+                    sourceLabel: 'writing-journal',
+                    content: `技法：${note.craftDecisions}\n参考：${note.effectiveReferences}\n下章建议：${note.nextChapterAdvice}`,
+                    summary: note.nextChapterAdvice,
+                    keywords: [chapter.title, 'writing-journal'],
+                    metadata: { chapterId: chapter.id, journalType: 'writing-journal' },
+                    createdAt: now,
+                    updatedAt: now
+                  }])
+                }
+              } catch (error) {
+                handleStepError('session-note', error)
+              }
             }
           }
         }
