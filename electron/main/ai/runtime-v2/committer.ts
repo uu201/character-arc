@@ -71,14 +71,32 @@ export function createCommitter(deps: CreateCommitterDeps): StagedChangeCommitte
       case 'organization':
         result = await commitOrganization(change, projectId)
         break
+      case 'relationship':
+        result = await commitRelationship(change, projectId)
+        break
+      case 'organization_membership':
+        result = await commitOrganizationMembership(change, projectId)
+        break
+      case 'inspiration':
+        result = await commitInspiration(change, projectId)
+        break
       case 'constraint':
         result = await commitConstraint(change, projectId)
+        break
+      case 'outline_volume':
+        result = await commitOutlineVolume(change, projectId)
+        break
+      case 'knowledge_document':
+        result = await commitKnowledgeDocument(change, projectId)
         break
       case 'plot_thread':
         result = await commitPlotThread(change, projectId)
         break
       case 'workflow_document':
         result = await commitWorkflowDocument(change, projectId)
+        break
+      case 'project':
+        result = await commitProjectMetadata(change, projectId)
         break
       default:
         result = {
@@ -108,6 +126,9 @@ const DELETE_TABLE: Record<string, string> = {
   worldview: 'worldview_entries',
   character: 'characters',
   organization: 'organizations',
+  relationship: 'character_relationships',
+  organization_membership: 'organization_memberships',
+  inspiration: 'inspiration_entries',
   outline: 'outline_items',
   plot_thread: 'plot_threads',
   workflow_document: 'workflow_documents'
@@ -158,6 +179,44 @@ async function commitDelete(
     }
   }
 
+  if (change.kind === 'outline_volume') {
+    const volume = db.prepare('SELECT id, sort_order FROM outline_volumes WHERE id = ? AND project_id = ?')
+      .get(change.entityId, projectId) as { id: string; sort_order: number } | undefined
+    if (!volume) return { changeId: change.id, ok: false, error: `分卷不存在或已删除：${change.entityId}` }
+    const count = db.prepare('SELECT COUNT(*) AS value FROM outline_volumes WHERE project_id = ?')
+      .get(projectId) as { value: number }
+    if (Number(count.value) <= 1) {
+      return { changeId: change.id, ok: false, error: '项目至少需要保留一个分卷，无法删除最后一个分卷。' }
+    }
+    const payload = readPayload(change)
+    const requestedFallbackId = stringField(payload, 'fallbackVolumeId') || stringField(payload, 'fallback_volume_id')
+    const fallback = requestedFallbackId
+      ? db.prepare('SELECT id FROM outline_volumes WHERE id = ? AND project_id = ? AND id <> ?')
+        .get(requestedFallbackId, projectId, change.entityId) as { id: string } | undefined
+      : db.prepare(`
+          SELECT id FROM outline_volumes
+          WHERE project_id = ? AND id <> ?
+          ORDER BY ABS(sort_order - ?), sort_order
+          LIMIT 1
+        `).get(projectId, change.entityId, volume.sort_order) as { id: string } | undefined
+    if (!fallback) return { changeId: change.id, ok: false, error: '找不到承接数据的相邻分卷。' }
+
+    db.exec('BEGIN')
+    try {
+      db.prepare('UPDATE outline_items SET volume_id = ? WHERE project_id = ? AND volume_id = ?')
+        .run(fallback.id, projectId, change.entityId)
+      db.prepare('UPDATE chapters SET volume_id = ? WHERE project_id = ? AND volume_id = ?')
+        .run(fallback.id, projectId, change.entityId)
+      db.prepare('DELETE FROM outline_volumes WHERE id = ? AND project_id = ?')
+        .run(change.entityId, projectId)
+      db.exec('COMMIT')
+      return { changeId: change.id, ok: true, entityId: change.entityId }
+    } catch (error) {
+      db.exec('ROLLBACK')
+      return { changeId: change.id, ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   if (change.kind === 'constraint') {
     const result = db.prepare(`
       DELETE FROM knowledge_documents
@@ -167,6 +226,47 @@ async function commitDelete(
       return { changeId: change.id, ok: false, error: `项目约束不存在或已删除：${change.entityId}` }
     }
     return { changeId: change.id, ok: true, entityId: change.entityId }
+  }
+
+  if (change.kind === 'knowledge_document') {
+    const result = db.prepare(`
+      DELETE FROM knowledge_documents
+      WHERE id = ? AND project_id = ?
+        AND NOT (source_type = 'canon-fact' AND source_label = 'global-constraint')
+    `).run(change.entityId, projectId)
+    if (result.changes === 0) {
+      return { changeId: change.id, ok: false, error: `知识文档不存在、已删除或属于项目约束：${change.entityId}` }
+    }
+    return { changeId: change.id, ok: true, entityId: change.entityId }
+  }
+
+  if (change.kind === 'character' || change.kind === 'organization' || change.kind === 'outline') {
+    db.exec('BEGIN')
+    try {
+      if (change.kind === 'character') {
+        db.prepare(`
+          DELETE FROM character_relationships
+          WHERE project_id = ? AND (from_character_id = ? OR to_character_id = ?)
+        `).run(projectId, change.entityId, change.entityId)
+        db.prepare('DELETE FROM organization_memberships WHERE project_id = ? AND character_id = ?')
+          .run(projectId, change.entityId)
+      } else if (change.kind === 'organization') {
+        db.prepare('DELETE FROM organization_memberships WHERE project_id = ? AND organization_id = ?')
+          .run(projectId, change.entityId)
+      } else {
+        db.prepare("UPDATE chapters SET outline_item_id = '' WHERE project_id = ? AND outline_item_id = ?")
+          .run(projectId, change.entityId)
+      }
+      const table = DELETE_TABLE[change.kind]
+      const result = db.prepare(`DELETE FROM ${table} WHERE id = ? AND project_id = ?`)
+        .run(change.entityId, projectId)
+      if (result.changes === 0) throw new Error(`目标不存在或已删除：${change.entityId}`)
+      db.exec('COMMIT')
+      return { changeId: change.id, ok: true, entityId: change.entityId }
+    } catch (error) {
+      db.exec('ROLLBACK')
+      return { changeId: change.id, ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
   }
 
   const table = DELETE_TABLE[change.kind]
@@ -637,8 +737,18 @@ async function commitChapter(
   if (change.action !== 'update') {
     return { changeId: change.id, ok: false, error: `章节暂只支持 create / update` }
   }
-  if (!change.entityId || !change.chapterHtml) {
-    return { changeId: change.id, ok: false, error: '章节变更缺少 entityId 或 chapterHtml' }
+  if (!change.entityId) {
+    return { changeId: change.id, ok: false, error: '章节变更缺少 entityId' }
+  }
+  const updateType = change.entityPayload ? stringField(change.entityPayload, 'chapterUpdateType') : ''
+  if (updateType === 'metadata') {
+    return commitChapterMetadata(change, projectId)
+  }
+  if (updateType === 'restore') {
+    return commitChapterRestore(change, projectId)
+  }
+  if (!change.chapterHtml) {
+    return { changeId: change.id, ok: false, error: '章节正文变更缺少 chapterHtml' }
   }
   try {
     await commitChapterEdit(
@@ -654,6 +764,89 @@ async function commitChapter(
       ok: false,
       error: e instanceof Error ? e.message : String(e)
     }
+  }
+}
+
+async function commitChapterMetadata(
+  change: StagedChange,
+  projectId: string
+): Promise<StagedChangeCommitResult> {
+  if (!change.entityId) return { changeId: change.id, ok: false, error: '章节元数据变更缺少 entityId' }
+  const db = await ensureWorkspaceDb()
+  const payload = readPayload(change)
+  const title = stringField(payload, 'title')
+  const summary = stringField(payload, 'summary')
+  const status = stringField(payload, 'status')
+  const wordTarget = stringField(payload, 'wordTarget') || stringField(payload, 'word_target')
+  let volumeId = stringField(payload, 'volumeId') || stringField(payload, 'volume_id')
+  const outlineItemId = stringField(payload, 'outlineItemId') || stringField(payload, 'outline_item_id')
+  if (!title || !wordTarget || !['draft', 'review', 'polish', 'final'].includes(status)) {
+    return { changeId: change.id, ok: false, error: '章节元数据缺少合法的 title、status 或 wordTarget' }
+  }
+  const outline = outlineItemId
+    ? db.prepare('SELECT id, volume_id FROM outline_items WHERE id = ? AND project_id = ?')
+      .get(outlineItemId, projectId) as { id: string; volume_id: string } | undefined
+    : undefined
+  if (outlineItemId && !outline) {
+    return { changeId: change.id, ok: false, error: `大纲节点不存在：${outlineItemId}` }
+  }
+  if (outline) volumeId = outline.volume_id
+  const volume = db.prepare('SELECT id FROM outline_volumes WHERE id = ? AND project_id = ?')
+    .get(volumeId, projectId) as { id: string } | undefined
+  if (!volume) return { changeId: change.id, ok: false, error: `分卷不存在：${volumeId}` }
+
+  const result = db.prepare(`
+    UPDATE chapters
+    SET volume_id = ?, outline_item_id = ?, title = ?, summary = ?, status = ?, word_target = ?
+    WHERE id = ? AND project_id = ?
+  `).run(volumeId, outline?.id || '', title, summary, status, wordTarget, change.entityId, projectId)
+  if (result.changes === 0) return { changeId: change.id, ok: false, error: `章节不存在：${change.entityId}` }
+  return { changeId: change.id, ok: true, entityId: change.entityId }
+}
+
+async function commitChapterRestore(
+  change: StagedChange,
+  projectId: string
+): Promise<StagedChangeCommitResult> {
+  if (!change.entityId || !change.chapterHtml) {
+    return { changeId: change.id, ok: false, error: '章节恢复缺少 entityId 或 chapterHtml' }
+  }
+  const db = await ensureWorkspaceDb()
+  const payload = readPayload(change)
+  const versionId = stringField(payload, 'restoreVersionId') || stringField(payload, 'restore_version_id')
+  const current = db.prepare(`
+    SELECT title, summary, status, word_target, content
+    FROM chapters WHERE id = ? AND project_id = ?
+  `).get(change.entityId, projectId) as {
+    title: string; summary: string; status: string; word_target: string; content: string
+  } | undefined
+  if (!current) return { changeId: change.id, ok: false, error: `章节不存在：${change.entityId}` }
+  if (current.content !== change.chapterHtml.old) {
+    return { changeId: change.id, ok: false, error: '章节正文在暂存后已发生变化，请重新生成恢复提案。' }
+  }
+  const version = db.prepare(`
+    SELECT title, summary, status, word_target, content
+    FROM chapter_versions WHERE id = ? AND chapter_id = ? AND project_id = ?
+  `).get(versionId, change.entityId, projectId) as {
+    title: string; summary: string; status: string; word_target: string; content: string
+  } | undefined
+  if (!version) return { changeId: change.id, ok: false, error: `历史版本不存在：${versionId}` }
+
+  db.exec('BEGIN')
+  try {
+    db.prepare(`
+      INSERT INTO chapter_versions (id, project_id, chapter_id, title, summary, status, word_target, content, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(randomUUID(), projectId, change.entityId, current.title, current.summary, current.status, current.word_target, current.content, new Date().toISOString())
+    db.prepare(`
+      UPDATE chapters SET title = ?, summary = ?, status = ?, word_target = ?, content = ?
+      WHERE id = ? AND project_id = ?
+    `).run(version.title, version.summary, version.status, version.word_target, version.content, change.entityId, projectId)
+    db.exec('COMMIT')
+    return { changeId: change.id, ok: true, entityId: change.entityId }
+  } catch (error) {
+    db.exec('ROLLBACK')
+    return { changeId: change.id, ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
@@ -691,4 +884,248 @@ async function commitChapterCreate(
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, projectId, volumeId, outlineItem?.id || '', title, summary, 'draft', wordTarget, content, Number(maxOrder?.value ?? -1) + 1)
   return { changeId: change.id, ok: true, entityId: id }
+}
+
+async function commitRelationship(
+  change: StagedChange,
+  projectId: string
+): Promise<StagedChangeCommitResult> {
+  const db = await ensureWorkspaceDb()
+  const payload = readPayload(change)
+  const fromId = stringField(payload, 'fromCharacterId') || stringField(payload, 'from_character_id')
+  const toId = stringField(payload, 'toCharacterId') || stringField(payload, 'to_character_id')
+  const type = stringField(payload, 'type')
+  const description = stringField(payload, 'description')
+  const intensityValue = Number(payload.intensity)
+  const intensity = Number.isFinite(intensityValue) ? Math.min(100, Math.max(0, Math.round(intensityValue))) : -1
+  if (!fromId || !toId || !type || !description || intensity < 0) {
+    return { changeId: change.id, ok: false, error: '人物关系缺少合法字段' }
+  }
+  const endpoints = db.prepare(`
+    SELECT COUNT(*) AS value FROM characters WHERE project_id = ? AND id IN (?, ?)
+  `).get(projectId, fromId, toId) as { value: number }
+  const expectedCount = fromId === toId ? 1 : 2
+  if (Number(endpoints.value) !== expectedCount) {
+    return { changeId: change.id, ok: false, error: '人物关系引用了不存在或不属于当前项目的人物' }
+  }
+  const now = new Date().toISOString()
+  if (change.action === 'create') {
+    const duplicate = db.prepare(`
+      SELECT id FROM character_relationships
+      WHERE project_id = ? AND from_character_id = ? AND to_character_id = ? AND TRIM(type) = ?
+    `).get(projectId, fromId, toId, type) as { id: string } | undefined
+    if (duplicate) return conflictResult(change, '人物关系', `${fromId} → ${toId} (${type})`)
+    const id = `relationship-${randomUUID()}`
+    db.prepare(`
+      INSERT INTO character_relationships (
+        id, project_id, from_character_id, to_character_id, type, description, intensity, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, fromId, toId, type, description, intensity, now, now)
+    return { changeId: change.id, ok: true, entityId: id }
+  }
+  if (!change.entityId) return { changeId: change.id, ok: false, error: '人物关系 update 缺少 entityId' }
+  const result = db.prepare(`
+    UPDATE character_relationships
+    SET from_character_id = ?, to_character_id = ?, type = ?, description = ?, intensity = ?, updated_at = ?
+    WHERE id = ? AND project_id = ?
+  `).run(fromId, toId, type, description, intensity, now, change.entityId, projectId)
+  if (result.changes === 0) return { changeId: change.id, ok: false, error: `人物关系不存在：${change.entityId}` }
+  return { changeId: change.id, ok: true, entityId: change.entityId }
+}
+
+async function commitOrganizationMembership(
+  change: StagedChange,
+  projectId: string
+): Promise<StagedChangeCommitResult> {
+  const db = await ensureWorkspaceDb()
+  const payload = readPayload(change)
+  const characterId = stringField(payload, 'characterId') || stringField(payload, 'character_id')
+  const organizationId = stringField(payload, 'organizationId') || stringField(payload, 'organization_id')
+  const role = stringField(payload, 'role')
+  const notes = stringField(payload, 'notes')
+  if (!characterId || !organizationId || !role) {
+    return { changeId: change.id, ok: false, error: '组织成员归属缺少 characterId、organizationId 或 role' }
+  }
+  const character = db.prepare('SELECT id FROM characters WHERE id = ? AND project_id = ?')
+    .get(characterId, projectId) as { id: string } | undefined
+  const organization = db.prepare('SELECT id FROM organizations WHERE id = ? AND project_id = ?')
+    .get(organizationId, projectId) as { id: string } | undefined
+  if (!character || !organization) {
+    return { changeId: change.id, ok: false, error: '组织成员归属引用了不存在或不属于当前项目的人物/组织' }
+  }
+  const now = new Date().toISOString()
+  if (change.action === 'create') {
+    const duplicate = db.prepare(`
+      SELECT id FROM organization_memberships
+      WHERE project_id = ? AND character_id = ? AND organization_id = ?
+    `).get(projectId, characterId, organizationId) as { id: string } | undefined
+    if (duplicate) return conflictResult(change, '组织成员归属', `${characterId} @ ${organizationId}`)
+    const id = `membership-${randomUUID()}`
+    db.prepare(`
+      INSERT INTO organization_memberships (
+        id, project_id, character_id, organization_id, role, notes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, characterId, organizationId, role, notes, now, now)
+    return { changeId: change.id, ok: true, entityId: id }
+  }
+  if (!change.entityId) return { changeId: change.id, ok: false, error: '组织成员归属 update 缺少 entityId' }
+  const result = db.prepare(`
+    UPDATE organization_memberships
+    SET character_id = ?, organization_id = ?, role = ?, notes = ?, updated_at = ?
+    WHERE id = ? AND project_id = ?
+  `).run(characterId, organizationId, role, notes, now, change.entityId, projectId)
+  if (result.changes === 0) return { changeId: change.id, ok: false, error: `组织成员归属不存在：${change.entityId}` }
+  return { changeId: change.id, ok: true, entityId: change.entityId }
+}
+
+async function commitInspiration(
+  change: StagedChange,
+  projectId: string
+): Promise<StagedChangeCommitResult> {
+  const db = await ensureWorkspaceDb()
+  const payload = readPayload(change)
+  const type = stringField(payload, 'type')
+  const title = stringField(payload, 'title')
+  const content = stringField(payload, 'content')
+  const source = stringField(payload, 'source', 'ai')
+  const tags = stringArrayField(payload, 'tags').slice(0, 8)
+  if (!type || !title || !content || !['ai', 'manual'].includes(source)) {
+    return { changeId: change.id, ok: false, error: '灵感卡片缺少合法字段' }
+  }
+  const now = new Date().toISOString()
+  if (change.action === 'create') {
+    const duplicate = db.prepare('SELECT id FROM inspiration_entries WHERE project_id = ? AND TRIM(title) = ?')
+      .get(projectId, title) as { id: string } | undefined
+    if (duplicate) return conflictResult(change, '灵感卡片', title)
+    const id = `inspiration-${randomUUID()}`
+    const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS value FROM inspiration_entries WHERE project_id = ?')
+      .get(projectId) as { value: number }
+    db.prepare(`
+      INSERT INTO inspiration_entries (
+        id, project_id, type, title, content, tags_json, source, sort_order, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, type, title, content, JSON.stringify(tags), source, Number(maxOrder.value) + 1, now, now)
+    return { changeId: change.id, ok: true, entityId: id }
+  }
+  if (!change.entityId) return { changeId: change.id, ok: false, error: '灵感 update 缺少 entityId' }
+  const result = db.prepare(`
+    UPDATE inspiration_entries
+    SET type = ?, title = ?, content = ?, tags_json = ?, source = ?, updated_at = ?
+    WHERE id = ? AND project_id = ?
+  `).run(type, title, content, JSON.stringify(tags), source, now, change.entityId, projectId)
+  if (result.changes === 0) return { changeId: change.id, ok: false, error: `灵感卡片不存在：${change.entityId}` }
+  return { changeId: change.id, ok: true, entityId: change.entityId }
+}
+
+async function commitOutlineVolume(
+  change: StagedChange,
+  projectId: string
+): Promise<StagedChangeCommitResult> {
+  const db = await ensureWorkspaceDb()
+  const payload = readPayload(change)
+  const title = stringField(payload, 'title')
+  const wordTarget = stringField(payload, 'wordTarget') || stringField(payload, 'word_target')
+  const summary = stringField(payload, 'summary')
+  if (!title || !wordTarget) return { changeId: change.id, ok: false, error: '分卷缺少 title 或 wordTarget' }
+  if (change.action === 'create') {
+    const duplicate = db.prepare('SELECT id FROM outline_volumes WHERE project_id = ? AND TRIM(title) = ?')
+      .get(projectId, title) as { id: string } | undefined
+    if (duplicate) return conflictResult(change, '分卷', title)
+    const id = `volume-${randomUUID()}`
+    const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS value FROM outline_volumes WHERE project_id = ?')
+      .get(projectId) as { value: number }
+    db.prepare(`
+      INSERT INTO outline_volumes (id, project_id, title, word_target, summary, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, title, wordTarget, summary, Number(maxOrder.value) + 1)
+    return { changeId: change.id, ok: true, entityId: id }
+  }
+  if (!change.entityId) return { changeId: change.id, ok: false, error: '分卷 update 缺少 entityId' }
+  const result = db.prepare(`
+    UPDATE outline_volumes SET title = ?, word_target = ?, summary = ?
+    WHERE id = ? AND project_id = ?
+  `).run(title, wordTarget, summary, change.entityId, projectId)
+  if (result.changes === 0) return { changeId: change.id, ok: false, error: `分卷不存在：${change.entityId}` }
+  return { changeId: change.id, ok: true, entityId: change.entityId }
+}
+
+async function commitKnowledgeDocument(
+  change: StagedChange,
+  projectId: string
+): Promise<StagedChangeCommitResult> {
+  const db = await ensureWorkspaceDb()
+  const payload = readPayload(change)
+  const title = stringField(payload, 'title')
+  const sourceType = stringField(payload, 'sourceType') || stringField(payload, 'source_type')
+  const sourceLabel = stringField(payload, 'sourceLabel') || stringField(payload, 'source_label')
+  const content = stringField(payload, 'content')
+  const summary = stringField(payload, 'summary') || content.slice(0, 220)
+  const keywords = stringArrayField(payload, 'keywords')
+  const metadata = payload.metadata && typeof payload.metadata === 'object' && !Array.isArray(payload.metadata)
+    ? payload.metadata
+    : {}
+  const validSourceTypes = ['reference-summary', 'reference-chunk', 'workflow-document', 'canon-fact', 'chapter-summary']
+  if (!title || !content || !validSourceTypes.includes(sourceType)) {
+    return { changeId: change.id, ok: false, error: '知识文档缺少合法的 title、sourceType 或 content' }
+  }
+  if (sourceType === 'canon-fact' && sourceLabel === 'global-constraint') {
+    return { changeId: change.id, ok: false, error: '项目约束请使用 stage_constraint 写回' }
+  }
+  const now = new Date().toISOString()
+  if (change.action === 'create') {
+    const duplicate = db.prepare(`
+      SELECT id FROM knowledge_documents
+      WHERE project_id = ? AND TRIM(title) = ? AND source_type = ? AND source_label = ?
+    `).get(projectId, title, sourceType, sourceLabel) as { id: string } | undefined
+    if (duplicate) return conflictResult(change, '知识文档', title)
+    const id = `knowledge-${randomUUID()}`
+    db.prepare(`
+      INSERT INTO knowledge_documents (
+        id, project_id, title, source_type, source_label, content, summary,
+        keywords_json, metadata_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, title, sourceType, sourceLabel, content, summary, JSON.stringify(keywords), JSON.stringify(metadata), now, now)
+    return { changeId: change.id, ok: true, entityId: id }
+  }
+  if (!change.entityId) return { changeId: change.id, ok: false, error: '知识文档 update 缺少 entityId' }
+  const existing = db.prepare(`
+    SELECT id FROM knowledge_documents
+    WHERE id = ? AND project_id = ?
+      AND NOT (source_type = 'canon-fact' AND source_label = 'global-constraint')
+  `).get(change.entityId, projectId) as { id: string } | undefined
+  if (!existing) return { changeId: change.id, ok: false, error: `知识文档不存在或属于项目约束：${change.entityId}` }
+  db.prepare(`
+    UPDATE knowledge_documents
+    SET title = ?, source_type = ?, source_label = ?, content = ?, summary = ?, keywords_json = ?, metadata_json = ?, updated_at = ?
+    WHERE id = ? AND project_id = ?
+  `).run(title, sourceType, sourceLabel, content, summary, JSON.stringify(keywords), JSON.stringify(metadata), now, change.entityId, projectId)
+  return { changeId: change.id, ok: true, entityId: change.entityId }
+}
+
+async function commitProjectMetadata(
+  change: StagedChange,
+  projectId: string
+): Promise<StagedChangeCommitResult> {
+  if (change.action !== 'update' || change.entityId !== projectId) {
+    return { changeId: change.id, ok: false, error: '项目资料仅支持更新当前项目' }
+  }
+  const db = await ensureWorkspaceDb()
+  const payload = readPayload(change)
+  const title = stringField(payload, 'title')
+  const genre = stringField(payload, 'genre')
+  const novelLength = stringField(payload, 'novelLength') || stringField(payload, 'novel_length')
+  const targetPlatform = stringField(payload, 'targetPlatform') || stringField(payload, 'target_platform')
+  const writingStylePresetId = stringField(payload, 'writingStylePresetId') || stringField(payload, 'writing_style_preset_id')
+  const writingStylePrompt = stringField(payload, 'writingStylePrompt') || stringField(payload, 'writing_style_prompt')
+  if (!title || !genre || !['short', 'long'].includes(novelLength)) {
+    return { changeId: change.id, ok: false, error: '项目资料缺少合法的 title、genre 或 novelLength' }
+  }
+  const result = db.prepare(`
+    UPDATE projects
+    SET title = ?, genre = ?, novel_length = ?, target_platform = ?,
+      writing_style_preset_id = ?, writing_style_prompt = ?, last_edited = ?
+    WHERE id = ?
+  `).run(title, genre, novelLength, targetPlatform, writingStylePresetId, writingStylePrompt, new Date().toISOString(), projectId)
+  if (result.changes === 0) return { changeId: change.id, ok: false, error: `项目不存在：${projectId}` }
+  return { changeId: change.id, ok: true, entityId: projectId }
 }

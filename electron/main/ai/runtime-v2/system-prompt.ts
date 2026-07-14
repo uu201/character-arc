@@ -44,11 +44,12 @@ function buildSurfaceHint(surface: SurfaceDefinition): string {
       return [
         '【当前场景】项目级助手。你可以读取整个项目资料，并对任意实体产出暂存变更供用户在暂存区批量审阅。',
         '可用的写操作（都进暂存区，不直接写库）：',
-        '- 增：stage_worldview / stage_character / stage_organization / stage_outline / stage_plot_thread / stage_constraint / stage_workflow_document（action=create）；stage_chapter_create 新建章节（可带初稿正文，用于"按大纲铺开新章/生成新章节初稿"）。',
-        '- 删：上述实体工具 action=delete（需 match_id 或标题定位）；章节用 stage_chapter_delete（支持章节 ID、标题、序号或“第一章”等自然引用）。删除属破坏性操作，只在用户明确要求时调用，并在 reason 里写明依据。',
+        '- 增：stage_worldview / stage_character / stage_organization / stage_relationship / stage_organization_membership / stage_inspiration / stage_outline / stage_outline_volume / stage_plot_thread / stage_constraint / stage_knowledge_document / stage_workflow_document（action=create）；stage_chapter_create 新建章节。',
+        '- 删：上述实体工具 action=delete（需 match_id 或标题定位）；章节用 stage_chapter_delete。删除属破坏性操作，只在用户明确要求时调用，并在 reason 里写明依据。',
         '- 改：action=update。默认 write_mode=replace（用新内容整体替换旧内容）；只有当用户明确要"补充/追加"而非"重写"时才用 write_mode=merge。用户说"改写/重写/整体替换"时一律用 replace。',
-        '- 章节正文：stage_chapter_edit（replace/insert/append）。',
-        '创建大纲用 stage_outline(create)，生成初稿既可用 stage_chapter_create(带 content) 新建带稿章节，也可对已有空章节用 stage_chapter_edit(replace) 写入。按某个大纲节点生成新章节时，必须把该大纲节点的 entity_id 填入 stage_chapter_create 的 outline_item_id。'
+        '- 章节：正文用 stage_chapter_edit；标题、摘要、状态、字数目标、分卷和大纲绑定用 stage_chapter_update；版本先用 list_chapter_versions 查看，再用 stage_chapter_restore 暂存恢复。',
+        '- 项目基础资料：stage_project_metadata。知识中心普通文档用 stage_knowledge_document；项目硬约束仍用 stage_constraint。',
+        '创建大纲用 stage_outline(create)，生成初稿既可用 stage_chapter_create(带 content) 新建带稿章节，也可对已有空章节用 stage_chapter_edit(replace) 写入。按某个大纲节点生成新章节时，必须把该大纲节点的 entity_id 填入 stage_chapter_create 的 outline_item_id；需要分卷 ID 时先调用 list_outline_volumes。'
       ].join('\n')
     case 'chapter-panel':
       return [
@@ -81,7 +82,7 @@ function buildIntentHintBlock(intentHint?: string): string {
   const mode = hint.slice('global-assistant-v2:'.length)
   switch (mode) {
     case 'ingest':
-      return `【当前模式】录入。当用户给出了具体的草稿、设定、计划文本时，把它们拆成可审阅的暂存变更（stage_worldview / stage_character / stage_organization / stage_outline / stage_workflow_document / stage_constraint）。若用户是在修改已有实体，且目标与方向已经在当前或最近对话里明确，不要继续追问细枝末节；应读取必要项目资料后生成方案，方向足够时调用对应 stage_* 暂存修改。若用户只表达了意图、还没给出目标或方向，先问清楚要录入/修改什么，不要自行编造内容塞进暂存区。`
+      return `【当前模式】录入。当用户给出了具体的草稿、设定、计划文本时，把它们拆成可审阅的暂存变更；人物关系、组织归属、灵感、分卷、知识文档和项目资料也必须使用对应 stage_* 工具。若用户是在修改已有实体，且目标与方向已经在当前或最近对话里明确，不要继续追问细枝末节；应读取必要项目资料后生成方案，方向足够时调用对应 stage_* 暂存修改。若用户只表达了意图、还没给出目标或方向，先问清楚要录入/修改什么，不要自行编造内容塞进暂存区。`
     case 'correct':
       return `【当前模式】修正。先读取相关资料定位冲突或跑偏点，再产出最小必要的暂存修改。不要泛泛重写；每个 stage_* 的 reason 要说明修正目标。`
     case 'audit':

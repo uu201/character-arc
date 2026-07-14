@@ -371,6 +371,10 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       return withLimitNote(body, rows.length, limit)
     }
     case 'outline': {
+      const volumes = db.prepare(`
+        SELECT id, title, word_target, summary FROM outline_volumes
+        WHERE project_id = ? ORDER BY sort_order
+      `).all(projectId) as { id: string; title: string; word_target: string; summary: string }[]
       const rows = db.prepare('SELECT id, title, summary, conflict, word_target FROM outline_items WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string; summary: string; conflict: string; word_target: string }[]
       if (!rows.length) return 'No outline items.'
       if (entityId) {
@@ -382,7 +386,10 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       const body = summaryOnly
         ? limitedRows.map((row, index) => `- ${index + 1}. [${row.id}] ${row.title}: ${truncateText(row.summary, 120)}`).join('\n')
         : limitedRows.map((row, index) => `## ${index + 1}. ${row.title}\n${row.summary}${row.conflict ? `\nConflict: ${row.conflict}` : ''}`).join('\n\n')
-      return withLimitNote(body, rows.length, limit)
+      const volumeIndex = volumes.length
+        ? `分卷索引：\n${volumes.map((volume, index) => `${index + 1}. [${volume.id}] ${volume.title}｜${volume.word_target}｜${truncateText(volume.summary, 100)}`).join('\n')}\n\n`
+        : ''
+      return `${volumeIndex}${withLimitNote(body, rows.length, limit)}`
     }
     case 'chapters': {
       if (entityId) {

@@ -62,10 +62,16 @@ function kindLabel(kind: string): string {
     case 'worldview': return '世界观'
     case 'character': return '人物'
     case 'organization': return '组织'
+    case 'relationship': return '关系'
+    case 'organization_membership': return '归属'
+    case 'inspiration': return '灵感'
     case 'outline': return '大纲'
+    case 'outline_volume': return '分卷'
     case 'constraint': return '约束'
+    case 'knowledge_document': return '知识'
     case 'plot_thread': return '线索'
     case 'workflow_document': return '流程'
+    case 'project': return '项目'
     default: return kind
   }
 }

@@ -111,10 +111,16 @@ export type StagedChangeKind =
   | 'worldview'
   | 'character'
   | 'organization'
+  | 'relationship'
+  | 'organization_membership'
+  | 'inspiration'
   | 'outline'
+  | 'outline_volume'
   | 'constraint'
+  | 'knowledge_document'
   | 'plot_thread'
   | 'workflow_document'
+  | 'project'
 
 /** create = 新增实体；update = 修改已有实体（entityId 必填）；delete = 删除已有实体（entityId 必填）。 */
 export type StagedChangeAction = 'create' | 'update' | 'delete'

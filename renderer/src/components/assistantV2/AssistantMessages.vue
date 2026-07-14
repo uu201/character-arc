@@ -101,6 +101,16 @@ function describeToolAction(t: AssistantToolCallView): string {
       return `暂存章节修改（${short(a.operation ?? 'edit')} · ${short(a.chapter_id ?? '当前章节')}）`
     case 'stage_chapter_delete':
       return `暂存删除章节（${short(a.chapter_id ?? '当前章节')}）`
+    case 'stage_chapter_update': return `暂存章节资料修改（${short(a.chapter_id ?? '当前章节')}）`
+    case 'list_chapter_versions': return `查看章节版本（${short(a.chapter_id ?? '当前章节')}）`
+    case 'stage_chapter_restore': return `暂存章节版本恢复（${short(a.version_id)}）`
+    case 'stage_relationship': return `暂存人物关系（${short(a.action ?? 'update')}）`
+    case 'stage_organization_membership': return `暂存组织归属（${short(a.action ?? 'update')}）`
+    case 'stage_inspiration': return `暂存灵感（${short(a.action ?? 'update')}）`
+    case 'list_outline_volumes': return '列出所有分卷'
+    case 'stage_outline_volume': return `暂存分卷（${short(a.action ?? 'update')}）`
+    case 'stage_knowledge_document': return `暂存知识文档（${short(a.action ?? 'update')}）`
+    case 'stage_project_metadata': return '暂存项目资料修改'
     case 'stage_worldview': return `暂存世界观（${short(a.action ?? 'update')}）`
     case 'stage_character': return `暂存人物卡（${short(a.action ?? 'update')}）`
     case 'stage_organization': return `暂存组织（${short(a.action ?? 'update')}）`

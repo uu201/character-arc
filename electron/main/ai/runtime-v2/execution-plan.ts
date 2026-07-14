@@ -29,7 +29,9 @@ import { stagedChangesStore } from './staged-changes-store'
 import { makeStageChapterEditTool } from './tools/stage-chapter-edit'
 import { makeStageChapterCreateTool } from './tools/stage-chapter-create'
 import { makeStageChapterDeleteTool } from './tools/stage-chapter-delete'
+import { makeChapterManagementTools } from './tools/stage-chapter-management'
 import { makeStageEntitiesTools } from './tools/stage-entities'
+import { makeStageProjectEntityTools } from './tools/stage-project-entities'
 import { type ToolFactory } from './agent-loop'
 import type { ResolveTurnExecutionPlan } from './ipc'
 import { getProjectView, type SnapshotAccessor } from './providers/shared'
@@ -120,8 +122,8 @@ export function createExecutionPlanner(
     //    - 章节读写：read_chapter / list_chapters / search_project（丢弃旧 edit_chapter）
     //    - 项目数据：read_project_data
     //    - 技能：skill_list / skill_load / (skill_run_script 由内置 skill 决定)
-    //    - 知识：knowledge_save_document（直接写入项目知识库，并刷新 workspace snapshot）
-    //    - 变更暂存：stage_chapter_edit（工厂形态，闭包 turnId/sessionId）
+    //    - 知识：knowledge_save_document（审计等任务直接归档）+ stage_knowledge_document（可审阅 CRUD）
+    //    - 变更暂存：stage_chapter_* / stage_* 实体工具（闭包 turnId/sessionId）
     const currentChapterId = extractCurrentChapterId(activeScopeRef) ?? ''
     const chapterReadTools = createChapterTools({
       currentChapterId,
@@ -171,6 +173,13 @@ export function createExecutionPlanner(
         stagedStore: stagedChangesStore,
         currentChapterId
       })
+      const chapterManagementTools = makeChapterManagementTools({
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        projectId: ctx.projectId,
+        stagedStore: stagedChangesStore,
+        currentChapterId
+      })
       const stageEntityTools = makeStageEntitiesTools({
         sessionId: ctx.sessionId,
         turnId: ctx.turnId,
@@ -178,6 +187,12 @@ export function createExecutionPlanner(
         currentChapterId,
         stagedStore: stagedChangesStore,
         snapshot: deps.snapshot
+      })
+      const stageProjectEntityTools = makeStageProjectEntityTools({
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        projectId: ctx.projectId,
+        stagedStore: stagedChangesStore
       })
       const combined: Tool[] = [
         ...chapterReadTools,
@@ -187,7 +202,9 @@ export function createExecutionPlanner(
         stageChapterEdit,
         stageChapterCreate,
         stageChapterDelete,
-        ...stageEntityTools
+        ...chapterManagementTools,
+        ...stageEntityTools,
+        ...stageProjectEntityTools
       ]
       return wrapToolsWithRuntimeBudget(
         filterToolsBySurface(combined, surface),
