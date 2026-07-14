@@ -34,6 +34,44 @@ const form = reactive({
 
 const entryTypes = ['地理', '法则', '物种', '势力', '历史'] // 世界观词条的分类列表
 const typeOptions = entryTypes.map((type) => ({ label: type, value: type }))
+
+function compactForAi(value: unknown, maxLength: number): string {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim()
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
+}
+
+function buildAiWorldviewContext() {
+  return appStore.worldviewEntries.slice(0, 12).map((entry) => ({
+    type: entry.type,
+    title: entry.title,
+    content: compactForAi(entry.content, 320)
+  }))
+}
+
+function buildAiCharactersContext() {
+  return appStore.characters.slice(0, 12).map((character) => ({
+    name: character.name,
+    role: character.role,
+    description: compactForAi(character.description, 240)
+  }))
+}
+
+function buildAiOrganizationsContext() {
+  return appStore.organizations.slice(0, 8).map((organization) => ({
+    name: organization.name,
+    type: organization.type,
+    description: compactForAi(organization.description, 240),
+    motto: compactForAi(organization.motto, 100)
+  }))
+}
+
+function buildAiOutlineContext() {
+  return appStore.outlineItems.slice(-12).map((item) => ({
+    title: item.title,
+    conflict: compactForAi(item.conflict, 160),
+    summary: compactForAi(item.summary, 280)
+  }))
+}
 // 根据搜索关键词过滤词条列表，在标题、类型和内容中进行全文匹配
 const filteredEntries = computed(() => {
   const query = props.searchQuery?.trim().toLowerCase() ?? ''
@@ -99,7 +137,11 @@ async function handleGenerateEntry(): Promise<void> {
             projectGenre: appStore.currentProject?.genre,
             writingStyleLabel: writingStyle.value.label,
             writingStylePrompt: writingStyle.value.prompt,
-            worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title)
+            worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
+            worldviewEntries: buildAiWorldviewContext(),
+            characters: buildAiCharactersContext(),
+            organizations: buildAiOrganizationsContext(),
+            outlineItems: buildAiOutlineContext()
           }
         }))
     )
@@ -201,7 +243,11 @@ async function handleAiEnhance(): Promise<void> {
             writingStyleLabel: writingStyle.value.label,
             writingStylePrompt: writingStyle.value.prompt,
             worldviewTitles: appStore.worldviewEntries.map((e) => e.title),
-            characterNames: appStore.characters.map((c) => c.name)
+            characterNames: appStore.characters.map((c) => c.name),
+            worldviewEntries: buildAiWorldviewContext(),
+            characters: buildAiCharactersContext(),
+            organizations: buildAiOrganizationsContext(),
+            outlineItems: buildAiOutlineContext()
           }
         }))
     )

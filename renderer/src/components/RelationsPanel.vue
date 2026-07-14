@@ -34,6 +34,14 @@ const dialog = useDialog()
 const keyword = ref('') // 本面板内的本地搜索关键词
 const viewMode = ref<'list' | 'graph'>('list')
 
+function buildAiWorldviewContext() {
+  return appStore.worldviewEntries.slice(0, 12).map((entry) => ({
+    type: entry.type,
+    title: entry.title,
+    content: entry.content.slice(0, 320)
+  }))
+}
+
 // --- 角色编辑器状态 ---
 const characterEditorVisible = ref(false)
 const editingCharacterId = ref<string | null>(null)
@@ -461,6 +469,7 @@ async function handleGenerateOrganization(): Promise<void> {
             currentForm: { name: '', type: '', description: '', motto: '' },
             projectTitle: appStore.currentProject?.title,
             projectGenre: appStore.currentProject?.genre,
+            worldviewEntries: buildAiWorldviewContext(),
             writingStyleLabel: writingStyle.value.label,
             writingStylePrompt: writingStyle.value.prompt,
             characterNames: appStore.characters.map((c) => c.name),
@@ -513,6 +522,7 @@ async function handleGenerateRelationship(): Promise<void> {
             toCharacterDescription: toChar.description,
             projectTitle: appStore.currentProject?.title,
             projectGenre: appStore.currentProject?.genre,
+            worldviewEntries: buildAiWorldviewContext(),
             writingStyleLabel: writingStyle.value.label,
             writingStylePrompt: writingStyle.value.prompt,
             organizations: appStore.organizations,
@@ -563,6 +573,7 @@ async function handleGenerateMembership(): Promise<void> {
             organizationDescription: org.description,
             projectTitle: appStore.currentProject?.title,
             projectGenre: appStore.currentProject?.genre,
+            worldviewEntries: buildAiWorldviewContext(),
             writingStyleLabel: writingStyle.value.label,
             writingStylePrompt: writingStyle.value.prompt,
             organizations: appStore.organizations,
@@ -615,6 +626,7 @@ async function handleAiEnhanceOrg(): Promise<void> {
             currentForm: { name: organizationForm.name, type: organizationForm.type, description: organizationForm.description, motto: organizationForm.motto },
             projectTitle: appStore.currentProject?.title,
             projectGenre: appStore.currentProject?.genre,
+            worldviewEntries: buildAiWorldviewContext(),
             writingStyleLabel: writingStyle.value.label,
             writingStylePrompt: writingStyle.value.prompt,
             characterNames: appStore.characters.map((c) => c.name),
@@ -672,6 +684,7 @@ async function handleAiEnhanceRel(): Promise<void> {
             toCharacterDescription: toChar?.description ?? '',
             projectTitle: appStore.currentProject?.title,
             projectGenre: appStore.currentProject?.genre,
+            worldviewEntries: buildAiWorldviewContext(),
             writingStyleLabel: writingStyle.value.label,
             writingStylePrompt: writingStyle.value.prompt,
             organizations: appStore.organizations,
@@ -726,6 +739,7 @@ async function handleAiEnhanceMem(): Promise<void> {
             organizationDescription: org?.description ?? '',
             projectTitle: appStore.currentProject?.title,
             projectGenre: appStore.currentProject?.genre,
+            worldviewEntries: buildAiWorldviewContext(),
             writingStyleLabel: writingStyle.value.label,
             writingStylePrompt: writingStyle.value.prompt,
             organizations: appStore.organizations,

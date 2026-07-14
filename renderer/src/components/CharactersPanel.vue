@@ -75,6 +75,14 @@ function tagType(tone?: 'default' | 'danger' | 'success' | 'warning'): 'default'
   }
 }
 
+function buildAiWorldviewContext() {
+  return appStore.worldviewEntries.slice(0, 12).map((entry) => ({
+    type: entry.type,
+    title: entry.title,
+    content: entry.content.slice(0, 320)
+  }))
+}
+
 // 打开新建角色弹窗，重置表单为空白状态
 function handleCreateCharacter(): void {
   editingCharacterId.value = null
@@ -111,6 +119,7 @@ async function handleGenerateCharacter(): Promise<void> {
             writingStylePrompt: writingStyle.value.prompt,
             characterNames: appStore.characters.map((character) => character.name),
             worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
+            worldviewEntries: buildAiWorldviewContext(),
             organizations: appStore.organizations,
             characterRelationships: appStore.characterRelationships,
             organizationMemberships: appStore.organizationMemberships,
@@ -231,6 +240,7 @@ async function handleAiEnhance(): Promise<void> {
             writingStylePrompt: writingStyle.value.prompt,
             characterNames: appStore.characters.map((c) => c.name),
             worldviewTitles: appStore.worldviewEntries.map((e) => e.title),
+            worldviewEntries: buildAiWorldviewContext(),
             organizations: appStore.organizations,
             characterRelationships: appStore.characterRelationships,
             organizationMemberships: appStore.organizationMemberships,
