@@ -3,7 +3,6 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ChevronDown, FilePlus2, GripVertical, MoreVertical, Plus, Rows3, Sparkles, Trash2 } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
-import { loadEnabledProjectSkillsContext } from '@/features/projectSkills/context'
 import { useAppStore } from '@/stores/app'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { formatVolumeLabel, normalizeVolumeWordTarget } from '@/features/workspace/outlineVolumes'
@@ -108,6 +107,66 @@ function allowDigitsOnly(value: string): boolean {
   return /^\d*$/.test(value)
 }
 
+function normalizeOutlineItemWordTarget(value: unknown): string {
+  const raw = String(value ?? '').trim()
+  const wanMatch = raw.match(/(\d+(?:\.\d+)?)\s*万/)
+  const thousandMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:千|[kK])/)
+  const numericMatch = raw.match(/\d+(?:\.\d+)?/)
+  const numeric = wanMatch
+    ? Number(wanMatch[1]) * 10000
+    : thousandMatch
+      ? Number(thousandMatch[1]) * 1000
+      : numericMatch
+        ? Number(numericMatch[0])
+        : 3000
+  return String(Math.min(4000, Math.max(3000, Math.round(numeric))))
+}
+
+function compactForAi(value: unknown, maxLength = 260): string {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim()
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
+}
+
+function buildAiVolumesContext() {
+  return appStore.outlineVolumes.map((volume, index) => ({
+    title: volume.title,
+    wordTarget: volume.wordTarget,
+    summary: compactForAi(volume.summary, 320),
+    order: index + 1
+  }))
+}
+
+function buildAiOutlineContext(volumeId?: string) {
+  const items = volumeId
+    ? appStore.outlineItems.filter((item) => item.volumeId === volumeId)
+    : appStore.outlineItems
+
+  return items.slice(-24).map((item) => ({
+    title: item.title,
+    volumeTitle: appStore.outlineVolumes.find((volume) => volume.id === item.volumeId)?.title ?? '',
+    conflict: compactForAi(item.conflict, 180),
+    summary: compactForAi(item.summary, 320),
+    status: item.status
+  }))
+}
+
+function buildAiWorldviewContext() {
+  return appStore.worldviewEntries.slice(0, 16).map((entry) => ({
+    type: entry.type,
+    title: entry.title,
+    content: compactForAi(entry.content, 320)
+  }))
+}
+
+function buildAiCharactersContext() {
+  return appStore.characters.slice(0, 16).map((character) => ({
+    name: character.name,
+    role: character.role,
+    description: compactForAi(character.description, 260),
+    tags: character.tags.map((tag) => tag.label)
+  }))
+}
+
 // 打开新建大纲节点弹窗，默认归属到指定分卷
 function handleCreateOutline(volumeId = appStore.outlineVolumes[0]?.id): void {
   editingOutlineId.value = null
@@ -149,6 +208,10 @@ async function handleExpandOutline(): Promise<void> {
             writingStylePrompt: writingStyle.value.prompt,
             volumeTitles: appStore.outlineVolumes.map((volume) => volume.title),
             outlineTitles: appStore.outlineItems.map((item) => item.title),
+            volumes: buildAiVolumesContext(),
+            outlineItems: buildAiOutlineContext(),
+            worldviewEntries: buildAiWorldviewContext(),
+            characters: buildAiCharactersContext(),
             worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
             characterNames: appStore.characters.map((character) => character.name)
           }
@@ -194,10 +257,7 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
         timeoutMs: 300_000
       },
       () =>
-        (async () => {
-          // loadEnabledProjectSkillsContext 是 async 的，这里保留和原逻辑一致的入参构造顺序
-          const projectSkills = await loadEnabledProjectSkillsContext(appStore.currentProject, 'outline')
-          return window.characterArc.generateAi(toIpcPayload({
+        window.characterArc.generateAi(toIpcPayload({
             task: 'outline-batch',
             settings: appStore.appSettings,
             context: {
@@ -210,10 +270,14 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
               chapterVolumeWordTarget: volume.wordTarget,
               outlineTitles: appStore.outlineItems.map((item) => item.title),
               worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
+              volumes: buildAiVolumesContext(),
+              outlineItems: buildAiOutlineContext(),
+              worldviewEntries: buildAiWorldviewContext(),
               characters: appStore.characters.map((character) => ({
                 name: character.name,
                 role: character.role,
-                description: character.description
+                description: compactForAi(character.description, 260),
+                tags: character.tags.map((tag) => tag.label)
               })),
               currentVolumeOutlineItems: appStore.outlineItems
                 .filter((item) => item.volumeId === volume.id)
@@ -223,11 +287,9 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
                   summary: item.summary,
                   status: item.status
                 })),
-              projectSkills,
               userPrompt: '请优先扩写当前分卷从现有节点往后最需要的 3 到 5 个剧情子节点。'
             }
           }))
-        })()
     )
 
     if (!result.success || !result.result) {
@@ -251,7 +313,7 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
       appStore.createOutlineItem({
         volumeId: volume.id,
         title: entry.title,
-        wordTarget: entry.wordTarget ? String(Math.min(Number(entry.wordTarget.replace(/\D/g, '')) || 3000, 3500)) : undefined,
+        wordTarget: normalizeOutlineItemWordTarget(entry.wordTarget),
         conflict: entry.conflict,
         summary: entry.summary,
         status: 'planned'
@@ -558,6 +620,10 @@ async function handleAiEnhanceItem(): Promise<void> {
             volumeTitle: volume?.title ?? '',
             volumeSummary: volume?.summary ?? '',
             outlineTitles: appStore.outlineItems.map((i) => i.title),
+            volumes: buildAiVolumesContext(),
+            outlineItems: buildAiOutlineContext(),
+            worldviewEntries: buildAiWorldviewContext(),
+            characters: buildAiCharactersContext(),
             currentVolumeOutlineItems: appStore.outlineItems
               .filter((i) => i.volumeId === form.volumeId)
               .map((i) => ({ title: i.title, conflict: i.conflict, summary: i.summary })),
@@ -572,10 +638,11 @@ async function handleAiEnhanceItem(): Promise<void> {
     }
 
     const suggested = result.result as { title?: string; wordTarget?: string; conflict?: string; summary?: string }
+    const suggestedWordTarget = normalizeOutlineItemWordTarget(suggested.wordTarget)
 
     enhanceItemFields.value = [
       { key: 'title', label: '节点标题', type: 'text', original: form.title, suggested: suggested.title ?? '', changed: (suggested.title ?? '') !== form.title && Boolean(suggested.title?.trim()) },
-      { key: 'wordTarget', label: '预估字数', type: 'text', original: form.wordTarget, suggested: suggested.wordTarget ?? '', changed: (suggested.wordTarget ?? '') !== form.wordTarget && Boolean(suggested.wordTarget?.trim()) },
+      { key: 'wordTarget', label: '预估字数', type: 'text', original: form.wordTarget, suggested: suggestedWordTarget, changed: suggestedWordTarget !== form.wordTarget },
       { key: 'conflict', label: '核心冲突', type: 'text', original: form.conflict, suggested: suggested.conflict ?? '', changed: (suggested.conflict ?? '') !== form.conflict && Boolean(suggested.conflict?.trim()) },
       { key: 'summary', label: '剧情描述', type: 'textarea', original: form.summary, suggested: suggested.summary ?? '', changed: (suggested.summary ?? '') !== form.summary && Boolean(suggested.summary?.trim()) }
     ]
@@ -587,7 +654,7 @@ async function handleAiEnhanceItem(): Promise<void> {
 
 function handleEnhanceItemApply(accepted: Record<string, string | string[]>): void {
   if (accepted.title != null) form.title = accepted.title as string
-  if (accepted.wordTarget != null) form.wordTarget = accepted.wordTarget as string
+  if (accepted.wordTarget != null) form.wordTarget = normalizeOutlineItemWordTarget(accepted.wordTarget)
   if (accepted.conflict != null) form.conflict = accepted.conflict as string
   if (accepted.summary != null) form.summary = accepted.summary as string
   enhanceItemVisible.value = false
@@ -617,6 +684,10 @@ async function handleAiEnhanceVolume(): Promise<void> {
             writingStyleLabel: writingStyle.value.label,
             writingStylePrompt: writingStyle.value.prompt,
             volumeTitles: appStore.outlineVolumes.map((v) => v.title),
+            volumes: buildAiVolumesContext(),
+            outlineItems: buildAiOutlineContext(),
+            worldviewEntries: buildAiWorldviewContext(),
+            characters: buildAiCharactersContext(),
             worldviewTitles: appStore.worldviewEntries.map((e) => e.title),
             characterNames: appStore.characters.map((c) => c.name)
           }

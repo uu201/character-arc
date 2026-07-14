@@ -32,6 +32,8 @@ export interface TaskHandler {
   outputType: 'json' | 'text'
   /** 本任务默认启用的 prompt capability 列表 */
   defaultCapabilities: PromptCapabilityId[]
+  /** 是否参与项目 skills 匹配。纯结构化规划任务可关闭，避免流程型 skills 干扰输出。 */
+  useSkills?: boolean
   /** 根据输入构建 system + user prompt 对 */
   buildPrompt(input: PromptBuildInput): PromptPair
   /** 将 AI 原始输出解析为结构化结果 */
@@ -197,6 +199,15 @@ export function extractJsonObject(text: string): Record<string, unknown> {
   }
 
   throw new Error('AI 返回的 JSON 不完整或格式错误。')
+}
+
+/** 将模型返回的基础字段稳定转为字符串，兼容数字等常见 JSON primitive。 */
+export function jsonStringField(value: unknown, fallback = ''): string {
+  if (value == null) return fallback
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim() || fallback
+  }
+  return fallback
 }
 
 /**

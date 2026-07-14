@@ -29,6 +29,16 @@ export async function pickSkillsFor(
   task: AiTaskPayload,
   enabledOverrides?: Map<string, boolean>
 ): Promise<SkillSelection[]> {
+  let handler: ReturnType<typeof getTaskHandler> | undefined
+  try {
+    handler = getTaskHandler(task.task)
+  } catch {
+    // task handler not found — use default matching behavior
+  }
+  if (handler?.useSkills === false) {
+    return []
+  }
+
   const projectId = String(task.context.projectId ?? '').trim()
   const skills = enabledOverrides
     ? getAllSkills(projectId).filter((skill) => enabledOverrides.get(skill.id) === true)
@@ -37,13 +47,8 @@ export async function pickSkillsFor(
 
   // 从 TaskHandler 读取 maxSkills，允许复杂任务使用更多 skill
   let maxSkills = DEFAULT_MAX_SKILLS
-  try {
-    const handler = getTaskHandler(task.task)
-    if (handler.maxSkills && handler.maxSkills > 0) {
-      maxSkills = handler.maxSkills
-    }
-  } catch {
-    // task handler not found — use default
+  if (handler?.maxSkills && handler.maxSkills > 0) {
+    maxSkills = handler.maxSkills
   }
 
   const candidates = skills
