@@ -273,11 +273,12 @@ export function createSettingProposalTools(opts: SettingProposalToolFactoryOptio
     definition: {
       name: 'propose_outline',
       description:
-        '提议新增或更新一个「大纲 / 剧情」条目（章节节点或剧情段落）。要更新已有条目时，先用 read_project_data 取到精确标题，填入 match_title 并给出 reason；不确定就别填 match_title（按新增处理）。本工具只产出提案，用户确认后才写入。',
+        '提议新增或更新一个「大纲 / 剧情」条目（章节节点或剧情段落）。新增时必须先用 read_project_data(entity_type="outline") 获取分卷 ID，并显式传 volume_id。要更新已有条目时，先取到精确标题，填入 match_title 并给出 reason；不确定就别填 match_title（按新增处理）。本工具只产出提案，用户确认后才写入。',
       inputSchema: {
         type: 'object',
         properties: {
           match_title: { type: 'string', description: '可选。要更新的已有大纲条目的精确标题；给出即视为更新，否则为新增。' },
+          volume_id: { type: 'string', description: '新增时必填、更新时可选。目标分卷 ID，必须来自 read_project_data(entity_type="outline") 返回的分卷索引。' },
           reason: { type: 'string', description: '更新时必填：说明为何修改该条目。' },
           title: { type: 'string', description: '大纲条目标题。新增时必填。' },
           word_target: { type: 'string', description: '可选。目标字数。' },
@@ -289,6 +290,7 @@ export function createSettingProposalTools(opts: SettingProposalToolFactoryOptio
     },
     async handler(input) {
       const matchTitle = str(input.match_title)
+      const volumeId = str(input.volume_id)
       const title = str(input.title)
       const wordTarget = str(input.word_target)
       const conflict = clamp(str(input.conflict), maxContent)
@@ -297,8 +299,8 @@ export function createSettingProposalTools(opts: SettingProposalToolFactoryOptio
       if (matchTitle) {
         const reason = str(input.reason)
         if (!reason) return err('更新大纲需要提供 reason')
-        if (!title && !wordTarget && !conflict && !summary) {
-          return err('更新大纲需至少提供 title / word_target / conflict / summary 之一')
+        if (!title && !wordTarget && !conflict && !summary && !volumeId) {
+          return err('更新大纲需至少提供 title / word_target / conflict / summary / volume_id 之一')
         }
         const blocked = guard(draft.outlineUpdates.length, PER_CATEGORY_LIMIT.outline)
         if (blocked) return blocked
@@ -308,15 +310,17 @@ export function createSettingProposalTools(opts: SettingProposalToolFactoryOptio
           title: title || undefined,
           wordTarget: wordTarget || undefined,
           conflict: conflict || undefined,
-          summary: summary || undefined
+          summary: summary || undefined,
+          volumeId: volumeId || undefined
         })
         return recorded(`更新大纲「${matchTitle}」`)
       }
 
+      if (!volumeId) return err('新增大纲需要 volume_id。请先读取分卷索引，不能默认写入第一个分卷')
       if (!title || !summary) return err('新增大纲需要 title 和 summary')
       const blocked = guard(draft.outlineCreates.length, PER_CATEGORY_LIMIT.outline)
       if (blocked) return blocked
-      draft.outlineCreates.push({ title, wordTarget, conflict, summary })
+      draft.outlineCreates.push({ volumeId, title, wordTarget, conflict, summary })
       return recorded(`新增大纲「${title}」`)
     }
   }

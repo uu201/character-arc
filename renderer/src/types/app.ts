@@ -975,6 +975,7 @@ export interface GlobalAssistantProposal {
     motto?: string
   }>
   outlineCreates: Array<{
+    volumeId: string
     title: string
     wordTarget: string
     conflict: string
@@ -987,6 +988,7 @@ export interface GlobalAssistantProposal {
     wordTarget?: string
     conflict?: string
     summary?: string
+    volumeId?: string
   }>
   notes: string[]
 }

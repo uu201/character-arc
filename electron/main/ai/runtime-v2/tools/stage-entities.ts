@@ -65,9 +65,10 @@ function renderCharacterText(c: {
 }
 
 function renderOutlineText(item: {
-  title?: string; conflict?: string; summary?: string; wordTarget?: string
+  title?: string; conflict?: string; summary?: string; wordTarget?: string; volumeTitle?: string
 }): string {
   return [
+    item.volumeTitle ? `所属分卷：${item.volumeTitle}` : '',
     item.title ? `标题：${item.title}` : '',
     item.wordTarget ? `字数目标：${item.wordTarget}` : '',
     item.conflict ? `核心冲突：${item.conflict}` : '',
@@ -494,14 +495,14 @@ export function makeStageOutlineTool(deps: StageEntitiesToolDeps): Tool {
     definition: {
       name: 'stage_outline',
       description:
-        '暂存大纲节点新增、修改或删除，不直接写库。create 需提供 title/summary，可选 volume_id/word_target/conflict；update 需提供 match_id 或 match_title，并提供要改的新字段；delete 需提供 match_id 或 match_title。',
+        '暂存大纲节点新增、修改或删除，不直接写库。create 需提供 volume_id/title/summary；volume_id 必须先由 list_outline_volumes 获取，不允许省略。update 需提供 match_id 或 match_title，并提供要改的新字段；delete 需提供 match_id 或 match_title。',
       inputSchema: {
         type: 'object',
         properties: {
           action: { type: 'string', enum: ['create', 'update', 'delete'], description: 'create=新增；update=修改；delete=删除已有大纲节点。' },
           match_id: { type: 'string', description: 'update/delete 可选：目标大纲节点 ID。' },
           match_title: { type: 'string', description: 'update/delete 可选：目标大纲标题，支持精确或唯一包含匹配。' },
-          volume_id: { type: 'string', description: 'create/update 可选：所属分卷 ID。缺省使用当前项目第一个分卷。' },
+          volume_id: { type: 'string', description: 'create 必填、update 可选：所属分卷 ID。必须是 list_outline_volumes 返回的有效 ID。' },
           title: { type: 'string', description: '大纲节点标题。create 必填；update 可选。' },
           word_target: { type: 'string', description: '预估字数，如 "预估 3000字"。' },
           conflict: { type: 'string', description: '一句话核心冲突。' },
@@ -523,7 +524,14 @@ export function makeStageOutlineTool(deps: StageEntitiesToolDeps): Tool {
       }
 
       if (action === 'create') {
-        const volumeId = readString(input, 'volume_id') || view.workspace.outlineVolumes[0]?.id || ''
+        const volumeId = readString(input, 'volume_id')
+        if (!volumeId) {
+          return { content: 'create 需要提供 volume_id。请先调用 list_outline_volumes 获取目标分卷 ID，不能默认写入第一个分卷。', isError: true }
+        }
+        const volume = view.workspace.outlineVolumes.find((item) => item.id === volumeId)
+        if (!volume) {
+          return { content: `分卷不存在：${volumeId}。请调用 list_outline_volumes 后使用有效的 volume_id。`, isError: true }
+        }
         const payload = {
           volumeId,
           title: readString(input, 'title'),
@@ -543,10 +551,10 @@ export function makeStageOutlineTool(deps: StageEntitiesToolDeps): Tool {
           entityTitle: payload.title,
           reason,
           before: '',
-          after: renderOutlineText(payload),
+          after: renderOutlineText({ ...payload, volumeTitle: volume.title }),
           entityPayload: payload
         })
-        return { content: `已暂存大纲新增（change_id=${change.id}）：${payload.title}。尚未写回，需用户确认。` }
+        return { content: `已暂存大纲新增（change_id=${change.id}）：${payload.title}，所属分卷：${volume.title}。尚未写回，需用户确认。` }
       }
 
       const ref = readString(input, 'match_id') || readString(input, 'match_title')
@@ -576,8 +584,15 @@ export function makeStageOutlineTool(deps: StageEntitiesToolDeps): Tool {
       }
 
       const writeMode = readWriteMode(input)
+      const volumeId = hasOwn(input, 'volume_id') ? readString(input, 'volume_id') : before.volumeId
+      const volume = view.workspace.outlineVolumes.find((item) => item.id === volumeId)
+      if (!volume) {
+        return { content: hasOwn(input, 'volume_id')
+          ? `分卷不存在：${volumeId || '（空）'}。请调用 list_outline_volumes 后使用有效的 volume_id。`
+          : `大纲节点「${before.title}」当前所属分卷无效，请显式提供有效 volume_id。`, isError: true }
+      }
       const payload = {
-        volumeId: hasOwn(input, 'volume_id') ? readString(input, 'volume_id') : before.volumeId,
+        volumeId,
         title: hasOwn(input, 'title') ? readString(input, 'title') : before.title,
         wordTarget: hasOwn(input, 'word_target') ? readString(input, 'word_target') : before.wordTarget,
         conflict: hasOwn(input, 'conflict') ? readString(input, 'conflict') : before.conflict,
@@ -598,10 +613,10 @@ export function makeStageOutlineTool(deps: StageEntitiesToolDeps): Tool {
         entityTitle: payload.title || before.title,
         reason,
         before: renderOutlineText(before),
-        after: renderOutlineText(payload),
+        after: renderOutlineText({ ...payload, volumeTitle: volume.title }),
         entityPayload: payload
       })
-      return { content: `已暂存大纲修改（change_id=${change.id}）：${before.title}。尚未写回，需用户确认。` }
+      return { content: `已暂存大纲修改（change_id=${change.id}）：${before.title}，所属分卷：${volume.title}。尚未写回，需用户确认。` }
     }
   }
 }

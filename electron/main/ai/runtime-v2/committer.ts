@@ -464,10 +464,18 @@ async function commitOutline(
   const summary = stringField(payload, 'summary')
   const conflict = stringField(payload, 'conflict')
   const wordTarget = stringField(payload, 'wordTarget') || stringField(payload, 'word_target', '预估 3000字')
-  const volumeId = await ensureOutlineVolume(projectId, stringField(payload, 'volumeId') || stringField(payload, 'volume_id'))
+  const volumeId = stringField(payload, 'volumeId') || stringField(payload, 'volume_id')
 
   if (!title || !summary) {
     return { changeId: change.id, ok: false, error: '大纲变更缺少 title 或 summary' }
+  }
+  if (!volumeId) {
+    return { changeId: change.id, ok: false, error: '大纲变更缺少 volumeId，已拒绝默认写入第一个分卷' }
+  }
+  const volume = db.prepare('SELECT id FROM outline_volumes WHERE id = ? AND project_id = ?')
+    .get(volumeId, projectId) as { id: string } | undefined
+  if (!volume) {
+    return { changeId: change.id, ok: false, error: `大纲目标分卷不存在：${volumeId}` }
   }
 
   if (change.action === 'create') {

@@ -268,7 +268,7 @@ export type GlobalAssistantProposalResult = {
     description?: string
     motto?: string
   }>
-  outlineCreates: OutlineResult[]
+  outlineCreates: Array<OutlineResult & { volumeId: string }>
   outlineUpdates: Array<{
     matchTitle: string
     reason: string
@@ -276,6 +276,7 @@ export type GlobalAssistantProposalResult = {
     wordTarget?: string
     conflict?: string
     summary?: string
+    volumeId?: string
   }>
   notes: string[]
 }

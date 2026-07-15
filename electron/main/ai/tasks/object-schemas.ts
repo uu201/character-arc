@@ -97,14 +97,15 @@ const taskObjectSchemas: Partial<Record<AiTaskName, z.ZodTypeAny>> = {
       description: stringField.optional(),
       motto: stringField.optional()
     })),
-    outlineCreates: z.array(outlineItemSchema),
+    outlineCreates: z.array(outlineItemSchema.extend({ volumeId: stringField })),
     outlineUpdates: z.array(z.object({
       matchTitle: stringField,
       reason: stringField,
       title: stringField.optional(),
       wordTarget: stringField.optional(),
       conflict: stringField.optional(),
-      summary: stringField.optional()
+      summary: stringField.optional(),
+      volumeId: stringField.optional()
     })),
     notes: stringList
   }),

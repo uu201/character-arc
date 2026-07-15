@@ -104,6 +104,9 @@ ${formatCharacterRelationships(context.characterRelationships, context.character
 大纲：
 ${formatOutlineItems(context.outlineItems) || '暂无'}
 
+分卷索引（新增大纲节点必须使用这里的有效 volumeId）：
+${JSON.stringify(context.outlineVolumes ?? []) || '暂无'}
+
 灵感：
 ${formatInspirationEntries(context.inspirationEntries) || '暂无'}
 
@@ -130,15 +133,15 @@ ${String(context.userPrompt ?? '')}
 6. characterUpdates：需要修改的人物卡，必须带 matchName 和 reason。
 7. organizationCreates：需要新增的势力/组织条目。
 8. organizationUpdates：需要修改的势力/组织条目，必须带 matchName 和 reason。
-9. outlineCreates：需要新增的大纲节点。
-10. outlineUpdates：需要修改的大纲节点，必须带 matchTitle 和 reason。
+9. outlineCreates：需要新增的大纲节点，每条必须带目标分卷的 volumeId，禁止缺省到第一个分卷。
+10. outlineUpdates：需要修改的大纲节点，必须带 matchTitle 和 reason；只有需要迁卷时才带 volumeId。
 11. notes：补充提醒，例如”这条约束尚未写入人物卡，需要用户确认”。
 12. 如果某一类没有提案，返回空数组。
 13. 每一类最多返回 4 条；每个 content/description/summary 控制在 180 字以内，reason 控制在 80 字以内，notes 每条控制在 80 字以内。
 14. 不要为了覆盖所有分类而强行填满数组，只返回真正需要写回的内容。
 
 返回格式：
-{“summary”:””,”constraintCreates”:[{“title”:””,”content”:””,”scope”:””,”weight”:”core”,”locked”:true,”reason”:””,”keywords”:[“”]}],”worldviewCreates”:[{“type”:””,”title”:””,”content”:””}],”worldviewUpdates”:[{“matchTitle”:””,”reason”:””,”type”:””,”title”:””,”content”:””}],”characterCreates”:[{“name”:””,”role”:””,”description”:””,”tags”:[“”]}],”characterUpdates”:[{“matchName”:””,”reason”:””,”name”:””,”role”:””,”description”:””,”tags”:[“”]}],”organizationCreates”:[{“name”:””,”type”:””,”description”:””,”motto”:””}],”organizationUpdates”:[{“matchName”:””,”reason”:””,”name”:””,”type”:””,”description”:””,”motto”:””}],”outlineCreates”:[{“title”:””,”wordTarget”:””,”conflict”:””,”summary”:””}],”outlineUpdates”:[{“matchTitle”:””,”reason”:””,”title”:””,”wordTarget”:””,”conflict”:””,”summary”:””}],”notes”:[“”]}`
+{“summary”:””,”constraintCreates”:[{“title”:””,”content”:””,”scope”:””,”weight”:”core”,”locked”:true,”reason”:””,”keywords”:[“”]}],”worldviewCreates”:[{“type”:””,”title”:””,”content”:””}],”worldviewUpdates”:[{“matchTitle”:””,”reason”:””,”type”:””,”title”:””,”content”:””}],”characterCreates”:[{“name”:””,”role”:””,”description”:””,”tags”:[“”]}],”characterUpdates”:[{“matchName”:””,”reason”:””,”name”:””,”role”:””,”description”:””,”tags”:[“”]}],”organizationCreates”:[{“name”:””,”type”:””,”description”:””,”motto”:””}],”organizationUpdates”:[{“matchName”:””,”reason”:””,”name”:””,”type”:””,”description”:””,”motto”:””}],”outlineCreates”:[{“volumeId”:””,”title”:””,”wordTarget”:””,”conflict”:””,”summary”:””}],”outlineUpdates”:[{“matchTitle”:””,”reason”:””,”title”:””,”wordTarget”:””,”conflict”:””,”summary”:””,”volumeId”:””}],”notes”:[“”]}`
     }
   },
   normalize(raw: string): AiTaskResult {
@@ -240,12 +243,13 @@ ${String(context.userPrompt ?? '')}
     const outlineCreates = Array.isArray(parsed.outlineCreates)
       ? parsed.outlineCreates
           .map((item) => ({
+            volumeId: String(item?.volumeId ?? '').trim(),
             title: String(item?.title ?? '').trim(),
             wordTarget: String(item?.wordTarget ?? '').trim(),
             conflict: String(item?.conflict ?? '').trim(),
             summary: String(item?.summary ?? '').trim()
           }))
-          .filter((item) => item.title && item.summary)
+          .filter((item) => item.volumeId && item.title && item.summary)
           .slice(0, 8)
       : []
 
@@ -257,9 +261,10 @@ ${String(context.userPrompt ?? '')}
             title: String(item?.title ?? '').trim() || undefined,
             wordTarget: String(item?.wordTarget ?? '').trim() || undefined,
             conflict: String(item?.conflict ?? '').trim() || undefined,
-            summary: String(item?.summary ?? '').trim() || undefined
+            summary: String(item?.summary ?? '').trim() || undefined,
+            volumeId: String(item?.volumeId ?? '').trim() || undefined
           }))
-          .filter((item) => item.matchTitle && item.reason && (item.title || item.wordTarget || item.conflict || item.summary))
+          .filter((item) => item.matchTitle && item.reason && (item.title || item.wordTarget || item.conflict || item.summary || item.volumeId))
           .slice(0, 8)
       : []
 

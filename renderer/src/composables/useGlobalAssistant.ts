@@ -1038,6 +1038,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       const alreadyExists = appStore.outlineItems.some(
         (o) => o.title.trim() === item.title.trim()
       )
+      const volume = appStore.outlineVolumes.find((entry) => entry.id === item.volumeId)
       files.push({
         id: `outline-create-${index}-${item.title}`,
         title: item.title,
@@ -1046,18 +1047,24 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
         action: 'create',
         oldText: '',
         newText: [
+          `所属分卷：${volume?.title || '无效分卷'}`,
           `标题：${item.title}`,
           `目标字数：${item.wordTarget}`,
           `冲突：${item.conflict}`,
           `摘要：${item.summary}`
         ].filter(Boolean).join('\n'),
-        reason: alreadyExists ? `同名大纲节点「${item.title}」已存在，请忽略或手动更新` : '新增大纲节点',
-        canApply: !alreadyExists
+        reason: alreadyExists
+          ? `同名大纲节点「${item.title}」已存在，请忽略或手动更新`
+          : volume ? '新增大纲节点' : '缺少有效分卷归属，无法写回',
+        canApply: !alreadyExists && Boolean(volume)
       })
     }
 
     for (const [index, item] of current.outlineUpdates.entries()) {
       const target = resolveOutlineTarget(item, index)
+      const volume = item.volumeId
+        ? appStore.outlineVolumes.find((entry) => entry.id === item.volumeId)
+        : null
       const mergedSummary = mergeLongTextForIngest(target?.summary, item.summary)
       files.push({
         id: `outline-update-${index}-${item.matchTitle}`,
@@ -1074,13 +1081,14 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
             ].filter(Boolean).join('\n')
           : `未匹配到目标：${item.matchTitle}`,
         newText: [
+          `所属分卷：${volume?.title || appStore.outlineVolumes.find((entry) => entry.id === target?.volumeId)?.title || '无效分卷'}`,
           `标题：${item.title || target?.title || item.matchTitle}`,
           `目标字数：${item.wordTarget || target?.wordTarget || ''}`,
           `冲突：${item.conflict || target?.conflict || ''}`,
           `摘要：${mergedSummary}`
         ].filter(Boolean).join('\n'),
-        reason: item.reason,
-        canApply: Boolean(target)
+        reason: item.volumeId && !volume ? '目标分卷无效，无法写回' : item.reason,
+        canApply: Boolean(target) && (!item.volumeId || Boolean(volume))
       })
     }
 
@@ -1224,6 +1232,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
           organizations: appStore.organizations.slice(0, 24),
           characterRelationships: appStore.characterRelationships.slice(0, 60),
           inspirationEntries: appStore.inspirationEntries.slice(0, 30),
+          outlineVolumes: appStore.outlineVolumes.map((volume) => ({ id: volume.id, title: volume.title })),
           outlineItems: appStore.outlineItems.slice(0, 80),
           workflowDocuments: appStore.workflowDocuments,
           knowledgeDocuments: appStore.knowledgeDocuments.slice(0, 30),
@@ -1377,9 +1386,17 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
     let appliedCount = 0
     const appliedTitles: string[] = []
+    const remainingCreates: GlobalAssistantProposal['outlineCreates'] = []
+    const remainingUpdates: GlobalAssistantProposal['outlineUpdates'] = []
 
     for (const item of current.outlineCreates) {
+      const volume = appStore.outlineVolumes.find((entry) => entry.id === item.volumeId)
+      if (!volume) {
+        remainingCreates.push(item)
+        continue
+      }
       appStore.createOutlineItem({
+        volumeId: volume.id,
         title: item.title,
         wordTarget: item.wordTarget,
         conflict: item.conflict,
@@ -1392,8 +1409,15 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
 
     for (const [index, item] of current.outlineUpdates.entries()) {
       const target = resolveOutlineTarget(item, index)
-      if (!target) continue
+      const volume = item.volumeId
+        ? appStore.outlineVolumes.find((entry) => entry.id === item.volumeId)
+        : null
+      if (!target || (item.volumeId && !volume)) {
+        remainingUpdates.push(item)
+        continue
+      }
       appStore.updateOutlineItem(target.id, {
+        ...(volume ? { volumeId: volume.id } : {}),
         title: item.title,
         wordTarget: item.wordTarget,
         conflict: item.conflict,
@@ -1404,14 +1428,16 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     }
 
     outlineTargetMap.value = {}
-    setProposal(trimProposal({ ...current, outlineCreates: [], outlineUpdates: [] }))
+    setProposal(trimProposal({ ...current, outlineCreates: remainingCreates, outlineUpdates: remainingUpdates }))
 
     if (appliedCount > 0) {
       const preview = appliedTitles.slice(0, 3).join('、')
       const suffix = appliedTitles.length > 3 ? ` 等 ${appliedTitles.length} 条` : ''
       message.success(`已写回大纲：${preview}${suffix}`)
     } else {
-      message.warning('这组大纲提案暂时没有可匹配的写回目标')
+      message.warning(remainingCreates.length || remainingUpdates.length
+        ? '大纲提案缺少有效分卷归属，已保留且未写回'
+        : '这组大纲提案暂时没有可匹配的写回目标')
     }
   }
 
@@ -1590,7 +1616,13 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       const index = parseProposalDiffIndex(file.id, 'outline-create')
       const item = current.outlineCreates[index]
       if (!item) return false
+      const volume = appStore.outlineVolumes.find((entry) => entry.id === item.volumeId)
+      if (!volume) {
+        message.warning('该大纲提案缺少有效分卷归属，无法写回')
+        return false
+      }
       appStore.createOutlineItem({
+        volumeId: volume.id,
         title: item.title,
         wordTarget: item.wordTarget,
         conflict: item.conflict,
@@ -1610,7 +1642,15 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
       const item = current.outlineUpdates[index]
       const target = item ? resolveOutlineTarget(item, index) : null
       if (!item || !target) return false
+      const volume = item.volumeId
+        ? appStore.outlineVolumes.find((entry) => entry.id === item.volumeId)
+        : null
+      if (item.volumeId && !volume) {
+        message.warning('该大纲提案的目标分卷无效，无法写回')
+        return false
+      }
       appStore.updateOutlineItem(target.id, {
+        ...(volume ? { volumeId: volume.id } : {}),
         title: item.title,
         wordTarget: item.wordTarget,
         conflict: item.conflict,
