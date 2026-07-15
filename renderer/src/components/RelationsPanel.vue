@@ -22,7 +22,9 @@ import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { CharacterCard, CharacterRelationship, OrganizationEntry, OrganizationMembership } from '@/types/app'
 import AiEnhancePreview from './AiEnhancePreview.vue'
+import BatchGenerateDialog from './BatchGenerateDialog.vue'
 import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
+import { useCatalogBatch } from '@/composables/useCatalogBatch'
 
 const props = defineProps<{
   searchQuery?: string // 全局搜索关键词
@@ -33,6 +35,7 @@ const message = useMessage()
 const dialog = useDialog()
 const keyword = ref('') // 本面板内的本地搜索关键词
 const viewMode = ref<'list' | 'graph'>('list')
+const { generateCatalogBatch } = useCatalogBatch()
 
 function buildAiWorldviewContext() {
   return appStore.worldviewEntries.slice(0, 12).map((entry) => ({
@@ -447,103 +450,135 @@ function orgInitial(name: string): string {
   return ch ? ch.toUpperCase() : '?'
 }
 
-const AI_GEN_ORG_KEY = 'relation-generate-org'
-const AI_GEN_REL_KEY = 'relation-generate-rel'
-const AI_GEN_MEM_KEY = 'relation-generate-mem'
+const AI_GEN_ORG_KEY = 'catalog-batch:organization'
+const AI_GEN_REL_KEY = 'catalog-batch:relationship'
+const AI_GEN_MEM_KEY = 'catalog-batch:membership'
 const isGeneratingOrg = computed(() => appStore.isAiTaskRunning(AI_GEN_ORG_KEY))
 const isGeneratingRel = computed(() => appStore.isAiTaskRunning(AI_GEN_REL_KEY))
 const isGeneratingMem = computed(() => appStore.isAiTaskRunning(AI_GEN_MEM_KEY))
+const organizationBatchVisible = ref(false)
+const organizationBatchProgress = ref(0)
+const relationshipBatchVisible = ref(false)
+const relationshipBatchProgress = ref(0)
+const relationshipBatchForm = reactive({
+  mainCharacterId: '',
+  targetCharacterIds: [] as string[],
+  direction: 'main-to-others' as 'main-to-others' | 'others-to-main',
+  prompt: ''
+})
+const directionOptions = [
+  { label: '主角色 → 多个角色', value: 'main-to-others' },
+  { label: '多个角色 → 主角色', value: 'others-to-main' }
+]
+const relationshipTargetOptions = computed(() =>
+  characterOptions.value.filter((option) => option.value !== relationshipBatchForm.mainCharacterId)
+)
 
-async function handleGenerateOrganization(): Promise<void> {
+async function handleGenerateOrganization(payload: { count: number; prompt: string; types: string[] }): Promise<void> {
   if (isGeneratingOrg.value) return
 
   try {
-    const result = await appStore.runTrackedAiTask(
-      { key: AI_GEN_ORG_KEY, kind: 'character', label: 'AI 生成组织', description: '正在根据项目上下文生成新组织', panel: 'relations' },
-      () =>
-        window.characterArc.generateAi(toIpcPayload({
-          task: 'relation-enhance',
-          settings: appStore.appSettings,
-          context: {
-            mode: 'organization',
-            currentForm: { name: '', type: '', description: '', motto: '' },
-            projectTitle: appStore.currentProject?.title,
-            projectGenre: appStore.currentProject?.genre,
-            worldviewEntries: buildAiWorldviewContext(),
-            writingStyleLabel: writingStyle.value.label,
-            writingStylePrompt: writingStyle.value.prompt,
-            characterNames: appStore.characters.map((c) => c.name),
-            worldviewTitles: appStore.worldviewEntries.map((e) => e.title),
-            organizations: appStore.organizations,
-            characterRelationships: appStore.characterRelationships,
-            organizationMemberships: appStore.organizationMemberships,
-            characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
-          }
-        }))
-    )
-
-    if (!result.success || !result.result) throw new Error(result.error ?? 'AI 生成组织失败')
-    const s = result.result as Record<string, unknown>
-
-    appStore.createOrganization({
+    organizationBatchProgress.value = 0
+    const entries = await generateCatalogBatch({
+      mode: 'organization',
+      count: payload.count,
+      label: '批量生成组织',
+      panel: 'relations',
+      kind: 'character',
+      keyField: 'name',
+      existingKeys: appStore.organizations.map((organization) => organization.name),
+      onProgress: (completed, total) => { organizationBatchProgress.value = Math.round(completed / total * 100) },
+      context: {
+        projectTitle: appStore.currentProject?.title,
+        projectGenre: appStore.currentProject?.genre,
+        userPrompt: payload.prompt,
+        worldviewEntries: buildAiWorldviewContext(),
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
+        organizations: appStore.organizations,
+        characterRelationships: appStore.characterRelationships,
+        organizationMemberships: appStore.organizationMemberships,
+        characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
+      }
+    })
+    entries.forEach((s) => appStore.createOrganization({
       name: String(s.name ?? '新组织'),
-      type: String(s.type ?? ''),
+      type: String(s.type ?? '中立势力'),
       description: String(s.description ?? ''),
       motto: String(s.motto ?? ''),
       color: ''
-    })
-    message.success('AI 已生成新的组织草稿')
+    }))
+    organizationBatchVisible.value = false
+    message.success(`已生成 ${entries.length} 个组织`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 生成组织失败，请检查模型配置')
   }
 }
 
-async function handleGenerateRelationship(): Promise<void> {
-  if (isGeneratingRel.value || appStore.characters.length < 2) return
+function openRelationshipBatch(): void {
+  const mainId = relationshipBatchForm.mainCharacterId || appStore.characters[0]?.id || ''
+  relationshipBatchForm.mainCharacterId = mainId
+  relationshipBatchForm.targetCharacterIds = appStore.characters.filter((character) => character.id !== mainId).map((character) => character.id)
+  relationshipBatchForm.prompt = ''
+  relationshipBatchProgress.value = 0
+  relationshipBatchVisible.value = true
+}
 
-  const chars = appStore.characters
-  const fromChar = chars[Math.floor(Math.random() * chars.length)]
-  const remaining = chars.filter((c) => c.id !== fromChar.id)
-  const toChar = remaining[Math.floor(Math.random() * remaining.length)]
+async function handleGenerateRelationship(): Promise<void> {
+  if (isGeneratingRel.value || relationshipBatchForm.targetCharacterIds.length === 0) return
+
+  const main = characterMap.value.get(relationshipBatchForm.mainCharacterId)
+  if (!main) return
+  const targets = relationshipBatchForm.targetCharacterIds
+    .filter((id) => id !== relationshipBatchForm.mainCharacterId)
+    .map((id, targetIndex) => ({ targetIndex, character: characterMap.value.get(id) }))
+    .filter((item): item is { targetIndex: number; character: CharacterCard } => Boolean(item.character))
 
   try {
-    const result = await appStore.runTrackedAiTask(
-      { key: AI_GEN_REL_KEY, kind: 'character', label: 'AI 生成关系', description: `正在为 ${fromChar.name} 和 ${toChar.name} 生成关系`, panel: 'relations' },
-      () =>
-        window.characterArc.generateAi(toIpcPayload({
-          task: 'relation-enhance',
-          settings: appStore.appSettings,
-          context: {
-            mode: 'relationship',
-            currentForm: { type: '', description: '', intensity: 50 },
-            fromCharacterName: fromChar.name,
-            fromCharacterDescription: fromChar.description,
-            toCharacterName: toChar.name,
-            toCharacterDescription: toChar.description,
-            projectTitle: appStore.currentProject?.title,
-            projectGenre: appStore.currentProject?.genre,
-            worldviewEntries: buildAiWorldviewContext(),
-            writingStyleLabel: writingStyle.value.label,
-            writingStylePrompt: writingStyle.value.prompt,
-            organizations: appStore.organizations,
-            characterRelationships: appStore.characterRelationships,
-            organizationMemberships: appStore.organizationMemberships,
-            characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
-          }
-        }))
-    )
-
-    if (!result.success || !result.result) throw new Error(result.error ?? 'AI 生成关系失败')
-    const s = result.result as Record<string, unknown>
-
-    appStore.createCharacterRelationship({
-      fromCharacterId: fromChar.id,
-      toCharacterId: toChar.id,
-      type: String(s.type ?? '待设定'),
-      description: String(s.description ?? ''),
-      intensity: Math.max(0, Math.min(100, Number(s.intensity) || 50))
+    relationshipBatchProgress.value = 0
+    const entries = await generateCatalogBatch({
+      mode: 'relationship',
+      count: targets.length,
+      label: '批量生成关系',
+      panel: 'relations',
+      kind: 'character',
+      onProgress: (completed, total) => { relationshipBatchProgress.value = Math.round(completed / total * 100) },
+      context: {
+        projectTitle: appStore.currentProject?.title,
+        projectGenre: appStore.currentProject?.genre,
+        userPrompt: relationshipBatchForm.prompt,
+        relationshipDirection: relationshipBatchForm.direction,
+        mainCharacter: main,
+        targets: targets.map(({ targetIndex, character }) => ({ targetIndex, character })),
+        worldviewEntries: buildAiWorldviewContext(),
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
+        organizations: appStore.organizations,
+        characterRelationships: appStore.characterRelationships,
+        organizationMemberships: appStore.organizationMemberships,
+        characters: appStore.characters
+      }
     })
-    message.success(`AI 已生成 ${fromChar.name} 与 ${toChar.name} 的关系`)
+
+    const existingPairs = new Set(appStore.characterRelationships.map((relationship) => `${relationship.fromCharacterId}:${relationship.toCharacterId}`))
+    let created = 0
+    entries.forEach((s, index) => {
+      const target = targets.find((item) => item.targetIndex === Number(s.targetIndex ?? index))?.character
+      if (!target) return
+      const fromCharacterId = relationshipBatchForm.direction === 'main-to-others' ? main.id : target.id
+      const toCharacterId = relationshipBatchForm.direction === 'main-to-others' ? target.id : main.id
+      if (existingPairs.has(`${fromCharacterId}:${toCharacterId}`)) return
+      appStore.createCharacterRelationship({
+        fromCharacterId,
+        toCharacterId,
+        type: String(s.type ?? '待设定'),
+        description: String(s.description ?? ''),
+        intensity: Math.max(0, Math.min(100, Number(s.intensity) || 50))
+      })
+      created += 1
+    })
+    relationshipBatchVisible.value = false
+    message.success(`已生成 ${created} 条角色关系`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 生成关系失败，请检查模型配置')
   }
@@ -551,48 +586,48 @@ async function handleGenerateRelationship(): Promise<void> {
 
 async function handleGenerateMembership(): Promise<void> {
   if (isGeneratingMem.value || appStore.characters.length === 0 || appStore.organizations.length === 0) return
-
-  const chars = appStore.characters
-  const orgs = appStore.organizations
-  const char = chars[Math.floor(Math.random() * chars.length)]
-  const org = orgs[Math.floor(Math.random() * orgs.length)]
+  const assignedIds = new Set(appStore.organizationMemberships.map((membership) => membership.characterId))
+  const targets = appStore.characters
+    .filter((character) => !assignedIds.has(character.id))
+    .map((character, targetIndex) => ({ targetIndex, character }))
+  if (targets.length === 0) {
+    message.info('所有角色都已经有组织归属')
+    return
+  }
 
   try {
-    const result = await appStore.runTrackedAiTask(
-      { key: AI_GEN_MEM_KEY, kind: 'character', label: 'AI 生成归属', description: `正在为 ${char.name} 生成在 ${org.name} 的归属`, panel: 'relations' },
-      () =>
-        window.characterArc.generateAi(toIpcPayload({
-          task: 'relation-enhance',
-          settings: appStore.appSettings,
-          context: {
-            mode: 'membership',
-            currentForm: { role: '', notes: '' },
-            characterName: char.name,
-            characterDescription: char.description,
-            organizationName: org.name,
-            organizationDescription: org.description,
-            projectTitle: appStore.currentProject?.title,
-            projectGenre: appStore.currentProject?.genre,
-            worldviewEntries: buildAiWorldviewContext(),
-            writingStyleLabel: writingStyle.value.label,
-            writingStylePrompt: writingStyle.value.prompt,
-            organizations: appStore.organizations,
-            organizationMemberships: appStore.organizationMemberships,
-            characters: appStore.characters.map((c) => ({ id: c.id, name: c.name, role: c.role, description: c.description }))
-          }
-        }))
-    )
-
-    if (!result.success || !result.result) throw new Error(result.error ?? 'AI 生成归属失败')
-    const s = result.result as Record<string, unknown>
-
-    appStore.createOrganizationMembership({
-      characterId: char.id,
-      organizationId: org.id,
-      role: String(s.role ?? '成员'),
-      notes: String(s.notes ?? '')
+    const entries = await generateCatalogBatch({
+      mode: 'membership',
+      count: targets.length,
+      label: '自动补全角色归属',
+      panel: 'relations',
+      kind: 'character',
+      context: {
+        projectTitle: appStore.currentProject?.title,
+        projectGenre: appStore.currentProject?.genre,
+        targets,
+        worldviewEntries: buildAiWorldviewContext(),
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
+        organizations: appStore.organizations,
+        organizationMemberships: appStore.organizationMemberships,
+        characters: appStore.characters
+      }
     })
-    message.success(`AI 已生成 ${char.name} 在 ${org.name} 的归属`)
+    entries.forEach((s, index) => {
+      const target = targets.find((item) => item.targetIndex === Number(s.targetIndex ?? index))
+      if (!target) return
+      const organizationName = String(s.organizationName ?? '').trim().toLowerCase()
+      const organization = appStore.organizations.find((item) => item.name.trim().toLowerCase() === organizationName)
+        ?? appStore.organizations[target.targetIndex % appStore.organizations.length]
+      appStore.createOrganizationMembership({
+        characterId: target.character.id,
+        organizationId: organization.id,
+        role: String(s.role ?? '成员'),
+        notes: String(s.notes ?? '')
+      })
+    })
+    message.success(`已为 ${entries.length} 个未归属角色补全组织归属`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 生成归属失败，请检查模型配置')
   }
@@ -795,13 +830,13 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
             <span>图谱视图</span>
           </button>
         </div>
-        <n-button strong secondary round :disabled="isGeneratingOrg" @click="handleGenerateOrganization">
+        <n-button strong secondary round :disabled="isGeneratingOrg" @click="organizationBatchVisible = true">
           <template #icon>
             <Sparkles :size="16" />
           </template>
           {{ isGeneratingOrg ? '生成中...' : 'AI 生成组织' }}
         </n-button>
-        <n-button strong secondary round :disabled="appStore.characters.length < 2 || isGeneratingRel" @click="handleGenerateRelationship">
+        <n-button strong secondary round :disabled="appStore.characters.length < 2 || isGeneratingRel" @click="openRelationshipBatch">
           <template #icon>
             <Sparkles :size="16" />
           </template>
@@ -811,7 +846,7 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
           <template #icon>
             <Sparkles :size="16" />
           </template>
-          {{ isGeneratingMem ? '生成中...' : 'AI 生成归属' }}
+          {{ isGeneratingMem ? '生成中...' : '补全全部归属' }}
         </n-button>
         <n-button strong secondary round @click="openOrganizationEditor()">
           <template #icon>
@@ -1031,6 +1066,69 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
       </template>
     </n-modal>
 
+    <BatchGenerateDialog
+      :show="organizationBatchVisible"
+      title="批量生成组织"
+      description="生成多个可直接进入关系图谱的组织，并自动跳过重名结果。"
+      item-label="组织"
+      :loading="isGeneratingOrg"
+      :progress="organizationBatchProgress"
+      @close="organizationBatchVisible = false"
+      @submit="handleGenerateOrganization"
+    />
+
+    <n-modal
+      :show="relationshipBatchVisible"
+      preset="card"
+      class="batch-relation-modal"
+      title="批量生成角色关系"
+      :bordered="false"
+      :mask-closable="!isGeneratingRel"
+      :closable="!isGeneratingRel"
+      @close="relationshipBatchVisible = false"
+    >
+      <n-form label-placement="top">
+        <n-form-item label="主角色">
+          <n-select v-model:value="relationshipBatchForm.mainCharacterId" :options="characterOptions" />
+        </n-form-item>
+        <n-form-item label="对应角色（可多选）">
+          <n-select
+            v-model:value="relationshipBatchForm.targetCharacterIds"
+            multiple
+            filterable
+            :options="relationshipTargetOptions"
+            placeholder="选择一个或多个角色"
+          />
+        </n-form-item>
+        <n-form-item label="关系方向">
+          <n-select v-model:value="relationshipBatchForm.direction" :options="directionOptions" />
+        </n-form-item>
+        <n-form-item label="补充要求（可选）">
+          <n-input
+            v-model:value="relationshipBatchForm.prompt"
+            type="textarea"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+            placeholder="例如：关系以利益冲突为主，减少情感线"
+          />
+        </n-form-item>
+      </n-form>
+      <p v-if="isGeneratingRel" class="relation-batch-progress">正在生成：{{ relationshipBatchProgress }}%</p>
+      <template #footer>
+        <div class="relation-batch-footer">
+          <n-button :disabled="isGeneratingRel" @click="relationshipBatchVisible = false">取消</n-button>
+          <n-button
+            type="primary"
+            :loading="isGeneratingRel"
+            :disabled="relationshipBatchForm.targetCharacterIds.length === 0"
+            @click="handleGenerateRelationship"
+          >
+            <template #icon><Sparkles :size="16" /></template>
+            生成 {{ relationshipBatchForm.targetCharacterIds.length }} 条关系
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
+
     <n-modal
       :show="organizationEditorVisible"
       preset="card"
@@ -1237,6 +1335,18 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   max-width: 1240px;
   margin: 0 auto;
   min-width: 0;
+}
+
+.relation-batch-progress {
+  margin: 0;
+  color: var(--arc-text-muted);
+  font-size: 12px;
+}
+
+.relation-batch-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .section-head {
@@ -1754,5 +1864,11 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
     width: 100%;
     justify-content: flex-end;
   }
+}
+</style>
+
+<style>
+.batch-relation-modal {
+  width: min(560px, calc(100vw - 32px));
 }
 </style>

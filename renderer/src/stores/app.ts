@@ -63,6 +63,9 @@ import type {
   OrganizationEntry,
   OrganizationMembership,
   OutlineItem,
+  OutlineImportApplyResult,
+  OutlineImportNewVolume,
+  OutlineImportPlanEntry,
   OutlineVolume,
   PanelName,
   PlotThread,
@@ -1666,16 +1669,21 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // ── 灵感卡片 CRUD ──
+  function normalizeInspirationTags(value: unknown): string[] {
+    if (!Array.isArray(value)) return []
+    return value
+      .map((tag) => tag && typeof tag === 'object'
+        ? String((tag as Record<string, unknown>).label ?? '').trim()
+        : String(tag ?? '').trim())
+      .filter((tag) => tag && tag !== '[object Object]')
+      .slice(0, 8)
+  }
+
   /** 创建灵感卡片，限制标签最多 8 个 */
   function createInspirationEntry(payload?: Partial<InspirationEntry>): void {
     const createdAt = toIsoTimestamp(payload?.createdAt)
     const updatedAt = toIsoTimestamp(payload?.updatedAt || payload?.createdAt)
-    const normalizedTags = Array.isArray(payload?.tags)
-      ? payload.tags
-          .map((tag) => String(tag).trim())
-          .filter(Boolean)
-          .slice(0, 8)
-      : []
+    const normalizedTags = normalizeInspirationTags(payload?.tags)
 
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
@@ -1712,10 +1720,7 @@ export const useAppStore = defineStore('app', () => {
                 content: payload.content?.trim() || entry.content,
                 tags:
                   Array.isArray(payload.tags) && payload.tags.length
-                    ? payload.tags
-                        .map((tag) => String(tag).trim())
-                        .filter(Boolean)
-                        .slice(0, 8)
+                    ? normalizeInspirationTags(payload.tags)
                     : entry.tags,
                 source: payload.source ?? entry.source,
                 updatedAt: toIsoTimestamp(payload.updatedAt || new Date().toISOString())
@@ -2062,6 +2067,134 @@ export const useAppStore = defineStore('app', () => {
       }
     })
     schedulePersist('fast')
+  }
+
+  function applyOutlineImportPlan(
+    entries: OutlineImportPlanEntry[],
+    newVolumes: OutlineImportNewVolume[]
+  ): OutlineImportApplyResult {
+    const result: OutlineImportApplyResult = { added: 0, overwritten: 0, createdVolumes: 0 }
+    if (!entries.length) return result
+
+    updateCurrentWorkspace((workspace) => {
+      const volumeKeyMap = new Map(workspace.outlineVolumes.map((volume) => [volume.id, volume.id]))
+      const nextVolumes = [...workspace.outlineVolumes]
+      for (const volume of newVolumes) {
+        const existing = nextVolumes.find((item) => item.title.trim().toLowerCase() === volume.title.trim().toLowerCase())
+        if (existing) {
+          volumeKeyMap.set(volume.key, existing.id)
+          continue
+        }
+        const created = createWorkspaceVolume({
+          id: uniqueId('volume'),
+          title: volume.title,
+          wordTarget: normalizeVolumeWordTarget(volume.wordTarget),
+          summary: volume.summary?.trim()
+        })
+        nextVolumes.push(created)
+        volumeKeyMap.set(volume.key, created.id)
+        result.createdVolumes += 1
+      }
+
+      type PendingInsert = {
+        item: OutlineItem
+        position: OutlineImportPlanEntry['position']
+        anchorOutlineId?: string
+        order: number
+        sourceRow: number
+      }
+      const pending: PendingInsert[] = []
+      let nextItems = [...workspace.outlineItems]
+
+      for (const entry of entries) {
+        const targetVolumeId = volumeKeyMap.get(entry.targetVolumeKey) ?? getWorkspacePrimaryVolumeId(workspace)
+        const existingIndex = entry.matchOutlineId
+          ? nextItems.findIndex((item) => item.id === entry.matchOutlineId)
+          : -1
+        const existing = existingIndex >= 0 ? nextItems[existingIndex] : null
+
+        if (entry.action === 'overwrite' && existing) {
+          const updated: OutlineItem = {
+            ...existing,
+            volumeId: targetVolumeId,
+            title: entry.item.title.trim() || existing.title,
+            wordTarget: entry.item.wordTarget?.trim() || existing.wordTarget,
+            conflict: entry.item.conflict?.trim() || existing.conflict,
+            summary: entry.item.summary?.trim() || existing.summary,
+            status: entry.item.status || existing.status
+          }
+          result.overwritten += 1
+          if (entry.position === 'keep' && existing.volumeId === targetVolumeId) {
+            nextItems.splice(existingIndex, 1, updated)
+          } else {
+            nextItems.splice(existingIndex, 1)
+            pending.push({
+              item: updated,
+              position: entry.position === 'keep' ? 'end' : entry.position,
+              anchorOutlineId: entry.anchorOutlineId,
+              order: entry.order,
+              sourceRow: entry.sourceRow
+            })
+          }
+          continue
+        }
+
+        result.added += 1
+        pending.push({
+          item: {
+            id: uniqueId('outline'),
+            volumeId: targetVolumeId,
+            title: entry.item.title.trim() || '未命名大纲节点',
+            wordTarget: entry.item.wordTarget?.trim() || '3000',
+            conflict: entry.item.conflict?.trim() || '待补充核心冲突',
+            summary: entry.item.summary?.trim() || '待补充剧情摘要',
+            status: entry.item.status || 'planned',
+            sortOrder: 0
+          },
+          position: entry.position === 'keep' ? 'end' : entry.position,
+          anchorOutlineId: entry.anchorOutlineId,
+          order: entry.order,
+          sourceRow: entry.sourceRow
+        })
+      }
+
+      const groups = new Map<string, PendingInsert[]>()
+      for (const item of pending) {
+        const key = `${item.item.volumeId}:${item.position}:${item.anchorOutlineId ?? ''}`
+        const group = groups.get(key) ?? []
+        group.push(item)
+        groups.set(key, group)
+      }
+
+      for (const group of groups.values()) {
+        group.sort((a, b) => a.order - b.order || a.sourceRow - b.sourceRow)
+        const first = group[0]
+        let insertIndex = nextItems.length
+        if (first.position === 'start') {
+          const firstVolumeIndex = nextItems.findIndex((item) => item.volumeId === first.item.volumeId)
+          insertIndex = firstVolumeIndex >= 0 ? firstVolumeIndex : nextItems.length
+        } else if (first.position === 'before' || first.position === 'after') {
+          const anchorIndex = first.anchorOutlineId
+            ? nextItems.findIndex((item) => item.id === first.anchorOutlineId)
+            : -1
+          if (anchorIndex >= 0) insertIndex = anchorIndex + (first.position === 'after' ? 1 : 0)
+        } else {
+          const volumeIndexes = nextItems
+            .map((item, index) => item.volumeId === first.item.volumeId ? index : -1)
+            .filter((index) => index >= 0)
+          insertIndex = volumeIndexes.length ? volumeIndexes[volumeIndexes.length - 1] + 1 : nextItems.length
+        }
+        nextItems.splice(insertIndex, 0, ...group.map((item) => item.item))
+      }
+
+      return {
+        ...workspace,
+        outlineVolumes: nextVolumes,
+        outlineItems: reindexOutlineItems(nextItems)
+      }
+    })
+    schedulePersist('fast')
+    return result
   }
 
   function updateOutlineItem(outlineId: string, payload: Partial<OutlineItem>): void {
@@ -3048,6 +3181,7 @@ export const useAppStore = defineStore('app', () => {
     createOrganizationMembership,
     createOutlineItem,
     createOutlineItemsAfter,
+    applyOutlineImportPlan,
     createOutlineVolume,
     createPlotThread,
     createWorldviewEntry,

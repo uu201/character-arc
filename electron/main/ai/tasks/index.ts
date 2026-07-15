@@ -36,6 +36,7 @@ import characterEnhance from './character-enhance'
 import worldviewEnhance from './worldview-enhance'
 import outlineEnhance from './outline-enhance'
 import relationEnhance from './relation-enhance'
+import catalogBatch from './catalog-batch'
 
 /** 任务处理器注册表，按任务名称映射 */
 const TASK_REGISTRY = new Map<AiTaskName, TaskHandler>()
@@ -83,6 +84,7 @@ register(characterEnhance)
 register(worldviewEnhance)
 register(outlineEnhance)
 register(relationEnhance)
+register(catalogBatch)
 
 /**
  * 根据任务名称获取对应的任务处理器

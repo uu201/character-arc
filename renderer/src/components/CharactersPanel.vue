@@ -9,7 +9,9 @@ import { toIpcPayload } from '@/utils/ipcPayload'
 import type { CharacterCard } from '@/types/app'
 import type { DropdownOption } from 'naive-ui'
 import AiEnhancePreview from './AiEnhancePreview.vue'
+import BatchGenerateDialog from './BatchGenerateDialog.vue'
 import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
+import { normalizeCatalogTags, useCatalogBatch } from '@/composables/useCatalogBatch'
 
 const appStore = useAppStore()
 const dialog = useDialog()
@@ -36,8 +38,11 @@ const props = defineProps<{
   searchQuery?: string // 全局搜索关键词，由父组件传入
 }>()
 const message = useMessage()
-const AI_TASK_KEY = 'character-card'
+const AI_TASK_KEY = 'catalog-batch:character'
 const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY)) // AI 生成角色时的加载状态（走全局注册表）
+const batchVisible = ref(false)
+const batchProgress = ref(0)
+const { generateCatalogBatch } = useCatalogBatch()
 const editorVisible = ref(false) // 控制角色编辑弹窗的显示
 const editingCharacterId = ref<string | null>(null) // 当前正在编辑的角色 ID，null 表示新建模式
 const focusedCharacterId = ref<string>('')
@@ -94,63 +99,52 @@ function handleCreateCharacter(): void {
 }
 
 // 调用 AI 接口自动生成一个角色草稿，上下文包含世界观、已有角色、关系组织等信息
-async function handleGenerateCharacter(): Promise<void> {
+async function handleGenerateCharacter(payload: { count: number; prompt: string; types: string[] }): Promise<void> {
   if (isGenerating.value) {
     return
   }
 
   try {
-    const result = await appStore.runTrackedAiTask(
-      {
-        key: AI_TASK_KEY,
-        kind: 'character',
-        label: 'AI 生成角色',
-        description: '正在根据当前世界观与已有角色生成新的角色草稿',
-        panel: 'characters'
-      },
-      () =>
-        window.characterArc.generateAi(toIpcPayload({
-          task: 'character-card',
-          settings: appStore.appSettings,
-          context: {
-            projectTitle: appStore.currentProject?.title,
-            projectGenre: appStore.currentProject?.genre,
-            writingStyleLabel: writingStyle.value.label,
-            writingStylePrompt: writingStyle.value.prompt,
-            characterNames: appStore.characters.map((character) => character.name),
-            worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
-            worldviewEntries: buildAiWorldviewContext(),
-            organizations: appStore.organizations,
-            characterRelationships: appStore.characterRelationships,
-            organizationMemberships: appStore.organizationMemberships,
-            characters: appStore.characters.map((character) => ({
-              id: character.id,
-              name: character.name,
-              role: character.role,
-              description: character.description
-            }))
-          }
+    batchProgress.value = 0
+    const entries = await generateCatalogBatch({
+      mode: 'character',
+      count: payload.count,
+      label: '批量生成角色',
+      panel: 'characters',
+      kind: 'character',
+      keyField: 'name',
+      existingKeys: appStore.characters.map((character) => character.name),
+      onProgress: (completed, total) => { batchProgress.value = Math.round(completed / total * 100) },
+      context: {
+        projectTitle: appStore.currentProject?.title,
+        projectGenre: appStore.currentProject?.genre,
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
+        userPrompt: payload.prompt,
+        worldviewEntries: buildAiWorldviewContext(),
+        organizations: appStore.organizations,
+        characterRelationships: appStore.characterRelationships,
+        organizationMemberships: appStore.organizationMemberships,
+        characters: appStore.characters.map((character) => ({
+          id: character.id,
+          name: character.name,
+          role: character.role,
+          description: character.description
         }))
-    )
-
-    if (!result.success || !result.result) {
-      throw new Error(result.error ?? 'AI 生成角色失败，请检查模型配置')
-    }
-
-    const character = result.result as {
-      name?: string
-      role?: string
-      description?: string
-      tags?: string[]
-    }
-
-    appStore.createCharacter({
-      name: character.name ?? '新角色',
-      role: character.role ?? '待设定',
-      description: character.description ?? 'AI 未返回有效角色描述',
-      tags: (character.tags ?? ['待完善']).map((label) => ({ label }))
+      }
     })
-    message.success('AI 已生成新的角色草稿')
+
+    entries.forEach((character) => {
+      const tags = normalizeCatalogTags(character.tags)
+      appStore.createCharacter({
+        name: String(character.name ?? '新角色'),
+        role: String(character.role ?? '待设定'),
+        description: String(character.description ?? 'AI 未返回有效角色描述'),
+        tags: (tags.length ? tags : ['待完善']).map((label) => ({ label }))
+      })
+    })
+    batchVisible.value = false
+    message.success(`已生成 ${entries.length} 个角色`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 生成角色失败，请检查模型配置')
   }
@@ -317,7 +311,7 @@ watch(
             </template>
           </n-input>
         </div>
-        <button class="soft-button" :disabled="isGenerating" @click="handleGenerateCharacter">
+        <button class="soft-button" :disabled="isGenerating" @click="batchVisible = true">
           <Sparkles :size="16" />
           <span>{{ isGenerating ? '生成中...' : 'AI生成角色' }}</span>
         </button>
@@ -373,6 +367,17 @@ watch(
     <div v-if="filteredCharacters.length === 0" class="arc-empty-state">
       没有匹配当前搜索条件的角色。
     </div>
+
+    <BatchGenerateDialog
+      :show="batchVisible"
+      title="批量生成角色"
+      description="按项目现有设定连续生成角色，系统会自动分批并跳过重名结果。"
+      item-label="角色"
+      :loading="isGenerating"
+      :progress="batchProgress"
+      @close="batchVisible = false"
+      @submit="handleGenerateCharacter"
+    />
 
     <n-modal
       :show="editorVisible"

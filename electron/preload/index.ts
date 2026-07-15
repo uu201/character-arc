@@ -42,6 +42,12 @@ contextBridge.exposeInMainWorld('characterArc', {
   exportChapterDocx: (payload: unknown) => ipcRenderer.invoke('characterarc:export-chapter-docx', toIpcPayload(payload)),
   /** 从 JSON 文件导入项目数据 */
   importJson: () => ipcRenderer.invoke('characterarc:import-json'),
+  /** 读取 Excel/CSV 大纲文件并返回二维表数据 */
+  importOutlineSpreadsheet: () => ipcRenderer.invoke('characterarc:import-outline-spreadsheet'),
+  /** 下载标准大纲 Excel 模板 */
+  exportOutlineTemplate: () => ipcRenderer.invoke('characterarc:export-outline-template'),
+  /** 将当前项目大纲导出为 Excel */
+  exportOutlineSpreadsheet: (payload: unknown) => ipcRenderer.invoke('characterarc:export-outline-spreadsheet', toIpcPayload(payload)),
   /** 导入参考小说并执行拆书分析 */
   importReferenceNovelAnalysis: (payload: unknown) => ipcRenderer.invoke('characterarc:import-reference-novel-analysis', toIpcPayload(payload)),
   /** 批量导入多本参考小说并发拆书分析 */

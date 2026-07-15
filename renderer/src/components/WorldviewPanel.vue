@@ -8,7 +8,9 @@ import { buildProjectWritingStyleContext } from '@/features/writingStyles/preset
 import type { DropdownOption } from 'naive-ui'
 import type { WorldviewEntry } from '@/types/app'
 import AiEnhancePreview from './AiEnhancePreview.vue'
+import BatchGenerateDialog from './BatchGenerateDialog.vue'
 import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
+import { useCatalogBatch } from '@/composables/useCatalogBatch'
 
 const props = defineProps<{
   searchQuery?: string // 全局搜索关键词，用于过滤世界观词条
@@ -20,8 +22,11 @@ const message = useMessage()
 // 根据当前项目配置生成写作风格上下文，供 AI 生成时参考
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
 // 本面板唯一 AI 任务 key；交给全局注册表后切换面板仍能保持 loading 态
-const AI_TASK_KEY = 'worldview-entry'
+const AI_TASK_KEY = 'catalog-batch:worldview'
 const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY))
+const batchVisible = ref(false)
+const batchProgress = ref(0)
+const { generateCatalogBatch } = useCatalogBatch()
 const editorVisible = ref(false) // 控制词条编辑弹窗的显示
 const editingEntryId = ref<string | null>(null) // 当前正在编辑的词条 ID，null 表示新建模式
 const focusedEntryId = ref<string>('')
@@ -114,54 +119,42 @@ function handleCreateEntry(): void {
 }
 
 // 调用 AI 接口自动生成一条世界观词条草稿
-async function handleGenerateEntry(): Promise<void> {
+async function handleGenerateEntry(payload: { count: number; prompt: string; types: string[] }): Promise<void> {
   if (isGenerating.value) {
     return
   }
 
   try {
-    const result = await appStore.runTrackedAiTask(
-      {
-        key: AI_TASK_KEY,
-        kind: 'worldview',
-        label: 'AI 扩写世界观',
-        description: '正在为当前项目补写一条世界观词条',
-        panel: 'world'
-      },
-      () =>
-        window.characterArc.generateAi(toIpcPayload({
-          task: 'worldview-entry',
-          settings: appStore.appSettings,
-          context: {
-            projectTitle: appStore.currentProject?.title,
-            projectGenre: appStore.currentProject?.genre,
-            writingStyleLabel: writingStyle.value.label,
-            writingStylePrompt: writingStyle.value.prompt,
-            worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
-            worldviewEntries: buildAiWorldviewContext(),
-            characters: buildAiCharactersContext(),
-            organizations: buildAiOrganizationsContext(),
-            outlineItems: buildAiOutlineContext()
-          }
-        }))
-    )
-
-    if (!result.success || !result.result) {
-      throw new Error(result.error ?? 'AI 扩写失败，请检查模型配置')
-    }
-
-    const entry = result.result as {
-      type?: string
-      title?: string
-      content?: string
-    }
-
-    appStore.createWorldviewEntry({
-      type: entry.type ?? '地理',
-      title: entry.title ?? '新世界观词条',
-      content: entry.content ?? 'AI 未返回有效内容'
+    batchProgress.value = 0
+    const entries = await generateCatalogBatch({
+      mode: 'worldview',
+      count: payload.count,
+      label: '批量生成世界观',
+      panel: 'world',
+      kind: 'worldview',
+      keyField: 'title',
+      existingKeys: appStore.worldviewEntries.map((entry) => entry.title),
+      onProgress: (completed, total) => { batchProgress.value = Math.round(completed / total * 100) },
+      context: {
+        projectTitle: appStore.currentProject?.title,
+        projectGenre: appStore.currentProject?.genre,
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
+        userPrompt: payload.prompt,
+        requestedTypes: payload.types,
+        worldviewEntries: buildAiWorldviewContext(),
+        characters: buildAiCharactersContext(),
+        organizations: buildAiOrganizationsContext(),
+        outlineItems: buildAiOutlineContext()
+      }
     })
-    message.success('AI 已生成新的世界观词条草稿')
+    entries.forEach((entry) => appStore.createWorldviewEntry({
+      type: String(entry.type ?? payload.types[0] ?? '地理'),
+      title: String(entry.title ?? '新世界观词条'),
+      content: String(entry.content ?? 'AI 未返回有效内容')
+    }))
+    batchVisible.value = false
+    message.success(`已生成 ${entries.length} 条世界观设定`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 扩写失败，请检查模型配置')
   }
@@ -306,9 +299,9 @@ watch(
         <p>AI 协助构建的世界基石，所有的故事都在这里发生。</p>
       </div>
       <div class="head-actions">
-        <button class="soft-button" :disabled="isGenerating" @click="handleGenerateEntry">
+        <button class="soft-button" :disabled="isGenerating" @click="batchVisible = true">
           <Sparkles :size="16" />
-          <span>{{ isGenerating ? '生成中...' : 'AI 扩写' }}</span>
+          <span>{{ isGenerating ? '生成中...' : '批量生成' }}</span>
         </button>
         <button class="primary-button" @click="handleCreateEntry">
           <Plus :size="16" />
@@ -316,6 +309,19 @@ watch(
         </button>
       </div>
     </div>
+
+    <BatchGenerateDialog
+      :show="batchVisible"
+      title="批量生成世界观"
+      description="按所选分类补齐世界设定，生成结果会自动避开已有标题。"
+      item-label="设定"
+      :loading="isGenerating"
+      :progress="batchProgress"
+      :type-options="typeOptions.filter((option) => option.value !== '历史')"
+      :default-types="['势力', '地理', '法则', '物种']"
+      @close="batchVisible = false"
+      @submit="handleGenerateEntry"
+    />
 
     <div class="world-grid">
       <article

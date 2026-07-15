@@ -437,6 +437,26 @@ declare global {
         meta?: CharacterArcImportMeta
         error?: string
       }>
+      importOutlineSpreadsheet: () => Promise<{
+        success: boolean
+        canceled: boolean
+        fileName?: string
+        sheetName?: string
+        rows?: string[][]
+        error?: string
+      }>
+      exportOutlineTemplate: () => Promise<{
+        success: boolean
+        canceled: boolean
+        filePath?: string
+        error?: string
+      }>
+      exportOutlineSpreadsheet: (payload: unknown) => Promise<{
+        success: boolean
+        canceled: boolean
+        filePath?: string
+        error?: string
+      }>
       importReferenceNovelAnalysis: (payload: CharacterArcReferenceImportPayload) => Promise<{
         success: boolean
         canceled: boolean

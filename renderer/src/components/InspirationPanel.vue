@@ -5,30 +5,24 @@ import { NButton, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NTa
 import { getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { useAppStore } from '@/stores/app'
-import { toIpcPayload } from '@/utils/ipcPayload'
 import type { DropdownOption } from 'naive-ui'
 import type { InspirationEntry } from '@/types/app'
+import BatchGenerateDialog from './BatchGenerateDialog.vue'
+import { normalizeCatalogTags, useCatalogBatch } from '@/composables/useCatalogBatch'
 
 const props = defineProps<{
   searchQuery?: string // 全局搜索关键词
 }>()
 
-// AI 批量生成灵感时的返回结构类型
-type InspirationPackResult = {
-  entries?: Array<{
-    type?: string
-    title?: string
-    content?: string
-    tags?: string[]
-  }>
-}
-
 const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
-const AI_TASK_KEY = 'inspiration-pack'
+const AI_TASK_KEY = 'catalog-batch:inspiration'
 const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY)) // 走全局注册表，跨面板保持状态
+const batchVisible = ref(false)
+const batchProgress = ref(0)
+const { generateCatalogBatch } = useCatalogBatch()
 const editorVisible = ref(false) // 控制灵感编辑弹窗
 const editingEntryId = ref<string | null>(null) // 当前编辑的灵感 ID，null 为新建
 const selectedFocus = ref('场景火花') // 当前选中的灵感焦点类型
@@ -40,7 +34,8 @@ const form = reactive({
   tags: [] as string[]
 })
 
-const focusTypes = ['标题灵感', '开篇钩子', '场景火花', '剧情转折', '设定补完', '人物动机'] // 灵感焦点类型列表
+const focusTypes = ['标题灵感', '开篇钩子', '场景火花', '剧情转折', '设定补完', '人物动机', '伏笔'] // 灵感焦点类型列表
+const batchTypeOptions = ['场景火花', '伏笔'].map((type) => ({ label: type, value: type }))
 const menuOptions: DropdownOption[] = [ // 灵感卡片的下拉菜单选项
   { key: 'edit', label: '编辑灵感' },
   { key: 'delete', label: '删除灵感' }
@@ -108,65 +103,51 @@ function openEditor(entry?: InspirationEntry): void {
 }
 
 // 调用 AI 接口批量生成灵感卡片（根据选中的焦点类型和当前章节上下文）
-async function handleGeneratePack(): Promise<void> {
+async function handleGeneratePack(payload: { count: number; prompt: string; types: string[] }): Promise<void> {
   if (isGenerating.value) {
     return
   }
 
   try {
-    const result = await appStore.runTrackedAiTask(
-      {
-        key: AI_TASK_KEY,
-        kind: 'inspiration',
-        label: 'AI 生成灵感',
-        description: `正在生成「${selectedFocus.value}」主题的灵感卡片`,
-        panel: 'inspiration'
-      },
-      () =>
-        window.characterArc.generateAi(toIpcPayload({
-          task: 'inspiration-pack',
-          settings: appStore.appSettings,
-          context: {
-            projectTitle: appStore.currentProject?.title,
-            projectGenre: appStore.currentProject?.genre,
-            writingStyleLabel: writingStyle.value.label,
-            writingStylePrompt: writingStyle.value.prompt,
-            chapterTitle: appStore.selectedChapter?.title,
-            chapterSummary: appStore.selectedChapter?.summary,
-            chapterContent: selectedChapterText.value,
-            focusType: selectedFocus.value,
-            existingInspirationTitles: appStore.inspirationEntries.map((entry) => entry.title),
-            worldviewEntries: appStore.worldviewEntries,
-            characters: appStore.characters,
-            organizations: appStore.organizations,
-            characterRelationships: appStore.characterRelationships,
-            organizationMemberships: appStore.organizationMemberships,
-            outlineItems: appStore.outlineItems
-          }
-        }))
-    )
-
-    if (!result.success || !result.result) {
-      throw new Error(result.error ?? 'AI 生成灵感失败，请检查模型配置')
-    }
-
-    const payload = result.result as InspirationPackResult
-    const entries = Array.isArray(payload.entries) ? payload.entries : []
-    if (!entries.length) {
-      throw new Error('AI 没有返回有效灵感卡片')
-    }
-
+    batchProgress.value = 0
+    const entries = await generateCatalogBatch({
+      mode: 'inspiration',
+      count: payload.count,
+      label: '批量生成灵感',
+      panel: 'inspiration',
+      kind: 'inspiration',
+      keyField: 'title',
+      existingKeys: appStore.inspirationEntries.map((entry) => entry.title),
+      onProgress: (completed, total) => { batchProgress.value = Math.round(completed / total * 100) },
+      context: {
+        projectTitle: appStore.currentProject?.title,
+        projectGenre: appStore.currentProject?.genre,
+        writingStyleLabel: writingStyle.value.label,
+        writingStylePrompt: writingStyle.value.prompt,
+        userPrompt: payload.prompt,
+        requestedTypes: payload.types,
+        chapterTitle: appStore.selectedChapter?.title,
+        chapterSummary: appStore.selectedChapter?.summary,
+        chapterContent: selectedChapterText.value,
+        worldviewEntries: appStore.worldviewEntries,
+        characters: appStore.characters,
+        organizations: appStore.organizations,
+        characterRelationships: appStore.characterRelationships,
+        organizationMemberships: appStore.organizationMemberships,
+        outlineItems: appStore.outlineItems
+      }
+    })
     entries.forEach((entry, index) => {
       appStore.createInspirationEntry({
-        type: entry.type ?? selectedFocus.value,
-        title: entry.title ?? `${selectedFocus.value} ${index + 1}`,
-        content: entry.content ?? 'AI 未返回有效灵感内容',
-        tags: entry.tags ?? [],
+        type: String(entry.type ?? payload.types[0] ?? selectedFocus.value),
+        title: String(entry.title ?? `${payload.types[0] ?? selectedFocus.value} ${index + 1}`),
+        content: String(entry.content ?? 'AI 未返回有效灵感内容'),
+        tags: normalizeCatalogTags(entry.tags),
         source: 'ai'
       })
     })
-
-    message.success(`已生成 ${entries.length} 张${selectedFocus.value}灵感卡片`)
+    batchVisible.value = false
+    message.success(`已生成 ${entries.length} 张灵感卡片`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 生成灵感失败，请稍后重试')
   }
@@ -223,9 +204,9 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
         <p>沉淀标题、钩子、桥段与转折，把零散火花收束成可继续创作的卡片。</p>
       </div>
       <div class="head-actions">
-        <button class="soft-button" :disabled="isGenerating" @click="handleGeneratePack">
+        <button class="soft-button" :disabled="isGenerating" @click="batchVisible = true">
           <Sparkles :size="16" />
-          <span>{{ isGenerating ? '生成中...' : `AI 生成${selectedFocus}` }}</span>
+          <span>{{ isGenerating ? '生成中...' : '批量生成灵感' }}</span>
         </button>
         <button class="primary-button" @click="openCreateEditor()">
           <Plus :size="16" />
@@ -233,6 +214,19 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
         </button>
       </div>
     </div>
+
+    <BatchGenerateDialog
+      :show="batchVisible"
+      title="批量生成灵感"
+      description="批量铺设可用于章节创作的场景火花和伏笔。"
+      item-label="灵感"
+      :loading="isGenerating"
+      :progress="batchProgress"
+      :type-options="batchTypeOptions"
+      :default-types="batchTypeOptions.some((option) => option.value === selectedFocus) ? [selectedFocus] : ['场景火花', '伏笔']"
+      @close="batchVisible = false"
+      @submit="handleGeneratePack"
+    />
 
     <section class="hero-shell">
       <div class="hero-copy">

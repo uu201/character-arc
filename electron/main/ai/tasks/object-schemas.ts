@@ -295,6 +295,22 @@ const taskObjectSchemas: Partial<Record<AiTaskName, z.ZodTypeAny>> = {
     role: stringField.optional(),
     notes: stringField.optional(),
     intensity: z.number().optional()
+  }),
+  'catalog-batch': z.object({
+    entries: z.array(z.object({
+      targetIndex: z.number().optional(),
+      name: stringField.optional(),
+      type: stringField.optional(),
+      title: stringField.optional(),
+      content: stringField.optional(),
+      description: stringField.optional(),
+      motto: stringField.optional(),
+      role: stringField.optional(),
+      notes: stringField.optional(),
+      organizationName: stringField.optional(),
+      intensity: z.number().optional(),
+      tags: z.array(z.union([stringField, z.object({ label: stringField })])).optional()
+    }))
   })
 }
 

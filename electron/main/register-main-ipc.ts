@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { cp, mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
+import * as XLSX from 'xlsx'
 
 import type { AiTaskPayload, ReferenceStyleAnalysisResult, ReferenceStyleChunkResult } from './ai/shared-types'
 import { runAiTask } from './ai/runtime'
@@ -455,6 +456,128 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
       payload: validation.payload,
       meta: validation.meta
     }
+  })
+
+  ipcMain.handle('characterarc:import-outline-spreadsheet', async () => {
+    const window = deps.windowManager.getActiveWindow()
+    if (!window) return { success: false, canceled: true }
+
+    const result = await dialog.showOpenDialog(window, {
+      title: '导入剧情大纲',
+      properties: ['openFile'],
+      filters: [{ name: 'Excel 或 CSV', extensions: ['xlsx', 'xls', 'csv'] }]
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true }
+    }
+
+    try {
+      const filePath = result.filePaths[0]
+      const workbook = XLSX.read(await readFile(filePath), { type: 'buffer' })
+      const sheetName = workbook.SheetNames[0]
+      if (!sheetName) throw new Error('文件中没有可读取的工作表。')
+      const rawRows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], {
+        header: 1,
+        defval: '',
+        raw: false
+      })
+      const rows = rawRows
+        .slice(0, 5001)
+        .map((row) => row.map((cell) => String(cell ?? '').trim()))
+        .filter((row) => row.some(Boolean))
+      if (rows.length < 2) throw new Error('工作表没有可导入的数据行。')
+      return { success: true, canceled: false, fileName: basename(filePath), sheetName, rows }
+    } catch (error) {
+      return {
+        success: false,
+        canceled: false,
+        error: error instanceof Error ? error.message : '无法读取大纲文件。'
+      }
+    }
+  })
+
+  ipcMain.handle('characterarc:export-outline-template', async () => {
+    const window = deps.windowManager.getActiveWindow()
+    if (!window) return { success: false, canceled: true }
+    const result = await dialog.showSaveDialog(window, {
+      title: '下载大纲 Excel 模板',
+      defaultPath: 'CharacterArc-大纲导入模板.xlsx',
+      filters: [{ name: 'Excel 工作簿', extensions: ['xlsx'] }]
+    })
+    if (result.canceled || !result.filePath) return { success: false, canceled: true }
+
+    const headers = ['分卷名称', '分卷目标字数', '分卷摘要', '章节序号', '章节标题', '目标字数', '核心冲突', '剧情摘要']
+    const workbook = XLSX.utils.book_new()
+    const templateSheet = XLSX.utils.aoa_to_sheet([headers, ['', '', '', '', '', '', '', '']])
+    const exampleSheet = XLSX.utils.aoa_to_sheet([
+      headers,
+      ['第一卷：暗潮', '50000', '主角发现城中粮道失控的真正原因。', '1', '第1章：雨夜来客', '3200', '陌生人的求助可能是一场试探。', '主角在雨夜接下密信，并第一次接触南驿账簿。'],
+      ['', '', '', '2', '第2章：失踪账簿', '3500', '调查越深入，身边人的立场越可疑。', '账簿失踪，主角必须在官差封锁前找到经手人。']
+    ])
+    const descriptionSheet = XLSX.utils.aoa_to_sheet([
+      ['字段', '是否必填', '说明'],
+      ['分卷名称', '否', '每个分卷第一行填写即可，后续空白行自动沿用上一行分卷。不存在的分卷会在确认导入时新建。'],
+      ['分卷目标字数', '否', '仅需在分卷第一行填写。'],
+      ['分卷摘要', '否', '仅需在分卷第一行填写。'],
+      ['章节序号', '否', '同一插入位置下的顺序，数字越小越靠前。'],
+      ['章节标题', '是', '大纲节点标题。'],
+      ['目标字数', '否', '章节预计字数。'],
+      ['核心冲突', '否', '本章最主要的矛盾或阻力。'],
+      ['剧情摘要', '否', '本章剧情推进内容。']
+    ])
+    templateSheet['!cols'] = headers.map((header) => ({ wch: Math.max(12, header.length + 4) }))
+    exampleSheet['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 36 }, { wch: 12 }, { wch: 28 }, { wch: 12 }, { wch: 36 }, { wch: 52 }]
+    descriptionSheet['!cols'] = [{ wch: 18 }, { wch: 12 }, { wch: 72 }]
+    templateSheet['!autofilter'] = { ref: 'A1:H1' }
+    exampleSheet['!autofilter'] = { ref: 'A1:H1' }
+    XLSX.utils.book_append_sheet(workbook, templateSheet, '大纲模板')
+    XLSX.utils.book_append_sheet(workbook, exampleSheet, '填写示例')
+    XLSX.utils.book_append_sheet(workbook, descriptionSheet, '字段说明')
+    await writeFile(result.filePath, XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }))
+    return { success: true, canceled: false, filePath: result.filePath }
+  })
+
+  ipcMain.handle('characterarc:export-outline-spreadsheet', async (_event, payload: unknown) => {
+    const window = deps.windowManager.getActiveWindow()
+    if (!window) return { success: false, canceled: true }
+    const request = (payload ?? {}) as {
+      projectTitle?: string
+      volumes?: Array<{ id?: string; title?: string; wordTarget?: string; summary?: string }>
+      items?: Array<{ volumeId?: string; title?: string; wordTarget?: string; conflict?: string; summary?: string }>
+    }
+    const safeProjectTitle = String(request.projectTitle ?? 'CharacterArc').replace(/[\\/:*?"<>|]/g, '-').trim() || 'CharacterArc'
+    const result = await dialog.showSaveDialog(window, {
+      title: '导出剧情大纲 Excel',
+      defaultPath: `${safeProjectTitle}-剧情大纲.xlsx`,
+      filters: [{ name: 'Excel 工作簿', extensions: ['xlsx'] }]
+    })
+    if (result.canceled || !result.filePath) return { success: false, canceled: true }
+
+    const volumeMap = new Map((request.volumes ?? []).map((volume) => [volume.id ?? '', volume]))
+    const volumeSequence = new Map<string, number>()
+    const rows = (request.items ?? []).map((item) => {
+      const volumeId = item.volumeId ?? ''
+      const sequence = (volumeSequence.get(volumeId) ?? 0) + 1
+      volumeSequence.set(volumeId, sequence)
+      const volume = volumeMap.get(volumeId)
+      return {
+        分卷名称: sequence === 1 ? volume?.title ?? '' : '',
+        分卷目标字数: sequence === 1 ? volume?.wordTarget ?? '' : '',
+        分卷摘要: sequence === 1 ? volume?.summary ?? '' : '',
+        章节序号: sequence,
+        章节标题: item.title ?? '',
+        目标字数: item.wordTarget ?? '',
+        核心冲突: item.conflict ?? '',
+        剧情摘要: item.summary ?? ''
+      }
+    })
+    const workbook = XLSX.utils.book_new()
+    const outlineSheet = XLSX.utils.json_to_sheet(rows, { header: ['分卷名称', '分卷目标字数', '分卷摘要', '章节序号', '章节标题', '目标字数', '核心冲突', '剧情摘要'] })
+    outlineSheet['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 36 }, { wch: 12 }, { wch: 28 }, { wch: 12 }, { wch: 36 }, { wch: 52 }]
+    outlineSheet['!autofilter'] = { ref: 'A1:H1' }
+    XLSX.utils.book_append_sheet(workbook, outlineSheet, '剧情大纲')
+    await writeFile(result.filePath, XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }))
+    return { success: true, canceled: false, filePath: result.filePath }
   })
 
   ipcMain.handle('characterarc:pick-cover-image', async () => {

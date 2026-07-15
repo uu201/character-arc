@@ -82,6 +82,7 @@ export type AiTaskName =
   | 'worldview-enhance'
   | 'outline-enhance'
   | 'relation-enhance'
+  | 'catalog-batch'
   | 'cover-generate'
 
 /**
@@ -389,6 +390,11 @@ export type InspirationPackResult = {
   entries: InspirationResult[]
 }
 
+/** 图鉴类数据的批量生成结果，由调用方根据 mode 解释字段。 */
+export type CatalogBatchResult = {
+  entries: Array<Record<string, unknown>>
+}
+
 /** 章节场景规划结果 */
 export type ChapterScenePlanResult = {
   scenes: Array<{ focus: string }>
@@ -453,6 +459,7 @@ export type AiTaskResult =
   | ReferenceStyleChunkResult
   | ReferenceStyleAnalysisResult
   | InspirationPackResult
+  | CatalogBatchResult
   | PlotThreadDetectResult
   | ChapterScenePlanResult
   | ChapterMemoResult

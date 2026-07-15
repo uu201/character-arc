@@ -497,6 +497,39 @@ export interface OutlineItem {
   sortOrder: number
 }
 
+export type OutlineImportAction = 'add' | 'overwrite'
+export type OutlineImportPosition = 'keep' | 'start' | 'end' | 'before' | 'after'
+
+export interface OutlineImportNewVolume {
+  key: string
+  title: string
+  wordTarget?: string
+  summary?: string
+}
+
+export interface OutlineImportPlanEntry {
+  sourceRow: number
+  action: OutlineImportAction
+  matchOutlineId?: string
+  targetVolumeKey: string
+  position: OutlineImportPosition
+  anchorOutlineId?: string
+  order: number
+  item: {
+    title: string
+    wordTarget?: string
+    conflict?: string
+    summary?: string
+    status?: OutlineItemStatus
+  }
+}
+
+export interface OutlineImportApplyResult {
+  added: number
+  overwritten: number
+  createdVolumes: number
+}
+
 /** AI 助手聊天消息 */
 export interface AssistantToolCall {
   toolUseId: string
