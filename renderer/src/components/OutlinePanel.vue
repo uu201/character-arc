@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, h, nextTick, reactive, ref, watch } from 'vue'
 import { CheckSquare, ChevronDown, Download, FileDown, FileSpreadsheet, FilePlus2, Files, FolderTree, GripVertical, ListChecks, MoreVertical, Plus, Rows3, Sparkles, Trash2, Upload } from 'lucide-vue-next'
-import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NInputNumber, NModal, NRadioButton, NRadioGroup, NSelect, useDialog, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NModal, NRadioButton, NRadioGroup, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useEventListener } from '@vueuse/core'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { useAppStore } from '@/stores/app'
@@ -92,8 +92,10 @@ const importVisible = ref(false)
 const importFileName = ref('')
 const importRows = ref<string[][]>([])
 const importPreviewReady = ref(false)
+const importStep = ref<1 | 2 | 3>(1) // 1: 字段映射, 2: 确认分卷, 3: 确认章节
 const importPlan = ref<ImportPlanRow[]>([])
 const importNewVolumes = ref<OutlineImportNewVolume[]>([])
+const importVolumesConfirmed = ref<Array<{ key: string; title: string; enabled: boolean; isNew: boolean; existingId?: string }>>([])
 const importBatchTarget = ref<string | null>(null)
 const importBatchStrategy = ref<ImportStrategy | null>(null)
 const importBatchStrategyOptions = [
@@ -132,16 +134,42 @@ const importColumnOptions = computed(() => importHeaders.value.map((header, inde
   value: index
 })))
 const importDataRows = computed(() => importRows.value.slice(1).filter((row) => row.some((cell) => cell.trim())))
-const importVolumeOptions = computed(() => [
-  ...appStore.outlineVolumes.map((volume) => ({ label: volume.title, value: volume.id })),
-  ...importNewVolumes.value.map((volume) => ({ label: `新建：${volume.title}`, value: volume.key }))
-])
-const importEnabledCount = computed(() => importPlan.value.filter((item) => item.enabled && !item.error && item.strategy !== 'skip').length)
+const importVolumeOptions = computed(() => {
+  // 步骤 3：只显示已确认导入的分卷
+  if (importStep.value === 3) {
+    const confirmed = importVolumesConfirmed.value.filter(v => v.enabled)
+    return confirmed.map(v => ({
+      label: v.isNew ? `新建：${v.title}` : v.title,
+      value: v.key
+    }))
+  }
+  // 步骤 2 及之前：显示所有分卷
+  return [
+    ...appStore.outlineVolumes.map((volume) => ({ label: volume.title, value: volume.id })),
+    ...importNewVolumes.value.map((volume) => ({ label: `新建：${volume.title}`, value: volume.key }))
+  ]
+})
+
+const filteredImportVolumeOptions = computed(() => {
+  const confirmed = importVolumesConfirmed.value.filter(v => v.enabled)
+  return confirmed.map(v => ({
+    label: v.isNew ? `新建：${v.title}` : v.title,
+    value: v.key
+  }))
+})
+
+const filteredImportPlan = computed(() => {
+  if (importStep.value !== 3) return importPlan.value
+  const enabledVolumeKeys = new Set(importVolumesConfirmed.value.filter(v => v.enabled).map(v => v.key))
+  return importPlan.value.filter(item => enabledVolumeKeys.has(item.targetVolumeKey))
+})
+
+const importEnabledCount = computed(() => filteredImportPlan.value.filter((item) => item.enabled && !item.error && item.strategy !== 'skip').length)
 const importStats = computed(() => ({
-  add: importPlan.value.filter((item) => item.enabled && !item.error && item.strategy === 'add').length,
-  overwrite: importPlan.value.filter((item) => item.enabled && !item.error && item.strategy === 'overwrite').length,
-  skip: importPlan.value.filter((item) => !item.enabled || item.strategy === 'skip').length,
-  error: importPlan.value.filter((item) => Boolean(item.error)).length
+  add: filteredImportPlan.value.filter((item) => item.enabled && !item.error && item.strategy === 'add').length,
+  overwrite: filteredImportPlan.value.filter((item) => item.enabled && !item.error && item.strategy === 'overwrite').length,
+  skip: filteredImportPlan.value.filter((item) => !item.enabled || item.strategy === 'skip').length,
+  error: filteredImportPlan.value.filter((item) => Boolean(item.error)).length
 }))
 const unboundOutlineItems = computed(() => {
   const boundIds = new Set(appStore.chapters.map((chapter) => chapter.outlineItemId).filter(Boolean))
@@ -691,8 +719,10 @@ async function openOutlineImport(): Promise<void> {
   importFileName.value = result.fileName ?? '大纲文件'
   importRows.value = result.rows
   importPreviewReady.value = false
+  importStep.value = 1
   importPlan.value = []
   importNewVolumes.value = []
+  importVolumesConfirmed.value = []
   importMapping.volume = detectImportColumn(/^(分卷|分卷名称|卷名|卷)$/i)
   importMapping.volumeWordTarget = detectImportColumn(/^(分卷目标字数|卷目标字数)$/i)
   importMapping.volumeSummary = detectImportColumn(/^(分卷摘要|卷摘要)$/i)
@@ -708,13 +738,23 @@ function importCell(row: string[], column: number | null): string {
   return column == null ? '' : String(row[column] ?? '').trim()
 }
 
-const importPreviewRows = computed(() => importDataRows.value.slice(0, 5).map((row) => ({
-  volume: importCell(row, importMapping.volume) || '默认分卷',
-  title: importCell(row, importMapping.title),
-  wordTarget: importCell(row, importMapping.wordTarget) || '3000',
-  conflict: importCell(row, importMapping.conflict),
-  summary: importCell(row, importMapping.summary)
-})))
+const importPreviewRows = computed(() => {
+  return importDataRows.value.map((row) => {
+    const volumeRaw = importCell(row, importMapping.volume)
+    const titleRaw = importCell(row, importMapping.title)
+    const wordTargetRaw = importCell(row, importMapping.wordTarget)
+    const conflictRaw = importCell(row, importMapping.conflict)
+    const summaryRaw = importCell(row, importMapping.summary)
+
+    return {
+      volume: volumeRaw || '（未指定）',
+      title: titleRaw || '（未识别标题）',
+      wordTarget: wordTargetRaw || '—',
+      conflict: conflictRaw || '—',
+      summary: summaryRaw || '—'
+    }
+  })
+})
 
 function normalizeImportKey(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLowerCase()
@@ -735,6 +775,7 @@ function buildImportPlan(): void {
   }
   const volumeByTitle = new Map(appStore.outlineVolumes.map((volume) => [normalizeImportKey(volume.title), volume]))
   const newVolumeMap = new Map<string, OutlineImportNewVolume>()
+  const volumesSet = new Map<string, { key: string; title: string; isNew: boolean; existingId?: string }>()
   const plan: ImportPlanRow[] = []
   let inheritedVolumeTitle = ''
   let inheritedVolumeWordTarget = ''
@@ -753,19 +794,40 @@ function buildImportPlan(): void {
     const sourceVolumeTitle = explicitVolumeTitle || inheritedVolumeTitle
     const matchedVolume = volumeByTitle.get(normalizeImportKey(sourceVolumeTitle))
     let targetVolumeKey = matchedVolume?.id ?? appStore.outlineVolumes[0]?.id ?? ''
-    if (!matchedVolume && sourceVolumeTitle) {
+
+    // 收集分卷信息
+    if (sourceVolumeTitle) {
       const normalizedTitle = normalizeImportKey(sourceVolumeTitle)
-      const key = `new-volume:${normalizedTitle}`
-      targetVolumeKey = key
-      if (!newVolumeMap.has(key)) {
-        newVolumeMap.set(key, {
-          key,
-          title: sourceVolumeTitle,
-          wordTarget: explicitVolumeWordTarget || inheritedVolumeWordTarget,
-          summary: explicitVolumeSummary || inheritedVolumeSummary
-        })
+      if (matchedVolume) {
+        // 已存在的分卷
+        if (!volumesSet.has(matchedVolume.id)) {
+          volumesSet.set(matchedVolume.id, {
+            key: matchedVolume.id,
+            title: sourceVolumeTitle,
+            isNew: false,
+            existingId: matchedVolume.id
+          })
+        }
+      } else {
+        // 新分卷
+        const key = `new-volume:${normalizedTitle}`
+        targetVolumeKey = key
+        if (!newVolumeMap.has(key)) {
+          newVolumeMap.set(key, {
+            key,
+            title: sourceVolumeTitle,
+            wordTarget: explicitVolumeWordTarget || inheritedVolumeWordTarget,
+            summary: explicitVolumeSummary || inheritedVolumeSummary
+          })
+          volumesSet.set(key, {
+            key,
+            title: sourceVolumeTitle,
+            isNew: true
+          })
+        }
       }
     }
+
     const draft: ImportPlanRow = {
       key: `import-row-${index + 2}`,
       sourceRow: index + 2,
@@ -793,6 +855,15 @@ function buildImportPlan(): void {
 
   importNewVolumes.value = [...newVolumeMap.values()]
   importPlan.value = plan
+
+  // 初始化分卷确认列表（默认全部启用）
+  importVolumesConfirmed.value = Array.from(volumesSet.values()).map(v => ({
+    ...v,
+    enabled: true
+  }))
+
+  // 进入步骤 2：确认分卷
+  importStep.value = 2
   importPreviewReady.value = true
 }
 
@@ -807,6 +878,35 @@ function importStrategyOptions(item: ImportPlanRow) {
         { label: '不导入', value: 'skip' },
         { label: '新增节点', value: 'add' }
       ]
+}
+
+function confirmVolumesAndProceed(): void {
+  const enabledVolumes = importVolumesConfirmed.value.filter(v => v.enabled)
+  if (enabledVolumes.length === 0) {
+    message.warning('请至少选择一个分卷')
+    return
+  }
+
+  // 过滤掉未启用分卷的章节
+  const enabledVolumeKeys = new Set(enabledVolumes.map(v => v.key))
+  importPlan.value.forEach(item => {
+    if (!enabledVolumeKeys.has(item.targetVolumeKey)) {
+      item.enabled = false
+      item.strategy = 'skip'
+    }
+  })
+
+  // 进入步骤 3：确认章节
+  importStep.value = 3
+}
+
+function backToVolumeConfirm(): void {
+  importStep.value = 2
+}
+
+function backToFieldMapping(): void {
+  importStep.value = 1
+  importPreviewReady.value = false
 }
 
 function importLocationOptions(item: ImportPlanRow) {
@@ -848,12 +948,12 @@ function handleImportTargetChange(item: ImportPlanRow): void {
 }
 
 function toggleAllImportRows(enabled: boolean): void {
-  importPlan.value.forEach((item) => setImportEnabled(item, enabled && !item.error))
+  filteredImportPlan.value.forEach((item) => setImportEnabled(item, enabled && !item.error))
 }
 
 function applyImportBatchTarget(): void {
   if (!importBatchTarget.value) return
-  importPlan.value.filter((item) => item.enabled && !item.error).forEach((item) => {
+  filteredImportPlan.value.filter((item) => item.enabled && !item.error).forEach((item) => {
     item.targetVolumeKey = importBatchTarget.value as string
     handleImportTargetChange(item)
   })
@@ -863,7 +963,7 @@ function applyImportBatchTarget(): void {
 
 function applyImportBatchStrategy(): void {
   if (!importBatchStrategy.value) return
-  importPlan.value.filter((item) => !item.error).forEach((item) => {
+  filteredImportPlan.value.filter((item) => !item.error).forEach((item) => {
     if (importBatchStrategy.value === 'overwrite' && !item.duplicateId) return
     item.strategy = importBatchStrategy.value as ImportStrategy
     handleImportStrategyChange(item)
@@ -880,7 +980,7 @@ function parseImportLocation(location: string): Pick<OutlineImportPlanEntry, 'po
 }
 
 function commitOutlineImport(): void {
-  const selected = importPlan.value.filter((item) => item.enabled && !item.error && item.strategy !== 'skip')
+  const selected = filteredImportPlan.value.filter((item) => item.enabled && !item.error && item.strategy !== 'skip')
   if (!selected.length) {
     message.warning('请至少选择一条有效数据')
     return
@@ -917,10 +1017,17 @@ async function downloadOutlineTemplate(): Promise<void> {
 
 function previewOutlineExport(): void {
   const volumeMap = new Map(appStore.outlineVolumes.map((volume) => [volume.id, volume]))
-  const rows = appStore.outlineItems.slice(0, 10).map((item) => {
+
+  // 按分卷分组并标记每个分卷的第一行（仅用于预览显示）
+  const rowsWithVolumeInfo = appStore.outlineItems.slice(0, 10).map((item, index, array) => {
     const volume = volumeMap.get(item.volumeId)
+    const volumeTitle = volume?.title ?? ''
+    const prevItem = index > 0 ? array[index - 1] : null
+    const showVolume = !prevItem || prevItem.volumeId !== item.volumeId
+
     return {
-      volume: volume?.title ?? '',
+      volume: showVolume ? volumeTitle : '',
+      volumeActual: volumeTitle, // 实际导出时每行都有完整分卷名
       title: item.title,
       wordTarget: item.wordTarget,
       conflict: item.conflict ?? '',
@@ -932,7 +1039,7 @@ function previewOutlineExport(): void {
     projectTitle: appStore.currentProject?.title ?? 'CharacterArc',
     volumeCount: appStore.outlineVolumes.length,
     itemCount: appStore.outlineItems.length,
-    rows
+    rows: rowsWithVolumeInfo
   }
   exportPreviewVisible.value = true
 }
@@ -1614,156 +1721,163 @@ watch(
       :bordered="false"
       @close="importVisible = false"
     >
-      <template #header-extra>
-        <n-button size="small" secondary @click="downloadOutlineTemplate">
-          <template #icon><Download :size="14" /></template>
-          下载模板
-        </n-button>
-      </template>
-
-      <template v-if="!importPreviewReady">
-        <div class="import-step-head">
-          <span class="import-step-index">1</span>
-          <div><strong>确认字段映射</strong><p>系统已自动识别表头，章节标题为唯一必选字段。</p></div>
-        </div>
-        <div class="import-mapping-grid">
-          <n-form-item label="分卷名称"><n-select v-model:value="importMapping.volume" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
-          <n-form-item label="分卷目标字数"><n-select v-model:value="importMapping.volumeWordTarget" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
-          <n-form-item label="分卷摘要"><n-select v-model:value="importMapping.volumeSummary" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
-          <n-form-item label="章节序号"><n-select v-model:value="importMapping.sequence" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
-          <n-form-item label="章节标题（必选）"><n-select v-model:value="importMapping.title" clearable :options="importColumnOptions" placeholder="选择标题列" /></n-form-item>
-          <n-form-item label="目标字数"><n-select v-model:value="importMapping.wordTarget" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
-          <n-form-item label="核心冲突"><n-select v-model:value="importMapping.conflict" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
-          <n-form-item label="剧情摘要"><n-select v-model:value="importMapping.summary" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
-        </div>
-        <div class="import-preview-head">
-          <strong>原始数据预览</strong>
-          <span>共 {{ importDataRows.length }} 行</span>
-        </div>
-        <div class="import-preview-table-wrap compact">
-          <table class="import-preview-table">
-            <thead><tr><th>分卷</th><th>标题</th><th>字数</th><th>核心冲突</th><th>剧情摘要</th></tr></thead>
-            <tbody>
-              <tr v-for="(row, index) in importPreviewRows" :key="index">
-                <td>{{ row.volume }}</td><td>{{ row.title || '未识别' }}</td><td>{{ row.wordTarget }}</td>
-                <td>{{ row.conflict || '未提供' }}</td><td>{{ row.summary || '未提供' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </template>
-
-      <template v-else>
-        <div class="import-step-head">
-          <span class="import-step-index">2</span>
-          <div><strong>编排导入位置与顺序</strong><p>所有设置只影响本次导入，点击确认后才会写入项目。</p></div>
-        </div>
-        <div class="import-stats-strip">
-          <span class="add">新增 {{ importStats.add }}</span>
-          <span class="overwrite">覆盖 {{ importStats.overwrite }}</span>
-          <span>跳过 {{ importStats.skip }}</span>
-          <span :class="{ error: importStats.error }">错误 {{ importStats.error }}</span>
-        </div>
-
-        <div class="import-view-toolbar">
-          <div class="import-batch-actions">
-            <n-button size="small" @click="toggleAllImportRows(true)">选择有效行</n-button>
-            <n-button size="small" @click="toggleAllImportRows(false)">全部取消</n-button>
+      <div class="import-modal-body">
+        <!-- 步骤 1：字段映射 -->
+        <template v-if="importStep === 1">
+          <div class="import-step-head">
+            <span class="import-step-index">1</span>
+            <div><strong>确认字段映射</strong><p>系统已自动识别表头，章节标题为必选字段。</p></div>
           </div>
-          <n-radio-group v-model:value="importViewMode" size="small">
-            <n-radio-button value="card">卡片视图</n-radio-button>
-            <n-radio-button value="table">表格视图</n-radio-button>
-          </n-radio-group>
-        </div>
+          <div class="import-mapping-grid">
+            <n-form-item label="分卷名称"><n-select v-model:value="importMapping.volume" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
+            <n-form-item label="章节标题（必选）"><n-select v-model:value="importMapping.title" clearable :options="importColumnOptions" placeholder="选择标题列" /></n-form-item>
+            <n-form-item label="目标字数"><n-select v-model:value="importMapping.wordTarget" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
+            <n-form-item label="核心冲突"><n-select v-model:value="importMapping.conflict" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
+            <n-form-item label="剧情摘要"><n-select v-model:value="importMapping.summary" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
+            <n-form-item label="章节序号"><n-select v-model:value="importMapping.sequence" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
+          </div>
+          <div class="import-preview-head">
+            <strong>数据预览</strong>
+            <span>共 {{ importDataRows.length }} 行</span>
+          </div>
+          <div class="import-preview-table-wrap compact">
+            <table class="import-preview-table">
+              <thead><tr><th style="width: 140px;">分卷</th><th style="min-width: 200px;">标题</th><th style="width: 100px;">字数</th><th style="min-width: 200px;">冲突</th><th style="min-width: 250px;">摘要</th></tr></thead>
+              <tbody>
+                <tr v-for="(row, index) in importPreviewRows" :key="index">
+                  <td>{{ row.volume }}</td>
+                  <td :class="{ 'text-muted': row.title === '（未识别标题）' }">{{ row.title }}</td>
+                  <td>{{ row.wordTarget }}</td>
+                  <td class="text-ellipsis" :title="row.conflict">{{ row.conflict }}</td>
+                  <td class="text-ellipsis" :title="row.summary">{{ row.summary }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
 
-        <div v-if="importViewMode === 'card'" class="import-plan-cards">
-          <div v-for="item in importPlan" :key="item.key" class="import-plan-card" :class="{ disabled: !item.enabled, invalid: item.error }">
-            <div class="card-check">
-              <n-checkbox :checked="item.enabled" :disabled="Boolean(item.error)" @update:checked="(value) => setImportEnabled(item, value)" />
-            </div>
-            <div class="card-body">
-              <div class="card-title-row">
-                <strong>{{ item.title || '未识别标题' }}</strong>
-                <span class="card-source">第 {{ item.sourceRow }} 行</span>
-              </div>
-              <div class="card-meta-row">
-                <span class="card-badge">{{ item.sourceVolumeTitle || '未指定分卷' }}</span>
-                <span v-if="item.duplicateId" class="card-badge warn">匹配到已有节点</span>
-                <span v-if="item.error" class="card-badge error">{{ item.error }}</span>
-              </div>
-              <div class="card-field">
-                <span class="field-label">处理方式</span>
-                <n-select v-model:value="item.strategy" size="small" :options="importStrategyOptions(item)" @update:value="handleImportStrategyChange(item)" />
-              </div>
-              <div class="card-field">
-                <span class="field-label">目标分卷</span>
-                <n-select v-model:value="item.targetVolumeKey" size="small" :options="importVolumeOptions" @update:value="handleImportTargetChange(item)" />
-              </div>
-              <div class="card-field">
-                <span class="field-label">插入位置</span>
-                <n-select v-model:value="item.location" size="small" filterable :options="importLocationOptions(item)" />
-              </div>
-              <div class="card-field">
-                <span class="field-label">顺序</span>
-                <n-input-number v-model:value="item.order" size="small" :min="1" :precision="0" style="width: 100%;" />
-              </div>
+        <!-- 步骤 2：确认分卷 -->
+        <template v-else-if="importStep === 2">
+          <div class="import-step-head">
+            <span class="import-step-index">2</span>
+            <div><strong>确认导入分卷</strong><p>选择需要导入的分卷，新分卷将自动创建。</p></div>
+          </div>
+          <div class="import-volumes-list">
+            <div v-for="vol in importVolumesConfirmed" :key="vol.key" class="import-volume-item">
+              <n-checkbox v-model:checked="vol.enabled">
+                <span class="volume-title">{{ vol.title }}</span>
+                <span v-if="vol.isNew" class="volume-badge new">新建</span>
+                <span v-else class="volume-badge existing">已存在</span>
+              </n-checkbox>
             </div>
           </div>
-        </div>
+        </template>
 
-        <div v-else class="import-plan-table-wrap">
-          <table class="import-plan-table">
-            <thead>
-              <tr><th>导入</th><th>来源</th><th>章节</th><th>处理方式</th><th>目标分卷</th><th>插入位置</th><th>顺序</th><th>状态</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in importPlan" :key="item.key" :class="{ disabled: !item.enabled, invalid: item.error }">
-                <td><n-checkbox :checked="item.enabled" :disabled="Boolean(item.error)" @update:checked="(value) => setImportEnabled(item, value)" /></td>
-                <td class="source-cell">第 {{ item.sourceRow }} 行</td>
-                <td class="title-cell">
-                  <strong>{{ item.title || '未识别标题' }}</strong>
-                  <small>{{ item.sourceVolumeTitle || '未指定分卷' }}<template v-if="item.duplicateId"> · 匹配到已有节点</template></small>
-                </td>
-                <td>
-                  <n-select v-model:value="item.strategy" size="small" :options="importStrategyOptions(item)" @update:value="handleImportStrategyChange(item)" />
-                </td>
-                <td>
-                  <n-select v-model:value="item.targetVolumeKey" size="small" :options="importVolumeOptions" @update:value="handleImportTargetChange(item)" />
-                </td>
-                <td>
-                  <n-select v-model:value="item.location" size="small" filterable :options="importLocationOptions(item)" />
-                </td>
-                <td><n-input-number v-model:value="item.order" size="small" :min="1" :precision="0" /></td>
-                <td><span class="import-row-status" :class="{ error: item.error, duplicate: item.duplicateId }">{{ item.error || (item.duplicateId ? '重复' : '可导入') }}</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <Transition name="slideUp">
-          <div v-if="importPlan.filter(i => i.enabled).length > 0" class="import-batch-float">
-            <div class="float-info">
-              已选 {{ importPlan.filter(i => i.enabled).length }} 项
-            </div>
-            <n-button size="small" @click="showBatchVolumeModal = true">
-              <template #icon><FolderTree :size="14" /></template>
-              批量设置分卷
-            </n-button>
-            <n-button size="small" @click="showBatchStrategyModal = true">
-              <template #icon><ListChecks :size="14" /></template>
-              批量设置策略
-            </n-button>
+        <!-- 步骤 3：确认章节 -->
+        <template v-else-if="importStep === 3">
+          <div class="import-step-head">
+            <span class="import-step-index">3</span>
+            <div><strong>确认导入章节</strong><p>检查分卷分配和处理策略，点击确认后写入项目。</p></div>
           </div>
-        </Transition>
-      </template>
+          <div class="import-stats-strip">
+            <span class="add">新增 {{ importStats.add }}</span>
+            <span class="overwrite">覆盖 {{ importStats.overwrite }}</span>
+            <span>跳过 {{ importStats.skip }}</span>
+            <span :class="{ error: importStats.error }">错误 {{ importStats.error }}</span>
+          </div>
+
+          <div class="import-view-toolbar">
+            <div class="import-batch-actions">
+              <n-button size="small" @click="toggleAllImportRows(true)">全选</n-button>
+              <n-button size="small" @click="toggleAllImportRows(false)">全不选</n-button>
+            </div>
+            <n-radio-group v-model:value="importViewMode" size="small">
+              <n-radio-button value="card">卡片</n-radio-button>
+              <n-radio-button value="table">表格</n-radio-button>
+            </n-radio-group>
+          </div>
+
+          <div v-if="importViewMode === 'card'" class="import-plan-cards">
+            <div v-for="item in filteredImportPlan" :key="item.key" class="import-plan-card" :class="{ disabled: !item.enabled, invalid: item.error }">
+              <div class="card-check">
+                <n-checkbox :checked="item.enabled" :disabled="Boolean(item.error)" @update:checked="(value) => setImportEnabled(item, value)" />
+              </div>
+              <div class="card-body">
+                <div class="card-title-row">
+                  <strong class="card-title">{{ item.title || '未识别标题' }}</strong>
+                </div>
+                <div class="card-meta-row">
+                  <span class="card-badge">{{ item.sourceVolumeTitle || '未指定分卷' }}</span>
+                  <span v-if="item.duplicateId" class="card-badge warn">已存在</span>
+                  <span v-if="item.error" class="card-badge error">{{ item.error }}</span>
+                </div>
+                <div class="card-controls">
+                  <div class="card-field">
+                    <span class="field-label">目标分卷</span>
+                    <n-select v-model:value="item.targetVolumeKey" size="small" :options="filteredImportVolumeOptions" @update:value="handleImportTargetChange(item)" />
+                  </div>
+                  <div class="card-field">
+                    <span class="field-label">处理方式</span>
+                    <n-select v-model:value="item.strategy" size="small" :options="importStrategyOptions(item)" @update:value="handleImportStrategyChange(item)" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="import-plan-table-wrap">
+            <table class="import-plan-table">
+              <thead>
+                <tr><th style="width: 50px;">导入</th><th style="min-width: 200px;">章节</th><th style="width: 140px;">来源分卷</th><th style="width: 180px;">目标分卷</th><th style="width: 120px;">处理方式</th><th style="width: 80px;">状态</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in filteredImportPlan" :key="item.key" :class="{ disabled: !item.enabled, invalid: item.error }">
+                  <td><n-checkbox :checked="item.enabled" :disabled="Boolean(item.error)" @update:checked="(value) => setImportEnabled(item, value)" /></td>
+                  <td class="title-cell">
+                    <strong>{{ item.title || '未识别标题' }}</strong>
+                  </td>
+                  <td>{{ item.sourceVolumeTitle || '未指定' }}</td>
+                  <td>
+                    <n-select v-model:value="item.targetVolumeKey" size="small" :options="filteredImportVolumeOptions" @update:value="handleImportTargetChange(item)" />
+                  </td>
+                  <td>
+                    <n-select v-model:value="item.strategy" size="small" :options="importStrategyOptions(item)" @update:value="handleImportStrategyChange(item)" />
+                  </td>
+                  <td><span class="import-row-status" :class="{ error: item.error, duplicate: item.duplicateId }">{{ item.error || (item.duplicateId ? '重复' : '正常') }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <Transition name="slideUp">
+            <div v-if="filteredImportPlan.filter(i => i.enabled).length > 0" class="import-batch-float">
+              <div class="float-info">
+                已选 {{ filteredImportPlan.filter(i => i.enabled).length }} 项
+              </div>
+              <n-button size="small" @click="showBatchVolumeModal = true">
+                <template #icon><FolderTree :size="14" /></template>
+                批量设置分卷
+              </n-button>
+              <n-button size="small" @click="showBatchStrategyModal = true">
+                <template #icon><ListChecks :size="14" /></template>
+                批量设置策略
+              </n-button>
+            </div>
+          </Transition>
+        </template>
+      </div>
       <template #footer>
         <div class="import-modal-footer">
           <n-button @click="importVisible = false">取消</n-button>
-          <n-button v-if="importPreviewReady" @click="importPreviewReady = false">返回字段映射</n-button>
-          <n-button v-if="!importPreviewReady" type="primary" :disabled="importMapping.title == null" @click="buildImportPlan">
-            进入编排预览
+          <n-button v-if="importStep === 2" @click="backToFieldMapping">返回字段映射</n-button>
+          <n-button v-if="importStep === 3" @click="backToVolumeConfirm">返回分卷确认</n-button>
+          <n-button v-if="importStep === 1" type="primary" :disabled="importMapping.title == null" @click="buildImportPlan">
+            下一步：确认分卷
           </n-button>
-          <n-button v-else type="primary" :disabled="importEnabledCount === 0" @click="commitOutlineImport">
+          <n-button v-else-if="importStep === 2" type="primary" :disabled="importVolumesConfirmed.filter(v => v.enabled).length === 0" @click="confirmVolumesAndProceed">
+            下一步：确认章节
+          </n-button>
+          <n-button v-else-if="importStep === 3" type="primary" :disabled="importEnabledCount === 0" @click="commitOutlineImport">
             确认导入 {{ importEnabledCount }} 条
           </n-button>
         </div>
@@ -1779,46 +1893,41 @@ watch(
       :bordered="false"
       @close="exportPreviewVisible = false"
     >
-      <div class="export-preview-summary">
-        <div class="summary-item">
-          <span class="summary-label">项目</span>
-          <strong>{{ exportPreviewData.projectTitle }}</strong>
+      <div class="export-preview-hint">
+        <div class="hint-icon">
+          <FileDown :size="24" :stroke-width="2" />
         </div>
-        <div class="summary-item">
-          <span class="summary-label">分卷数</span>
-          <strong>{{ exportPreviewData.volumeCount }}</strong>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">大纲节点</span>
-          <strong>{{ exportPreviewData.itemCount }}</strong>
+        <div class="hint-content">
+          <div class="hint-title">即将导出 {{ exportPreviewData.itemCount }} 个大纲节点</div>
+          <div class="hint-desc">导出为 Excel 文件，包含以下字段：分卷名称、分卷目标字数、分卷摘要、章节序号、章节标题、目标字数、核心冲突、剧情摘要</div>
         </div>
       </div>
 
-      <div class="export-preview-hint">
-        将导出为包含以下列的 Excel 文件：<strong>分卷名称、分卷目标字数、分卷摘要、章节序号、章节标题、目标字数、核心冲突、剧情摘要</strong>
-      </div>
+      <div class="export-preview-section-title">数据预览（前10条）</div>
 
       <div class="export-preview-table-wrap">
         <table class="export-preview-table">
           <thead>
             <tr>
-              <th>分卷</th>
-              <th>标题</th>
-              <th>字数</th>
+              <th style="width: 140px;">分卷</th>
+              <th style="width: 200px;">章节标题</th>
+              <th style="width: 80px;">字数</th>
               <th>核心冲突</th>
+              <th>剧情摘要</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(row, i) in exportPreviewData.rows" :key="i">
               <td>{{ row.volume }}</td>
-              <td>{{ row.title }}</td>
-              <td>{{ row.wordTarget }}</td>
-              <td>{{ row.conflict || '无' }}</td>
+              <td><strong>{{ row.title }}</strong></td>
+              <td class="number-cell">{{ row.wordTarget }}</td>
+              <td class="text-cell">{{ row.conflict || '—' }}</td>
+              <td class="text-cell">{{ row.summary || '—' }}</td>
             </tr>
           </tbody>
         </table>
         <div v-if="exportPreviewData.itemCount > 10" class="preview-more">
-          ...还有 {{ exportPreviewData.itemCount - 10 }} 个节点未显示
+          还有 {{ exportPreviewData.itemCount - 10 }} 个节点未显示，将一并导出
         </div>
       </div>
 
@@ -2191,7 +2300,31 @@ watch(
 .import-mapping-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0 14px;
+  gap: 0 16px;
+}
+
+.import-modal-body {
+  max-height: calc(100vh - 240px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.import-modal-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.import-modal-body::-webkit-scrollbar-track {
+  background: var(--arc-bg-surface-hover);
+  border-radius: 4px;
+}
+
+.import-modal-body::-webkit-scrollbar-thumb {
+  background: var(--arc-border);
+  border-radius: 4px;
+}
+
+.import-modal-body::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--arc-border) 70%, var(--arc-text-hint));
 }
 
 .import-step-head {
@@ -2246,14 +2379,57 @@ watch(
 }
 
 .import-preview-table-wrap.compact {
-  max-height: 240px;
+  max-height: 280px;
+  margin-bottom: 20px;
 }
 
 .import-preview-table {
   width: 100%;
   min-width: 760px;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 13px;
+}
+
+.import-preview-table thead {
+  position: sticky;
+  top: 0;
+  background: var(--arc-bg-surface);
+  z-index: 1;
+}
+
+.import-preview-table th {
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--arc-border);
+  white-space: nowrap;
+}
+
+.import-preview-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--arc-border-light);
+  vertical-align: top;
+  max-width: 300px;
+}
+
+.import-preview-table td.text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+.import-preview-table td.text-muted {
+  color: var(--arc-text-hint);
+  font-style: italic;
+}
+
+.import-preview-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.import-preview-table tbody tr:hover {
+  background: var(--arc-bg-surface-hover);
 }
 
 .import-preview-table th,
@@ -2341,7 +2517,8 @@ watch(
 }
 
 .import-plan-table-wrap {
-  max-height: min(56vh, 620px);
+  max-height: 480px;
+  min-height: 320px;
   overflow: auto;
   border: 1px solid var(--arc-border);
   border-radius: 6px;
@@ -2349,7 +2526,7 @@ watch(
 
 .import-plan-table {
   width: 100%;
-  min-width: 1160px;
+  min-width: 900px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 12px;
@@ -2506,9 +2683,10 @@ watch(
 
 .import-plan-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 14px;
-  max-height: 520px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+  max-height: 480px;
+  min-height: 320px;
   overflow-y: auto;
   padding: 2px;
 }
@@ -2516,21 +2694,20 @@ watch(
 .import-plan-card {
   display: flex;
   gap: 12px;
-  padding: 16px;
+  padding: 14px;
   border: 1px solid var(--arc-border);
-  border-radius: var(--arc-radius-md);
+  border-radius: 8px;
   background: var(--arc-bg-surface);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: all 0.2s;
 }
 
 .import-plan-card:hover {
-  border-color: color-mix(in srgb, var(--arc-primary) 35%, var(--arc-border));
+  border-color: color-mix(in srgb, var(--arc-primary) 40%, var(--arc-border));
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .import-plan-card.disabled {
   opacity: 0.5;
-  background: color-mix(in srgb, var(--arc-bg-surface) 95%, var(--arc-text-hint));
 }
 
 .import-plan-card.invalid {
@@ -2553,26 +2730,22 @@ watch(
 
 .card-title-row {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
 }
 
-.card-title-row strong {
+.card-title {
   flex: 1;
   font-size: 14px;
-  font-weight: 700;
-  color: var(--arc-text-primary);
+  font-weight: 600;
+  color: var(--arc-text);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-source {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--arc-text-hint);
-  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.4;
 }
 
 .card-meta-row {
@@ -2605,16 +2778,21 @@ watch(
 }
 
 .card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.card-controls {
   display: grid;
-  grid-template-columns: 80px 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
-  align-items: center;
 }
 
 .field-label {
   font-size: 12px;
-  color: var(--arc-text-secondary);
-  font-weight: 600;
+  color: var(--arc-text-hint);
+  font-weight: 500;
 }
 
 /* ── 导入批量操作悬浮工具栏 ── */
@@ -2644,59 +2822,63 @@ watch(
 }
 
 /* ── 导出预览弹窗 ── */
-.export-preview-summary {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  margin-bottom: 20px;
-  padding: 18px;
-  border: 1px solid var(--arc-border);
-  border-radius: var(--arc-radius-md);
-  background: linear-gradient(135deg, var(--arc-bg-surface) 0%, color-mix(in srgb, var(--arc-bg-surface) 98%, var(--arc-primary) 2%) 100%);
-}
-
-.summary-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.summary-label {
-  font-size: 12px;
-  color: var(--arc-text-hint);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.summary-item strong {
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--arc-primary);
-  letter-spacing: -0.02em;
-}
-
 .export-preview-hint {
-  margin-bottom: 16px;
-  padding: 12px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding: 16px 18px;
   border-left: 3px solid var(--arc-primary);
-  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-surface));
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
+  border-radius: var(--arc-radius-md);
+}
+
+.hint-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: var(--arc-radius-md);
+  background: color-mix(in srgb, var(--arc-primary) 12%, transparent);
+  color: var(--arc-primary);
+}
+
+.hint-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.hint-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--arc-text-primary);
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+}
+
+.hint-desc {
   font-size: 13px;
   line-height: 1.6;
   color: var(--arc-text-secondary);
 }
 
-.export-preview-hint strong {
-  color: var(--arc-text-primary);
-  font-weight: 600;
+.export-preview-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--arc-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+  padding-left: 2px;
 }
 
 .export-preview-table-wrap {
   border: 1px solid var(--arc-border);
   border-radius: var(--arc-radius-md);
   overflow: hidden;
-  max-height: 400px;
+  max-height: 450px;
   overflow-y: auto;
 }
 
@@ -2704,6 +2886,7 @@ watch(
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed;
 }
 
 .export-preview-table th,
@@ -2715,12 +2898,15 @@ watch(
 }
 
 .export-preview-table th {
-  background: var(--arc-bg-surface-hover);
+  position: sticky;
+  top: 0;
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   font-weight: 700;
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
+  z-index: 2;
+  box-shadow: 0 1px 0 var(--arc-border);
 }
 
 .export-preview-table tbody tr:last-child td {
@@ -2731,14 +2917,62 @@ watch(
   background: var(--arc-bg-surface-hover);
 }
 
+.export-preview-table tbody tr:not(:last-child) td:first-child:not(:empty)::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--arc-primary) 20%, var(--arc-border));
+}
+
+.export-preview-table td:first-child {
+  position: relative;
+  font-weight: 600;
+  color: var(--arc-text-primary);
+}
+
+.export-preview-table td:first-child:empty {
+  color: var(--arc-text-hint);
+}
+
+.export-preview-table td:first-child:empty::before {
+  content: '↓';
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.4;
+}
+
+.export-preview-table .number-cell {
+  font-variant-numeric: tabular-nums;
+  color: var(--arc-text-secondary);
+}
+
+.export-preview-table .text-cell {
+  font-size: 12px;
+  color: var(--arc-text-secondary);
+  line-height: 1.5;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-preview-table td strong {
+  color: var(--arc-text-primary);
+  font-weight: 600;
+}
+
 .preview-more {
   padding: 14px;
   text-align: center;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--arc-text-hint);
   background: var(--arc-bg-surface-hover);
   border-top: 1px solid var(--arc-border);
-  font-style: italic;
+  font-weight: 600;
 }
 
 .export-modal-footer {
@@ -3264,10 +3498,6 @@ watch(
   .import-plan-cards {
     grid-template-columns: 1fr;
   }
-
-  .export-preview-summary {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 900px) {
@@ -3387,10 +3617,61 @@ watch(
 
 <style>
 .outline-import-modal {
-  width: min(1280px, calc(100vw - 32px));
+  width: min(1200px, calc(100vw - 48px));
+  max-height: calc(100vh - 80px);
+}
+
+.outline-import-modal :deep(.n-card__content) {
+  padding: 24px;
+}
+
+.import-volumes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.import-volume-item {
+  padding: 14px 16px;
+  background: var(--arc-bg-surface);
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.import-volume-item:hover {
+  background: var(--arc-bg-surface-hover);
+  border-color: var(--arc-border-hover);
+}
+
+.import-volume-item .volume-title {
+  font-size: 14px;
+  font-weight: 500;
+  margin-right: 8px;
+}
+
+.import-volume-item .volume-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.import-volume-item .volume-badge.new {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.import-volume-item .volume-badge.existing {
+  background: #e5e7eb;
+  color: #4b5563;
 }
 
 .export-preview-modal {
-  width: min(900px, calc(100vw - 32px));
+  width: min(1100px, calc(100vw - 32px));
 }
 </style>

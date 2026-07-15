@@ -561,9 +561,9 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
       volumeSequence.set(volumeId, sequence)
       const volume = volumeMap.get(volumeId)
       return {
-        分卷名称: sequence === 1 ? volume?.title ?? '' : '',
-        分卷目标字数: sequence === 1 ? volume?.wordTarget ?? '' : '',
-        分卷摘要: sequence === 1 ? volume?.summary ?? '' : '',
+        分卷名称: volume?.title ?? '',
+        分卷目标字数: volume?.wordTarget ?? '',
+        分卷摘要: volume?.summary ?? '',
         章节序号: sequence,
         章节标题: item.title ?? '',
         目标字数: item.wordTarget ?? '',
