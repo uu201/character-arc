@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from 'vue'
-import { ChevronDown, Download, FileDown, FilePlus2, Files, GripVertical, MoreVertical, Plus, Rows3, Sparkles, Trash2, Upload } from 'lucide-vue-next'
-import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NInputNumber, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
+import { computed, h, nextTick, reactive, ref, watch } from 'vue'
+import { CheckSquare, ChevronDown, Download, FileDown, FileSpreadsheet, FilePlus2, Files, FolderTree, GripVertical, ListChecks, MoreVertical, Plus, Rows3, Sparkles, Trash2, Upload } from 'lucide-vue-next'
+import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NInputNumber, NModal, NRadioButton, NRadioGroup, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useEventListener } from '@vueuse/core'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { useAppStore } from '@/stores/app'
@@ -101,6 +101,21 @@ const importBatchStrategyOptions = [
   { label: '重复项覆盖', value: 'overwrite' },
   { label: '全部作为新增', value: 'add' }
 ]
+const importViewMode = ref<'table' | 'card'>('card')
+const showBatchVolumeModal = ref(false)
+const showBatchStrategyModal = ref(false)
+const exportPreviewVisible = ref(false)
+const exportPreviewData = ref<{
+  projectTitle: string
+  volumeCount: number
+  itemCount: number
+  rows: Array<{ volume: string; title: string; wordTarget: string; conflict: string; summary: string }>
+}>({
+  projectTitle: '',
+  volumeCount: 0,
+  itemCount: 0,
+  rows: []
+})
 const importMapping = reactive({
   volume: null as number | null,
   volumeWordTarget: null as number | null,
@@ -132,6 +147,22 @@ const unboundOutlineItems = computed(() => {
   const boundIds = new Set(appStore.chapters.map((chapter) => chapter.outlineItemId).filter(Boolean))
   return appStore.outlineItems.filter((item) => !boundIds.has(item.id))
 })
+
+const importExportOptions: DropdownOption[] = [
+  { key: 'import', label: '导入 Excel', icon: () => h(Upload, { size: 16 }) },
+  { key: 'export', label: '导出 Excel', icon: () => h(FileDown, { size: 16 }) },
+  { key: 'template', label: '下载模板', icon: () => h(Download, { size: 16 }) }
+]
+
+function handleImportExportAction(key: string | number): void {
+  if (key === 'import') {
+    openOutlineImport()
+  } else if (key === 'export') {
+    exportOutlineExcel()
+  } else if (key === 'template') {
+    downloadOutlineTemplate()
+  }
+}
 
 // 清空选中（ESC 键）
 useEventListener('keydown', (e: KeyboardEvent) => {
@@ -826,6 +857,8 @@ function applyImportBatchTarget(): void {
     item.targetVolumeKey = importBatchTarget.value as string
     handleImportTargetChange(item)
   })
+  showBatchVolumeModal.value = false
+  message.success('已应用批量分卷设置')
 }
 
 function applyImportBatchStrategy(): void {
@@ -835,6 +868,8 @@ function applyImportBatchStrategy(): void {
     item.strategy = importBatchStrategy.value as ImportStrategy
     handleImportStrategyChange(item)
   })
+  showBatchStrategyModal.value = false
+  message.success('已应用批量策略设置')
 }
 
 function parseImportLocation(location: string): Pick<OutlineImportPlanEntry, 'position' | 'anchorOutlineId'> {
@@ -880,7 +915,30 @@ async function downloadOutlineTemplate(): Promise<void> {
   result.success ? message.success('大纲模板已保存') : message.error(result.error ?? '模板下载失败')
 }
 
-async function exportOutlineExcel(): Promise<void> {
+function previewOutlineExport(): void {
+  const volumeMap = new Map(appStore.outlineVolumes.map((volume) => [volume.id, volume]))
+  const rows = appStore.outlineItems.slice(0, 10).map((item) => {
+    const volume = volumeMap.get(item.volumeId)
+    return {
+      volume: volume?.title ?? '',
+      title: item.title,
+      wordTarget: item.wordTarget,
+      conflict: item.conflict ?? '',
+      summary: item.summary ?? ''
+    }
+  })
+
+  exportPreviewData.value = {
+    projectTitle: appStore.currentProject?.title ?? 'CharacterArc',
+    volumeCount: appStore.outlineVolumes.length,
+    itemCount: appStore.outlineItems.length,
+    rows
+  }
+  exportPreviewVisible.value = true
+}
+
+async function confirmExport(): Promise<void> {
+  exportPreviewVisible.value = false
   try {
     const result = await window.characterArc.exportOutlineSpreadsheet(toIpcPayload({
       projectTitle: appStore.currentProject?.title,
@@ -892,6 +950,14 @@ async function exportOutlineExcel(): Promise<void> {
   } catch (error) {
     message.error(error instanceof Error ? error.message : '大纲导出失败')
   }
+}
+
+async function exportOutlineExcel(): Promise<void> {
+  if (appStore.outlineItems.length === 0) {
+    message.warning('当前没有大纲节点可以导出')
+    return
+  }
+  previewOutlineExport()
 }
 
 function createAllUnboundChapters(): void {
@@ -1395,34 +1461,30 @@ watch(
         <p>按卷组织剧情骨架、冲突节拍和章节节点，方便后续创作连续推进。</p>
       </div>
       <div class="section-actions">
-        <button class="soft-button neutral" @click="openOutlineImport">
-          <Upload :size="16" />
-          <span>导入 Excel</span>
-        </button>
-        <button class="soft-button neutral" @click="downloadOutlineTemplate">
-          <Download :size="16" />
-          <span>下载模板</span>
-        </button>
-        <button class="soft-button neutral" :disabled="appStore.outlineItems.length === 0" @click="exportOutlineExcel">
-          <FileDown :size="16" />
-          <span>导出 Excel</span>
-        </button>
-        <button class="soft-button" :disabled="unboundOutlineItems.length === 0" @click="createAllUnboundChapters">
+        <n-dropdown :options="importExportOptions" placement="bottom-start" @select="handleImportExportAction">
+          <button class="soft-button neutral">
+            <FileSpreadsheet :size="16" />
+            <span>导入导出</span>
+            <ChevronDown :size="14" />
+          </button>
+        </n-dropdown>
+        <button class="soft-button neutral" :disabled="unboundOutlineItems.length === 0" @click="createAllUnboundChapters">
           <Files :size="16" />
           <span>一键生成章节{{ unboundOutlineItems.length ? ` (${unboundOutlineItems.length})` : '' }}</span>
         </button>
         <button
-          class="soft-button"
+          class="soft-button neutral"
           :class="{ active: isSelectionModeActive }"
           @click="toggleSelectionMode"
         >
+          <CheckSquare :size="16" />
           <span>{{ isSelectionModeActive ? '✓ 选择模式' : '选择模式' }}</span>
         </button>
-        <button class="soft-button neutral" @click="openVolumeEditor()">
+        <button class="soft-button" @click="openVolumeEditor()">
           <Rows3 :size="16" />
           <span>新增分卷</span>
         </button>
-        <button class="soft-button" :disabled="isExpanding" @click="handleExpandOutline">
+        <button class="soft-button primary" :disabled="isExpanding" @click="handleExpandOutline">
           <Sparkles :size="16" />
           <span>{{ isExpanding ? '扩写中...' : 'AI 扩写分卷' }}</span>
         </button>
@@ -1602,21 +1664,54 @@ watch(
           <span>跳过 {{ importStats.skip }}</span>
           <span :class="{ error: importStats.error }">错误 {{ importStats.error }}</span>
         </div>
-        <div class="import-batch-toolbar">
+
+        <div class="import-view-toolbar">
           <div class="import-batch-actions">
             <n-button size="small" @click="toggleAllImportRows(true)">选择有效行</n-button>
             <n-button size="small" @click="toggleAllImportRows(false)">全部取消</n-button>
           </div>
-          <div class="import-batch-control">
-            <n-select v-model:value="importBatchTarget" clearable :options="importVolumeOptions" placeholder="批量设置分卷" />
-            <n-button size="small" :disabled="!importBatchTarget" @click="applyImportBatchTarget">应用</n-button>
-          </div>
-          <div class="import-batch-control">
-            <n-select v-model:value="importBatchStrategy" clearable :options="importBatchStrategyOptions" placeholder="批量设置策略" />
-            <n-button size="small" :disabled="!importBatchStrategy" @click="applyImportBatchStrategy">应用</n-button>
+          <n-radio-group v-model:value="importViewMode" size="small">
+            <n-radio-button value="card">卡片视图</n-radio-button>
+            <n-radio-button value="table">表格视图</n-radio-button>
+          </n-radio-group>
+        </div>
+
+        <div v-if="importViewMode === 'card'" class="import-plan-cards">
+          <div v-for="item in importPlan" :key="item.key" class="import-plan-card" :class="{ disabled: !item.enabled, invalid: item.error }">
+            <div class="card-check">
+              <n-checkbox :checked="item.enabled" :disabled="Boolean(item.error)" @update:checked="(value) => setImportEnabled(item, value)" />
+            </div>
+            <div class="card-body">
+              <div class="card-title-row">
+                <strong>{{ item.title || '未识别标题' }}</strong>
+                <span class="card-source">第 {{ item.sourceRow }} 行</span>
+              </div>
+              <div class="card-meta-row">
+                <span class="card-badge">{{ item.sourceVolumeTitle || '未指定分卷' }}</span>
+                <span v-if="item.duplicateId" class="card-badge warn">匹配到已有节点</span>
+                <span v-if="item.error" class="card-badge error">{{ item.error }}</span>
+              </div>
+              <div class="card-field">
+                <span class="field-label">处理方式</span>
+                <n-select v-model:value="item.strategy" size="small" :options="importStrategyOptions(item)" @update:value="handleImportStrategyChange(item)" />
+              </div>
+              <div class="card-field">
+                <span class="field-label">目标分卷</span>
+                <n-select v-model:value="item.targetVolumeKey" size="small" :options="importVolumeOptions" @update:value="handleImportTargetChange(item)" />
+              </div>
+              <div class="card-field">
+                <span class="field-label">插入位置</span>
+                <n-select v-model:value="item.location" size="small" filterable :options="importLocationOptions(item)" />
+              </div>
+              <div class="card-field">
+                <span class="field-label">顺序</span>
+                <n-input-number v-model:value="item.order" size="small" :min="1" :precision="0" style="width: 100%;" />
+              </div>
+            </div>
           </div>
         </div>
-        <div class="import-plan-table-wrap">
+
+        <div v-else class="import-plan-table-wrap">
           <table class="import-plan-table">
             <thead>
               <tr><th>导入</th><th>来源</th><th>章节</th><th>处理方式</th><th>目标分卷</th><th>插入位置</th><th>顺序</th><th>状态</th></tr>
@@ -1644,6 +1739,22 @@ watch(
             </tbody>
           </table>
         </div>
+
+        <Transition name="slideUp">
+          <div v-if="importPlan.filter(i => i.enabled).length > 0" class="import-batch-float">
+            <div class="float-info">
+              已选 {{ importPlan.filter(i => i.enabled).length }} 项
+            </div>
+            <n-button size="small" @click="showBatchVolumeModal = true">
+              <template #icon><FolderTree :size="14" /></template>
+              批量设置分卷
+            </n-button>
+            <n-button size="small" @click="showBatchStrategyModal = true">
+              <template #icon><ListChecks :size="14" /></template>
+              批量设置策略
+            </n-button>
+          </div>
+        </Transition>
       </template>
       <template #footer>
         <div class="import-modal-footer">
@@ -1657,6 +1768,109 @@ watch(
           </n-button>
         </div>
       </template>
+    </n-modal>
+
+    <!-- 导出预览弹窗 -->
+    <n-modal
+      :show="exportPreviewVisible"
+      preset="card"
+      class="export-preview-modal"
+      title="导出预览"
+      :bordered="false"
+      @close="exportPreviewVisible = false"
+    >
+      <div class="export-preview-summary">
+        <div class="summary-item">
+          <span class="summary-label">项目</span>
+          <strong>{{ exportPreviewData.projectTitle }}</strong>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">分卷数</span>
+          <strong>{{ exportPreviewData.volumeCount }}</strong>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">大纲节点</span>
+          <strong>{{ exportPreviewData.itemCount }}</strong>
+        </div>
+      </div>
+
+      <div class="export-preview-hint">
+        将导出为包含以下列的 Excel 文件：<strong>分卷名称、分卷目标字数、分卷摘要、章节序号、章节标题、目标字数、核心冲突、剧情摘要</strong>
+      </div>
+
+      <div class="export-preview-table-wrap">
+        <table class="export-preview-table">
+          <thead>
+            <tr>
+              <th>分卷</th>
+              <th>标题</th>
+              <th>字数</th>
+              <th>核心冲突</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, i) in exportPreviewData.rows" :key="i">
+              <td>{{ row.volume }}</td>
+              <td>{{ row.title }}</td>
+              <td>{{ row.wordTarget }}</td>
+              <td>{{ row.conflict || '无' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="exportPreviewData.itemCount > 10" class="preview-more">
+          ...还有 {{ exportPreviewData.itemCount - 10 }} 个节点未显示
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="export-modal-footer">
+          <n-button @click="exportPreviewVisible = false">取消</n-button>
+          <n-button type="primary" @click="confirmExport">
+            <template #icon><FileDown :size="14" /></template>
+            确认导出
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- 批量设置分卷弹窗 -->
+    <n-modal
+      :show="showBatchVolumeModal"
+      preset="dialog"
+      title="批量设置分卷"
+      positive-text="应用"
+      negative-text="取消"
+      @positive-click="applyImportBatchTarget"
+      @negative-click="showBatchVolumeModal = false"
+    >
+      <n-form label-placement="top">
+        <n-form-item label="目标分卷">
+          <n-select v-model:value="importBatchTarget" :options="importVolumeOptions" placeholder="选择目标分卷" />
+        </n-form-item>
+      </n-form>
+      <p style="margin-top: 12px; font-size: 13px; color: var(--arc-text-hint);">
+        将所有已选中的节点迁移到所选分卷
+      </p>
+    </n-modal>
+
+    <!-- 批量设置策略弹窗 -->
+    <n-modal
+      :show="showBatchStrategyModal"
+      preset="dialog"
+      title="批量设置策略"
+      positive-text="应用"
+      negative-text="取消"
+      @positive-click="applyImportBatchStrategy"
+      @negative-click="showBatchStrategyModal = false"
+    >
+      <n-form label-placement="top">
+        <n-form-item label="处理策略">
+          <n-select v-model:value="importBatchStrategy" :options="importBatchStrategyOptions" placeholder="选择处理策略" />
+        </n-form-item>
+      </n-form>
+      <p style="margin-top: 12px; font-size: 13px; color: var(--arc-text-hint);">
+        批量设置所有节点的导入策略
+      </p>
     </n-modal>
 
     <!-- 编辑弹窗保持不变 -->
@@ -2110,6 +2324,7 @@ watch(
   border: 1px solid var(--arc-border);
   border-radius: 6px;
   background: var(--arc-bg-surface);
+  display: none; /* 隐藏旧版批量工具栏，改用悬浮工具栏 */
 }
 
 .import-batch-actions,
@@ -2256,7 +2471,281 @@ watch(
   transform: none;
 }
 
-/* ── 右下角悬浮工具栏 ── */
+.soft-button.primary {
+  background: var(--arc-primary);
+  color: white;
+  font-weight: 700;
+}
+
+.soft-button.primary:hover {
+  background: color-mix(in srgb, var(--arc-primary) 90%, black);
+}
+
+.soft-button.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── 导入卡片视图 ── */
+.import-view-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  background: var(--arc-bg-surface);
+}
+
+.import-batch-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.import-plan-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 14px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.import-plan-card {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  background: var(--arc-bg-surface);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.import-plan-card:hover {
+  border-color: color-mix(in srgb, var(--arc-primary) 35%, var(--arc-border));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.import-plan-card.disabled {
+  opacity: 0.5;
+  background: color-mix(in srgb, var(--arc-bg-surface) 95%, var(--arc-text-hint));
+}
+
+.import-plan-card.invalid {
+  border-color: color-mix(in srgb, #ef4444 35%, var(--arc-border));
+  background: color-mix(in srgb, #ef4444 3%, var(--arc-bg-surface));
+}
+
+.card-check {
+  flex: 0 0 auto;
+  padding-top: 2px;
+}
+
+.card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.card-title-row strong {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--arc-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-source {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--arc-text-hint);
+  font-weight: 600;
+}
+
+.card-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.card-badge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--arc-bg-surface-hover);
+  color: var(--arc-text-secondary);
+  border: 1px solid var(--arc-border);
+}
+
+.card-badge.warn {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.card-badge.error {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+.card-field {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.field-label {
+  font-size: 12px;
+  color: var(--arc-text-secondary);
+  font-weight: 600;
+}
+
+/* ── 导入批量操作悬浮工具栏 ── */
+.import-batch-float {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  background: var(--arc-bg-surface);
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-lg);
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(8px);
+  margin-top: 16px;
+}
+
+.float-info {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--arc-text-primary);
+}
+
+/* ── 导出预览弹窗 ── */
+.export-preview-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  background: linear-gradient(135deg, var(--arc-bg-surface) 0%, color-mix(in srgb, var(--arc-bg-surface) 98%, var(--arc-primary) 2%) 100%);
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summary-label {
+  font-size: 12px;
+  color: var(--arc-text-hint);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.summary-item strong {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--arc-primary);
+  letter-spacing: -0.02em;
+}
+
+.export-preview-hint {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-surface));
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--arc-text-secondary);
+}
+
+.export-preview-hint strong {
+  color: var(--arc-text-primary);
+  font-weight: 600;
+}
+
+.export-preview-table-wrap {
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  overflow: hidden;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.export-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.export-preview-table th,
+.export-preview-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--arc-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.export-preview-table th {
+  background: var(--arc-bg-surface-hover);
+  color: var(--arc-text-secondary);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.export-preview-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.export-preview-table tbody tr:hover {
+  background: var(--arc-bg-surface-hover);
+}
+
+.preview-more {
+  padding: 14px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--arc-text-hint);
+  background: var(--arc-bg-surface-hover);
+  border-top: 1px solid var(--arc-border);
+  font-style: italic;
+}
+
+.export-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
 .floating-toolbar {
   position: fixed;
   bottom: 32px;
@@ -2771,6 +3260,14 @@ watch(
   .timeline {
     max-width: 600px;
   }
+
+  .import-plan-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .export-preview-summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 900px) {
@@ -2891,5 +3388,9 @@ watch(
 <style>
 .outline-import-modal {
   width: min(1280px, calc(100vw - 32px));
+}
+
+.export-preview-modal {
+  width: min(900px, calc(100vw - 32px));
 }
 </style>
