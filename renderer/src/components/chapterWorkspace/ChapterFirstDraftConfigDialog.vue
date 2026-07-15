@@ -634,6 +634,10 @@ function handleConfirm(): void {
   min-width: 0;
   flex-direction: column;
   gap: 7px;
+  border: 1px solid var(--arc-border, rgba(120, 120, 120, 0.18));
+  border-radius: 8px;
+  background: var(--arc-bg-surface, #fff);
+  padding: 10px;
 }
 
 .field-block-head {
@@ -644,7 +648,7 @@ function handleConfirm(): void {
 }
 
 .compact-field-block {
-  max-width: 340px;
+  max-width: none;
 }
 
 .field-label {
@@ -695,7 +699,7 @@ function handleConfirm(): void {
 
 .skill-picker-list {
   display: grid;
-  max-height: 260px;
+  max-height: 210px;
   grid-template-columns: 1fr;
   gap: 8px;
   overflow-y: auto;
