@@ -569,7 +569,10 @@ onBeforeUnmount(() => {
 }
 
 .session-item:hover .session-item-delete { display: inline-flex; }
-.session-item-delete:hover { color: #dc2626; background: #fef2f2; }
+.session-item-delete:hover {
+  color: var(--arc-danger);
+  background: color-mix(in srgb, var(--arc-danger) 10%, transparent);
+}
 
 /* ── Agent Status ── */
 .agent-status {

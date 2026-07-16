@@ -1292,8 +1292,12 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     }
   })
 
-  ipcMain.handle('characterarc:set-titlebar-overlay', () => {
-    deps.windowManager.updateTitleBarOverlayColors()
+  ipcMain.handle('characterarc:set-titlebar-overlay', (_event, options: unknown) => {
+    const value = options as { color?: unknown; symbolColor?: unknown } | null
+    const colors = value && typeof value.color === 'string' && typeof value.symbolColor === 'string'
+      ? { color: value.color, symbolColor: value.symbolColor }
+      : undefined
+    deps.windowManager.updateTitleBarOverlayColors(colors)
   })
 
   ipcMain.handle('characterarc:save-workspace', async (_event, payload: unknown) => {

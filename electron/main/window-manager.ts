@@ -3,6 +3,10 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 export type WindowManager = ReturnType<typeof createWindowManager>
+export interface TitleBarOverlayColors {
+  color: string
+  symbolColor: string
+}
 
 const APP_DEFAULT_WIDTH = 1480
 const APP_DEFAULT_HEIGHT = 920
@@ -128,12 +132,12 @@ export function createWindowManager() {
     return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
   }
 
-  function updateTitleBarOverlayColors(): void {
+  function updateTitleBarOverlayColors(colors?: TitleBarOverlayColors): void {
     if (process.platform !== 'win32') return
 
     const dark = nativeTheme.shouldUseDarkColors
-    const color = dark ? '#2e3440' : '#f8f7f4'
-    const symbolColor = dark ? '#eceff4' : '#1c1917'
+    const color = colors?.color ?? (dark ? '#111315' : '#f8f8f9')
+    const symbolColor = colors?.symbolColor ?? (dark ? '#b8bec7' : '#52525b')
     const overlay = { color, symbolColor, height: 40 }
 
     if (mainWindow && !mainWindow.isDestroyed()) {

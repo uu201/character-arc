@@ -559,7 +559,7 @@ function buildStylesheet(): StylesheetJson {
         'underlay-padding': '14',
         'shadow-blur': '28',
         'shadow-opacity': '0.34',
-        'text-background-color': '#ffffff',
+        'text-background-color': dark ? '#1e2227' : '#ffffff',
         'text-border-color': 'rgba(37, 99, 235, 0.24)',
         opacity: '1'
       }

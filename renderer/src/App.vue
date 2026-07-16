@@ -37,6 +37,9 @@ const naiveTheme = computed(() => appStore.appSettings.darkMode ? darkTheme : nu
 const appStyleVars = computed(() => {
   const dark = appStore.appSettings.darkMode
   const darkPreset = getDarkModePreset(appStore.appSettings.darkModeStyle)
+  const primary = dark ? appStore.currentTheme.darkPrimary : appStore.currentTheme.primary
+  const primaryHover = dark ? appStore.currentTheme.darkPrimaryHover : appStore.currentTheme.primaryHover
+  const primaryPressed = dark ? appStore.currentTheme.darkPrimaryPressed : appStore.currentTheme.primaryPressed
   return {
     '--arc-bg-body': dark ? darkPreset.bgBody : '#f8f8f9',
     '--arc-bg-weak': dark ? darkPreset.bgWeak : '#fafafb',
@@ -47,11 +50,11 @@ const appStyleVars = computed(() => {
     '--arc-text-primary': dark ? darkPreset.textPrimary : '#18181b',
     '--arc-text-secondary': dark ? darkPreset.textSecondary : '#52525b',
     '--arc-text-hint': dark ? darkPreset.textHint : '#a1a1aa',
-    '--arc-primary': appStore.currentTheme.primary,
-    '--arc-primary-hover': appStore.currentTheme.primaryHover,
-    '--arc-primary-pressed': appStore.currentTheme.primaryPressed,
+    '--arc-primary': primary,
+    '--arc-primary-hover': primaryHover,
+    '--arc-primary-pressed': primaryPressed,
     '--arc-primary-soft': dark
-      ? `color-mix(in srgb, ${appStore.currentTheme.primary} 18%, ${darkPreset.primarySoftBase})`
+      ? `color-mix(in srgb, ${primary} 18%, ${darkPreset.primarySoftBase})`
       : appStore.currentTheme.softBackground,
     '--arc-border': dark ? darkPreset.border : '#e4e4e7',
     '--arc-border-strong': dark ? darkPreset.borderStrong : '#d4d4d8',
@@ -64,6 +67,12 @@ const appStyleVars = computed(() => {
     '--arc-glass-08': dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
     '--arc-glass-10': dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.05)',
     '--arc-glass-12': dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.06)',
+    '--arc-success': dark ? '#49c98a' : '#15803d',
+    '--arc-warning': dark ? '#dda94f' : '#a16207',
+    '--arc-danger': dark ? '#ec7272' : '#dc2626',
+    '--arc-selection-bg': dark ? `color-mix(in srgb, ${primary} 48%, ${darkPreset.bgBody})` : '#b4d5fe',
+    '--arc-selection-text': dark ? darkPreset.textPrimary : '#1c1917',
+    '--arc-caret-color': primary,
     '--arc-radius-sm': '4px',
     '--arc-radius-md': '6px',
     '--arc-radius-lg': '10px',
@@ -88,6 +97,12 @@ watch(
   (vars) => {
     for (const [key, value] of Object.entries(vars)) {
       document.documentElement.style.setProperty(key, value)
+    }
+    if (platform === 'win32') {
+      void window.characterArc.setTitleBarOverlay({
+        color: vars['--arc-bg-body'],
+        symbolColor: vars['--arc-text-secondary']
+      })
     }
   },
   { immediate: true }

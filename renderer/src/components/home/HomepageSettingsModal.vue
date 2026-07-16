@@ -1009,9 +1009,9 @@ async function saveSettings(): Promise<void> {
 }
 
 .profile-action-btn--danger:hover:not(:disabled) {
-  border-color: #fca5a5;
-  color: #dc2626;
-  background: #fef2f2;
+  border-color: color-mix(in srgb, var(--arc-danger) 48%, var(--arc-border));
+  color: var(--arc-danger);
+  background: color-mix(in srgb, var(--arc-danger) 9%, var(--arc-bg-surface));
 }
 
 .profile-name-row {

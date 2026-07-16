@@ -181,7 +181,7 @@ const emit = defineEmits<{
   justify-content: center;
   border: 1px solid var(--arc-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--arc-bg-surface) 92%, transparent);
   color: var(--arc-text-hint);
   cursor: pointer;
   opacity: 0;

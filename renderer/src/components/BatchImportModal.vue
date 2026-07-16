@@ -297,7 +297,7 @@ defineExpose({ isRunningInBackground })
   border: none; background: transparent; color: var(--arc-text-hint);
   cursor: pointer; padding: 2px; border-radius: 4px;
 }
-.file-remove:hover { background: #fee2e2; color: #dc2626; }
+.file-remove:hover { background: color-mix(in srgb, var(--arc-danger) 12%, transparent); color: var(--arc-danger); }
 
 .concurrency-row {
   display: flex;
@@ -348,7 +348,7 @@ defineExpose({ isRunningInBackground })
 .stat-num { font-size: 16px; font-weight: 700; color: var(--arc-text-secondary); }
 .stat-num.success { color: var(--arc-success); }
 .stat-num.primary { color: var(--arc-primary); }
-.stat-num.error { color: #dc2626; }
+.stat-num.error { color: var(--arc-danger); }
 .stat-label { font-size: 11px; color: var(--arc-text-hint); }
 
 .book-list {
@@ -366,7 +366,10 @@ defineExpose({ isRunningInBackground })
 }
 .book-card.is-running { border-color: color-mix(in srgb, var(--arc-primary) 35%, var(--arc-border)); }
 .book-card.is-done { background: var(--arc-bg-weak); border-color: color-mix(in srgb, var(--arc-success) 30%, var(--arc-border)); }
-.book-card.is-error { background: #fffafa; border-color: #fecaca; }
+.book-card.is-error {
+  background: color-mix(in srgb, var(--arc-danger) 7%, var(--arc-bg-surface));
+  border-color: color-mix(in srgb, var(--arc-danger) 34%, var(--arc-border));
+}
 .book-card.is-queued { opacity: 0.6; }
 
 .book-head {
@@ -383,7 +386,7 @@ defineExpose({ isRunningInBackground })
 }
 .book-status-dot.is-running { background: var(--arc-primary); animation: pulse 1.5s ease-in-out infinite; }
 .book-status-dot.is-success { background: var(--arc-success); }
-.book-status-dot.is-error, .book-status-dot.is-canceled { background: #dc2626; }
+.book-status-dot.is-error, .book-status-dot.is-canceled { background: var(--arc-danger); }
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--arc-primary) 40%, transparent); }
   50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--arc-primary) 0%, transparent); }
@@ -397,12 +400,12 @@ defineExpose({ isRunningInBackground })
   font-size: 12px; font-weight: 700; color: var(--arc-text-secondary); min-width: 32px; text-align: right;
 }
 .book-percent.is-success { color: var(--arc-success); }
-.book-percent.is-error, .book-percent.is-canceled { color: #dc2626; }
+.book-percent.is-error, .book-percent.is-canceled { color: var(--arc-danger); }
 .book-cancel {
   border: none; background: transparent; color: var(--arc-text-hint);
   cursor: pointer; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-family: inherit;
 }
-.book-cancel:hover { background: #fee2e2; color: #dc2626; }
+.book-cancel:hover { background: color-mix(in srgb, var(--arc-danger) 12%, transparent); color: var(--arc-danger); }
 
 .book-phases {
   display: flex; align-items: center; gap: 3px; margin-bottom: 6px; flex-wrap: wrap;
@@ -419,7 +422,7 @@ defineExpose({ isRunningInBackground })
 .book-bar { height: 4px; border-radius: 999px; background: var(--arc-bg-weak); overflow: hidden; margin-bottom: 6px; }
 .book-bar-fill { height: 100%; transition: width 0.3s; background: var(--arc-primary); }
 .book-bar-fill.is-success { background: var(--arc-success); }
-.book-bar-fill.is-error, .book-bar-fill.is-canceled { background: #dc2626; }
+.book-bar-fill.is-error, .book-bar-fill.is-canceled { background: var(--arc-danger); }
 
 .chunk-progress {
   padding: 8px 10px; background: var(--arc-bg-weak); border-radius: 6px;
@@ -438,10 +441,11 @@ defineExpose({ isRunningInBackground })
 
 .annotation {
   padding: 10px 14px; border-radius: 8px;
-  background: #fffbeb; border: 1px solid #fde68a;
-  color: #78350f; font-size: 12.5px; line-height: 1.6;
+  background: color-mix(in srgb, var(--arc-warning) 9%, var(--arc-bg-surface));
+  border: 1px solid color-mix(in srgb, var(--arc-warning) 34%, var(--arc-border));
+  color: var(--arc-warning); font-size: 12.5px; line-height: 1.6;
 }
-.annotation strong { color: #78350f; }
+.annotation strong { color: inherit; }
 
 /* ── Footer ── */
 .batch-footer {

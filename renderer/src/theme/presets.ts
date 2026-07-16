@@ -8,6 +8,9 @@ export interface ThemePreset {
   primary: string        // 主色调
   primaryHover: string   // 主色调悬停态
   primaryPressed: string // 主色调按下态
+  darkPrimary: string        // 深色模式主色调
+  darkPrimaryHover: string   // 深色模式悬停态
+  darkPrimaryPressed: string // 深色模式按下态
   softBackground: string // 柔和背景色（用于标签、徽章等浅色区域）
 }
 
@@ -19,6 +22,9 @@ export const themePresets: ThemePreset[] = [
     primary: '#0066cc',
     primaryHover: '#0b76e8',
     primaryPressed: '#0058b0',
+    darkPrimary: '#347fc7',
+    darkPrimaryHover: '#438ed7',
+    darkPrimaryPressed: '#286baa',
     softBackground: '#ebf3fa'
   },
   {
@@ -27,6 +33,9 @@ export const themePresets: ThemePreset[] = [
     primary: '#0f8b6d',
     primaryHover: '#14a17f',
     primaryPressed: '#0d755c',
+    darkPrimary: '#238b73',
+    darkPrimaryHover: '#2d9d83',
+    darkPrimaryPressed: '#1b735f',
     softBackground: '#e9f7f2'
   },
   {
@@ -35,6 +44,9 @@ export const themePresets: ThemePreset[] = [
     primary: '#d97706',
     primaryHover: '#ea8b1a',
     primaryPressed: '#bc6604',
+    darkPrimary: '#b87520',
+    darkPrimaryHover: '#ca8428',
+    darkPrimaryPressed: '#965d17',
     softBackground: '#fff3df'
   },
   {
@@ -43,6 +55,9 @@ export const themePresets: ThemePreset[] = [
     primary: '#c43d6b',
     primaryHover: '#db4a7a',
     primaryPressed: '#aa355d',
+    darkPrimary: '#b65376',
+    darkPrimaryHover: '#ca6287',
+    darkPrimaryPressed: '#98415f',
     softBackground: '#fdeef4'
   }
 ]
@@ -77,24 +92,24 @@ export interface DarkModePreset {
 export const darkModePresets: DarkModePreset[] = [
   {
     name: 'nord',
-    label: 'Nord 北欧',
-    description: '冷静克制的北欧蓝灰，界面干净、层次柔和，适合长时间写作。',
-    bgBody: '#2e3440',
-    bgWeak: '#333a47',
-    bgSurface: '#3b4252',
-    bgSurfaceHover: '#434c5e',
-    bgSidebar: '#2e3440',
-    sidebarBorder: '#4c566a',
-    textPrimary: '#eceff4',
-    textSecondary: '#d8dee9',
-    textHint: '#9daab8',
-    border: '#4c566a',
-    borderStrong: '#6b7a94',
-    shadowSm: '0 1px 3px rgba(17, 20, 28, 0.46)',
-    shadowMd: '0 6px 18px rgba(17, 20, 28, 0.56)',
-    shadowLg: '0 14px 36px rgba(17, 20, 28, 0.66)',
-    bgMix: '#3b4252',
-    primarySoftBase: '#3b4252'
+    label: '深夜中性',
+    description: '中性炭灰背景配合清晰的内容层级，减少偏蓝与泛灰，适合长时间写作。',
+    bgBody: '#111315',
+    bgWeak: '#181b1f',
+    bgSurface: '#1e2227',
+    bgSurfaceHover: '#272c33',
+    bgSidebar: '#15181c',
+    sidebarBorder: '#2a2f36',
+    textPrimary: '#f1f3f5',
+    textSecondary: '#b8bec7',
+    textHint: '#7f8894',
+    border: '#30353d',
+    borderStrong: '#424953',
+    shadowSm: '0 1px 3px rgba(0, 0, 0, 0.3)',
+    shadowMd: '0 8px 24px rgba(0, 0, 0, 0.34)',
+    shadowLg: '0 18px 48px rgba(0, 0, 0, 0.4)',
+    bgMix: '#191c20',
+    primarySoftBase: '#20252b'
   }
 ]
 
@@ -110,6 +125,9 @@ export function createNaiveThemeOverrides(
 ): GlobalThemeOverrides {
   const preset = getThemePreset(name)
   const dark = getDarkModePreset(darkStyle)
+  const primary = darkMode ? preset.darkPrimary : preset.primary
+  const primaryHover = darkMode ? preset.darkPrimaryHover : preset.primaryHover
+  const primaryPressed = darkMode ? preset.darkPrimaryPressed : preset.primaryPressed
 
   const darkCommon: GlobalThemeOverrides['common'] = darkMode
     ? {
@@ -139,10 +157,10 @@ export function createNaiveThemeOverrides(
 
   return {
     common: {
-      primaryColor: preset.primary,
-      primaryColorHover: preset.primaryHover,
-      primaryColorPressed: preset.primaryPressed,
-      primaryColorSuppl: preset.primaryHover,
+      primaryColor: primary,
+      primaryColorHover: primaryHover,
+      primaryColorPressed: primaryPressed,
+      primaryColorSuppl: primaryHover,
       borderRadius: '6px',
       borderRadiusSmall: '4px',
       fontFamily:

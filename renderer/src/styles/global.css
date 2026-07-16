@@ -65,13 +65,7 @@ body {
 }
 
 .dark-mode {
-  --arc-selection-bg: #5e81ac;
-  --arc-selection-text: #eceff4;
-  --arc-caret-color: #88c0d0;
-  --arc-success: #4ade80;
-  --arc-warning: #fbbf24;
-  --arc-danger: #f87171;
-  --arc-text-hint: #9daab8;
+  color-scheme: dark;
 }
 
 button,
@@ -199,11 +193,8 @@ input {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--arc-primary) 22%, white);
-}
-
-.dark-mode ::selection {
-  background: color-mix(in srgb, var(--arc-primary) 38%, #1c1c22);
+  background: var(--arc-selection-bg);
+  color: var(--arc-selection-text);
 }
 
 .arc-scrollbar {
@@ -226,11 +217,17 @@ input {
 }
 
 .dark-mode .arc-scrollbar {
-  scrollbar-color: #4c566a transparent;
+  scrollbar-color: var(--arc-border-strong) transparent;
 }
 
 .dark-mode .arc-scrollbar::-webkit-scrollbar-thumb {
-  background: #4c566a;
+  background: var(--arc-border-strong);
+}
+
+.dark-mode .app-error-banner {
+  border-color: color-mix(in srgb, var(--arc-danger) 38%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-danger) 10%, var(--arc-bg-surface));
+  color: var(--arc-danger);
 }
 
 /* ── Claude 风格小说助理 ── */

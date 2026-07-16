@@ -840,8 +840,8 @@ watch(
 }
 
 .session-item-delete:hover {
-  color: #dc2626;
-  background: #fef2f2;
+  color: var(--arc-danger);
+  background: color-mix(in srgb, var(--arc-danger) 10%, transparent);
 }
 
 .context-block {
