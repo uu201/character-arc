@@ -2,19 +2,20 @@
 import { computed, reactive, ref } from 'vue'
 import {
   Building2,
+  ChevronDown,
   Link2,
   Network,
   PencilLine,
   Plus,
   Rows3,
   Search,
-  Shield,
   Sparkles,
   Trash2,
   UserRoundCog,
   Users
 } from 'lucide-vue-next'
-import { NButton, NDynamicTags, NForm, NFormItem, NInput, NModal, NSelect, NSlider, useDialog, useMessage } from 'naive-ui'
+import { NButton, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NSelect, NSlider, useDialog, useMessage } from 'naive-ui'
+import type { DropdownOption } from 'naive-ui'
 import RelationsGraphView from '@/components/RelationsGraphView.vue'
 import { buildRelationsGraphData } from '@/features/relations/graph'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
@@ -35,6 +36,12 @@ const message = useMessage()
 const dialog = useDialog()
 const keyword = ref('') // 本面板内的本地搜索关键词
 const viewMode = ref<'list' | 'graph'>('list')
+type ListSection = 'organizations' | 'relationships' | 'memberships'
+type MembershipGroupMode = 'organization' | 'character'
+const activeListSection = ref<ListSection>('organizations')
+const membershipGroupMode = ref<MembershipGroupMode>('organization')
+const membershipOrganizationFilter = ref<string | null>(null)
+const membershipCollapsed = reactive<Record<string, boolean>>({})
 const { generateCatalogBatch } = useCatalogBatch()
 
 function buildAiWorldviewContext() {
@@ -116,30 +123,26 @@ const relationsGraph = computed(() =>
   })
 )
 
-// 顶部统计卡片数据：组织数量、关系数量、归属数量
-const stats = computed(() => [
+const listSections = computed(() => [
   {
     key: 'organizations',
     label: '组织势力',
-    value: `${appStore.organizations.length}`,
-    hint: '可沉淀阵营、机构、帮派',
+    count: appStore.organizations.length,
     icon: Building2
   },
   {
     key: 'relationships',
     label: '人物关系',
-    value: `${appStore.characterRelationships.length}`,
-    hint: '可服务冲突与情感线编排',
+    count: appStore.characterRelationships.length,
     icon: Link2
   },
   {
     key: 'memberships',
     label: '成员归属',
-    value: `${appStore.organizationMemberships.length}`,
-    hint: '角色与组织的责任绑定',
+    count: appStore.organizationMemberships.length,
     icon: UserRoundCog
   }
-])
+] as Array<{ key: ListSection; label: string; count: number; icon: typeof Building2 }>)
 
 // 根据搜索关键词过滤组织列表
 const filteredOrganizations = computed(() => {
@@ -192,16 +195,88 @@ const filteredMemberships = computed(() => {
     }
   })
 
-  if (!query) {
-    return decorated
-  }
-
-  return decorated.filter((membership) =>
-    `${membership.role} ${membership.notes} ${membership.characterName} ${membership.organizationName}`
-      .toLowerCase()
-      .includes(query)
-  )
+  return decorated.filter((membership) => {
+    const matchesOrganization = !membershipOrganizationFilter.value
+      || membership.organizationId === membershipOrganizationFilter.value
+    const matchesQuery = !query
+      || `${membership.role} ${membership.notes} ${membership.characterName} ${membership.organizationName}`
+        .toLowerCase()
+        .includes(query)
+    return matchesOrganization && matchesQuery
+  })
 })
+
+type MembershipListItem = OrganizationMembership & {
+  characterName: string
+  organizationName: string
+}
+
+interface MembershipGroup {
+  key: string
+  title: string
+  subtitle: string
+  items: MembershipListItem[]
+  missing: boolean
+}
+
+const membershipGroups = computed<MembershipGroup[]>(() => {
+  const groups = new Map<string, MembershipGroup>()
+  const organizationOrder = new Map(appStore.organizations.map((organization, index) => [organization.id, index]))
+  const characterOrder = new Map(appStore.characters.map((character, index) => [character.id, index]))
+
+  filteredMemberships.value.forEach((membership) => {
+    const groupByOrganization = membershipGroupMode.value === 'organization'
+    const organization = organizationMap.value.get(membership.organizationId)
+    const character = characterMap.value.get(membership.characterId)
+    const entityId = groupByOrganization ? membership.organizationId : membership.characterId
+    const missing = groupByOrganization ? !organization : !character
+    const key = `${groupByOrganization ? 'organization' : 'character'}:${entityId || 'missing'}`
+    const current = groups.get(key) ?? {
+      key,
+      title: groupByOrganization ? membership.organizationName : membership.characterName,
+      subtitle: groupByOrganization
+        ? organization?.type || '组织信息缺失'
+        : character?.role || '角色信息缺失',
+      items: [],
+      missing
+    }
+    current.items.push(membership)
+    groups.set(key, current)
+  })
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      items: [...group.items].sort((left, right) =>
+        left.role.localeCompare(right.role, 'zh-CN')
+        || (membershipGroupMode.value === 'organization' ? left.characterName : left.organizationName).localeCompare(
+          membershipGroupMode.value === 'organization' ? right.characterName : right.organizationName,
+          'zh-CN'
+        )
+      )
+    }))
+    .sort((left, right) => {
+      const leftId = left.key.slice(left.key.indexOf(':') + 1)
+      const rightId = right.key.slice(right.key.indexOf(':') + 1)
+      const orderMap = membershipGroupMode.value === 'organization' ? organizationOrder : characterOrder
+      return (orderMap.get(leftId) ?? Number.MAX_SAFE_INTEGER) - (orderMap.get(rightId) ?? Number.MAX_SAFE_INTEGER)
+        || left.title.localeCompare(right.title, 'zh-CN')
+    })
+})
+
+const allMembershipGroupsCollapsed = computed(() => membershipGroups.value.length > 0
+  && membershipGroups.value.every((group) => membershipCollapsed[group.key]))
+const membershipEntityColumnLabel = computed(() => membershipGroupMode.value === 'organization' ? '角色' : '组织')
+
+function toggleMembershipGroup(groupKey: string): void {
+  membershipCollapsed[groupKey] = !membershipCollapsed[groupKey]
+}
+
+function setAllMembershipGroupsCollapsed(collapsed: boolean): void {
+  membershipGroups.value.forEach((group) => {
+    membershipCollapsed[group.key] = collapsed
+  })
+}
 
 // 打开组织编辑弹窗，传入组织数据时为编辑模式
 function openOrganizationEditor(organization?: OrganizationEntry): void {
@@ -398,6 +473,9 @@ function setViewMode(mode: 'list' | 'graph'): void {
 
 function revealNodeInList(label: string): void {
   viewMode.value = 'list'
+  activeListSection.value = appStore.organizations.some((organization) => organization.name === label)
+    ? 'organizations'
+    : 'relationships'
   keyword.value = label
 }
 
@@ -473,6 +551,42 @@ const directionOptions = [
 const relationshipTargetOptions = computed(() =>
   characterOptions.value.filter((option) => option.value !== relationshipBatchForm.mainCharacterId)
 )
+
+const createActionOptions = computed<DropdownOption[]>(() => [
+  { key: 'organization', label: '新建组织' },
+  { key: 'relationship', label: '新建关系', disabled: appStore.characters.length < 2 },
+  {
+    key: 'membership',
+    label: '新建归属',
+    disabled: appStore.characters.length === 0 || appStore.organizations.length === 0
+  }
+])
+
+const aiActionOptions = computed<DropdownOption[]>(() => [
+  { key: 'organization', label: isGeneratingOrg.value ? '正在生成组织...' : 'AI 生成组织', disabled: isGeneratingOrg.value },
+  {
+    key: 'relationship',
+    label: isGeneratingRel.value ? '正在生成关系...' : 'AI 生成关系',
+    disabled: appStore.characters.length < 2 || isGeneratingRel.value
+  },
+  {
+    key: 'membership',
+    label: isGeneratingMem.value ? '正在补全归属...' : '补全全部归属',
+    disabled: appStore.characters.length === 0 || appStore.organizations.length === 0 || isGeneratingMem.value
+  }
+])
+
+function handleCreateAction(key: string | number): void {
+  if (key === 'organization') openOrganizationEditor()
+  if (key === 'relationship') openRelationshipEditor()
+  if (key === 'membership') openMembershipEditor()
+}
+
+function handleAiAction(key: string | number): void {
+  if (key === 'organization') organizationBatchVisible.value = true
+  if (key === 'relationship') openRelationshipBatch()
+  if (key === 'membership') handleGenerateMembership()
+}
 
 async function handleGenerateOrganization(payload: { count: number; prompt: string; types: string[] }): Promise<void> {
   if (isGeneratingOrg.value) return
@@ -807,13 +921,8 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
 <template>
   <section class="relations-panel">
     <div class="section-head">
-      <div>
-        <div class="section-badge">
-          <Network :size="15" />
-          <span>关系组织工作台</span>
-        </div>
-        <h2>关系与组织模块</h2>
-        <p>把角色关系、阵营势力和成员归属收拢到一个地方维护，后续可直接扩展成关系图谱。</p>
+      <div class="section-title">
+        <h2>关系与组织</h2>
       </div>
       <div class="head-tools">
         <div class="search-input">
@@ -830,72 +939,20 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
             <span>图谱视图</span>
           </button>
         </div>
-        <n-button strong secondary round :disabled="isGeneratingOrg" @click="organizationBatchVisible = true">
-          <template #icon>
-            <Sparkles :size="16" />
-          </template>
-          {{ isGeneratingOrg ? '生成中...' : 'AI 生成组织' }}
-        </n-button>
-        <n-button strong secondary round :disabled="appStore.characters.length < 2 || isGeneratingRel" @click="openRelationshipBatch">
-          <template #icon>
-            <Sparkles :size="16" />
-          </template>
-          {{ isGeneratingRel ? '生成中...' : 'AI 生成关系' }}
-        </n-button>
-        <n-button strong secondary round :disabled="appStore.characters.length === 0 || appStore.organizations.length === 0 || isGeneratingMem" @click="handleGenerateMembership">
-          <template #icon>
-            <Sparkles :size="16" />
-          </template>
-          {{ isGeneratingMem ? '生成中...' : '补全全部归属' }}
-        </n-button>
-        <n-button strong secondary round @click="openOrganizationEditor()">
-          <template #icon>
-            <Building2 :size="16" />
-          </template>
-          新建组织
-        </n-button>
-        <n-button strong secondary round :disabled="appStore.characters.length < 2" @click="openRelationshipEditor()">
-          <template #icon>
-            <Link2 :size="16" />
-          </template>
-          新建关系
-        </n-button>
-        <n-button
-          type="primary"
-          strong
-          round
-          :disabled="appStore.characters.length === 0 || appStore.organizations.length === 0"
-          @click="openMembershipEditor()"
-        >
-          <template #icon>
-            <Plus :size="16" />
-          </template>
-          新建归属
-        </n-button>
-      </div>
-    </div>
-
-    <div class="stats-grid">
-      <article v-for="card in stats" :key="card.key" class="stat-card">
-        <div class="stat-icon">
-          <component :is="card.icon" :size="18" />
-        </div>
-        <div class="stat-copy">
-          <span>{{ card.label }}</span>
-          <strong>{{ card.value }}</strong>
-          <small>{{ card.hint }}</small>
-        </div>
-      </article>
-    </div>
-
-    <div class="tip-card">
-      <Shield :size="18" />
-      <div>
-        <strong>结构已经按“组织 / 关系 / 归属”拆分</strong>
-        <p>
-          现在就能服务角色设定和章节冲突推进，图谱视图也直接复用了这套数据结构，后续接阵营时间线或 AI
-          分析能力时不需要重做模型。
-        </p>
+        <n-dropdown trigger="click" :options="aiActionOptions" @select="handleAiAction">
+          <n-button strong secondary>
+            <template #icon><Sparkles :size="16" /></template>
+            AI 工具
+            <ChevronDown :size="14" class="button-chevron" />
+          </n-button>
+        </n-dropdown>
+        <n-dropdown trigger="click" :options="createActionOptions" @select="handleCreateAction">
+          <n-button type="primary" strong>
+            <template #icon><Plus :size="16" /></template>
+            新建
+            <ChevronDown :size="14" class="button-chevron" />
+          </n-button>
+        </n-dropdown>
       </div>
     </div>
 
@@ -907,17 +964,26 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
       @open-node="openGraphNodeEditor"
     />
 
-    <div v-else class="panel-grid">
-      <section class="module-card">
-        <div class="module-head">
-          <div>
-            <span class="module-kicker">Organizations</span>
-            <h3>组织势力</h3>
-          </div>
-          <span class="module-count">{{ filteredOrganizations.length }}</span>
-        </div>
+    <template v-else>
+      <nav class="list-tabs" role="tablist" aria-label="关系列表分类">
+        <button
+          v-for="section in listSections"
+          :key="section.key"
+          type="button"
+          role="tab"
+          :aria-selected="activeListSection === section.key"
+          class="list-tab"
+          :class="{ active: activeListSection === section.key }"
+          @click="activeListSection = section.key"
+        >
+          <component :is="section.icon" :size="16" />
+          <span>{{ section.label }}</span>
+          <strong>{{ section.count }}</strong>
+        </button>
+      </nav>
 
-        <div v-if="filteredOrganizations.length > 0" class="card-list">
+      <section v-if="activeListSection === 'organizations'" class="list-section">
+        <div v-if="filteredOrganizations.length > 0" class="entity-grid">
           <article v-for="organization in filteredOrganizations" :key="organization.id" class="entity-card">
             <div class="entity-card-top">
               <div class="entity-badge" :style="{ background: orgBadgeBgLight(orgBadgeColor(organization)), color: orgBadgeColor(organization) }">{{ orgInitial(organization.name) }}</div>
@@ -926,10 +992,10 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
                 <span>{{ organization.type }}</span>
               </div>
               <div class="entity-actions">
-                <button class="icon-button" @click="openOrganizationEditor(organization)">
+                <button class="icon-button" type="button" title="编辑组织" aria-label="编辑组织" @click="openOrganizationEditor(organization)">
                   <PencilLine :size="15" />
                 </button>
-                <button class="icon-button danger" @click="confirmDeleteOrganization(organization)">
+                <button class="icon-button danger" type="button" title="删除组织" aria-label="删除组织" @click="confirmDeleteOrganization(organization)">
                   <Trash2 :size="15" />
                 </button>
               </div>
@@ -947,16 +1013,8 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
         </div>
       </section>
 
-      <section class="module-card">
-        <div class="module-head">
-          <div>
-            <span class="module-kicker">Relationships</span>
-            <h3>人物关系</h3>
-          </div>
-          <span class="module-count">{{ filteredRelationships.length }}</span>
-        </div>
-
-        <div v-if="filteredRelationships.length > 0" class="card-list">
+      <section v-else-if="activeListSection === 'relationships'" class="list-section">
+        <div v-if="filteredRelationships.length > 0" class="card-list relationship-list">
           <article v-for="relationship in filteredRelationships" :key="relationship.id" class="entity-card">
             <div class="entity-card-top">
               <div class="link-pair">
@@ -965,10 +1023,10 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
                 <span>{{ relationship.toCharacterName }}</span>
               </div>
               <div class="entity-actions">
-                <button class="icon-button" @click="openRelationshipEditor(relationship)">
+                <button class="icon-button" type="button" title="编辑关系" aria-label="编辑关系" @click="openRelationshipEditor(relationship)">
                   <PencilLine :size="15" />
                 </button>
-                <button class="icon-button danger" @click="confirmDeleteRelationship(relationship)">
+                <button class="icon-button danger" type="button" title="删除关系" aria-label="删除关系" @click="confirmDeleteRelationship(relationship)">
                   <Trash2 :size="15" />
                 </button>
               </div>
@@ -991,34 +1049,71 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
         </div>
       </section>
 
-      <section class="module-card wide">
-        <div class="module-head">
-          <div>
-            <span class="module-kicker">Memberships</span>
-            <h3>成员归属</h3>
+      <section v-else class="list-section membership-section">
+        <div class="membership-toolbar">
+          <div class="membership-group-switch" role="group" aria-label="成员归属分组方式">
+            <button type="button" :class="{ active: membershipGroupMode === 'organization' }" @click="membershipGroupMode = 'organization'">按组织</button>
+            <button type="button" :class="{ active: membershipGroupMode === 'character' }" @click="membershipGroupMode = 'character'">按角色</button>
           </div>
-          <span class="module-count">{{ filteredMemberships.length }}</span>
+          <n-select
+            v-model:value="membershipOrganizationFilter"
+            class="membership-filter"
+            size="small"
+            clearable
+            filterable
+            :options="organizationOptions"
+            placeholder="筛选组织"
+          />
+          <n-button size="small" secondary @click="setAllMembershipGroupsCollapsed(!allMembershipGroupsCollapsed)">
+            {{ allMembershipGroupsCollapsed ? '全部展开' : '全部收起' }}
+          </n-button>
         </div>
 
-        <div v-if="filteredMemberships.length > 0" class="membership-list">
-          <article v-for="membership in filteredMemberships" :key="membership.id" class="membership-card">
-            <div class="membership-main">
-              <div class="membership-copy">
-                <strong>{{ membership.characterName }}</strong>
-                <span>{{ membership.organizationName }}</span>
+        <div v-if="membershipGroups.length > 0" class="membership-groups">
+          <section v-for="group in membershipGroups" :key="group.key" class="membership-group">
+            <button
+              type="button"
+              class="membership-group-head"
+              :aria-expanded="!membershipCollapsed[group.key]"
+              @click="toggleMembershipGroup(group.key)"
+            >
+              <ChevronDown :size="16" class="membership-chevron" :class="{ collapsed: membershipCollapsed[group.key] }" />
+              <span
+                class="membership-group-avatar"
+                :style="membershipGroupMode === 'organization' ? { background: orgBadgeBgLight(orgBadgeColor({ name: group.title })), color: orgBadgeColor({ name: group.title }) } : undefined"
+              >{{ orgInitial(group.title) }}</span>
+              <span class="membership-group-copy">
+                <strong>{{ group.title }}</strong>
+                <small>{{ group.subtitle }}</small>
+              </span>
+              <span v-if="group.missing" class="membership-warning">信息缺失</span>
+              <span class="membership-group-count">{{ group.items.length }} 条</span>
+            </button>
+
+            <div v-show="!membershipCollapsed[group.key]" class="membership-table" role="table">
+              <div class="membership-table-head" role="row">
+                <span role="columnheader">{{ membershipEntityColumnLabel }}</span>
+                <span role="columnheader">组织身份</span>
+                <span role="columnheader">备注</span>
+                <span role="columnheader">操作</span>
               </div>
-              <div class="membership-role">{{ membership.role }}</div>
+              <div v-for="membership in group.items" :key="membership.id" class="membership-table-row" role="row">
+                <strong class="membership-entity" role="cell">
+                  {{ membershipGroupMode === 'organization' ? membership.characterName : membership.organizationName }}
+                </strong>
+                <span class="membership-role" role="cell">{{ membership.role }}</span>
+                <span class="membership-notes" role="cell" :title="membership.notes || '无备注'">{{ membership.notes || '—' }}</span>
+                <span class="membership-row-actions" role="cell">
+                  <button class="icon-button" type="button" title="编辑归属" aria-label="编辑归属" @click="openMembershipEditor(membership)">
+                    <PencilLine :size="15" />
+                  </button>
+                  <button class="icon-button danger" type="button" title="删除归属" aria-label="删除归属" @click="confirmDeleteMembership(membership)">
+                    <Trash2 :size="15" />
+                  </button>
+                </span>
+              </div>
             </div>
-            <p>{{ membership.notes }}</p>
-            <div class="entity-actions end">
-              <button class="icon-button" @click="openMembershipEditor(membership)">
-                <PencilLine :size="15" />
-              </button>
-              <button class="icon-button danger" @click="confirmDeleteMembership(membership)">
-                <Trash2 :size="15" />
-              </button>
-            </div>
-          </article>
+          </section>
         </div>
         <div v-else class="empty-card">
           <UserRoundCog :size="18" />
@@ -1026,7 +1121,7 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
           <p>先创建组织和角色，然后把人物挂到势力下面，章节中的职责与立场会更稳定。</p>
         </div>
       </section>
-    </div>
+    </template>
 
     <n-modal
       :show="characterEditorVisible"
@@ -1351,40 +1446,19 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
 
 .section-head {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 24px;
+  gap: 16px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 
-.section-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
-  color: var(--arc-primary);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 8px 12px;
-  margin-bottom: 14px;
-}
-
-.section-head h2 {
-  margin: 0 0 10px;
-  font-size: clamp(30px, 3.4vw, 40px);
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  color: var(--arc-text-primary);
-}
-
-.section-head p {
-  max-width: 48rem;
+.section-title h2 {
   margin: 0;
-  color: var(--arc-text-secondary);
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--arc-text-primary);
 }
 
 .head-tools {
@@ -1400,7 +1474,7 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   align-items: center;
   gap: 6px;
   border: 1px solid var(--arc-border);
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--arc-bg-surface);
   padding: 4px;
 }
@@ -1410,12 +1484,13 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   align-items: center;
   gap: 8px;
   border: none;
-  border-radius: 999px;
+  border-radius: 4px;
   background: transparent;
   color: var(--arc-text-secondary);
   font-size: 12px;
   font-weight: 700;
-  padding: 8px 12px;
+  min-height: 34px;
+  padding: 6px 10px;
   cursor: pointer;
   transition:
     color 0.16s ease,
@@ -1425,7 +1500,6 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
 
 .view-switch-button:hover {
   color: var(--arc-primary);
-  transform: translateY(-1px);
 }
 
 .view-switch-button.active {
@@ -1435,14 +1509,16 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
 
 .search-input {
   display: inline-flex;
-  width: clamp(220px, 24vw, 300px);
+  width: min(280px, 28vw);
+  min-width: 220px;
   align-items: center;
   gap: 8px;
   border: 1px solid var(--arc-border);
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--arc-bg-surface);
   color: var(--arc-text-hint);
-  padding: 10px 14px;
+  min-height: 36px;
+  padding: 7px 11px;
   transition:
     border-color 0.18s ease,
     box-shadow 0.18s ease,
@@ -1463,160 +1539,93 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   outline: none;
 }
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 16px;
+.button-chevron {
+  margin-left: 2px;
 }
 
-.stat-card {
+.view-switch-button:focus-visible,
+.list-tab:focus-visible,
+.membership-group-switch button:focus-visible,
+.membership-group-head:focus-visible,
+.icon-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--arc-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.list-tabs {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  border: 1px solid var(--arc-border);
-  border-radius: 10px;
-  background: var(--arc-bg-surface);
-  padding: 16px 18px;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.03);
-}
-
-.stat-icon {
-  display: inline-flex;
-  width: 38px;
-  height: 38px;
   align-items: center;
-  justify-content: center;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
-  color: var(--arc-primary);
-  flex-shrink: 0;
-}
-
-.stat-copy {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--arc-border);
 }
 
-.stat-copy span {
+.list-tab {
+  position: relative;
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
   color: var(--arc-text-secondary);
   font-size: 12px;
+  font-weight: 600;
+  padding: 0 14px;
+  cursor: pointer;
 }
 
-.stat-copy strong {
-  color: var(--arc-text-primary);
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1;
+.list-tab::after {
+  position: absolute;
+  right: 10px;
+  bottom: -1px;
+  left: 10px;
+  height: 2px;
+  background: transparent;
+  content: '';
 }
 
-.stat-copy small {
-  color: var(--arc-text-hint);
-  font-size: 11px;
-  line-height: 1.6;
+.list-tab:hover,
+.list-tab.active {
+  color: var(--arc-primary);
 }
 
-.tip-card {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  margin-bottom: 18px;
-  border: 1px solid color-mix(in srgb, var(--arc-primary) 16%, var(--arc-border));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
-  color: var(--arc-text-primary);
-  padding: 16px 18px;
+.list-tab.active::after {
+  background: var(--arc-primary);
 }
 
-.tip-card strong {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--arc-text-primary);
-  font-size: 14px;
+.list-tab strong {
+  min-width: 22px;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
-.tip-card p {
-  margin: 0;
-  color: var(--arc-text-secondary);
-  font-size: 13px;
-  line-height: 1.7;
+.list-section {
+  min-width: 0;
 }
 
-.panel-grid {
+.entity-grid,
+.relationship-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.module-card {
-  border: 1px solid var(--arc-border);
-  border-radius: 10px;
-  background: var(--arc-bg-surface);
-  padding: 20px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.03);
-}
-
-.module-card.wide {
-  grid-column: 1 / -1;
-}
-
-.module-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
 }
 
-.module-kicker {
-  display: inline-flex;
-  margin-bottom: 8px;
-  color: var(--arc-text-hint);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.module-head h3 {
-  margin: 0;
-  color: var(--arc-text-primary);
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.module-count {
-  display: inline-flex;
-  min-width: 34px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
-  color: var(--arc-primary);
-  font-size: 12px;
-  font-weight: 800;
-  padding: 8px 10px;
-}
-
-.card-list,
-.membership-list {
+.card-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.entity-card,
-.membership-card {
+.entity-card {
   border: 1px solid var(--arc-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--arc-bg-surface);
-  padding: 16px;
+  padding: 14px;
 }
 
-.entity-card-top,
-.membership-main {
+.entity-card-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1646,33 +1655,41 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   gap: 4px;
 }
 
-.entity-head-copy h4,
-.membership-copy strong {
+.entity-head-copy h4 {
   margin: 0;
   color: var(--arc-text-primary);
   font-size: 16px;
   font-weight: 700;
 }
 
-.entity-head-copy span,
-.membership-copy span {
+.entity-head-copy span {
   color: var(--arc-text-secondary);
   font-size: 12px;
 }
 
-.entity-card p,
-.membership-card p {
+.entity-card p {
   margin: 12px 0 0;
   color: var(--arc-text-secondary);
   font-size: 13px;
-  line-height: 1.7;
+  line-height: 1.6;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .entity-footer {
   display: flex;
   margin-top: 12px;
+  overflow: hidden;
   color: var(--arc-text-hint);
   font-size: 12px;
+}
+
+.entity-footer span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .entity-actions {
@@ -1682,11 +1699,6 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   flex-shrink: 0;
 }
 
-.entity-actions.end {
-  margin-top: 14px;
-  justify-content: flex-end;
-}
-
 .icon-button {
   display: inline-flex;
   width: 34px;
@@ -1694,7 +1706,7 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   align-items: center;
   justify-content: center;
   border: 1px solid var(--arc-border);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   cursor: pointer;
@@ -1767,21 +1779,209 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
 }
 
-.membership-copy {
+.membership-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.membership-group-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
+  background: var(--arc-bg-surface);
+  padding: 3px;
+}
+
+.membership-group-switch button {
+  min-height: 30px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.membership-group-switch button:hover,
+.membership-group-switch button.active {
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
+  color: var(--arc-primary);
+}
+
+.membership-filter {
+  width: 220px;
+}
+
+.membership-groups {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
+}
+
+.membership-group {
+  overflow: hidden;
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
+}
+
+.membership-group-head {
+  display: grid;
+  width: 100%;
+  min-height: 54px;
+  grid-template-columns: 18px 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-primary);
+  padding: 8px 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.membership-group-head:hover {
+  background: var(--arc-bg-surface-hover);
+}
+
+.membership-group-avatar {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.membership-group-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.membership-group-copy strong,
+.membership-group-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.membership-group-copy strong {
+  font-size: 14px;
+}
+
+.membership-group-copy small {
+  color: var(--arc-text-hint);
+  font-size: 11px;
+}
+
+.membership-chevron {
+  color: var(--arc-text-hint);
+  transition: transform 0.18s ease;
+}
+
+.membership-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.membership-warning {
+  border: 1px solid color-mix(in srgb, var(--arc-danger) 28%, var(--arc-border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--arc-danger) 7%, var(--arc-bg-surface));
+  color: var(--arc-danger);
+  font-size: 11px;
+  padding: 3px 6px;
+}
+
+.membership-group-count {
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.membership-table {
+  border-top: 1px solid var(--arc-border);
+}
+
+.membership-table-head,
+.membership-table-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(120px, 0.8fr) minmax(220px, 2fr) 82px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+}
+
+.membership-table-head {
+  min-height: 34px;
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.membership-table-row {
+  min-height: 48px;
+  border-top: 1px solid var(--arc-border);
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+}
+
+.membership-table-head + .membership-table-row {
+  border-top: none;
+}
+
+.membership-table-row:hover {
+  background: var(--arc-bg-surface-hover);
+}
+
+.membership-entity,
+.membership-notes {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.membership-entity {
+  color: var(--arc-text-primary);
+  font-size: 13px;
 }
 
 .membership-role {
   display: inline-flex;
+  width: fit-content;
   align-items: center;
-  border-radius: 999px;
-  background: rgba(241, 245, 249, 0.96);
+  border: 1px solid var(--arc-border);
+  border-radius: 4px;
+  background: var(--arc-bg-weak);
   color: var(--arc-text-secondary);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 7px;
+}
+
+.membership-notes {
+  color: var(--arc-text-secondary);
+}
+
+.membership-row-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .empty-card {
@@ -1792,7 +1992,7 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   justify-content: center;
   gap: 10px;
   border: 1px dashed var(--arc-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--arc-bg-weak);
   color: var(--arc-text-secondary);
   text-align: center;
@@ -1833,18 +2033,25 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
 }
 
 @media (max-width: 1180px) {
-  .panel-grid,
-  .stats-grid {
+  .entity-grid,
+  .relationship-list {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 900px) {
+  .section-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .head-tools {
+    width: 100%;
     justify-content: flex-start;
   }
 
   .search-input {
+    flex: 1 1 100%;
     width: 100%;
   }
 }
@@ -1854,8 +2061,15 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
     grid-template-columns: 1fr;
   }
 
-  .entity-card-top,
-  .membership-main {
+  .list-tabs {
+    overflow-x: auto;
+  }
+
+  .list-tab {
+    flex: 0 0 auto;
+  }
+
+  .entity-card-top {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1863,6 +2077,52 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   .entity-actions {
     width: 100%;
     justify-content: flex-end;
+  }
+
+  .membership-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .membership-filter {
+    width: 100%;
+  }
+
+  .membership-group-switch {
+    align-self: flex-start;
+  }
+
+  .membership-group-head {
+    grid-template-columns: 18px 32px minmax(0, 1fr) auto;
+  }
+
+  .membership-warning {
+    display: none;
+  }
+
+  .membership-table-head {
+    display: none;
+  }
+
+  .membership-table-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    padding: 10px 12px;
+  }
+
+  .membership-role {
+    grid-column: 1;
+    justify-self: end;
+  }
+
+  .membership-notes {
+    grid-column: 1 / -1;
+  }
+
+  .membership-row-actions {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: end;
   }
 }
 </style>
