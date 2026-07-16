@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { MoreVertical, Network, Plus, Search, Sparkles } from 'lucide-vue-next'
-import { NButton, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NTag, useDialog, useMessage } from 'naive-ui'
+import { NButton, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NSelect, NTag, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { resolveAccentColor, resolveReadableTextColor } from '@/features/relations/graph'
@@ -16,27 +16,32 @@ import { normalizeCatalogTags, useCatalogBatch } from '@/composables/useCatalogB
 const appStore = useAppStore()
 const dialog = useDialog()
 const keyword = ref('') // 本面板内的本地搜索关键词
+const roleFilter = ref<string | null>(null)
 const writingStyle = computed(() => buildProjectWritingStyleContext(appStore.currentProject))
+
+const props = defineProps<{
+  searchQuery?: string // 全局搜索关键词，由父组件传入
+}>()
+
+const roleOptions = computed(() =>
+  [...new Set(appStore.characters.map((character) => character.role.trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, 'zh-CN'))
+    .map((role) => ({ label: role, value: role }))
+)
 
 // 合并本地搜索框和全局工作区搜索关键词，对角色列表进行过滤
 // 在角色名、角色定位和简介中做全文匹配
 const filteredCharacters = computed(() => {
   // Combine the local search box with the global workspace search for a simple, predictable filter model.
   const mergedQuery = [props.searchQuery, keyword.value].filter(Boolean).join(' ').trim().toLowerCase()
-  const value = mergedQuery
-  if (!value) {
-    return appStore.characters
-  }
-
   return appStore.characters.filter((character) => {
-    const haystack = [character.name, character.role, character.description].join(' ').toLowerCase()
-    return haystack.includes(value)
+    const matchesRole = !roleFilter.value || character.role.trim() === roleFilter.value
+    const haystack = [character.name, character.role, character.description, ...character.tags.map((tag) => tag.label)]
+      .join(' ')
+      .toLowerCase()
+    return matchesRole && (!mergedQuery || haystack.includes(mergedQuery))
   })
 })
-
-const props = defineProps<{
-  searchQuery?: string // 全局搜索关键词，由父组件传入
-}>()
 const message = useMessage()
 const AI_TASK_KEY = 'catalog-batch:character'
 const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY)) // AI 生成角色时的加载状态（走全局注册表）
@@ -295,34 +300,47 @@ watch(
 <template>
   <section class="character-panel">
     <div class="section-head">
-      <div>
+      <div class="section-title">
         <h2>角色图鉴</h2>
-        <p>主要角色卡与关键人设在这里集中维护。</p>
       </div>
       <div class="head-actions">
-        <div class="search-input">
-          <n-input
-            v-model:value="keyword"
-            placeholder="搜索角色..."
-            clearable
-          >
-            <template #prefix>
-              <Search :size="16" />
-            </template>
-          </n-input>
-        </div>
-        <button class="soft-button" :disabled="isGenerating" @click="batchVisible = true">
-          <Sparkles :size="16" />
-          <span>{{ isGenerating ? '生成中...' : 'AI生成角色' }}</span>
-        </button>
-        <button class="soft-button" @click="appStore.setPanel('relations')">
-          <Network :size="16" />
-          <span>关系组织</span>
-        </button>
-        <button class="primary-button" @click="handleCreateCharacter">
-          <Plus :size="16" />
-          <span>新建</span>
-        </button>
+        <n-button secondary strong @click="appStore.setPanel('relations')">
+          <template #icon><Network :size="16" /></template>
+          关系组织
+        </n-button>
+        <n-button secondary strong :loading="isGenerating" @click="batchVisible = true">
+          <template #icon><Sparkles :size="16" /></template>
+          AI 生成
+        </n-button>
+        <n-button type="primary" strong @click="handleCreateCharacter">
+          <template #icon><Plus :size="16" /></template>
+          新建角色
+        </n-button>
+      </div>
+    </div>
+
+    <div class="catalog-toolbar">
+      <div class="catalog-filters">
+        <n-input
+          v-model:value="keyword"
+          class="character-search"
+          placeholder="搜索姓名、定位、标签或简介"
+          clearable
+        >
+          <template #prefix><Search :size="16" /></template>
+        </n-input>
+        <n-select
+          v-model:value="roleFilter"
+          class="role-filter"
+          :options="roleOptions"
+          placeholder="全部角色定位"
+          clearable
+          filterable
+        />
+      </div>
+      <div class="result-summary">
+        <strong>{{ filteredCharacters.length }}</strong>
+        <span>/ {{ appStore.characters.length }} 个角色</span>
       </div>
     </div>
 
@@ -341,31 +359,35 @@ watch(
         </div>
         <div class="character-info">
           <div class="character-head">
-            <h3>{{ character.name }}<span v-if="character.role"> ({{ character.role }})</span></h3>
+            <div class="character-identity">
+              <h3>{{ character.name }}</h3>
+              <span v-if="character.role" class="role-label">{{ character.role }}</span>
+              <span v-else class="role-label muted">未设置定位</span>
+            </div>
             <n-dropdown :options="menuOptions" placement="bottom-end" @select="(key) => handleMenuSelect(key, character)">
-              <button class="more-button" @click.stop>
+              <button class="more-button" type="button" title="更多操作" aria-label="更多操作" @click.stop>
                 <MoreVertical :size="14" />
               </button>
             </n-dropdown>
           </div>
+          <p class="description" :title="character.description">{{ character.description }}</p>
           <div class="tag-row">
             <n-tag
-              v-for="tag in character.tags"
+              v-for="tag in character.tags.slice(0, 3)"
               :key="tag.label"
-              round
               size="small"
               :type="tagType(tag.tone)"
             >
               {{ tag.label }}
             </n-tag>
+            <span v-if="character.tags.length > 3" class="tag-overflow">+{{ character.tags.length - 3 }}</span>
           </div>
-          <p class="description">{{ character.description }}</p>
         </div>
       </article>
     </div>
 
     <div v-if="filteredCharacters.length === 0" class="arc-empty-state">
-      没有匹配当前搜索条件的角色。
+      {{ appStore.characters.length === 0 ? '还没有角色，先新建一名角色。' : '没有匹配当前筛选条件的角色。' }}
     </div>
 
     <BatchGenerateDialog
@@ -454,24 +476,19 @@ watch(
 
 .section-head {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
-  margin-bottom: 32px;
+  margin-bottom: 16px;
   gap: 16px;
   flex-wrap: wrap;
 }
 
-.section-head h2 {
-  margin: 0 0 8px;
-  font-size: clamp(30px, 3.4vw, 38px);
-  font-weight: 650;
-  letter-spacing: -0.04em;
-}
-
-.section-head p {
+.section-title h2 {
   margin: 0;
-  color: var(--arc-text-secondary);
-  font-size: 15px;
+  color: var(--arc-text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 .head-actions {
@@ -479,131 +496,107 @@ watch(
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  width: 100%;
   justify-content: flex-end;
 }
 
-.search-input {
-  display: inline-flex;
-  width: clamp(220px, 24vw, 280px);
+.catalog-toolbar {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
   background: var(--arc-bg-mix);
+  padding: 10px;
+}
+
+.catalog-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.character-search {
+  width: min(360px, 38vw);
+}
+
+.role-filter {
+  width: 180px;
+}
+
+.result-summary {
+  display: inline-flex;
+  align-items: baseline;
+  flex-shrink: 0;
+  gap: 4px;
   color: var(--arc-text-hint);
-  padding: 10px 14px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
-.search-input:focus-within {
-  border-color: color-mix(in srgb, var(--arc-primary) 22%, var(--arc-bg-mix));
-  background: var(--arc-bg-surface);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--arc-primary) 10%, transparent);
-}
-
-.search-input input {
-  width: 100%;
-  border: none;
-  background: transparent;
-  outline: none;
-}
-
-.soft-button,
-.primary-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 650;
-  padding: 12px 18px;
-}
-
-.soft-button:disabled,
-.primary-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.soft-button {
-  background: var(--arc-bg-mix);
+.result-summary strong {
   color: var(--arc-text-primary);
-}
-
-.soft-button :deep(svg) {
-  color: var(--arc-primary);
-}
-
-.primary-button {
-  background: var(--arc-primary);
-  color: white;
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--arc-primary) 24%, transparent);
+  font-size: 15px;
 }
 
 .character-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
-  gap: clamp(16px, 2vw, 24px);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 12px;
 }
 
 .character-card {
   display: flex;
-  gap: 16px;
+  min-height: 144px;
+  gap: 12px;
   border: 1px solid var(--arc-border);
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--arc-bg-surface);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
-  padding: 18px;
+  padding: 14px;
+  cursor: pointer;
   transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+    border-color 0.16s ease,
+    background 0.16s ease;
 }
 
 .character-card.assistant-focused {
   border-color: color-mix(in srgb, var(--arc-accent) 78%, white 22%);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arc-accent) 16%, transparent), 0 24px 54px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arc-accent) 16%, transparent);
 }
 
 .character-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.06);
-}
-
-.character-card::after {
-  content: '点击编辑';
-  display: inline-flex;
-  margin-top: auto;
-  color: rgba(31, 41, 55, 0);
-  font-size: 11px;
-  font-weight: 600;
-  transition: color 0.2s ease;
+  border-color: color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
+  background: color-mix(in srgb, var(--arc-primary) 2%, var(--arc-bg-surface));
 }
 
 .character-card:hover h3 {
   color: var(--arc-primary);
 }
 
-.character-card:hover::after {
-  color: var(--arc-text-hint);
-}
-
 .avatar {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
+  width: 44px;
+  height: 44px;
   flex-shrink: 0;
-  border-radius: 999px;
+  border-radius: 6px;
 }
 
 .avatar span {
   color: inherit;
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+.character-info {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
 }
 
 .character-head {
@@ -613,9 +606,34 @@ watch(
   gap: 12px;
 }
 
-.character-info h3 {
-  margin: 0 0 4px;
+.character-identity {
+  min-width: 0;
+}
+
+.character-identity h3 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--arc-text-primary);
   font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-label {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-label.muted {
+  color: var(--arc-text-hint);
 }
 
 .more-button {
@@ -625,7 +643,7 @@ watch(
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 999px;
+  border-radius: 4px;
   background: transparent;
   color: var(--arc-text-hint);
   cursor: pointer;
@@ -638,53 +656,87 @@ watch(
 
 .tag-row {
   display: flex;
-  flex-wrap: wrap;
+  min-height: 22px;
+  align-items: center;
+  flex-wrap: nowrap;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-top: auto;
+  overflow: hidden;
+}
+
+.tag-row :deep(.n-tag) {
+  max-width: 92px;
+  flex-shrink: 1;
+}
+
+.tag-row :deep(.n-tag__content) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-overflow {
+  flex-shrink: 0;
+  color: var(--arc-text-hint);
+  font-size: 12px;
 }
 
 .description {
   display: -webkit-box;
-  margin: 0;
+  min-height: 39px;
+  margin: 10px 0 12px;
   overflow: hidden;
   color: var(--arc-text-secondary);
   font-size: 13px;
   line-height: 1.5;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
-@media (max-width: 1240px) {
-  .head-actions {
-    justify-content: flex-start;
-  }
+  -webkit-line-clamp: 2;
 }
 
 @media (max-width: 860px) {
-  .search-input {
-    width: 100%;
-    order: 1;
+  .section-head {
+    align-items: flex-start;
   }
 
-  .soft-button,
-  .primary-button {
-    flex: 1 1 calc(50% - 6px);
-    justify-content: center;
+  .head-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .catalog-toolbar {
+    align-items: flex-end;
+  }
+
+  .catalog-filters {
+    flex: 1;
+  }
+
+  .character-search {
+    width: 100%;
   }
 }
 
 @media (max-width: 720px) {
-  .character-grid {
-    grid-template-columns: 1fr;
+  .head-actions :deep(.n-button) {
+    flex: 1 1 calc(50% - 6px);
   }
 
-  .character-card {
+  .catalog-toolbar,
+  .catalog-filters {
+    align-items: stretch;
     flex-direction: column;
   }
 
-  .avatar {
-    width: 56px;
-    height: 56px;
+  .role-filter {
+    width: 100%;
+  }
+
+  .result-summary {
+    align-self: flex-end;
+  }
+
+  .character-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
