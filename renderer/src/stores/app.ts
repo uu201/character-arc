@@ -66,6 +66,7 @@ import type {
   OutlineImportApplyResult,
   OutlineImportNewVolume,
   OutlineImportPlanEntry,
+  OutlineImportVolumeUpdate,
   OutlineVolume,
   PanelName,
   PlotThread,
@@ -2071,7 +2072,8 @@ export const useAppStore = defineStore('app', () => {
 
   function applyOutlineImportPlan(
     entries: OutlineImportPlanEntry[],
-    newVolumes: OutlineImportNewVolume[]
+    newVolumes: OutlineImportNewVolume[],
+    volumeUpdates: OutlineImportVolumeUpdate[] = []
   ): OutlineImportApplyResult {
     const result: OutlineImportApplyResult = { added: 0, overwritten: 0, createdVolumes: 0 }
     if (!entries.length) return result
@@ -2079,6 +2081,17 @@ export const useAppStore = defineStore('app', () => {
     updateCurrentWorkspace((workspace) => {
       const volumeKeyMap = new Map(workspace.outlineVolumes.map((volume) => [volume.id, volume.id]))
       const nextVolumes = [...workspace.outlineVolumes]
+      for (const update of volumeUpdates) {
+        const index = nextVolumes.findIndex((volume) => volume.id === update.volumeId)
+        if (index < 0) continue
+        const existing = nextVolumes[index]
+        nextVolumes[index] = {
+          ...existing,
+          title: update.title?.trim() || existing.title,
+          wordTarget: normalizeVolumeWordTarget(update.wordTarget) || existing.wordTarget,
+          summary: update.summary?.trim() || existing.summary
+        }
+      }
       for (const volume of newVolumes) {
         const existing = nextVolumes.find((item) => item.title.trim().toLowerCase() === volume.title.trim().toLowerCase())
         if (existing) {

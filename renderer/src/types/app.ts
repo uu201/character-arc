@@ -507,6 +507,13 @@ export interface OutlineImportNewVolume {
   summary?: string
 }
 
+export interface OutlineImportVolumeUpdate {
+  volumeId: string
+  title?: string
+  wordTarget?: string
+  summary?: string
+}
+
 export interface OutlineImportPlanEntry {
   sourceRow: number
   action: OutlineImportAction

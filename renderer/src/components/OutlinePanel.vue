@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, h, nextTick, reactive, ref, watch } from 'vue'
 import { CheckSquare, ChevronDown, Download, FileDown, FileSpreadsheet, FilePlus2, Files, FolderTree, GripVertical, ListChecks, MoreVertical, Plus, Rows3, Sparkles, Trash2, Upload } from 'lucide-vue-next'
-import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NModal, NRadioButton, NRadioGroup, NSelect, useDialog, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useEventListener } from '@vueuse/core'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { useAppStore } from '@/stores/app'
@@ -10,7 +10,7 @@ import { formatVolumeLabel, normalizeVolumeWordTarget } from '@/features/workspa
 import type { OutlineDropPosition } from '@/features/workspace/outlineReorder'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { DropdownOption, SelectOption } from 'naive-ui'
-import type { OutlineImportNewVolume, OutlineImportPlanEntry, OutlineItem, OutlineItemStatus, OutlineVolume } from '@/types/app'
+import type { OutlineImportNewVolume, OutlineImportPlanEntry, OutlineImportVolumeUpdate, OutlineItem, OutlineItemStatus, OutlineVolume } from '@/types/app'
 import AiEnhancePreview from './AiEnhancePreview.vue'
 import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
 
@@ -79,9 +79,12 @@ interface ImportPlanRow {
   conflict: string
   summary: string
   status: OutlineItemStatus
+  statusProvided: boolean
   sourceVolumeTitle: string
+  sourceVolumeKey: string
   targetVolumeKey: string
-  duplicateId: string
+  matchOutlineId: string
+  targetDuplicateId: string
   strategy: ImportStrategy
   location: string
   order: number
@@ -95,7 +98,8 @@ const importPreviewReady = ref(false)
 const importStep = ref<1 | 2 | 3>(1) // 1: 字段映射, 2: 确认分卷, 3: 确认章节
 const importPlan = ref<ImportPlanRow[]>([])
 const importNewVolumes = ref<OutlineImportNewVolume[]>([])
-const importVolumesConfirmed = ref<Array<{ key: string; title: string; enabled: boolean; isNew: boolean; existingId?: string }>>([])
+const importVolumeUpdates = ref<OutlineImportVolumeUpdate[]>([])
+const importVolumesConfirmed = ref<Array<{ key: string; title: string; enabled: boolean; isNew: boolean; existingId?: string; wordTarget?: string; summary?: string }>>([])
 const importBatchTarget = ref<string | null>(null)
 const importBatchStrategy = ref<ImportStrategy | null>(null)
 const importBatchStrategyOptions = [
@@ -103,7 +107,6 @@ const importBatchStrategyOptions = [
   { label: '重复项覆盖', value: 'overwrite' },
   { label: '全部作为新增', value: 'add' }
 ]
-const importViewMode = ref<'table' | 'card'>('card')
 const showBatchVolumeModal = ref(false)
 const showBatchStrategyModal = ref(false)
 const exportPreviewVisible = ref(false)
@@ -126,7 +129,8 @@ const importMapping = reactive({
   title: null as number | null,
   wordTarget: null as number | null,
   conflict: null as number | null,
-  summary: null as number | null
+  summary: null as number | null,
+  status: null as number | null
 })
 const importHeaders = computed(() => importRows.value[0] ?? [])
 const importColumnOptions = computed(() => importHeaders.value.map((header, index) => ({
@@ -135,15 +139,13 @@ const importColumnOptions = computed(() => importHeaders.value.map((header, inde
 })))
 const importDataRows = computed(() => importRows.value.slice(1).filter((row) => row.some((cell) => cell.trim())))
 const importVolumeOptions = computed(() => {
-  // 步骤 3：只显示已确认导入的分卷
   if (importStep.value === 3) {
     const confirmed = importVolumesConfirmed.value.filter(v => v.enabled)
-    return confirmed.map(v => ({
-      label: v.isNew ? `新建：${v.title}` : v.title,
-      value: v.key
-    }))
+    return [
+      ...appStore.outlineVolumes.map((volume) => ({ label: volume.title, value: volume.id })),
+      ...confirmed.filter((volume) => volume.isNew).map((volume) => ({ label: `新建：${volume.title}`, value: volume.key }))
+    ]
   }
-  // 步骤 2 及之前：显示所有分卷
   return [
     ...appStore.outlineVolumes.map((volume) => ({ label: volume.title, value: volume.id })),
     ...importNewVolumes.value.map((volume) => ({ label: `新建：${volume.title}`, value: volume.key }))
@@ -151,19 +153,17 @@ const importVolumeOptions = computed(() => {
 })
 
 const filteredImportVolumeOptions = computed(() => {
-  const confirmed = importVolumesConfirmed.value.filter(v => v.enabled)
-  return confirmed.map(v => ({
-    label: v.isNew ? `新建：${v.title}` : v.title,
-    value: v.key
-  }))
+  return importVolumeOptions.value
 })
 
 const filteredImportPlan = computed(() => {
   if (importStep.value !== 3) return importPlan.value
   const enabledVolumeKeys = new Set(importVolumesConfirmed.value.filter(v => v.enabled).map(v => v.key))
-  return importPlan.value.filter(item => enabledVolumeKeys.has(item.targetVolumeKey))
+  if (enabledVolumeKeys.size === 0) return importPlan.value
+  return importPlan.value.filter(item => !item.sourceVolumeKey || enabledVolumeKeys.has(item.sourceVolumeKey))
 })
 
+const importSelectedCount = computed(() => filteredImportPlan.value.filter((item) => item.enabled && !item.error).length)
 const importEnabledCount = computed(() => filteredImportPlan.value.filter((item) => item.enabled && !item.error && item.strategy !== 'skip').length)
 const importStats = computed(() => ({
   add: filteredImportPlan.value.filter((item) => item.enabled && !item.error && item.strategy === 'add').length,
@@ -709,6 +709,23 @@ function detectImportColumn(pattern: RegExp): number | null {
   return index >= 0 ? index : null
 }
 
+function normalizeImportStatus(value: string): OutlineItemStatus {
+  const normalized = value.replace(/\s+/g, '').toLowerCase()
+  if (['idea', '点子', '灵感', '构思'].includes(normalized)) return 'idea'
+  if (['drafting', '写作中', '草稿', '起草中'].includes(normalized)) return 'drafting'
+  if (['done', '已完成', '完成', '完稿'].includes(normalized)) return 'done'
+  return 'planned'
+}
+
+function getOrderedOutlineItemsForExport(): OutlineItem[] {
+  const volumeOrder = new Map(appStore.outlineVolumes.map((volume, index) => [volume.id, index]))
+  return [...appStore.outlineItems].sort((left, right) => {
+    const leftVolumeOrder = volumeOrder.get(left.volumeId) ?? Number.MAX_SAFE_INTEGER
+    const rightVolumeOrder = volumeOrder.get(right.volumeId) ?? Number.MAX_SAFE_INTEGER
+    return leftVolumeOrder - rightVolumeOrder || left.sortOrder - right.sortOrder
+  })
+}
+
 async function openOutlineImport(): Promise<void> {
   const result = await window.characterArc.importOutlineSpreadsheet()
   if (result.canceled) return
@@ -716,12 +733,13 @@ async function openOutlineImport(): Promise<void> {
     message.error(result.error ?? '无法读取大纲文件')
     return
   }
-  importFileName.value = result.fileName ?? '大纲文件'
+  importFileName.value = result.sheetName ? `${result.fileName ?? '大纲文件'} · ${result.sheetName}` : result.fileName ?? '大纲文件'
   importRows.value = result.rows
   importPreviewReady.value = false
   importStep.value = 1
   importPlan.value = []
   importNewVolumes.value = []
+  importVolumeUpdates.value = []
   importVolumesConfirmed.value = []
   importMapping.volume = detectImportColumn(/^(分卷|分卷名称|卷名|卷)$/i)
   importMapping.volumeWordTarget = detectImportColumn(/^(分卷目标字数|卷目标字数)$/i)
@@ -730,7 +748,8 @@ async function openOutlineImport(): Promise<void> {
   importMapping.title = detectImportColumn(/^(标题|章节标题|节点标题|章名)$/i)
   importMapping.wordTarget = detectImportColumn(/^(字数|目标字数|预估字数)$/i)
   importMapping.conflict = detectImportColumn(/^(冲突|核心冲突|矛盾)$/i)
-  importMapping.summary = detectImportColumn(/^(摘要|剧情摘要|剧情描述|大纲|内容)$/i)
+  importMapping.summary = detectImportColumn(/^(摘要|剧情摘要|剧情描述|大纲|内容|章节大纲)$/i)
+  importMapping.status = detectImportColumn(/^(状态|推进状态|节点状态|章节状态)$/i)
   importVisible.value = true
 }
 
@@ -738,34 +757,91 @@ function importCell(row: string[], column: number | null): string {
   return column == null ? '' : String(row[column] ?? '').trim()
 }
 
+const IMPORT_PREVIEW_LIMIT = 8
 const importPreviewRows = computed(() => {
-  return importDataRows.value.map((row) => {
-    const volumeRaw = importCell(row, importMapping.volume)
+  let inheritedVolumeTitle = ''
+  return importDataRows.value.slice(0, IMPORT_PREVIEW_LIMIT).map((row, index) => {
+    const explicitVolumeTitle = importCell(row, importMapping.volume)
+    if (explicitVolumeTitle) inheritedVolumeTitle = explicitVolumeTitle
     const titleRaw = importCell(row, importMapping.title)
     const wordTargetRaw = importCell(row, importMapping.wordTarget)
     const conflictRaw = importCell(row, importMapping.conflict)
-    const summaryRaw = importCell(row, importMapping.summary)
+    const status = normalizeImportStatus(importCell(row, importMapping.status))
 
     return {
-      volume: volumeRaw || '（未指定）',
+      sequence: importCell(row, importMapping.sequence) || String(index + 1),
+      volume: inheritedVolumeTitle || '未指定',
       title: titleRaw || '（未识别标题）',
       wordTarget: wordTargetRaw || '—',
       conflict: conflictRaw || '—',
-      summary: summaryRaw || '—'
+      status,
+      statusLabel: resolveOutlineStatusMeta(status).label
     }
   })
 })
+const importPreviewCountLabel = computed(() => importDataRows.value.length > IMPORT_PREVIEW_LIMIT
+  ? `显示前 ${IMPORT_PREVIEW_LIMIT} 行 · 共 ${importDataRows.value.length} 行`
+  : `共 ${importDataRows.value.length} 行`)
 
 function normalizeImportKey(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
 function resolveImportDuplicate(item: Pick<ImportPlanRow, 'title' | 'targetVolumeKey'>): OutlineItem | null {
-  if (item.targetVolumeKey.startsWith('new-volume:')) return null
+  if (!item.targetVolumeKey || item.targetVolumeKey.startsWith('new-volume:')) return null
   const titleKey = normalizeImportKey(item.title)
   return appStore.outlineItems.find((outline) =>
     outline.volumeId === item.targetVolumeKey && normalizeImportKey(outline.title) === titleKey
   ) ?? null
+}
+
+function resolveImportOverwriteId(item: ImportPlanRow): string {
+  return item.matchOutlineId || item.targetDuplicateId
+}
+
+function hasImportDuplicate(item: ImportPlanRow): boolean {
+  return Boolean(resolveImportOverwriteId(item))
+}
+
+function hasBatchDuplicate(item: ImportPlanRow): boolean {
+  const titleKey = normalizeImportKey(item.title)
+  if (!titleKey || !item.targetVolumeKey) return false
+  return importPlan.value.some((candidate) =>
+    candidate.key !== item.key &&
+    candidate.targetVolumeKey === item.targetVolumeKey &&
+    normalizeImportKey(candidate.title) === titleKey
+  )
+}
+
+function refreshImportPlanDuplicateState(): void {
+  importPlan.value.forEach((item) => {
+    item.targetDuplicateId = resolveImportDuplicate(item)?.id ?? ''
+    const overwriteId = resolveImportOverwriteId(item)
+    const targetConflict = item.strategy === 'overwrite'
+      && Boolean(item.matchOutlineId)
+      && Boolean(item.targetDuplicateId)
+      && item.matchOutlineId !== item.targetDuplicateId
+    item.error = item.title
+      ? !item.targetVolumeKey
+        ? '请选择目标分卷'
+        : targetConflict
+          ? '目标分卷已存在同名节点'
+          : hasBatchDuplicate(item)
+            ? '同一批导入中重复'
+            : ''
+      : '缺少章节标题'
+    if (item.error) {
+      item.enabled = false
+      if (!targetConflict) item.strategy = 'skip'
+      return
+    }
+    if (item.strategy === 'overwrite' && !overwriteId) {
+      item.strategy = 'add'
+    }
+    if (item.location === 'keep' && item.strategy !== 'overwrite') {
+      item.location = 'end'
+    }
+  })
 }
 
 function buildImportPlan(): void {
@@ -775,7 +851,7 @@ function buildImportPlan(): void {
   }
   const volumeByTitle = new Map(appStore.outlineVolumes.map((volume) => [normalizeImportKey(volume.title), volume]))
   const newVolumeMap = new Map<string, OutlineImportNewVolume>()
-  const volumesSet = new Map<string, { key: string; title: string; isNew: boolean; existingId?: string }>()
+  const volumesSet = new Map<string, { key: string; title: string; isNew: boolean; existingId?: string; wordTarget?: string; summary?: string }>()
   const plan: ImportPlanRow[] = []
   let inheritedVolumeTitle = ''
   let inheritedVolumeWordTarget = ''
@@ -783,6 +859,7 @@ function buildImportPlan(): void {
 
   importDataRows.value.forEach((row, index) => {
     const title = importCell(row, importMapping.title)
+    const statusRaw = importCell(row, importMapping.status)
     const explicitVolumeTitle = importCell(row, importMapping.volume)
     const explicitVolumeWordTarget = importCell(row, importMapping.volumeWordTarget)
     const explicitVolumeSummary = importCell(row, importMapping.volumeSummary)
@@ -793,7 +870,8 @@ function buildImportPlan(): void {
     }
     const sourceVolumeTitle = explicitVolumeTitle || inheritedVolumeTitle
     const matchedVolume = volumeByTitle.get(normalizeImportKey(sourceVolumeTitle))
-    let targetVolumeKey = matchedVolume?.id ?? appStore.outlineVolumes[0]?.id ?? ''
+    let sourceVolumeKey = matchedVolume?.id ?? ''
+    let targetVolumeKey = sourceVolumeKey
 
     // 收集分卷信息
     if (sourceVolumeTitle) {
@@ -805,12 +883,15 @@ function buildImportPlan(): void {
             key: matchedVolume.id,
             title: sourceVolumeTitle,
             isNew: false,
-            existingId: matchedVolume.id
+            existingId: matchedVolume.id,
+            wordTarget: explicitVolumeWordTarget || inheritedVolumeWordTarget,
+            summary: explicitVolumeSummary || inheritedVolumeSummary
           })
         }
       } else {
         // 新分卷
         const key = `new-volume:${normalizedTitle}`
+        sourceVolumeKey = key
         targetVolumeKey = key
         if (!newVolumeMap.has(key)) {
           newVolumeMap.set(key, {
@@ -836,17 +917,21 @@ function buildImportPlan(): void {
       wordTarget: importCell(row, importMapping.wordTarget),
       conflict: importCell(row, importMapping.conflict),
       summary: importCell(row, importMapping.summary),
-      status: 'planned',
+      status: normalizeImportStatus(statusRaw),
+      statusProvided: Boolean(statusRaw),
       sourceVolumeTitle,
+      sourceVolumeKey,
       targetVolumeKey,
-      duplicateId: '',
+      matchOutlineId: '',
+      targetDuplicateId: '',
       strategy: 'add',
       location: 'end',
       order: Number(importCell(row, importMapping.sequence)) || index + 1,
       error: title ? '' : '缺少章节标题'
     }
     const duplicate = resolveImportDuplicate(draft)
-    draft.duplicateId = duplicate?.id ?? ''
+    draft.matchOutlineId = duplicate?.id ?? ''
+    draft.targetDuplicateId = duplicate?.id ?? ''
     draft.strategy = duplicate ? 'skip' : 'add'
     draft.location = duplicate ? 'keep' : 'end'
     draft.enabled = !draft.error && !duplicate
@@ -854,7 +939,16 @@ function buildImportPlan(): void {
   })
 
   importNewVolumes.value = [...newVolumeMap.values()]
+  importVolumeUpdates.value = Array.from(volumesSet.values())
+    .filter((volume) => !volume.isNew && Boolean(volume.existingId))
+    .map((volume) => ({
+      volumeId: volume.existingId as string,
+      title: volume.title,
+      wordTarget: volume.wordTarget,
+      summary: volume.summary
+    }))
   importPlan.value = plan
+  refreshImportPlanDuplicateState()
 
   // 初始化分卷确认列表（默认全部启用）
   importVolumesConfirmed.value = Array.from(volumesSet.values()).map(v => ({
@@ -868,7 +962,7 @@ function buildImportPlan(): void {
 }
 
 function importStrategyOptions(item: ImportPlanRow) {
-  return item.duplicateId
+  return hasImportDuplicate(item)
     ? [
         { label: '跳过', value: 'skip' },
         { label: '覆盖原节点', value: 'overwrite' },
@@ -883,18 +977,15 @@ function importStrategyOptions(item: ImportPlanRow) {
 function confirmVolumesAndProceed(): void {
   const enabledVolumes = importVolumesConfirmed.value.filter(v => v.enabled)
   if (enabledVolumes.length === 0) {
-    message.warning('请至少选择一个分卷')
-    return
+    importPlan.value.forEach((item) => {
+      item.targetVolumeKey = ''
+      item.matchOutlineId = ''
+      item.targetDuplicateId = ''
+      item.strategy = 'add'
+      item.location = 'end'
+    })
   }
-
-  // 过滤掉未启用分卷的章节
-  const enabledVolumeKeys = new Set(enabledVolumes.map(v => v.key))
-  importPlan.value.forEach(item => {
-    if (!enabledVolumeKeys.has(item.targetVolumeKey)) {
-      item.enabled = false
-      item.strategy = 'skip'
-    }
-  })
+  refreshImportPlanDuplicateState()
 
   // 进入步骤 3：确认章节
   importStep.value = 3
@@ -910,14 +1001,15 @@ function backToFieldMapping(): void {
 }
 
 function importLocationOptions(item: ImportPlanRow) {
+  const overwriteId = resolveImportOverwriteId(item)
   const options = [
-    ...(item.duplicateId && item.strategy === 'overwrite' ? [{ label: '保留原位置', value: 'keep' }] : []),
+    ...(overwriteId && item.strategy === 'overwrite' ? [{ label: '保留原位置', value: 'keep' }] : []),
     { label: '分卷开头', value: 'start' },
     { label: '分卷末尾', value: 'end' }
   ]
   if (item.targetVolumeKey.startsWith('new-volume:')) return options
   const anchors = appStore.outlineItems.filter((outline) =>
-    outline.volumeId === item.targetVolumeKey && outline.id !== item.duplicateId
+    outline.volumeId === item.targetVolumeKey && outline.id !== overwriteId
   )
   return [
     ...options,
@@ -930,21 +1022,27 @@ function importLocationOptions(item: ImportPlanRow) {
 
 function setImportEnabled(item: ImportPlanRow, enabled: boolean): void {
   item.enabled = enabled
-  if (enabled && item.strategy === 'skip') item.strategy = item.duplicateId ? 'overwrite' : 'add'
 }
 
-function handleImportStrategyChange(item: ImportPlanRow): void {
-  item.enabled = item.strategy !== 'skip' && !item.error
-  if (item.strategy === 'overwrite' && item.duplicateId) item.location = 'keep'
+function handleImportStrategyChange(item: ImportPlanRow, strategy?: string | number | null): void {
+  if (strategy === 'skip' || strategy === 'overwrite' || strategy === 'add') {
+    item.strategy = strategy
+  }
+  if (item.strategy === 'overwrite' && hasImportDuplicate(item)) item.location = 'keep'
   if (item.strategy === 'add' && item.location === 'keep') item.location = 'end'
+  refreshImportPlanDuplicateState()
+  if (!item.error && item.strategy !== 'skip') item.enabled = true
 }
 
 function handleImportTargetChange(item: ImportPlanRow): void {
   const duplicate = resolveImportDuplicate(item)
-  item.duplicateId = duplicate?.id ?? ''
-  item.strategy = duplicate ? 'skip' : 'add'
-  item.location = duplicate ? 'keep' : 'end'
-  item.enabled = !item.error && !duplicate
+  item.targetDuplicateId = duplicate?.id ?? ''
+  if (!(item.strategy === 'overwrite' && item.matchOutlineId)) {
+    item.strategy = duplicate ? 'skip' : 'add'
+    item.location = duplicate ? 'keep' : 'end'
+  }
+  refreshImportPlanDuplicateState()
+  if (!item.error && item.strategy !== 'skip') item.enabled = true
 }
 
 function toggleAllImportRows(enabled: boolean): void {
@@ -963,8 +1061,8 @@ function applyImportBatchTarget(): void {
 
 function applyImportBatchStrategy(): void {
   if (!importBatchStrategy.value) return
-  filteredImportPlan.value.filter((item) => !item.error).forEach((item) => {
-    if (importBatchStrategy.value === 'overwrite' && !item.duplicateId) return
+  filteredImportPlan.value.filter((item) => item.enabled && !item.error).forEach((item) => {
+    if (importBatchStrategy.value === 'overwrite' && !hasImportDuplicate(item)) return
     item.strategy = importBatchStrategy.value as ImportStrategy
     handleImportStrategyChange(item)
   })
@@ -988,7 +1086,7 @@ function commitOutlineImport(): void {
   const plan: OutlineImportPlanEntry[] = selected.map((item) => ({
     sourceRow: item.sourceRow,
     action: item.strategy === 'overwrite' ? 'overwrite' : 'add',
-    matchOutlineId: item.strategy === 'overwrite' ? item.duplicateId : undefined,
+    matchOutlineId: item.strategy === 'overwrite' ? resolveImportOverwriteId(item) : undefined,
     targetVolumeKey: item.targetVolumeKey,
     ...parseImportLocation(item.location),
     order: item.order,
@@ -997,13 +1095,16 @@ function commitOutlineImport(): void {
       wordTarget: item.wordTarget || undefined,
       conflict: item.conflict || undefined,
       summary: item.summary || undefined,
-      status: item.strategy === 'add' ? item.status : undefined
+      status: item.strategy === 'add' || item.statusProvided ? item.status : undefined
     }
   }))
   const usedVolumeKeys = new Set(plan.map((item) => item.targetVolumeKey))
   const result = appStore.applyOutlineImportPlan(
     plan,
-    importNewVolumes.value.filter((volume) => usedVolumeKeys.has(volume.key))
+    importNewVolumes.value.filter((volume) => usedVolumeKeys.has(volume.key)),
+    importVolumeUpdates.value.filter((volume) =>
+      importVolumesConfirmed.value.some((confirmed) => confirmed.enabled && confirmed.existingId === volume.volumeId)
+    )
   )
   importVisible.value = false
   message.success(`导入完成：新增 ${result.added}，覆盖 ${result.overwritten}，新建分卷 ${result.createdVolumes}`)
@@ -1017,9 +1118,10 @@ async function downloadOutlineTemplate(): Promise<void> {
 
 function previewOutlineExport(): void {
   const volumeMap = new Map(appStore.outlineVolumes.map((volume) => [volume.id, volume]))
+  const orderedItems = getOrderedOutlineItemsForExport()
 
   // 按分卷分组并标记每个分卷的第一行（仅用于预览显示）
-  const rowsWithVolumeInfo = appStore.outlineItems.slice(0, 10).map((item, index, array) => {
+  const rowsWithVolumeInfo = orderedItems.slice(0, 10).map((item, index, array) => {
     const volume = volumeMap.get(item.volumeId)
     const volumeTitle = volume?.title ?? ''
     const prevItem = index > 0 ? array[index - 1] : null
@@ -1027,7 +1129,6 @@ function previewOutlineExport(): void {
 
     return {
       volume: showVolume ? volumeTitle : '',
-      volumeActual: volumeTitle, // 实际导出时每行都有完整分卷名
       title: item.title,
       wordTarget: item.wordTarget,
       conflict: item.conflict ?? '',
@@ -1038,7 +1139,7 @@ function previewOutlineExport(): void {
   exportPreviewData.value = {
     projectTitle: appStore.currentProject?.title ?? 'CharacterArc',
     volumeCount: appStore.outlineVolumes.length,
-    itemCount: appStore.outlineItems.length,
+    itemCount: orderedItems.length,
     rows: rowsWithVolumeInfo
   }
   exportPreviewVisible.value = true
@@ -1050,7 +1151,7 @@ async function confirmExport(): Promise<void> {
     const result = await window.characterArc.exportOutlineSpreadsheet(toIpcPayload({
       projectTitle: appStore.currentProject?.title,
       volumes: appStore.outlineVolumes,
-      items: appStore.outlineItems
+      items: getOrderedOutlineItemsForExport()
     }))
     if (result.canceled) return
     result.success ? message.success('剧情大纲 Excel 已导出') : message.error(result.error ?? '大纲导出失败')
@@ -1730,26 +1831,38 @@ watch(
           </div>
           <div class="import-mapping-grid">
             <n-form-item label="分卷名称"><n-select v-model:value="importMapping.volume" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
+            <n-form-item label="分卷目标字数"><n-select v-model:value="importMapping.volumeWordTarget" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
+            <n-form-item label="分卷摘要"><n-select v-model:value="importMapping.volumeSummary" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
             <n-form-item label="章节标题（必选）"><n-select v-model:value="importMapping.title" clearable :options="importColumnOptions" placeholder="选择标题列" /></n-form-item>
             <n-form-item label="目标字数"><n-select v-model:value="importMapping.wordTarget" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
             <n-form-item label="核心冲突"><n-select v-model:value="importMapping.conflict" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
             <n-form-item label="剧情摘要"><n-select v-model:value="importMapping.summary" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
             <n-form-item label="章节序号"><n-select v-model:value="importMapping.sequence" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
+            <n-form-item label="状态"><n-select v-model:value="importMapping.status" clearable :options="importColumnOptions" placeholder="可选" /></n-form-item>
           </div>
           <div class="import-preview-head">
             <strong>数据预览</strong>
-            <span>共 {{ importDataRows.length }} 行</span>
+            <span>{{ importPreviewCountLabel }}</span>
           </div>
           <div class="import-preview-table-wrap compact">
             <table class="import-preview-table">
-              <thead><tr><th style="width: 140px;">分卷</th><th style="min-width: 200px;">标题</th><th style="width: 100px;">字数</th><th style="min-width: 200px;">冲突</th><th style="min-width: 250px;">摘要</th></tr></thead>
+              <colgroup>
+                <col class="preview-col-sequence">
+                <col class="preview-col-volume">
+                <col class="preview-col-title">
+                <col class="preview-col-target">
+                <col class="preview-col-conflict">
+                <col class="preview-col-status">
+              </colgroup>
+              <thead><tr><th>序号</th><th>分卷</th><th>章节标题</th><th>目标字数</th><th>核心冲突</th><th>状态</th></tr></thead>
               <tbody>
                 <tr v-for="(row, index) in importPreviewRows" :key="index">
-                  <td>{{ row.volume }}</td>
-                  <td :class="{ 'text-muted': row.title === '（未识别标题）' }">{{ row.title }}</td>
-                  <td>{{ row.wordTarget }}</td>
-                  <td class="text-ellipsis" :title="row.conflict">{{ row.conflict }}</td>
-                  <td class="text-ellipsis" :title="row.summary">{{ row.summary }}</td>
+                  <td class="preview-sequence">{{ row.sequence }}</td>
+                  <td class="preview-volume" :title="row.volume">{{ row.volume }}</td>
+                  <td class="preview-title" :class="{ 'text-muted': row.title === '（未识别标题）' }" :title="row.title">{{ row.title }}</td>
+                  <td class="preview-target">{{ row.wordTarget }}</td>
+                  <td class="preview-conflict" :title="row.conflict">{{ row.conflict }}</td>
+                  <td><span class="import-preview-status" :class="`status-${row.status}`">{{ row.statusLabel }}</span></td>
                 </tr>
               </tbody>
             </table>
@@ -1758,9 +1871,9 @@ watch(
 
         <!-- 步骤 2：确认分卷 -->
         <template v-else-if="importStep === 2">
-          <div class="import-step-head">
-            <span class="import-step-index">2</span>
-            <div><strong>确认导入分卷</strong><p>选择需要导入的分卷，新分卷将自动创建。</p></div>
+           <div class="import-step-head">
+             <span class="import-step-index">2</span>
+             <div><strong>确认导入分卷</strong><p>可选择需要导入的分卷；如果一个都不选，下一步需将章节逐行分配到项目已有分卷。</p></div>
           </div>
           <div class="import-volumes-list">
             <div v-for="vol in importVolumesConfirmed" :key="vol.key" class="import-volume-item">
@@ -1777,7 +1890,7 @@ watch(
         <template v-else-if="importStep === 3">
           <div class="import-step-head">
             <span class="import-step-index">3</span>
-            <div><strong>确认导入章节</strong><p>检查分卷分配和处理策略，点击确认后写入项目。</p></div>
+             <div><strong>确认导入章节</strong><p>检查目标分卷和处理策略；空选分卷时，目标分卷只能选择项目已有分卷。</p></div>
           </div>
           <div class="import-stats-strip">
             <span class="add">新增 {{ importStats.add }}</span>
@@ -1790,42 +1903,18 @@ watch(
             <div class="import-batch-actions">
               <n-button size="small" @click="toggleAllImportRows(true)">全选</n-button>
               <n-button size="small" @click="toggleAllImportRows(false)">全不选</n-button>
-            </div>
-            <n-radio-group v-model:value="importViewMode" size="small">
-              <n-radio-button value="card">卡片</n-radio-button>
-              <n-radio-button value="table">表格</n-radio-button>
-            </n-radio-group>
-          </div>
-
-          <div v-if="importViewMode === 'card'" class="import-plan-cards">
-            <div v-for="item in filteredImportPlan" :key="item.key" class="import-plan-card" :class="{ disabled: !item.enabled, invalid: item.error }">
-              <div class="card-check">
-                <n-checkbox :checked="item.enabled" :disabled="Boolean(item.error)" @update:checked="(value) => setImportEnabled(item, value)" />
-              </div>
-              <div class="card-body">
-                <div class="card-title-row">
-                  <strong class="card-title">{{ item.title || '未识别标题' }}</strong>
-                </div>
-                <div class="card-meta-row">
-                  <span class="card-badge">{{ item.sourceVolumeTitle || '未指定分卷' }}</span>
-                  <span v-if="item.duplicateId" class="card-badge warn">已存在</span>
-                  <span v-if="item.error" class="card-badge error">{{ item.error }}</span>
-                </div>
-                <div class="card-controls">
-                  <div class="card-field">
-                    <span class="field-label">目标分卷</span>
-                    <n-select v-model:value="item.targetVolumeKey" size="small" :options="filteredImportVolumeOptions" @update:value="handleImportTargetChange(item)" />
-                  </div>
-                  <div class="card-field">
-                    <span class="field-label">处理方式</span>
-                    <n-select v-model:value="item.strategy" size="small" :options="importStrategyOptions(item)" @update:value="handleImportStrategyChange(item)" />
-                  </div>
-                </div>
-              </div>
+              <n-button size="small" :disabled="importSelectedCount === 0" @click="showBatchVolumeModal = true">
+                <template #icon><FolderTree :size="14" /></template>
+                批量设置分卷
+              </n-button>
+              <n-button size="small" :disabled="importSelectedCount === 0" @click="showBatchStrategyModal = true">
+                <template #icon><ListChecks :size="14" /></template>
+                批量设置策略
+              </n-button>
             </div>
           </div>
 
-          <div v-else class="import-plan-table-wrap">
+          <div class="import-plan-table-wrap">
             <table class="import-plan-table">
               <thead>
                 <tr><th style="width: 50px;">导入</th><th style="min-width: 200px;">章节</th><th style="width: 140px;">来源分卷</th><th style="width: 180px;">目标分卷</th><th style="width: 120px;">处理方式</th><th style="width: 80px;">状态</th></tr>
@@ -1841,29 +1930,14 @@ watch(
                     <n-select v-model:value="item.targetVolumeKey" size="small" :options="filteredImportVolumeOptions" @update:value="handleImportTargetChange(item)" />
                   </td>
                   <td>
-                    <n-select v-model:value="item.strategy" size="small" :options="importStrategyOptions(item)" @update:value="handleImportStrategyChange(item)" />
+                    <n-select :value="item.strategy" size="small" :options="importStrategyOptions(item)" @update:value="(value) => handleImportStrategyChange(item, value)" />
                   </td>
-                  <td><span class="import-row-status" :class="{ error: item.error, duplicate: item.duplicateId }">{{ item.error || (item.duplicateId ? '重复' : '正常') }}</span></td>
+                  <td><span class="import-row-status" :class="{ error: item.error, duplicate: hasImportDuplicate(item) }">{{ item.error || (hasImportDuplicate(item) ? '重复' : '正常') }}</span></td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <Transition name="slideUp">
-            <div v-if="filteredImportPlan.filter(i => i.enabled).length > 0" class="import-batch-float">
-              <div class="float-info">
-                已选 {{ filteredImportPlan.filter(i => i.enabled).length }} 项
-              </div>
-              <n-button size="small" @click="showBatchVolumeModal = true">
-                <template #icon><FolderTree :size="14" /></template>
-                批量设置分卷
-              </n-button>
-              <n-button size="small" @click="showBatchStrategyModal = true">
-                <template #icon><ListChecks :size="14" /></template>
-                批量设置策略
-              </n-button>
-            </div>
-          </Transition>
         </template>
       </div>
       <template #footer>
@@ -1874,7 +1948,7 @@ watch(
           <n-button v-if="importStep === 1" type="primary" :disabled="importMapping.title == null" @click="buildImportPlan">
             下一步：确认分卷
           </n-button>
-          <n-button v-else-if="importStep === 2" type="primary" :disabled="importVolumesConfirmed.filter(v => v.enabled).length === 0" @click="confirmVolumesAndProceed">
+          <n-button v-else-if="importStep === 2" type="primary" @click="confirmVolumesAndProceed">
             下一步：确认章节
           </n-button>
           <n-button v-else-if="importStep === 3" type="primary" :disabled="importEnabledCount === 0" @click="commitOutlineImport">
@@ -2373,55 +2447,111 @@ watch(
 
 .import-preview-table-wrap {
   overflow: auto;
-  max-height: 300px;
   border: 1px solid var(--arc-border);
   border-radius: 6px;
+  background: var(--arc-bg-surface);
 }
 
 .import-preview-table-wrap.compact {
-  max-height: 280px;
+  max-height: 340px;
   margin-bottom: 20px;
 }
 
 .import-preview-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 820px;
   border-collapse: collapse;
-  font-size: 13px;
+  table-layout: fixed;
+  font-size: 12px;
 }
 
-.import-preview-table thead {
-  position: sticky;
-  top: 0;
-  background: var(--arc-bg-surface);
-  z-index: 1;
-}
+.import-preview-table .preview-col-sequence { width: 64px; }
+.import-preview-table .preview-col-volume { width: 150px; }
+.import-preview-table .preview-col-title { width: 210px; }
+.import-preview-table .preview-col-target { width: 100px; }
+.import-preview-table .preview-col-conflict { width: auto; }
+.import-preview-table .preview-col-status { width: 92px; }
 
 .import-preview-table th {
-  padding: 10px 12px;
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--arc-border);
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
   text-align: left;
-  font-weight: 600;
-  border-bottom: 2px solid var(--arc-border);
+  font-size: 11px;
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .import-preview-table td {
+  height: 42px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--arc-border-light);
-  vertical-align: top;
-  max-width: 300px;
+  border-bottom: 1px solid var(--arc-border);
+  color: var(--arc-text-secondary);
+  vertical-align: middle;
 }
 
-.import-preview-table td.text-ellipsis {
+.import-preview-table .preview-volume,
+.import-preview-table .preview-title,
+.import-preview-table .preview-conflict {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 280px;
+}
+
+.import-preview-table .preview-sequence {
+  color: var(--arc-text-hint);
+  font-variant-numeric: tabular-nums;
+}
+
+.import-preview-table .preview-title {
+  color: var(--arc-text-primary);
+  font-weight: 600;
+}
+
+.import-preview-table .preview-target {
+  font-variant-numeric: tabular-nums;
 }
 
 .import-preview-table td.text-muted {
   color: var(--arc-text-hint);
   font-style: italic;
+}
+
+.import-preview-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--arc-border);
+  border-radius: 4px;
+  background: var(--arc-bg-surface-hover);
+  color: var(--arc-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.import-preview-status.status-planned {
+  border-color: color-mix(in srgb, #2563eb 28%, var(--arc-border));
+  background: color-mix(in srgb, #2563eb 7%, var(--arc-bg-surface));
+  color: #2563eb;
+}
+
+.import-preview-status.status-drafting {
+  border-color: color-mix(in srgb, #d97706 30%, var(--arc-border));
+  background: color-mix(in srgb, #d97706 7%, var(--arc-bg-surface));
+  color: #b45309;
+}
+
+.import-preview-status.status-done {
+  border-color: color-mix(in srgb, #059669 30%, var(--arc-border));
+  background: color-mix(in srgb, #059669 7%, var(--arc-bg-surface));
+  color: #047857;
 }
 
 .import-preview-table tbody tr:last-child td {
@@ -2430,22 +2560,6 @@ watch(
 
 .import-preview-table tbody tr:hover {
   background: var(--arc-bg-surface-hover);
-}
-
-.import-preview-table th,
-.import-preview-table td {
-  max-width: 280px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--arc-border);
-  text-align: left;
-  vertical-align: top;
-}
-
-.import-preview-table th {
-  position: sticky;
-  top: 0;
-  background: var(--arc-bg-surface);
-  color: var(--arc-text-secondary);
 }
 
 .import-modal-footer {
@@ -2663,7 +2777,6 @@ watch(
   cursor: not-allowed;
 }
 
-/* ── 导入卡片视图 ── */
 .import-view-toolbar {
   display: flex;
   align-items: center;
@@ -2679,146 +2792,6 @@ watch(
 .import-batch-actions {
   display: flex;
   gap: 8px;
-}
-
-.import-plan-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 12px;
-  max-height: 480px;
-  min-height: 320px;
-  overflow-y: auto;
-  padding: 2px;
-}
-
-.import-plan-card {
-  display: flex;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--arc-border);
-  border-radius: 8px;
-  background: var(--arc-bg-surface);
-  transition: all 0.2s;
-}
-
-.import-plan-card:hover {
-  border-color: color-mix(in srgb, var(--arc-primary) 40%, var(--arc-border));
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.import-plan-card.disabled {
-  opacity: 0.5;
-}
-
-.import-plan-card.invalid {
-  border-color: color-mix(in srgb, #ef4444 35%, var(--arc-border));
-  background: color-mix(in srgb, #ef4444 3%, var(--arc-bg-surface));
-}
-
-.card-check {
-  flex: 0 0 auto;
-  padding-top: 2px;
-}
-
-.card-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.card-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.card-title {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--arc-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-height: 1.4;
-}
-
-.card-meta-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.card-badge {
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  background: var(--arc-bg-surface-hover);
-  color: var(--arc-text-secondary);
-  border: 1px solid var(--arc-border);
-}
-
-.card-badge.warn {
-  background: #fef3c7;
-  color: #92400e;
-  border-color: #fde68a;
-}
-
-.card-badge.error {
-  background: #fee2e2;
-  color: #991b1b;
-  border-color: #fecaca;
-}
-
-.card-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.card-controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.field-label {
-  font-size: 12px;
-  color: var(--arc-text-hint);
-  font-weight: 500;
-}
-
-/* ── 导入批量操作悬浮工具栏 ── */
-.import-batch-float {
-  position: sticky;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 18px;
-  background: var(--arc-bg-surface);
-  border: 1px solid var(--arc-border);
-  border-radius: var(--arc-radius-lg);
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(8px);
-  margin-top: 16px;
-}
-
-.float-info {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--arc-text-primary);
 }
 
 /* ── 导出预览弹窗 ── */
@@ -3495,9 +3468,6 @@ watch(
     max-width: 600px;
   }
 
-  .import-plan-cards {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 900px) {
