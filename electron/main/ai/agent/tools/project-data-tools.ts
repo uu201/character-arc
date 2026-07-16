@@ -52,7 +52,7 @@ export function createProjectDataTools(): Tool[] {
   const readProjectData: Tool = {
     definition: {
       name: 'read_project_data',
-      description: 'Read current project data by module. Omit entity_type to get a lightweight index first. Use available_deconstructions for the public deconstruction/reference-work library available to all projects. Supports targeted reads with entity_id, summary_only, limit, and doc_key (for workflow_documents).',
+      description: 'Read current project data by module. Omit entity_type to get a lightweight index first. Use available_deconstructions for the public deconstruction/reference-work library available to all projects. Supports targeted reads with entity_id, summary_only, limit, offset, and doc_key (for workflow_documents). Use the returned Next offset to page through a module without repeating the same call.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -73,6 +73,10 @@ export function createProjectDataTools(): Tool[] {
             type: 'integer',
             description: 'Optional. Limit how many rows are returned when reading a full module.'
           },
+          offset: {
+            type: 'integer',
+            description: 'Optional. Zero-based row offset for pagination. When a result includes Next offset, pass that value here to read the next page.'
+          },
           doc_key: {
             type: 'string',
             description: 'Optional. For workflow_documents, read a specific document by doc_key.'
@@ -92,6 +96,9 @@ export function createProjectDataTools(): Tool[] {
         const limit = typeof input.limit === 'number' && Number.isFinite(input.limit)
           ? Math.max(1, Math.min(Math.floor(input.limit), 20))
           : undefined
+        const offset = typeof input.offset === 'number' && Number.isFinite(input.offset)
+          ? Math.max(0, Math.floor(input.offset))
+          : 0
         const docKey = typeof input.doc_key === 'string' ? input.doc_key.trim() : ''
 
         if (!entityType) {
@@ -107,6 +114,7 @@ export function createProjectDataTools(): Tool[] {
           entityId,
           summaryOnly,
           limit,
+          offset,
           docKey
         }))
       } catch (error) {
@@ -182,18 +190,26 @@ type ReadEntitiesOptions = {
   entityId: string
   summaryOnly: boolean
   limit?: number
+  offset: number
   docKey: string
 }
 
-function applyLimit<T>(rows: T[], limit?: number): T[] {
-  return typeof limit === 'number' ? rows.slice(0, limit) : rows
+function applyLimit<T>(rows: T[], limit?: number, offset = 0): T[] {
+  return typeof limit === 'number' ? rows.slice(offset, offset + limit) : rows.slice(offset)
 }
 
-function withLimitNote(body: string, originalCount: number, limit?: number): string {
-  if (typeof limit === 'number' && originalCount > limit) {
-    return `${body}\n\n(Showing ${limit} of ${originalCount} items.)`
-  }
-  return body
+function withLimitNote(body: string, originalCount: number, limit?: number, offset = 0): string {
+  const start = Math.min(offset, originalCount)
+  const end = typeof limit === 'number'
+    ? Math.min(start + limit, originalCount)
+    : originalCount
+  if (start === 0 && end === originalCount) return body
+  if (start >= originalCount) return `(Offset ${offset} is past the end of ${originalCount} items.)`
+
+  const pageNote = end < originalCount
+    ? `Showing items ${start + 1}-${end} of ${originalCount}. Next offset: ${end}.`
+    : `Showing items ${start + 1}-${end} of ${originalCount}. End of list.`
+  return body ? `${body}\n\n(${pageNote})` : `(${pageNote})`
 }
 
 function normalizeNaturalRef(value: string): string {
@@ -260,7 +276,7 @@ function resolveOrderedEntity<T extends { id: string; title: string }>(
 
 async function readEntities(projectId: string, options: ReadEntitiesOptions): Promise<string> {
   const db = await ensureWorkspaceDb()
-  const { type, entityId, summaryOnly, limit, docKey } = options
+  const { type, entityId, summaryOnly, limit, offset, docKey } = options
 
   switch (type) {
     case 'worldview': {
@@ -271,11 +287,11 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, title, content FROM worldview_entries WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string; content: string }[]
       if (!rows.length) return 'No worldview entries.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = summaryOnly
         ? limitedRows.map((row) => `- [${row.id}] ${row.title}: ${truncateText(row.content, 140)}`).join('\n')
         : limitedRows.map((row) => `# ${row.title}\n\n${row.content}`).join('\n\n---\n\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'characters': {
       if (entityId) {
@@ -287,11 +303,11 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, name, role, description FROM characters WHERE project_id = ?').all(projectId) as { id: string; name: string; role: string; description: string }[]
       if (!rows.length) return 'No characters.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = summaryOnly
         ? limitedRows.map((row) => `- [${row.id}] ${row.name}${row.role ? ` (${row.role})` : ''}: ${truncateText(row.description, 120)}`).join('\n')
         : limitedRows.map((row) => `# ${row.name}${row.role ? ` (${row.role})` : ''}\n${row.description}`).join('\n\n---\n\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'organizations': {
       if (entityId) {
@@ -303,11 +319,11 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, name, type, description FROM organizations WHERE project_id = ?').all(projectId) as { id: string; name: string; type: string; description: string }[]
       if (!rows.length) return 'No organizations.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = summaryOnly
         ? limitedRows.map((row) => `- [${row.id}] ${row.name}${row.type ? ` (${row.type})` : ''}: ${truncateText(row.description, 120)}`).join('\n')
         : limitedRows.map((row) => `# ${row.name}${row.type ? ` (${row.type})` : ''}\n${row.description}`).join('\n\n---\n\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'relationships': {
       const chars = db.prepare('SELECT id, name FROM characters WHERE project_id = ?').all(projectId) as { id: string; name: string }[]
@@ -325,7 +341,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, from_character_id, to_character_id, type, description, intensity FROM character_relationships WHERE project_id = ?').all(projectId) as Array<Record<string, unknown>>
       if (!rows.length) return 'No relationships.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = limitedRows.map((row) => {
         const from = charMap.get(String(row.from_character_id)) ?? String(row.from_character_id)
         const to = charMap.get(String(row.to_character_id)) ?? String(row.to_character_id)
@@ -337,7 +353,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         }
         return [`${from} -> ${to}${typeLabel ? ` (${typeLabel})` : ''}`, intensity, description].filter(Boolean).join('\n')
       }).join(summaryOnly ? '\n' : '\n\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'organization_memberships': {
       const chars = db.prepare('SELECT id, name FROM characters WHERE project_id = ?').all(projectId) as { id: string; name: string }[]
@@ -357,7 +373,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, character_id, organization_id, role, notes FROM organization_memberships WHERE project_id = ?').all(projectId) as Array<Record<string, unknown>>
       if (!rows.length) return 'No organization memberships.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = limitedRows.map((row) => {
         const character = charMap.get(String(row.character_id)) ?? String(row.character_id)
         const organization = orgMap.get(String(row.organization_id)) ?? String(row.organization_id)
@@ -368,7 +384,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         }
         return [`${character} -> ${organization}${role ? ` (${role})` : ''}`, notes].filter(Boolean).join('\n')
       }).join(summaryOnly ? '\n' : '\n\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'outline': {
       const volumes = db.prepare(`
@@ -382,14 +398,14 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         if (!row) return `Outline item not found: ${entityId}`
         return [`## ${row.title}`, row.summary, row.conflict ? `Conflict: ${row.conflict}` : '', row.word_target ? `Word target: ${row.word_target}` : ''].filter(Boolean).join('\n')
       }
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = summaryOnly
-        ? limitedRows.map((row, index) => `- ${index + 1}. [${row.id}] ${row.title}: ${truncateText(row.summary, 120)}`).join('\n')
-        : limitedRows.map((row, index) => `## ${index + 1}. ${row.title}\n${row.summary}${row.conflict ? `\nConflict: ${row.conflict}` : ''}`).join('\n\n')
+        ? limitedRows.map((row, index) => `- ${offset + index + 1}. [${row.id}] ${row.title}: ${truncateText(row.summary, 120)}`).join('\n')
+        : limitedRows.map((row, index) => `## ${offset + index + 1}. ${row.title}\n${row.summary}${row.conflict ? `\nConflict: ${row.conflict}` : ''}`).join('\n\n')
       const volumeIndex = volumes.length
         ? `分卷索引：\n${volumes.map((volume, index) => `${index + 1}. [${volume.id}] ${volume.title}｜${volume.word_target}｜${truncateText(volume.summary, 100)}`).join('\n')}\n\n`
         : ''
-      return `${volumeIndex}${withLimitNote(body, rows.length, limit)}`
+      return `${volumeIndex}${withLimitNote(body, rows.length, limit, offset)}`
     }
     case 'chapters': {
       if (entityId) {
@@ -416,14 +432,14 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, title, summary, status, content FROM chapters WHERE project_id = ? ORDER BY sort_order').all(projectId) as Array<Record<string, unknown>>
       if (!rows.length) return 'No chapters.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = summaryOnly
         ? limitedRows.map((row) => `- [${String(row.id)}] ${String(row.title)} (${String(row.status)}): ${truncateText(String(row.summary ?? ''), 140)}`).join('\n')
         : limitedRows.map((row) => {
             const content = stripHtml(String(row.content ?? ''))
             return `# ${String(row.title)} (${String(row.status)})\nSummary: ${String(row.summary || '(none)')}\n\n${truncateText(content, 1200)}`
           }).join('\n\n---\n\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'plot_threads': {
       if (entityId) {
@@ -442,11 +458,11 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, title, description, status FROM plot_threads WHERE project_id = ?').all(projectId) as { id: string; title: string; description: string; status: string }[]
       if (!rows.length) return 'No plot threads.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = summaryOnly
         ? limitedRows.map((row) => `- [${row.id}] ${row.title}${row.status ? ` (${row.status})` : ''}: ${truncateText(row.description, 120)}`).join('\n')
         : limitedRows.map((row) => `## ${row.title}${row.status ? ` (${row.status})` : ''}\n${row.description}`).join('\n\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'inspiration': {
       if (entityId) {
@@ -458,11 +474,11 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, title, content FROM inspiration_entries WHERE project_id = ?').all(projectId) as { id: string; title: string; content: string }[]
       if (!rows.length) return 'No inspiration entries.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = summaryOnly
         ? limitedRows.map((row) => `- [${row.id}] ${row.title}: ${truncateText(row.content, 120)}`).join('\n')
         : limitedRows.map((row) => `## ${row.title}\n${row.content}`).join('\n\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'knowledge': {
       if (entityId) {
@@ -474,9 +490,9 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, title, summary FROM knowledge_documents WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as { id: string; title: string; summary: string }[]
       if (!rows.length) return 'No project knowledge documents.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = limitedRows.map((row) => `- [${row.id}] ${row.title}: ${row.summary || '(no summary)'}`).join('\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'available_deconstructions': {
       const available = readPublicReferenceWorks(db)
@@ -498,12 +514,12 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       if (!available.rows.length) {
         return 'No available deconstructions. No reference works have been imported.'
       }
-      const limitedRows = applyLimit(available.rows, limit)
+      const limitedRows = applyLimit(available.rows, limit, offset)
       const body = [
         `Public deconstruction library: ${available.rows.length} reference work(s).`,
         limitedRows.map(formatReferenceWorkListItem).join('\n')
       ].filter(Boolean).join('\n')
-      return withLimitNote(body, available.rows.length, limit)
+      return withLimitNote(body, available.rows.length, limit, offset)
     }
     case 'deconstruction_library': {
       if (entityId) {
@@ -515,9 +531,9 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare("SELECT id, title, summary, source_type FROM knowledge_documents WHERE project_id = '' OR project_id IS NULL ORDER BY updated_at DESC").all() as { id: string; title: string; summary: string; source_type: string }[]
       if (!rows.length) return 'No deconstruction documents.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = limitedRows.map((row) => `- [${row.id}] ${row.title}${row.source_type ? ` (${row.source_type})` : ''}: ${row.summary || '(no summary)'}`).join('\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'reference_works': {
       if (entityId) {
@@ -536,9 +552,9 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, title, source, notes, file_name, analysis_json FROM reference_works ORDER BY created_at DESC, rowid DESC').all() as Array<Record<string, unknown>>
       if (!rows.length) return 'No reference works.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = limitedRows.map(formatReferenceWorkListItem).join('\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'workflow_documents': {
       if (docKey) {
@@ -557,11 +573,11 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
       }
       const rows = db.prepare('SELECT id, title, doc_key, content, updated_at FROM workflow_documents WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string; doc_key: string; content: string; updated_at: string }[]
       if (!rows.length) return 'No creative memory.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = summaryOnly
         ? limitedRows.map((row) => `- [${row.id}] ${row.title} (${row.doc_key}) Updated: ${row.updated_at}`).join('\n')
         : limitedRows.map((row) => `# ${row.title}\nID: ${row.id}\nKey: ${row.doc_key}\nUpdated: ${row.updated_at}\n\n${row.content}`).join('\n\n---\n\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
     case 'project_constraints': {
       if (entityId) {
@@ -584,7 +600,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         ORDER BY updated_at DESC
       `).all(projectId) as { id: string; title: string; content: string; summary: string; metadata_json: string; updated_at: string }[]
       if (!rows.length) return 'No project constraints.'
-      const limitedRows = applyLimit(rows, limit)
+      const limitedRows = applyLimit(rows, limit, offset)
       const body = limitedRows.map((row) => {
         const metadata = safeParseJson(row.metadata_json)
         const scope = typeof metadata.scope === 'string' ? ` (${metadata.scope})` : ''
@@ -593,7 +609,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         }
         return `# ${row.title}${scope}\nUpdated: ${row.updated_at}\n${row.summary ? `Summary: ${row.summary}\n` : ''}\n${row.content}`
       }).join(summaryOnly ? '\n' : '\n\n---\n\n')
-      return withLimitNote(body, rows.length, limit)
+      return withLimitNote(body, rows.length, limit, offset)
     }
   }
 }

@@ -4,6 +4,23 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.14.1] - 2026-07-16
+
+### Changed
+
+- **OpenAI API 协议自动匹配**：OpenAI 官方接口以及 OpenAI 兼容接口中的 GPT-5、o1、o3、o4-mini 系列自动使用 Responses API；其他兼容模型继续使用 Chat Completions，兼顾新模型能力与第三方服务兼容性
+- **AI 中转错误诊断增强**：错误日志新增请求 URL、请求字段摘要、响应头、请求 ID、SDK 重试判断与 cause 链，并提高响应正文记录上限；认证信息、Cookie 和提示词正文仍会脱敏或避免重复记录
+
+### Fixed
+
+- **全局助手 v2 分页读取**：项目资料工具支持通过 `offset` 连续翻页，并提示下一页位置；修复创作记忆等列表超过单页数量后重复读取首页、逐项读取耗尽预算并输出工具受限说明的问题
+- **GPT-5 中转请求兼容性**：修复 OpenAI 兼容中转下 GPT-5 系列被强制按非推理模型发送旧 token 参数的问题，自动移除不支持的采样参数，并对中转站返回的通用临时上游错误执行一次受控重试
+- **深度构建与结构化生成稳定性**：GPT-5 系列后台结构化任务改用流式传输后聚合完整结果，降低深度构建、批量生成等任务在部分中转站上的请求失败概率
+- **Responses Base URL 规范化**：Base URL 支持识别并剥离 `/responses` 端点，避免用户填写完整 `/v1/responses` 时产生重复路径
+- **AI 日志时间显示**：`ai-prompts.log` 改为记录带本地时区偏移的 ISO 时间，修复北京时间显示少 8 小时的问题
+
+[1.14.1]: https://github.com/zhouyeshan/character-arc/releases/tag/v1.14.1
+
 ## [1.14.0] - 2026-07-16
 
 ### Added

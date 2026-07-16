@@ -70,20 +70,20 @@ export function wrapToolsWithRuntimeBudget(
       const args = normalizeArgs(input)
       const kind = classifyTool(tool.definition.name)
       if (kind === 'read') {
-        ledger.readCalls += 1
-        if (ledger.readCalls > plan.maxReadToolCalls) {
+        if (ledger.readCalls >= plan.maxReadToolCalls) {
           return stopForBudget(ledger, `本批读取次数已达上限（${plan.maxReadToolCalls} 次）。请基于已有证据给出阶段结论，并说明下一批需要继续读取什么。`)
         }
+        ledger.readCalls += 1
       } else if (kind === 'search') {
-        ledger.searchCalls += 1
-        if (ledger.searchCalls > plan.maxSearchToolCalls) {
+        if (ledger.searchCalls >= plan.maxSearchToolCalls) {
           return stopForBudget(ledger, `本批搜索次数已达上限（${plan.maxSearchToolCalls} 次）。请停止搜索并整理阶段结论。`)
         }
+        ledger.searchCalls += 1
       } else if (kind === 'stage') {
-        ledger.stageCalls += 1
-        if (ledger.stageCalls > plan.maxStageChanges) {
+        if (ledger.stageCalls >= plan.maxStageChanges) {
           return stopForBudget(ledger, `本批暂存变更数量已达上限（${plan.maxStageChanges} 项）。请先让用户审阅当前批次。`)
         }
+        ledger.stageCalls += 1
       }
 
       const nextArgs = coerceLightweightArgs(tool.definition.name, args, plan)
