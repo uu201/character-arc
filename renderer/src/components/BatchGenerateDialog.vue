@@ -13,13 +13,15 @@ const props = withDefaults(defineProps<{
   maxCount?: number
   typeOptions?: Array<{ label: string; value: string }>
   defaultTypes?: string[]
+  allowCustomTypes?: boolean
 }>(), {
   description: '',
   loading: false,
   progress: 0,
   maxCount: 100,
   typeOptions: () => [],
-  defaultTypes: () => []
+  defaultTypes: () => [],
+  allowCustomTypes: false
 })
 
 const emit = defineEmits<{
@@ -40,8 +42,9 @@ watch(() => props.show, (show) => {
 })
 
 function submit(): void {
-  if (props.loading || count.value < 1 || (hasTypes.value && types.value.length === 0)) return
-  emit('submit', { count: count.value, prompt: prompt.value.trim(), types: [...types.value] })
+  const normalizedTypes = [...new Set(types.value.map((type) => type.trim()).filter(Boolean))]
+  if (props.loading || count.value < 1 || (hasTypes.value && normalizedTypes.length === 0)) return
+  emit('submit', { count: count.value, prompt: prompt.value.trim(), types: normalizedTypes })
 }
 </script>
 
@@ -58,8 +61,15 @@ function submit(): void {
   >
     <p v-if="description" class="batch-description">{{ description }}</p>
     <n-form label-placement="top">
-      <n-form-item v-if="hasTypes" label="生成类型">
-        <n-select v-model:value="types" multiple :options="typeOptions" placeholder="至少选择一种类型" />
+      <n-form-item v-if="hasTypes" :label="allowCustomTypes ? '生成类型（可自定义）' : '生成类型'">
+        <n-select
+          v-model:value="types"
+          multiple
+          filterable
+          :tag="allowCustomTypes"
+          :options="typeOptions"
+          :placeholder="allowCustomTypes ? '选择或输入类型，按回车添加' : '至少选择一种类型'"
+        />
       </n-form-item>
       <n-form-item :label="`${itemLabel}数量`">
         <n-input-number v-model:value="count" :min="1" :max="maxCount" :precision="0" style="width: 100%" />

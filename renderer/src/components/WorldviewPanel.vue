@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import { MoreVertical, Plus, Sparkles } from 'lucide-vue-next'
+import { MoreVertical, Plus, Search, Sparkles } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
@@ -26,6 +26,8 @@ const AI_TASK_KEY = 'catalog-batch:worldview'
 const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY))
 const batchVisible = ref(false)
 const batchProgress = ref(0)
+const keyword = ref('')
+const typeFilter = ref<string | null>(null)
 const { generateCatalogBatch } = useCatalogBatch()
 const editorVisible = ref(false) // 控制词条编辑弹窗的显示
 const editingEntryId = ref<string | null>(null) // 当前正在编辑的词条 ID，null 表示新建模式
@@ -38,7 +40,10 @@ const form = reactive({
 })
 
 const entryTypes = ['地理', '法则', '物种', '势力', '历史'] // 世界观词条的分类列表
-const typeOptions = entryTypes.map((type) => ({ label: type, value: type }))
+const typeOptions = computed(() =>
+  [...new Set([...entryTypes, ...appStore.worldviewEntries.map((entry) => entry.type.trim()).filter(Boolean)])]
+    .map((type) => ({ label: type, value: type }))
+)
 
 function compactForAi(value: unknown, maxLength: number): string {
   const text = String(value ?? '').replace(/\s+/g, ' ').trim()
@@ -79,14 +84,12 @@ function buildAiOutlineContext() {
 }
 // 根据搜索关键词过滤词条列表，在标题、类型和内容中进行全文匹配
 const filteredEntries = computed(() => {
-  const query = props.searchQuery?.trim().toLowerCase() ?? ''
-  if (!query) {
-    return appStore.worldviewEntries
-  }
-
-  return appStore.worldviewEntries.filter((entry) =>
-    `${entry.type} ${entry.title} ${entry.content}`.toLowerCase().includes(query)
-  )
+  const query = [props.searchQuery, keyword.value].filter(Boolean).join(' ').trim().toLowerCase()
+  return appStore.worldviewEntries.filter((entry) => {
+    const matchesType = !typeFilter.value || entry.type.trim() === typeFilter.value
+    const matchesQuery = !query || `${entry.type} ${entry.title} ${entry.content}`.toLowerCase().includes(query)
+    return matchesType && matchesQuery
+  })
 })
 const isEditing = computed(() => Boolean(editingEntryId.value)) // 判断当前是编辑模式还是新建模式
 const menuOptions: DropdownOption[] = [ // 词条卡片的右键菜单选项
@@ -294,19 +297,38 @@ watch(
 <template>
   <section class="world-panel">
     <div class="section-head">
-      <div>
+      <div class="section-title">
         <h2>世界观设定</h2>
-        <p>AI 协助构建的世界基石，所有的故事都在这里发生。</p>
       </div>
       <div class="head-actions">
-        <button class="soft-button" :disabled="isGenerating" @click="batchVisible = true">
-          <Sparkles :size="16" />
-          <span>{{ isGenerating ? '生成中...' : '批量生成' }}</span>
-        </button>
-        <button class="primary-button" @click="handleCreateEntry">
-          <Plus :size="16" />
-          <span>新建词条</span>
-        </button>
+        <n-button secondary strong :loading="isGenerating" @click="batchVisible = true">
+          <template #icon><Sparkles :size="16" /></template>
+          批量生成
+        </n-button>
+        <n-button type="primary" strong @click="handleCreateEntry">
+          <template #icon><Plus :size="16" /></template>
+          新建词条
+        </n-button>
+      </div>
+    </div>
+
+    <div class="catalog-toolbar">
+      <div class="catalog-filters">
+        <n-input v-model:value="keyword" class="entry-search" placeholder="搜索分类、标题或内容" clearable>
+          <template #prefix><Search :size="16" /></template>
+        </n-input>
+        <n-select
+          v-model:value="typeFilter"
+          class="type-filter"
+          :options="typeOptions"
+          placeholder="全部分类"
+          clearable
+          filterable
+        />
+      </div>
+      <div class="result-summary">
+        <strong>{{ filteredEntries.length }}</strong>
+        <span>/ {{ appStore.worldviewEntries.length }} 条设定</span>
       </div>
     </div>
 
@@ -319,44 +341,45 @@ watch(
       :progress="batchProgress"
       :type-options="typeOptions.filter((option) => option.value !== '历史')"
       :default-types="['势力', '地理', '法则', '物种']"
+      allow-custom-types
       @close="batchVisible = false"
       @submit="handleGenerateEntry"
     />
 
-    <div class="world-grid">
+    <div v-if="filteredEntries.length > 0" class="world-list">
+      <div class="world-list-head" aria-hidden="true">
+        <span>分类</span>
+        <span>设定内容</span>
+        <span>更新信息</span>
+        <span>操作</span>
+      </div>
       <article
-        v-for="(entry, index) in filteredEntries"
+        v-for="entry in filteredEntries"
         :key="entry.id"
-        class="world-card"
+        class="world-row"
         :class="{ 'assistant-focused': focusedEntryId === entry.id }"
         :data-assistant-focus-id="entry.id"
-        :style="{ animationDelay: `${index * 70}ms` }"
         @click="openEditor(entry)"
       >
-        <div class="card-top">
-          <span class="entry-type">{{ entry.type }}</span>
-          <n-dropdown :options="menuOptions" placement="bottom-end" @select="(key) => handleMenuSelect(key, entry)">
-            <button class="more-button" @click.stop>
-              <MoreVertical :size="14" />
-            </button>
-          </n-dropdown>
+        <span class="entry-type" :title="entry.type">{{ entry.type }}</span>
+        <div class="entry-main">
+          <h3>{{ entry.title }}</h3>
+          <p :title="entry.content">{{ entry.content }}</p>
         </div>
-        <h3>{{ entry.title }}</h3>
-        <p>{{ entry.content }}</p>
-        <div class="card-meta">
-          <span>排序 {{ entry.sortOrder + 1 }}</span>
+        <div class="entry-meta">
           <span>更新于 {{ formatEntryMetaTime(entry.updatedAt) }}</span>
+          <small>排序 {{ entry.sortOrder + 1 }}</small>
         </div>
+        <n-dropdown :options="menuOptions" placement="bottom-end" @select="(key) => handleMenuSelect(key, entry)">
+          <button class="more-button" type="button" title="更多操作" aria-label="更多操作" @click.stop>
+            <MoreVertical :size="16" />
+          </button>
+        </n-dropdown>
       </article>
-
-      <button v-if="!props.searchQuery" class="empty-card" @click="handleCreateEntry">
-        <Plus :size="28" />
-        <span>添加新设定</span>
-      </button>
     </div>
 
     <div v-if="filteredEntries.length === 0" class="arc-empty-state">
-      没有匹配“{{ props.searchQuery }}”的世界观设定。
+      {{ appStore.worldviewEntries.length === 0 ? '还没有世界观设定，先新建一条词条。' : '没有匹配当前筛选条件的世界观设定。' }}
     </div>
 
     <n-modal
@@ -430,245 +453,265 @@ watch(
 
 .section-head {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
-  margin-bottom: 32px;
+  margin-bottom: 16px;
   gap: 16px;
   flex-wrap: wrap;
 }
 
-.section-head h2 {
-  margin: 0 0 8px;
-  color: var(--arc-text-primary);
-  font-size: clamp(30px, 3.4vw, 38px);
-  font-weight: 650;
-  letter-spacing: -0.04em;
-}
-
-.section-head p {
+.section-title h2 {
   margin: 0;
-  color: var(--arc-text-hint);
-  font-size: 15px;
+  color: var(--arc-text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 .head-actions {
   display: flex;
+  align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
 
-.soft-button,
-.primary-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 650;
-  padding: 12px 18px;
-  transition: all 0.24s ease;
-}
-
-.soft-button:disabled,
-.primary-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.soft-button {
-  background: var(--arc-bg-surface-hover);
-  color: var(--arc-text-primary);
-}
-
-.soft-button :deep(svg) {
-  color: var(--arc-primary);
-}
-
-.soft-button:hover {
-  background: var(--arc-bg-surface-hover);
-}
-
-.primary-button {
-  background: var(--arc-primary);
-  color: white;
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--arc-primary) 24%, transparent);
-}
-
-.primary-button:hover {
-  background: var(--arc-primary-hover);
-  transform: translateY(-2px);
-}
-
-.world-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
-  gap: clamp(16px, 2vw, 24px);
-}
-
-.world-card {
-  border: 1px solid var(--arc-border);
-  border-radius: 10px;
-  background: var(--arc-bg-surface);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
-  cursor: pointer;
-  padding: clamp(18px, 2.2vw, 24px);
-  animation: floatIn 0.42s ease both;
-  transition:
-    transform 0.24s ease,
-    box-shadow 0.24s ease;
-}
-
-.world-card.assistant-focused {
-  border-color: color-mix(in srgb, var(--arc-accent) 78%, white 22%);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arc-accent) 16%, transparent), 0 24px 54px rgba(15, 23, 42, 0.18);
-}
-
-.world-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.06);
-}
-
-.world-card::after {
-  content: '点击编辑';
-  display: inline-flex;
-  margin-top: 14px;
-  color: rgba(31, 41, 55, 0);
-  font-size: 11px;
-  font-weight: 600;
-  transition: color 0.2s ease;
-}
-
-.world-card:hover h3 {
-  color: var(--arc-primary);
-}
-
-.world-card:hover::after {
-  color: var(--arc-text-hint);
-}
-
-.card-top {
+.catalog-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 18px;
+  gap: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
+  background: var(--arc-bg-mix);
+  padding: 10px;
+}
+
+.catalog-filters {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.entry-search {
+  width: min(360px, 38vw);
+}
+
+.type-filter {
+  width: 180px;
+}
+
+.result-summary {
+  display: inline-flex;
+  align-items: baseline;
+  flex-shrink: 0;
+  gap: 4px;
+  color: var(--arc-text-hint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.result-summary strong {
+  color: var(--arc-text-primary);
+  font-size: 15px;
+}
+
+.world-list {
+  overflow: hidden;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
+  background: var(--arc-bg-surface);
+}
+
+.world-list-head,
+.world-row {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr) 150px 36px;
+  align-items: center;
+  gap: 16px;
+}
+
+.world-list-head {
+  min-height: 38px;
+  border-bottom: 1px solid var(--arc-border);
+  background: var(--arc-bg-mix);
+  color: var(--arc-text-hint);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 14px;
+}
+
+.world-row {
+  min-height: 92px;
+  border-bottom: 1px solid var(--arc-border);
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.world-row:last-child {
+  border-bottom: none;
+}
+
+.world-row:hover {
+  background: color-mix(in srgb, var(--arc-primary) 3%, var(--arc-bg-surface));
+}
+
+.world-row.assistant-focused {
+  position: relative;
+  background: color-mix(in srgb, var(--arc-accent) 8%, var(--arc-bg-surface));
+  box-shadow: inset 3px 0 0 var(--arc-accent);
 }
 
 .entry-type {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 10px;
-  background: var(--arc-bg-mix);
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--arc-primary) 7%, var(--arc-bg-mix));
   color: var(--arc-text-secondary);
   font-size: 12px;
-  font-weight: 650;
-  padding: 7px 10px;
-  transition: all 0.2s ease;
+  font-weight: 700;
+  padding: 5px 8px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.world-card:hover .entry-type {
-  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-mix));
+.entry-main {
+  min-width: 0;
+}
+
+.entry-main h3 {
+  margin: 0 0 5px;
+  overflow: hidden;
+  color: var(--arc-text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.world-row:hover .entry-main h3 {
   color: var(--arc-primary);
+}
+
+.entry-main p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--arc-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.entry-meta {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+}
+
+.entry-meta small {
+  color: var(--arc-text-hint);
+  font-size: 11px;
 }
 
 .more-button {
   display: inline-flex;
+  width: 30px;
+  height: 30px;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
   border: none;
-  border-radius: 999px;
+  border-radius: 4px;
   background: transparent;
-  color: #c4cad4;
+  color: var(--arc-text-hint);
   cursor: pointer;
 }
 
 .more-button:hover {
+  background: var(--arc-bg-mix);
   color: var(--arc-text-secondary);
 }
 
-.world-card h3 {
-  margin: 0 0 12px;
-  color: var(--arc-text-primary);
-  font-size: clamp(20px, 2.2vw, 24px);
-  font-weight: 650;
-  letter-spacing: -0.03em;
-}
+@media (max-width: 860px) {
+  .section-head {
+    align-items: flex-start;
+  }
 
-.world-card p {
-  margin: 0;
-  color: var(--arc-text-secondary);
-  font-size: 14px;
-  line-height: 1.8;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.card-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 16px;
-  color: var(--arc-text-hint);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.empty-card {
-  display: flex;
-  min-height: 192px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  border: 2px dashed var(--arc-border);
-  border-radius: 10px;
-  background: transparent;
-  color: var(--arc-text-hint);
-  cursor: pointer;
-  font-size: 15px;
-  font-weight: 650;
-  transition: all 0.24s ease;
-}
-
-.empty-card:hover {
-  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-mix));
-  border-color: color-mix(in srgb, var(--arc-primary) 20%, var(--arc-bg-mix));
-  color: var(--arc-primary);
-}
-
-@media (max-width: 1240px) {
   .head-actions {
+    width: 100%;
     justify-content: flex-start;
   }
+
+  .catalog-filters {
+    flex: 1;
+  }
+
+  .entry-search {
+    width: 100%;
+  }
+
+  .world-list-head,
+  .world-row {
+    grid-template-columns: 86px minmax(0, 1fr) 36px;
+  }
+
+  .world-list-head span:nth-child(3),
+  .entry-meta {
+    display: none;
+  }
 }
 
-@media (max-width: 760px) {
-  .soft-button,
-  .primary-button {
-    flex: 1 1 100%;
-    justify-content: center;
+@media (max-width: 680px) {
+  .head-actions :deep(.n-button) {
+    flex: 1 1 calc(50% - 6px);
   }
 
-  .world-grid {
-    grid-template-columns: 1fr;
+  .catalog-toolbar,
+  .catalog-filters {
+    align-items: stretch;
+    flex-direction: column;
   }
-}
 
-@keyframes floatIn {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
+  .type-filter {
+    width: 100%;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+
+  .result-summary {
+    align-self: flex-end;
+  }
+
+  .world-list-head {
+    display: none;
+  }
+
+  .world-row {
+    grid-template-columns: minmax(0, 1fr) 32px;
+    gap: 10px;
+  }
+
+  .entry-type {
+    width: fit-content;
+    max-width: 160px;
+    grid-column: 1;
+  }
+
+  .entry-main {
+    grid-column: 1;
+  }
+
+  .more-button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
   }
 }
 </style>

@@ -1664,7 +1664,6 @@ watch(
     <!-- 标题区 -->
     <div class="section-head">
       <div>
-        <span class="section-kicker">Outline Architecture</span>
         <h2>剧情大纲</h2>
         <p>按卷组织剧情骨架、冲突节拍和章节节点，方便后续创作连续推进。</p>
       </div>
