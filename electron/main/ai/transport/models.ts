@@ -19,6 +19,7 @@ const KNOWN_COMPAT_SUFFIXES = [
 
 const KNOWN_ENDPOINT_SUFFIXES = [
   '/chat/completions',
+  '/responses',
   '/embeddings',
   '/models',
   '/images/generations'

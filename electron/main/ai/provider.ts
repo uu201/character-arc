@@ -12,6 +12,14 @@ function isOfficialOpenAIProvider(settings: AppSettings): boolean {
   return settings.provider === 'openai'
 }
 
+function shouldUseOpenAIResponses(settings: AppSettings): boolean {
+  if (isOfficialOpenAIProvider(settings)) return true
+  if (settings.provider !== 'openai-compatible') return false
+
+  const model = settings.model?.trim().toLowerCase() || ''
+  return /^(gpt-5|o1|o3|o4-mini)/.test(model)
+}
+
 export function providerSupportsNativeStructuredOutput(settings: AppSettings): boolean {
   // Anthropic's SDK object streaming can produce an empty text stream or fail
   // object parsing for otherwise recoverable JSON tasks. Keep Claude JSON tasks
@@ -147,7 +155,7 @@ export function createModel(settings: AppSettings, onReasoningDelta?: (delta: st
 
   const customFetch = onReasoningDelta ? createReasoningInterceptedFetch(onReasoningDelta) : undefined
   const openai = createOpenAICompatibleProvider(settings, customFetch)
-  if (isOfficialOpenAIProvider(settings)) {
+  if (shouldUseOpenAIResponses(settings)) {
     return openai(settings.model)
   }
 

@@ -30,6 +30,7 @@ export function resolveProviderDefaults(provider: ProviderName): { baseUrl: stri
 function stripKnownEndpointSuffix(baseUrl: string): string {
   const knownEndpointSuffixes = [
     '/chat/completions',
+    '/responses',
     '/embeddings',
     '/models',
     '/images/generations'

@@ -6,20 +6,28 @@ import type { AiRunUsage, AppSettings, AiStreamHandlers, PromptPair } from './sh
 
 function useStreamFallback(settings: AppSettings): boolean {
   return settings.provider === 'anthropic'
+    || (settings.provider === 'openai-compatible' && isOpenAIReasoningChatModel(settings))
 }
 
-function useOpenAIChatCompatibility(settings: AppSettings): boolean {
-  const provider = settings.provider?.trim().toLowerCase() || ''
+function isOpenAIReasoningChatModel(settings: AppSettings): boolean {
   const model = settings.model?.trim().toLowerCase() || ''
-  if (provider === 'openai' || provider === 'anthropic') {
+  return /^(gpt-5|o1|o3|o4-mini)/.test(model)
+}
+
+function shouldRetryGenericUpstreamError(settings: AppSettings, error: unknown): boolean {
+  if (settings.provider !== 'openai-compatible' || !isOpenAIReasoningChatModel(settings)) {
     return false
   }
-  return /^(gpt-5|o1|o3|o4-mini)/.test(model)
+  return error instanceof Error && error.message.toLowerCase().includes('upstream request failed')
 }
 
 type AiProviderOptions = Parameters<typeof generateText>[0]['providerOptions']
 
 function resolveSamplingOptions(settings: AppSettings): { temperature?: number; topP?: number } {
+  if (isOpenAIReasoningChatModel(settings)) {
+    return {}
+  }
+
   return {
     temperature: typeof settings.temperature === 'number' && Number.isFinite(settings.temperature) ? settings.temperature : undefined,
     topP: typeof settings.topP === 'number' && Number.isFinite(settings.topP) ? settings.topP : undefined
@@ -27,16 +35,13 @@ function resolveSamplingOptions(settings: AppSettings): { temperature?: number; 
 }
 
 function resolveProviderOptions(settings: AppSettings, options?: AiGenerateOptions): AiProviderOptions | undefined {
-  const useCompatibilityOptions = useOpenAIChatCompatibility(settings)
-  if (!useCompatibilityOptions && !options?.disableReasoning) {
+  if (!options?.disableReasoning) {
     return undefined
   }
 
   return {
     openai: {
-      forceReasoning: useCompatibilityOptions ? false : undefined,
-      reasoningEffort: options?.disableReasoning ? 'none' : undefined,
-      systemMessageMode: useCompatibilityOptions ? 'system' : undefined
+      reasoningEffort: 'none'
     }
   }
 }
@@ -147,29 +152,38 @@ export async function aiGenerateTextWithUsage(
   }
 
   if (useStreamFallback(settings)) {
-    let streamError: unknown = null
-    const result = streamText({
-      model: createModel(settings),
-      system,
-      prompt: prompt.user,
-      maxOutputTokens: maxTokens,
-      ...samplingOptions,
-      providerOptions,
-      abortSignal: signal,
-      onError: ({ error }) => { streamError = error }
-    })
-    let full = ''
-    for await (const chunk of result.textStream) {
-      full += chunk
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        let streamError: unknown = null
+        const result = streamText({
+          model: createModel(settings),
+          system,
+          prompt: prompt.user,
+          maxOutputTokens: maxTokens,
+          ...samplingOptions,
+          providerOptions,
+          abortSignal: signal,
+          onError: ({ error }) => { streamError = error }
+        })
+        let full = ''
+        for await (const chunk of result.textStream) {
+          full += chunk
+        }
+        if (streamError) throw streamError
+        if (!full) {
+          full = await result.text
+        }
+        return {
+          text: full,
+          usage: toAiRunUsage(await result.totalUsage)
+        }
+      } catch (error) {
+        const canRetry = attempt === 0 && !signal?.aborted && shouldRetryGenericUpstreamError(settings, error)
+        if (!canRetry) throw error
+      }
     }
-    if (streamError) throw streamError
-    if (!full) {
-      full = await result.text
-    }
-    return {
-      text: full,
-      usage: toAiRunUsage(await result.totalUsage)
-    }
+
+    throw new Error('AI stream retry exhausted')
   }
 
   const result = await generateText({
