@@ -3,6 +3,7 @@ import { extractJsonObject } from './base'
 import type { AiTaskResult } from '../shared-types'
 import type { SpiralSeedResult } from '../spiral/types'
 import { resolveWritingStyleInstruction } from '../prompts/shared'
+import { normalizeWorldviewType } from './worldview-type'
 import { resolveProjectBootstrapPromptParts } from '../prompts/bootstrap-strategies'
 
 /** 螺旋播种任务：从故事前提提炼主角核心矛盾、主线方向和最小世界规则 */
@@ -44,7 +45,7 @@ ${strategyBlock}
     const mainArc = parsed.mainArc ?? {} as any
     const worldRules = Array.isArray(parsed.worldRules)
       ? parsed.worldRules.slice(0, 3).map((r) => ({
-          type: r.type?.trim() || '法则',
+          type: normalizeWorldviewType(r.type, '法则'),
           title: r.title?.trim() || '世界规则',
           content: r.content?.trim() || 'AI 未返回有效内容'
         }))

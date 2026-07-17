@@ -306,7 +306,7 @@ export async function runStreamingAgentTask(
 
     logResponse('AGENT_STREAM', settings, task.task, loopResult.finalText, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
 
-    const result = handler.normalize(loopResult.finalText)
+    const result = handler.normalize(loopResult.finalText, task.context)
     const finishedAt = new Date().toISOString()
     const meta = buildRunMeta(
       task.task, projectId, chapterId, settings, 'success',

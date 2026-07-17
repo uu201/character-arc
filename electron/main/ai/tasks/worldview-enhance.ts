@@ -3,8 +3,9 @@ import { extractJsonObject, jsonStringField } from './base'
 import type { AiTaskResult, WorldviewResult } from '../shared-types'
 import { resolveWritingStyleInstruction } from '../prompts/shared'
 import { formatCharacters, formatOrganizations, formatOutlineItems, formatWorldviewEntries } from '../prompts/format-helpers'
+import { normalizeWorldviewType, WORLDVIEW_TYPES } from './worldview-type'
 
-const VALID_TYPES = ['地理', '法则', '物种', '势力', '历史']
+const VALID_TYPES = WORLDVIEW_TYPES
 
 const handler: TaskHandler = {
   name: 'worldview-enhance',
@@ -23,9 +24,9 @@ const handler: TaskHandler = {
   },
   normalize(raw: string): AiTaskResult {
     const parsed = extractJsonObject(raw) as Partial<WorldviewResult>
-    const type = jsonStringField(parsed.type, '地理')
+    const type = normalizeWorldviewType(jsonStringField(parsed.type, '地理'))
     return {
-      type: VALID_TYPES.includes(type) ? type : '地理',
+      type: VALID_TYPES.includes(type as (typeof VALID_TYPES)[number]) ? type : '地理',
       title: jsonStringField(parsed.title),
       content: jsonStringField(parsed.content)
     } as WorldviewResult

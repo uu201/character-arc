@@ -3,6 +3,7 @@ import { extractJsonObject } from './base'
 import type { AiTaskResult, ProjectBootstrapResult, WorldviewResult, OutlineResult } from '../shared-types'
 import { resolveWritingStyleInstruction } from '../prompts/shared'
 import { resolveProjectBootstrapPromptParts } from '../prompts/bootstrap-strategies'
+import { normalizeWorldviewType } from './worldview-type'
 
 /** 项目初始化任务：基于小说简介生成首批世界观设定和剧情大纲 */
 const handler: TaskHandler = {
@@ -23,7 +24,7 @@ const handler: TaskHandler = {
     const worldviewEntries = Array.isArray(parsed.worldviewEntries)
       ? parsed.worldviewEntries.slice(0, 3).map((e) => {
           const entry = e as Partial<WorldviewResult>
-          return { type: entry.type?.trim() || '地理', title: entry.title?.trim() || '新世界观词条', content: entry.content?.trim() || 'AI 未返回有效内容' } as WorldviewResult
+          return { type: normalizeWorldviewType(entry.type, '地理'), title: entry.title?.trim() || '新世界观词条', content: entry.content?.trim() || 'AI 未返回有效内容' } as WorldviewResult
         })
       : []
     const outlineItems = Array.isArray(parsed.outlineItems)

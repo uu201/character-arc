@@ -161,7 +161,7 @@ export async function runAgentTask(
     let result: ReturnType<typeof handler.normalize>
     let normalizeFailed = false
     try {
-      result = handler.normalize(rawText)
+      result = handler.normalize(rawText, task.context)
     } catch {
       result = {} as ReturnType<typeof handler.normalize>
       normalizeFailed = true
@@ -183,7 +183,7 @@ export async function runAgentTask(
         logResponse(`AGENT_REPAIR_${attempt}`, settings, task.task, rawText, Date.now() - repairStartedAt, { usedSkills: usedSkillIds })
         normalizeFailed = false
         try {
-          result = handler.normalize(rawText)
+          result = handler.normalize(rawText, task.context)
         } catch {
           result = {} as ReturnType<typeof handler.normalize>
           normalizeFailed = true

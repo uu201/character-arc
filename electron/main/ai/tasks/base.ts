@@ -37,7 +37,7 @@ export interface TaskHandler {
   /** 根据输入构建 system + user prompt 对 */
   buildPrompt(input: PromptBuildInput): PromptPair
   /** 将 AI 原始输出解析为结构化结果 */
-  normalize(raw: string): AiTaskResult
+  normalize(raw: string, context?: Record<string, unknown>): AiTaskResult
   /** 校验解析后的结果是否符合预期结构 */
   validate(result: AiTaskResult): boolean
   /**

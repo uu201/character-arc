@@ -4,6 +4,7 @@ import type { AiTaskResult } from '../shared-types'
 import type { SpiralExpandResult, SpiralSeedResult } from '../spiral/types'
 import { resolveWritingStyleInstruction } from '../prompts/shared'
 import { resolveProjectBootstrapPromptParts } from '../prompts/bootstrap-strategies'
+import { normalizeWorldviewType } from './worldview-type'
 
 /** 螺旋展开任务：基于核心骨架展开配角、大纲节拍和补充世界设定 */
 const handler: TaskHandler = {
@@ -76,7 +77,7 @@ ${seedBlock}
       : []
     const expandedWorldview = Array.isArray(parsed.expandedWorldview)
       ? parsed.expandedWorldview.slice(0, 2).map((r) => ({
-          type: r.type?.trim() || '法则',
+          type: normalizeWorldviewType(r.type, '法则'),
           title: r.title?.trim() || '补充设定',
           content: r.content?.trim() || 'AI 未返回有效内容'
         }))

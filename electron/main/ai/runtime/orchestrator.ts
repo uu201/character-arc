@@ -100,7 +100,7 @@ export async function runAiTask(
     let result: AiTaskResult
     let normalizeFailed = false
     try {
-      result = handler.normalize(rawText)
+      result = handler.normalize(rawText, task.context)
     } catch {
       result = {} as AiTaskResult
       normalizeFailed = true
@@ -129,7 +129,7 @@ export async function runAiTask(
         logResponse(`REPAIR_${attempt}`, settings, task.task, rawText, Date.now() - repairStartedAt, { usedSkills: usedSkillIds })
         normalizeFailed = false
         try {
-          result = handler.normalize(rawText)
+          result = handler.normalize(rawText, task.context)
         } catch {
           result = {} as AiTaskResult
           normalizeFailed = true
@@ -265,7 +265,7 @@ export async function streamAiTask(
     let result: AiTaskResult
     let normalizeFailed = false
     try {
-      result = taskHandler.normalize(rawText)
+      result = taskHandler.normalize(rawText, task.context)
     } catch {
       result = {} as AiTaskResult
       normalizeFailed = true
@@ -289,7 +289,7 @@ export async function streamAiTask(
       totalUsage = addAiRunUsage(totalUsage, generation.usage)
       rawText = generation.text
       logResponse('STREAM_REPAIR', settings, task.task, rawText, Date.now() - repairStartedAt, { usedSkills: usedSkillIds })
-      result = taskHandler.normalize(rawText)
+      result = taskHandler.normalize(rawText, task.context)
       repairTriggered = true
 
       if (!taskHandler.validate(result)) {
