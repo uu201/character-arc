@@ -4,6 +4,22 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.14.2] - 2026-07-17
+
+### Changed
+
+- **OpenAI 兼容中转协议调整**：兼容中转默认使用 Chat Completions，只有官方 OpenAI 接口使用 Responses API，降低长文本流式请求无法收尾的概率
+- **世界观分类中文化**：世界观生成、增强、项目初始化和螺旋生成统一将英文分类归一为“地理 / 法则 / 物种 / 势力 / 历史”等中文分类，并按批量生成所选类型兜底
+- **模型思考内容隔离**：兼容 MiniMax、DeepSeek、通义、Kimi、GLM 等模型的多种 reasoning 字段，并在章节正文写入前清理常见思考标记
+
+### Fixed
+
+- **章节初稿流式事件竞态**：缓存 `streamId` 绑定前到达的 chunk、done 和 error 事件，避免快速响应被丢弃后初稿任务永久等待
+- **AI 接口错误提示**：优先展示中转站返回的 `responseBody`、`error`、`message`、HTTP 状态码等信息，不再只显示笼统的 `Not Found` 或“AI 调用失败”
+- **初稿正文污染**：修复模型将思考过程混入正文或使用 `<think>`、`<analysis>` 等标记时被写入章节的问题
+
+[1.14.2]: https://github.com/zhouyeshan/character-arc/releases/tag/v1.14.2
+
 ## [1.14.1] - 2026-07-16
 
 ### Changed

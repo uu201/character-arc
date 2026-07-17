@@ -1,5 +1,18 @@
 [
   {
+    "title": "弧光 v1.14.2 发布",
+    "date": "2026-07-17",
+    "type": "success",
+    "items": [
+      "【修复】修复章节初稿流式事件竞态，快速返回的正文和完成事件不再被前端丢弃，避免初稿任务一直等待",
+      "【优化】OpenAI 兼容中转默认使用 Chat Completions，官方 OpenAI 使用 Responses API，提升长文本初稿请求的兼容性",
+      "【优化】AI 错误提示优先展示中转站 responseBody、error、message 和 HTTP 状态码，定位模型或接口配置问题更直接",
+      "【优化】隔离 MiniMax、DeepSeek、通义、Kimi、GLM 等模型的 reasoning 内容，思考过程不会写入章节正文",
+      "【修复】清理模型返回的 <think>、<thinking>、<analysis> 等思考标记，避免初稿正文被思考过程污染",
+      "【修复】世界观生成结果统一使用中文分类，英文分类会自动归一为地理、法则、物种、势力或历史"
+    ]
+  },
+  {
     "title": "弧光 v1.14.1 发布",
     "date": "2026-07-16",
     "type": "success",
