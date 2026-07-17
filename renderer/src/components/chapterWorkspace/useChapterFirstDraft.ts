@@ -213,6 +213,12 @@ export function useChapterFirstDraft(): {
   let resolveStream: ((result: StreamTaskResult) => void) | null = null
   let rejectStream: ((err: Error) => void) | null = null
   let removeListener: (() => void) | null = null
+  // `startAiStream` returns the stream id after the main process has started
+  // the request. A very fast provider can emit chunks/done before that IPC
+  // response reaches the renderer, so retain those early events until the id
+  // is bound below instead of dropping them.
+  let awaitingStreamId = false
+  let pendingStreamEvents: CharacterArcAiStreamEvent[] = []
 
   const progressPercent = ref(0)
   const progressText = ref('')
@@ -285,6 +291,8 @@ export function useChapterFirstDraft(): {
 
   function reset(finalLabel = ''): void {
     streamId.value = null
+    awaitingStreamId = false
+    pendingStreamEvents = []
     currentStreamTask.value = null
     resolveStream = null
     rejectStream = null
@@ -302,6 +310,7 @@ export function useChapterFirstDraft(): {
 
   function releaseCurrentStreamState(): void {
     streamId.value = null
+    awaitingStreamId = false
     resolveStream = null
     rejectStream = null
     isStopping.value = false
@@ -332,7 +341,10 @@ export function useChapterFirstDraft(): {
   }
 
   function handleStreamEvent(payload: CharacterArcAiStreamEvent): void {
-    if (payload.streamId !== streamId.value) return
+    if (payload.streamId !== streamId.value) {
+      if (awaitingStreamId) pendingStreamEvents.push(payload)
+      return
+    }
 
     if (payload.type === 'agent_status') {
       executionLabel.value = (payload as { message?: string }).message ?? '正在分析写作技巧...'
@@ -426,14 +438,25 @@ export function useChapterFirstDraft(): {
     // 任务切换后立即刷新进度文案，避免 progressText 停留在上一个任务（如写作备忘）。
     recompute()
 
-    const result = await window.characterArc.startAiStream(toIpcPayload({
-      task,
-      settings: appStore.appSettings,
-      context
-    }))
+    pendingStreamEvents = []
+    awaitingStreamId = true
+    let result: Awaited<ReturnType<typeof window.characterArc.startAiStream>>
+    try {
+      result = await window.characterArc.startAiStream(toIpcPayload({
+        task,
+        settings: appStore.appSettings,
+        context
+      }))
+    } catch (error) {
+      awaitingStreamId = false
+      pendingStreamEvents = []
+      throw error
+    }
 
     const sid = (result.result as { streamId?: string } | undefined)?.streamId
+    awaitingStreamId = false
     if (!result.success || !sid) {
+      pendingStreamEvents = []
       throw new Error(result.error ?? getActiveTaskErrorMessage())
     }
     streamId.value = sid
@@ -441,6 +464,14 @@ export function useChapterFirstDraft(): {
     return new Promise<StreamTaskResult>((resolve, reject) => {
       resolveStream = resolve
       rejectStream = reject
+      // Resolve/reject handlers must be installed before replaying events; a
+      // done event may be the only event received for a fast non-streaming
+      // response.
+      const earlyEvents = pendingStreamEvents
+      pendingStreamEvents = []
+      for (const event of earlyEvents) {
+        if (event.streamId === sid) handleStreamEvent(event)
+      }
     })
   }
 

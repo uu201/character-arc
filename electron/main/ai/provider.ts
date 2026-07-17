@@ -13,11 +13,13 @@ function isOfficialOpenAIProvider(settings: AppSettings): boolean {
 }
 
 function shouldUseOpenAIResponses(settings: AppSettings): boolean {
-  if (isOfficialOpenAIProvider(settings)) return true
-  if (settings.provider !== 'openai-compatible') return false
-
-  const model = settings.model?.trim().toLowerCase() || ''
-  return /^(gpt-5|o1|o3|o4-mini)/.test(model)
+  // A model name alone does not tell us whether an OpenAI-compatible relay
+  // implements the Responses API. Most relays expose Chat Completions only;
+  // routing long streaming requests through Responses can leave the SDK
+  // waiting forever even though the relay has already produced a response.
+  // Use Responses only when the user explicitly selected the official OpenAI
+  // provider, and keep compatible endpoints on the broadly supported chat API.
+  return isOfficialOpenAIProvider(settings)
 }
 
 export function providerSupportsNativeStructuredOutput(settings: AppSettings): boolean {

@@ -12,6 +12,7 @@ import { buildStoryStateContext } from '../story-state-store'
 import { ensureWorkspaceDb } from '../workspace-store'
 import { runSpiralBootstrap } from './spiral'
 import type { SpiralBootstrapInput } from './spiral'
+import { formatAiErrorMessage } from './error-message'
 
 /**
  * AI IPC 模块的外部依赖注入接口。
@@ -77,7 +78,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       if (aiRunMeta) {
         deps!.emitAiRunEvent({ projectId: String((aiRunMeta as { projectId?: string }).projectId ?? ''), meta: { id: randomUUID(), ...aiRunMeta } })
       }
-      return { success: false, error: error instanceof Error ? error.message : 'AI 调用失败' }
+      return { success: false, error: formatAiErrorMessage(error, 'AI 调用失败') }
     } finally {
       if (clientTaskId) {
         activeAiTasks.delete(clientTaskId)
@@ -208,7 +209,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
           if (!event.sender.isDestroyed()) {
             event.sender.send('characterarc:ai-stream-event', controller.signal.aborted
               ? { streamId, type: 'canceled', content: streamedContent }
-              : { streamId, type: 'error', error: error instanceof Error ? error.message : 'AI 流式调用失败' }
+              : { streamId, type: 'error', error: formatAiErrorMessage(error, 'AI 流式调用失败') }
             )
           }
         } finally {
@@ -218,7 +219,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
 
       return { success: true, result: { streamId } }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'AI 流式调用启动失败' }
+      return { success: false, error: formatAiErrorMessage(error, 'AI 流式调用启动失败') }
     }
   })
 
@@ -337,7 +338,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
           if (!event.sender.isDestroyed()) {
             event.sender.send('characterarc:ai-stream-event', controller.signal.aborted
               ? { streamId, type: 'canceled', content: streamedContent }
-              : { streamId, type: 'error', error: error instanceof Error ? error.message : 'AI Agent 调用失败' }
+              : { streamId, type: 'error', error: formatAiErrorMessage(error, 'AI Agent 调用失败') }
             )
           }
         } finally {
@@ -347,7 +348,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
 
       return { success: true, result: { streamId } }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'AI Agent 启动失败' }
+      return { success: false, error: formatAiErrorMessage(error, 'AI Agent 启动失败') }
     }
   })
 
@@ -357,7 +358,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       const result = await testAiConnection(settings as AppSettings)
       return { success: true, result }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'AI 连接测试失败' }
+      return { success: false, error: formatAiErrorMessage(error, 'AI 连接测试失败') }
     }
   })
 
@@ -367,7 +368,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       const result = await fetchModels(settings as AppSettings)
       return { success: true, result }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : '获取模型列表失败' }
+      return { success: false, error: formatAiErrorMessage(error, '获取模型列表失败') }
     }
   })
 
@@ -376,7 +377,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       const result = await fetchImageModels(settings as AppSettings)
       return { success: true, result }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : '获取图片模型列表失败' }
+      return { success: false, error: formatAiErrorMessage(error, '获取图片模型列表失败') }
     }
   })
 
@@ -407,7 +408,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       }
       return { success: true, result }
     } catch (error) {
-      const message = error instanceof Error ? error.message : '图片生成失败'
+      const message = formatAiErrorMessage(error, '图片生成失败')
       if (projectId) {
         const meta = buildRunMeta(
           'cover-generate', projectId, undefined, metaSettings, 'error',
@@ -431,7 +432,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       const context = buildStoryStateContext(db, id, [])
       return { success: true, result: context }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : '读取世界状态失败' }
+      return { success: false, error: formatAiErrorMessage(error, '读取世界状态失败') }
     }
   })
 
@@ -449,7 +450,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       if (!row) throw new Error('版本不存在')
       return { success: true, result: { id: row.id, chapterId: row.chapter_id, title: row.title, summary: row.summary, status: row.status, wordTarget: row.word_target, content: row.content, createdAt: row.created_at } }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : '读取版本失败' }
+      return { success: false, error: formatAiErrorMessage(error, '读取版本失败') }
     }
   })
 
@@ -467,7 +468,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       if (!row) throw new Error('章节不存在')
       return { success: true, result: { id: row.id, title: row.title, summary: row.summary, status: row.status, wordTarget: row.word_target, content: row.content } }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : '读取章节失败' }
+      return { success: false, error: formatAiErrorMessage(error, '读取章节失败') }
     }
   })
 
@@ -504,7 +505,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       if (controller.signal.aborted) {
         return { success: false, error: '螺旋生成已取消' }
       }
-      return { success: false, error: error instanceof Error ? error.message : '螺旋生成失败' }
+      return { success: false, error: formatAiErrorMessage(error, '螺旋生成失败') }
     } finally {
       activeSpiralController = null
     }
@@ -555,7 +556,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       )
       return { success: true, result }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : '状态补录失败' }
+      return { success: false, error: formatAiErrorMessage(error, '状态补录失败') }
     }
   })
 }

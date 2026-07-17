@@ -27,6 +27,7 @@ import { buildStoryStateContext, formatStoryStateForPrompt, applyStateDelta } fr
 import type { StateDelta } from '../../story-state-store'
 import { indexChapterSegments } from '../knowledge-retrieval'
 import { runLightCheck } from '../audit/light-check'
+import { formatAiErrorMessage } from '../error-message'
 
 /**
  * 执行一次完整的 AI 任务调用（非流式）。
@@ -178,7 +179,7 @@ export async function runAiTask(
     }
   } catch (error) {
     const finishedAt = new Date().toISOString()
-    const message = error instanceof Error ? error.message : 'AI 调用失败'
+    const message = formatAiErrorMessage(error, 'AI 调用失败')
     logError('REQUEST', settings, task.task, error, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
     throw Object.assign(new Error(message), {
       aiRunMeta: buildRunMeta(
@@ -330,7 +331,7 @@ export async function streamAiTask(
   } catch (error) {
     const finishedAt = new Date().toISOString()
     const status = signal.aborted ? 'canceled' : 'error'
-    const message = signal.aborted ? '' : (error instanceof Error ? error.message : 'AI 流式调用失败')
+    const message = signal.aborted ? '' : formatAiErrorMessage(error, 'AI 流式调用失败')
     if (!signal.aborted) {
       logError('STREAM', settings, task.task, error, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
     }

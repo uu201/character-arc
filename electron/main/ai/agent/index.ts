@@ -22,6 +22,7 @@ import { createKnowledgeTools } from './tools/knowledge-tools'
 import { createChapterTools } from './tools/chapter-tools'
 import { createProjectDataTools } from './tools/project-data-tools'
 import { buildAgentBehaviorRules, buildSkillIndex } from './system-prompt'
+import { formatAiErrorMessage } from '../error-message'
 
 function stripSkillFrontmatter(content: string): string {
   const match = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
@@ -216,7 +217,7 @@ export async function runAgentTask(
     return { result, meta }
   } catch (error) {
     const finishedAt = new Date().toISOString()
-    const message = error instanceof Error ? error.message : 'AI 调用失败'
+    const message = formatAiErrorMessage(error, 'AI 调用失败')
     logError('AGENT_REQUEST', settings, task.task, error, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
     const meta = buildRunMeta(
       task.task, projectId, chapterId, settings, 'error',

@@ -17,6 +17,7 @@ import { buildAgentBehaviorRules, buildSkillIndex } from './system-prompt'
 import { getRecentSkillUsage, formatSkillUsageHint, recordSkillUsage } from './skill-usage-memory'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { formatAiErrorMessage } from '../error-message'
 
 /** 去掉 SKILL.md 开头的 YAML frontmatter 块（--- ... ---）。 */
 function stripSkillFrontmatter(content: string): string {
@@ -328,7 +329,7 @@ export async function runStreamingAgentTask(
     return { result, meta }
   } catch (error) {
     const finishedAt = new Date().toISOString()
-    const message = error instanceof Error ? error.message : 'AI Agent 调用失败'
+    const message = formatAiErrorMessage(error, 'AI Agent 调用失败')
     logError('AGENT_STREAM', settings, task.task, error, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
     const meta = buildRunMeta(
       task.task, projectId, chapterId, settings, 'error',
