@@ -3,6 +3,7 @@ import type { LanguageModelUsage } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { buildSystemPrompt, createModel, providerSupportsNativeStructuredOutput } from './provider'
 import type { AiRunUsage, AppSettings, AiStreamHandlers, PromptPair } from './shared-types'
+import { stripReasoningMarkup } from './reasoning'
 
 function useStreamFallback(settings: AppSettings): boolean {
   return settings.provider === 'anthropic'
@@ -259,7 +260,7 @@ export async function aiStreamTextWithUsage(
     }
   }
   return {
-    text: full,
+    text: stripReasoningMarkup(full),
     usage: toAiRunUsage(await result.totalUsage)
   }
 }
@@ -304,7 +305,7 @@ export async function aiStreamObjectWithUsage(
   }
 
   return {
-    text: objectText || full,
+    text: stripReasoningMarkup(objectText || full),
     usage: toAiRunUsage(await result.usage)
   }
 }

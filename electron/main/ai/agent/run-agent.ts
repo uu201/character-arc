@@ -2,6 +2,7 @@ import { streamText, stepCountIs, dynamicTool, jsonSchema } from 'ai'
 import { buildSystemPrompt, createModel } from '../provider'
 import type { AiRunUsage, AppSettings, AiAgentStreamHandlers, ToolCallTrace } from '../shared-types'
 import type { Tool, ToolContext } from './tools/types'
+import { stripReasoningMarkup } from '../reasoning'
 
 export type RunAgentParams = {
   settings: AppSettings
@@ -175,6 +176,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     }
   }
 
+  fullText = stripReasoningMarkup(fullText)
   const finishReason = await result.finishReason
 
   let usage: AiRunUsage = toUsage(await result.totalUsage)

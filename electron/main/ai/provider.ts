@@ -2,6 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModel } from 'ai'
 import type { AppSettings } from './shared-types'
+import { extractReasoningText } from './reasoning'
 
 const ANTHROPIC_PROMPT_CACHE = {
   type: 'ephemeral' as const,
@@ -95,18 +96,26 @@ export function createReasoningInterceptedFetch(
               try {
                 const parsed = JSON.parse(dataStr)
                 const delta = parsed?.choices?.[0]?.delta
-                if (delta && typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
-                  onReasoningDelta(delta.reasoning_content)
-                  delete delta.reasoning_content
-                  rebuilt.push(`data: ${JSON.stringify(parsed)}`)
-                  continue
-                }
-                // 部分中转兼容字段：reasoning（无 _content 后缀）
-                if (delta && typeof delta.reasoning === 'string' && delta.reasoning) {
-                  onReasoningDelta(delta.reasoning)
-                  delete delta.reasoning
-                  rebuilt.push(`data: ${JSON.stringify(parsed)}`)
-                  continue
+                const message = parsed?.choices?.[0]?.message
+                const reasoningKeys = ['reasoning_content', 'reasoning', 'thinking', 'reasoning_details']
+                const sources = [delta, message].filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+                if (sources.length > 0) {
+                  let extracted = ''
+                  let touched = false
+                  for (const source of sources) {
+                    for (const key of reasoningKeys) {
+                      if (source[key] !== undefined) {
+                        extracted += extractReasoningText(source[key])
+                        delete source[key]
+                        touched = true
+                      }
+                    }
+                  }
+                  if (extracted) onReasoningDelta(extracted)
+                  if (touched) {
+                    rebuilt.push(`data: ${JSON.stringify(parsed)}`)
+                    continue
+                  }
                 }
               } catch {
                 // 解析失败，原样转发

@@ -11,6 +11,7 @@ import { loadProjectSkillsContextByIds } from '@/features/projectSkills/context'
 import { useAppStore } from '@/stores/app'
 import type { ReferenceStyleAnalysis } from '@/types/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
+import { stripReasoningMarkup } from '@/features/ai/reasoning'
 
 const TASK_KEY = 'chapter-first-draft'
 
@@ -87,7 +88,7 @@ function appendStepPrompt(base: string, stepPrompt: string): string {
 }
 
 function finalCleanGeneratedChapterText(text: string): string {
-  const normalized = text
+  const normalized = stripReasoningMarkup(text)
     .replace(/```[\w-]*\n?/g, '')
     .replace(/```/g, '')
     .replace(/^\s*(?:I am Claude,?\s+made by Anthropic\.?|我是\s*Claude[^\n]*|我理解了[^\n]*|以下是[^\n]*|修复后的完整章节正文[:：]?|润色后的完整章节正文[:：]?|正文[:：]?)\s*/i, '')
