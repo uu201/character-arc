@@ -905,7 +905,7 @@ export const useAppStore = defineStore('app', () => {
     activePanel.value = 'overview'
     lastWorkbenchPanel.value = 'overview'
     syncSelectedChapter(projectId)
-    schedulePersist('fast')
+    scheduleSettingsPersist({ flushWorkspace: false })
   }
 
   /** 打开拆书知识库独立页面（全局库，不依赖项目） */

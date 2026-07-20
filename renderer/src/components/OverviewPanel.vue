@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { BookCopy, ChevronRight, Clock3, FileText, GitMerge, Lightbulb, Network, PenLine, Users } from 'lucide-vue-next'
-import { getChapterCharacterCount, getChapterPreviewText } from '@/features/chapters/editorContent'
+import { getChapterPreviewText } from '@/features/chapters/editorContent'
 import { formatProjectEditedAt } from '@/features/projects/lastEdited'
 import { resolveNovelLengthLabel } from '@/features/wizard/projectGenres'
 import { useAppStore } from '@/stores/app'
@@ -27,17 +27,12 @@ const totalRelationships = computed(() => appStore.characterRelationships.length
 const totalOutlineItems = computed(() => appStore.outlineItems.length)
 const totalInspirationItems = computed(() => appStore.inspirationEntries.length)
 const totalChapters = computed(() => appStore.chapters.length)
-// 统计所有章节的累计字数（使用富文本字数计算）
-const totalWords = computed(() =>
-  appStore.chapters.reduce((count, chapter) => count + getChapterCharacterCount(chapter.content), 0)
-)
-
 // 概览仪表盘的统计卡片配置：累计字数、角色数量、关系组织、灵感卡片、大纲节点、章节草稿
 const overviewCards = computed(() => [
   {
     key: 'words',
     label: '累计字数',
-    value: `${totalWords.value.toLocaleString()} 字`,
+    value: currentProject.value?.wordCount || '0 字',
     hint: '正文总量',
     icon: FileText,
     target: 'chapters' as PanelName
@@ -87,65 +82,52 @@ const overviewCards = computed(() => [
 // 快速入口数据：聚合所有模块内容（世界观、角色、组织、关系、灵感、大纲、章节），
 // 无搜索时仅展示前 6 条，有搜索时按关键词过滤后取前 6 条
 const quickEntries = computed(() => {
-  const groups = [
-    ...appStore.worldviewEntries.map((entry) => ({
-      id: `world-${entry.id}`,
-      type: '世界观',
-      title: entry.title,
-      description: entry.content
-    })),
-    ...appStore.characters.map((character) => ({
-      id: `character-${character.id}`,
-      type: '角色',
-      title: character.name,
-      description: character.description
-    })),
-    ...appStore.organizations.map((organization) => ({
-      id: `organization-${organization.id}`,
-      type: '组织',
-      title: organization.name,
-      description: organization.description
-    })),
-    ...appStore.characterRelationships.map((relationship) => {
-      const fromCharacter = appStore.characters.find((item) => item.id === relationship.fromCharacterId)
-      const toCharacter = appStore.characters.find((item) => item.id === relationship.toCharacterId)
+  type QuickEntry = { id: string; type: string; title: string; description: string }
+  const query = normalizedQuery.value
+  const entries: QuickEntry[] = []
+  const addEntry = (entry: QuickEntry): boolean => {
+    if (query && !`${entry.type} ${entry.title} ${entry.description}`.toLowerCase().includes(query)) {
+      return false
+    }
+    entries.push(entry)
+    return entries.length >= 6
+  }
 
-      return {
-        id: `relationship-${relationship.id}`,
-        type: '关系',
-        title: `${fromCharacter?.name ?? '未绑定角色'} - ${toCharacter?.name ?? '未绑定角色'}`,
-        description: relationship.description
-      }
-    }),
-    ...appStore.inspirationEntries.map((entry) => ({
-      id: `inspiration-${entry.id}`,
-      type: '灵感',
-      title: entry.title,
-      description: entry.content
-    })),
-    ...appStore.outlineItems.map((item) => ({
-      id: `outline-${item.id}`,
-      type: '大纲',
-      title: item.title,
-      description: item.summary
-    })),
-    ...appStore.chapters.map((chapter) => ({
+  for (const entry of appStore.worldviewEntries) {
+    if (addEntry({ id: `world-${entry.id}`, type: '世界观', title: entry.title, description: entry.content })) return entries
+  }
+  for (const character of appStore.characters) {
+    if (addEntry({ id: `character-${character.id}`, type: '角色', title: character.name, description: character.description })) return entries
+  }
+  for (const organization of appStore.organizations) {
+    if (addEntry({ id: `organization-${organization.id}`, type: '组织', title: organization.name, description: organization.description })) return entries
+  }
+
+  const characterNameById = new Map(appStore.characters.map((character) => [character.id, character.name]))
+  for (const relationship of appStore.characterRelationships) {
+    if (addEntry({
+      id: `relationship-${relationship.id}`,
+      type: '关系',
+      title: `${characterNameById.get(relationship.fromCharacterId) ?? '未绑定角色'} - ${characterNameById.get(relationship.toCharacterId) ?? '未绑定角色'}`,
+      description: relationship.description
+    })) return entries
+  }
+  for (const entry of appStore.inspirationEntries) {
+    if (addEntry({ id: `inspiration-${entry.id}`, type: '灵感', title: entry.title, description: entry.content })) return entries
+  }
+  for (const item of appStore.outlineItems) {
+    if (addEntry({ id: `outline-${item.id}`, type: '大纲', title: item.title, description: item.summary })) return entries
+  }
+  for (const chapter of appStore.chapters) {
+    if (addEntry({
       id: `chapter-${chapter.id}`,
       type: '章节',
       title: chapter.title,
       description: getChapterPreviewText(chapter.content, '章节尚未写入内容')
-    }))
-  ]
-
-  if (!normalizedQuery.value) {
-    return groups.slice(0, 6)
+    })) return entries
   }
 
-  return groups
-    .filter((item) =>
-      `${item.type} ${item.title} ${item.description}`.toLowerCase().includes(normalizedQuery.value)
-    )
-    .slice(0, 6)
+  return entries
 })
 
 // 当前聚焦的章节，优先使用已选章节，否则取第一章

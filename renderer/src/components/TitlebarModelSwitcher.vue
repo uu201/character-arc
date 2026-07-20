@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { RefreshCw, ScrollText } from 'lucide-vue-next'
+import { ChevronDown, RefreshCw, ScrollText } from 'lucide-vue-next'
 import { NModal, NSelect, NTag } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
@@ -10,6 +10,8 @@ const appStore = useAppStore()
 const isFetchingModels = ref(false)
 const fetchedModels = ref<Array<{ id: string }>>([])
 const logVisible = ref(false)
+const LOG_PAGE_SIZE = 30
+const visibleLogCount = ref(LOG_PAGE_SIZE)
 
 const profileOptions = computed(() =>
   appStore.appSettings.aiProfiles.map(p => ({ label: p.name, value: p.id }))
@@ -35,6 +37,23 @@ const activeModel = computed({
 
 const hasProfiles = computed(() => appStore.appSettings.aiProfiles.length > 0)
 const aiRunLogs = computed(() => appStore.allAiRuns)
+const visibleAiRunLogs = computed(() =>
+  aiRunLogs.value.slice(0, visibleLogCount.value).map((run) => {
+    const readStats = toolReadStats(run)
+    return {
+      run,
+      taskLabel: formatTaskLabel(run.task),
+      projectTitle: projectTitleFor(run),
+      chapterTitle: chapterTitleFor(run),
+      startedAt: formatTime(run.startedAt),
+      finishedAt: run.finishedAt ? formatTime(run.finishedAt) : '',
+      duration: formatDuration(run.durationMs),
+      tokenUsage: formatTokenUsage(run),
+      readStats
+    }
+  })
+)
+const hasMoreAiRunLogs = computed(() => visibleLogCount.value < aiRunLogs.value.length)
 const projectTitleById = computed(() => {
   const map = new Map<string, string>()
   for (const project of appStore.projects) {
@@ -185,6 +204,15 @@ function toolReadStats(run: AiRunRecord): { reads: number; hits: number } {
 
   return { reads, hits }
 }
+
+function openLogModal(): void {
+  visibleLogCount.value = LOG_PAGE_SIZE
+  logVisible.value = true
+}
+
+function loadMoreAiRunLogs(): void {
+  visibleLogCount.value += LOG_PAGE_SIZE
+}
 </script>
 
 <template>
@@ -220,7 +248,7 @@ function toolReadStats(run: AiRunRecord): { reads: number; hits: number } {
     <button
       class="switcher-log"
       title="查看 AI 调用日志"
-      @click="logVisible = true"
+      @click="openLogModal"
     >
       <ScrollText :size="13" />
       <span>AI调用日志</span>
@@ -228,6 +256,7 @@ function toolReadStats(run: AiRunRecord): { reads: number; hits: number } {
   </div>
 
   <n-modal
+    v-if="logVisible"
     :show="logVisible"
     preset="card"
     class="ai-log-modal"
@@ -246,51 +275,61 @@ function toolReadStats(run: AiRunRecord): { reads: number; hits: number } {
 
     <div v-else class="ai-log-list arc-scrollbar">
       <article
-        v-for="run in aiRunLogs"
-        :key="run.id"
+        v-for="item in visibleAiRunLogs"
+        :key="item.run.id"
         class="ai-log-card"
-        :class="`ai-log-card--${run.status}`"
+        :class="`ai-log-card--${item.run.status}`"
       >
         <div class="ai-log-card__head">
           <div class="ai-log-card__title">
             <div class="ai-log-card__title-row">
-              <strong>{{ formatTaskLabel(run.task) }}</strong>
-              <span class="ai-log-card__run-id">#{{ run.id.slice(-6) }}</span>
+              <strong>{{ item.taskLabel }}</strong>
+              <span class="ai-log-card__run-id">#{{ item.run.id.slice(-6) }}</span>
             </div>
-            <span>{{ run.provider }} / {{ run.model }}</span>
+            <span>{{ item.run.provider }} / {{ item.run.model }}</span>
           </div>
-          <n-tag size="small" :type="statusMeta[run.status]?.type || 'default'" :bordered="false">
-            {{ statusMeta[run.status]?.label || run.status }}
+          <n-tag size="small" :type="statusMeta[item.run.status]?.type || 'default'" :bordered="false">
+            {{ statusMeta[item.run.status]?.label || item.run.status }}
           </n-tag>
         </div>
 
         <div class="ai-log-card__meta">
-          <span>项目：{{ projectTitleFor(run) }}</span>
-          <span>开始：{{ formatTime(run.startedAt) }}</span>
-          <span>耗时：{{ formatDuration(run.durationMs) }}</span>
-          <span>{{ formatTokenUsage(run) }}</span>
+          <span>项目：{{ item.projectTitle }}</span>
+          <span>开始：{{ item.startedAt }}</span>
+          <span>耗时：{{ item.duration }}</span>
+          <span>{{ item.tokenUsage }}</span>
         </div>
 
-        <div v-if="chapterTitleFor(run)" class="ai-log-card__chapter">
-          关联章节：{{ chapterTitleFor(run) }}
+        <div v-if="item.chapterTitle" class="ai-log-card__chapter">
+          关联章节：{{ item.chapterTitle }}
         </div>
 
-        <div v-if="run.responsePreview" class="ai-log-card__preview">
+        <div v-if="item.run.responsePreview" class="ai-log-card__preview">
           <span class="ai-log-card__section-label">响应预览</span>
-          {{ run.responsePreview }}
+          {{ item.run.responsePreview }}
         </div>
 
-        <div v-if="run.error" class="ai-log-card__error">
+        <div v-if="item.run.error" class="ai-log-card__error">
           <span class="ai-log-card__section-label">错误信息</span>
-          {{ run.error }}
+          {{ item.run.error }}
         </div>
 
         <div class="ai-log-card__foot">
-          <span class="ai-log-chip">工具读取：{{ toolReadStats(run).reads }} 次 / 命中资料：{{ toolReadStats(run).hits }} 条</span>
-          <span v-if="run.repairTriggered" class="ai-log-chip">触发过结构化修复</span>
-          <span v-if="run.finishedAt" class="ai-log-chip">结束：{{ formatTime(run.finishedAt) }}</span>
+          <span class="ai-log-chip">工具读取：{{ item.readStats.reads }} 次 / 命中资料：{{ item.readStats.hits }} 条</span>
+          <span v-if="item.run.repairTriggered" class="ai-log-chip">触发过结构化修复</span>
+          <span v-if="item.finishedAt" class="ai-log-chip">结束：{{ item.finishedAt }}</span>
         </div>
       </article>
+
+      <button
+        v-if="hasMoreAiRunLogs"
+        class="ai-log-load-more"
+        type="button"
+        @click="loadMoreAiRunLogs"
+      >
+        <ChevronDown :size="15" />
+        <span>加载更多（已显示 {{ visibleAiRunLogs.length }} / {{ aiRunLogs.length }}）</span>
+      </button>
     </div>
   </n-modal>
 </template>
@@ -562,6 +601,28 @@ function toolReadStats(run: AiRunRecord): { reads: number; hits: number } {
   border-radius: 999px;
   background: var(--arc-bg-weak);
   color: var(--arc-text-secondary);
+}
+
+.ai-log-load-more {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.ai-log-load-more:hover {
+  border-color: var(--arc-border-strong);
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-primary);
 }
 
 @media (max-width: 900px) {
