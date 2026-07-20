@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ArrowLeft, BookA, CheckCircle2, ChevronRight, Info, Sparkles } from 'lucide-vue-next'
 import { NButton, NInput, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
@@ -26,17 +26,6 @@ const message = useMessage()
 
 const step = ref(1)
 const isGenerating = ref(false)
-let spiralAbortController: AbortController | null = null
-
-const viewportWidth = ref(window.innerWidth)
-const isCompactWizard = computed(() => viewportWidth.value <= 820)
-
-function syncViewport(): void {
-  viewportWidth.value = window.innerWidth
-}
-
-onMounted(() => window.addEventListener('resize', syncViewport))
-onBeforeUnmount(() => window.removeEventListener('resize', syncViewport))
 
 type GenerationMode = 'off' | 'quick' | 'deep'
 
@@ -87,30 +76,7 @@ const creationModeLabel = computed(() => {
   if (formData.generationMode === 'quick') return '快速生成'
   return '空白项目'
 })
-const sidebarNote = computed(() => {
-  if (step.value === 1) {
-    return '项目名称、题材和篇幅会直接影响工作台中的项目信息，以及 AI 初始化时的设定偏向。'
-  }
-  if (step.value === 2) {
-    return '简介越具体，AI 生成的世界观、开局冲突和前几章大纲就越贴近你真正想写的故事。'
-  }
-  if (formData.generationMode === 'deep') {
-    return '深度生成会通过三轮螺旋式推导，从角色核心矛盾出发生成完整的角色、大纲和世界设定。'
-  }
-  if (formData.generationMode === 'quick') {
-    return '快速生成会一次性生成首批世界观和大纲骨架，速度快但不含角色设计。'
-  }
-  return '关闭 AI 初始化后，只会创建项目骨架与首章草稿，方便你从零开始搭建。'
-})
 const spiralPhaseLabel = computed(() => spiralPhaseLabels[spiralPhase.value] || '')
-const footerHint = computed(() => {
-  if (step.value < 3) {
-    return '创建完成后会直接进入项目工作台。'
-  }
-  if (formData.generationMode === 'deep') return '将通过螺旋推导生成角色、大纲与世界设定。'
-  if (formData.generationMode === 'quick') return '将生成首批世界观、大纲与章节草稿。'
-  return '将创建项目骨架与首章草稿。'
-})
 
 const canContinue = computed(() => {
   if (step.value === 1) {
@@ -251,13 +217,8 @@ async function goNext(): Promise<void> {
 <template>
   <section class="wizard-page">
     <div class="wizard-shell">
-      <aside class="wizard-sidebar">
-        <div class="sidebar-copy">
-          <span class="sidebar-kicker">新建作品</span>
-          <h1>先把作品骨架搭稳，再进入写作工作台。</h1>
-          <p>保留三步创建流程，把项目基础、故事钩子和初始化方式一次定清楚。</p>
-        </div>
-
+      <nav class="wizard-sidebar" aria-label="创建步骤">
+        <strong class="wizard-nav-title">新建作品</strong>
         <ol class="step-list">
           <li v-for="item in steps" :key="item.num">
             <button
@@ -278,61 +239,13 @@ async function goNext(): Promise<void> {
               </span>
               <span class="step-text">
                 <strong>{{ item.title }}</strong>
-                <small>{{ item.desc }}</small>
               </span>
             </button>
           </li>
         </ol>
-
-        <section class="sidebar-panel">
-          <div class="panel-eyebrow">当前项目摘要</div>
-          <h2>{{ formData.title.trim() || '未命名作品' }}</h2>
-
-          <dl class="sidebar-summary">
-            <div>
-              <dt>题材</dt>
-              <dd>{{ selectedGenreLabel }}</dd>
-            </div>
-            <div>
-              <dt>篇幅</dt>
-              <dd>{{ novelLengthLabel }}</dd>
-            </div>
-            <div>
-              <dt>创建方式</dt>
-              <dd>{{ creationModeLabel }}</dd>
-            </div>
-          </dl>
-
-          <p class="sidebar-note">{{ sidebarNote }}</p>
-        </section>
-      </aside>
+      </nav>
 
       <section class="wizard-main">
-        <div v-if="isCompactWizard" class="compact-steps">
-          <button
-            v-for="item in steps"
-            :key="item.num"
-            type="button"
-            class="compact-step"
-            :class="{
-              active: step === item.num,
-              done: step > item.num,
-              clickable: item.num < step && !isGenerating
-            }"
-            :disabled="item.num > step || isGenerating"
-            @click="activateStep(item.num)"
-          >
-            <span class="compact-step-marker">
-              <CheckCircle2 v-if="step > item.num" :size="14" />
-              <span v-else>{{ item.num }}</span>
-            </span>
-            <span class="compact-step-title">{{ item.title }}</span>
-          </button>
-          <div class="compact-step-track">
-            <div class="compact-step-fill" :style="{ width: ((step - 1) / (steps.length - 1)) * 100 + '%' }"></div>
-          </div>
-        </div>
-
         <header class="wizard-header">
           <n-button quaternary circle class="back-button" @click="goBack">
             <template #icon><ArrowLeft :size="18" /></template>
@@ -462,28 +375,15 @@ async function goNext(): Promise<void> {
                   <p class="field-hint">AI 会优先根据题材、长短篇和这段简介来生成开局世界观与前三章大纲。</p>
                 </div>
 
-                <div class="premise-helper-grid">
-                  <div class="helper-card">
-                    <strong>建议包含</strong>
-                    <p>主角处境、核心矛盾、目标驱动，以及最能抓住读者的设定。</p>
-                  </div>
-                  <div class="helper-card">
-                    <strong>避免空泛</strong>
-                    <p>少写“这是一个精彩故事”这类泛描述，多写具体冲突和代价。</p>
-                  </div>
-                </div>
               </section>
             </div>
 
             <div v-else key="step-3" class="step-pane">
               <section class="content-card review-card">
                 <div class="review-state">
-                  <div class="generate-icon-wrap">
-                    <div class="generate-icon">
-                      <Sparkles :size="30" :class="{ pulse: isGenerating }" />
-                      <div v-if="isGenerating" class="progress-ring"></div>
-                    </div>
-                  </div>
+                  <span class="generate-icon">
+                    <Sparkles :size="18" :class="{ pulse: isGenerating }" />
+                  </span>
 
                   <div class="review-copy">
                     <h3>{{ isGenerating ? '正在创建项目工作区...' : '准备创建项目' }}</h3>
@@ -569,29 +469,11 @@ async function goNext(): Promise<void> {
                 </div>
               </section>
 
-              <section v-if="!isGenerating" class="content-card">
-                <div class="section-head">
-                  <h3>创建后会得到什么</h3>
-                  <p>确保你进入工作台时，已经有清晰的项目结构和可继续写作的起点。</p>
-                </div>
-
-                <ul class="benefit-list">
-                  <li><CheckCircle2 :size="16" /> 项目卡片会保存题材与长篇 / 短篇信息</li>
-                  <li><CheckCircle2 :size="16" /> 自动生成时，会按题材、篇幅和简介生成首批设定与剧情骨架</li>
-                  <li><CheckCircle2 :size="16" /> 系统会同步创建首卷和可直接进入写作的章节草稿</li>
-                  <li><CheckCircle2 :size="16" /> 关闭自动生成时，仅保留项目脚手架与首章草稿</li>
-                </ul>
-              </section>
             </div>
           </Transition>
         </div>
 
         <footer class="wizard-footer">
-          <div class="footer-meta">
-            <span class="footer-label">创建结果</span>
-            <p>{{ footerHint }}</p>
-          </div>
-
           <div class="footer-actions">
             <n-button
               size="large"
@@ -633,81 +515,73 @@ async function goNext(): Promise<void> {
   height: 100%;
   min-width: 0;
   overflow: hidden;
-  background: var(--arc-bg-body);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-primary);
 }
 
 .wizard-shell {
-  display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
-  width: min(1280px, 100%);
+  display: flex;
+  width: 100%;
+  max-width: 1040px;
   height: 100%;
   margin: 0 auto;
+  flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--arc-border);
-  border-radius: 12px;
   background: var(--arc-bg-surface);
-  box-shadow: var(--arc-shadow-md);
 }
 
 .wizard-sidebar {
   display: flex;
   min-width: 0;
-  flex-direction: column;
+  min-height: 54px;
+  flex-shrink: 0;
+  align-items: center;
   gap: 24px;
-  padding: 28px 24px;
-  border-right: 1px solid var(--arc-border);
-  overflow-y: auto;
-  background: var(--arc-bg-sidebar);
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--arc-border);
+  background: var(--arc-bg-surface);
 }
 
-.sidebar-copy h1 {
-  margin: 10px 0 0;
+.wizard-nav-title {
+  flex-shrink: 0;
   color: var(--arc-text-primary);
-  font-size: clamp(28px, 3vw, 34px);
-  font-weight: 720;
-  letter-spacing: -0.04em;
-  line-height: 1.08;
-}
-
-.sidebar-copy p {
-  margin: 12px 0 0;
-  color: var(--arc-text-secondary);
   font-size: 14px;
-  line-height: 1.7;
+  font-weight: 650;
 }
 
-.sidebar-kicker,
-.header-kicker,
-.panel-eyebrow,
-.footer-label {
+.header-kicker {
   display: inline-flex;
   align-items: center;
   color: var(--arc-text-hint);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .step-list {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
   padding: 0;
   margin: 0;
   list-style: none;
 }
 
 .step-item {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  width: 100%;
-  align-items: start;
-  gap: 12px;
+  display: inline-flex;
+  width: auto;
+  align-items: center;
+  gap: 7px;
   border: 1px solid transparent;
-  border-radius: 10px;
-  padding: 12px;
+  border-radius: var(--arc-radius-md);
+  background: transparent;
+  color: var(--arc-text-secondary);
+  cursor: default;
+  padding: 6px 9px;
   text-align: left;
   transition:
     border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
@@ -720,8 +594,7 @@ async function goNext(): Promise<void> {
 }
 
 .step-item.clickable:hover {
-  border-color: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-border));
-  background: var(--arc-bg-surface);
+  background: var(--arc-bg-surface-hover);
 }
 
 .step-item:disabled {
@@ -729,25 +602,24 @@ async function goNext(): Promise<void> {
 }
 
 .step-item.active {
-  border-color: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-border));
-  background: var(--arc-bg-surface);
+  background: var(--arc-primary-soft);
 }
 
 .step-item.done:not(.active) {
-  background: var(--arc-bg-weak);
+  color: var(--arc-text-secondary);
 }
 
 .step-marker {
   display: inline-flex;
-  width: 34px;
-  height: 34px;
+  width: 22px;
+  height: 22px;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--arc-border);
   border-radius: 999px;
   background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -771,64 +643,18 @@ async function goNext(): Promise<void> {
 
 .step-text strong {
   color: var(--arc-text-primary);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 650;
 }
 
-.step-text small {
-  color: var(--arc-text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.sidebar-panel {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding: 18px;
-  border: 1px solid var(--arc-border);
-  border-radius: 10px;
-  background: var(--arc-bg-surface);
-}
-
-.sidebar-panel h2 {
-  margin: 10px 0 0;
-  color: var(--arc-text-primary);
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-}
-
-.sidebar-summary {
-  display: grid;
-  gap: 12px;
-  margin: 18px 0 0;
-}
-
-.sidebar-summary div {
-  display: grid;
-  grid-template-columns: 68px minmax(0, 1fr);
-  gap: 12px;
-}
-
-.sidebar-summary dt,
 .summary-grid dt {
   color: var(--arc-text-hint);
   font-size: 12px;
 }
 
-.sidebar-summary dd,
 .summary-grid dd {
   margin: 0;
   color: var(--arc-text-primary);
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.sidebar-note {
-  margin: 18px 0 0;
-  color: var(--arc-text-secondary);
   font-size: 13px;
   line-height: 1.65;
 }
@@ -847,11 +673,12 @@ async function goNext(): Promise<void> {
   top: 0;
   z-index: 10;
   display: flex;
-  align-items: flex-start;
-  gap: 16px;
+  width: min(800px, 100%);
+  align-items: center;
+  gap: 12px;
   flex-shrink: 0;
-  padding: 28px 28px 18px;
-  border-bottom: 1px solid var(--arc-border);
+  margin: 0 auto;
+  padding: 22px 24px 14px;
   background: var(--arc-bg-surface);
 }
 
@@ -884,15 +711,15 @@ async function goNext(): Promise<void> {
 }
 
 .header-copy h2 {
-  margin: 8px 0 0;
+  margin: 5px 0 0;
   color: var(--arc-text-primary);
-  font-size: clamp(28px, 3vw, 34px);
-  font-weight: 720;
-  letter-spacing: -0.04em;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 .header-copy p {
-  margin: 8px 0 0;
+  margin: 5px 0 0;
   color: var(--arc-text-secondary);
   font-size: 14px;
   line-height: 1.65;
@@ -903,14 +730,16 @@ async function goNext(): Promise<void> {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 28px 0;
+  padding: 0 24px;
 }
 
 .step-pane {
   display: flex;
+  width: min(800px, 100%);
+  margin: 0 auto;
   flex-direction: column;
-  gap: 18px;
-  padding-bottom: 24px;
+  gap: 0;
+  padding-bottom: 28px;
 }
 
 .grow {
@@ -918,10 +747,13 @@ async function goNext(): Promise<void> {
 }
 
 .content-card {
-  border: 1px solid var(--arc-border);
-  border-radius: 12px;
-  padding: 22px 24px;
+  border-bottom: 1px solid var(--arc-border);
+  padding: 22px 0;
   background: var(--arc-bg-surface);
+}
+
+.content-card:last-child {
+  border-bottom: 0;
 }
 
 .section-head {
@@ -935,9 +767,9 @@ async function goNext(): Promise<void> {
 .review-copy h3 {
   margin: 0;
   color: var(--arc-text-primary);
-  font-size: 20px;
-  font-weight: 680;
-  letter-spacing: -0.03em;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: 0;
 }
 
 .section-head p,
@@ -954,10 +786,9 @@ async function goNext(): Promise<void> {
 }
 
 .field label {
-  display: block;
   margin-bottom: 8px;
   color: var(--arc-text-secondary);
-  display: inline-flex !important;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
 }
@@ -972,12 +803,12 @@ async function goNext(): Promise<void> {
 }
 
 .wizard-naive-input :deep(.n-input) {
-  --n-border-radius: 10px;
-  --n-height: 48px;
+  --n-border-radius: 6px;
+  --n-height: 44px;
 }
 
 .wizard-naive-textarea :deep(.n-input) {
-  --n-border-radius: 10px;
+  --n-border-radius: 6px;
 }
 
 .wizard-naive-textarea :deep(.n-input__textarea-el) {
@@ -1003,14 +834,14 @@ async function goNext(): Promise<void> {
   color: var(--arc-text-hint);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .genre-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .genre-chip,
@@ -1025,12 +856,12 @@ async function goNext(): Promise<void> {
 }
 
 .genre-chip {
-  border-radius: 8px;
+  border-radius: var(--arc-radius-md);
   color: var(--arc-text-secondary);
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
-  padding: 11px 10px;
+  padding: 9px 8px;
   text-align: center;
 }
 
@@ -1071,15 +902,15 @@ async function goNext(): Promise<void> {
 
 .length-card {
   display: flex;
-  min-height: 94px;
+  min-height: 76px;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 8px;
-  border-radius: 10px;
+  gap: 5px;
+  border-radius: var(--arc-radius-md);
   color: var(--arc-text-secondary);
   cursor: pointer;
-  padding: 16px;
+  padding: 13px 14px;
   text-align: left;
 }
 
@@ -1100,14 +931,6 @@ async function goNext(): Promise<void> {
   line-height: 1.6;
 }
 
-.premise-helper-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 18px;
-}
-
-.helper-card,
 .toggle-panel {
   border: 1px solid var(--arc-border);
   border-radius: 8px;
@@ -1115,65 +938,38 @@ async function goNext(): Promise<void> {
   padding: 14px 16px;
 }
 
-.helper-card strong,
 .toggle-copy strong {
   color: var(--arc-text-primary);
   font-size: 13px;
   font-weight: 650;
 }
 
-.helper-card p {
-  margin: 8px 0 0;
-  color: var(--arc-text-secondary);
-  font-size: 12px;
-  line-height: 1.65;
-}
-
 .review-card {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 18px;
 }
 
 .review-state {
   display: flex;
   align-items: center;
-  gap: 18px;
-}
-
-.generate-icon-wrap {
-  position: relative;
-  flex-shrink: 0;
+  gap: 12px;
 }
 
 .generate-icon {
-  position: relative;
   display: inline-flex;
-  width: 72px;
-  height: 72px;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--arc-primary) 14%, var(--arc-border));
-  border-radius: 12px;
+  border-radius: var(--arc-radius-md);
+  background: var(--arc-primary-soft);
   color: var(--arc-primary);
 }
 
 .pulse {
   animation: pulseGlow 1.4s ease-in-out infinite;
-}
-
-.progress-ring {
-  position: absolute;
-  inset: -4px;
-  border-radius: 24px;
-  background: conic-gradient(
-    from 0deg,
-    color-mix(in srgb, var(--arc-primary) 92%, var(--arc-bg-mix)),
-    color-mix(in srgb, var(--arc-primary) 24%, var(--arc-bg-mix)),
-    color-mix(in srgb, var(--arc-primary) 92%, var(--arc-bg-mix))
-  );
-  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
-  animation: spinRing 1.8s linear infinite;
 }
 
 .review-copy {
@@ -1182,9 +978,12 @@ async function goNext(): Promise<void> {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 18px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
   margin: 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--arc-border);
+  border-bottom: 1px solid var(--arc-border);
 }
 
 .summary-grid div {
@@ -1218,27 +1017,25 @@ async function goNext(): Promise<void> {
 }
 
 .generation-mode-panel {
-  border: 1px solid var(--arc-border);
-  border-radius: 10px;
-  padding: 18px;
-  background: var(--arc-bg-weak);
+  padding-top: 2px;
 }
 
 .generation-mode-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: 1fr;
+  gap: 0;
+  border-top: 1px solid var(--arc-border);
 }
 
 .mode-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  border: 1px solid var(--arc-border);
-  border-radius: 10px;
-  padding: 14px;
-  background: var(--arc-bg-surface);
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  border: 0;
+  border-bottom: 1px solid var(--arc-border);
+  padding: 13px 8px;
+  background: transparent;
   text-align: left;
   cursor: pointer;
   transition:
@@ -1247,12 +1044,12 @@ async function goNext(): Promise<void> {
 }
 
 .mode-card:hover {
-  border-color: color-mix(in srgb, var(--arc-primary) 14%, var(--arc-border));
+  background: var(--arc-bg-surface-hover);
 }
 
 .mode-card.active {
-  border-color: color-mix(in srgb, var(--arc-primary) 22%, var(--arc-border));
-  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
+  background: var(--arc-primary-soft);
+  box-shadow: inset 2px 0 0 var(--arc-primary);
 }
 
 .mode-card strong {
@@ -1264,17 +1061,16 @@ async function goNext(): Promise<void> {
 .mode-card span {
   color: var(--arc-text-secondary);
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .spiral-progress {
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 14px 16px;
-  border: 1px solid var(--arc-border);
-  border-radius: 8px;
-  background: var(--arc-bg-weak);
+  padding: 12px 0;
+  border-top: 1px solid var(--arc-border);
+  border-bottom: 1px solid var(--arc-border);
 }
 
 .spiral-step {
@@ -1313,54 +1109,25 @@ async function goNext(): Promise<void> {
   opacity: 0.6;
 }
 
-.benefit-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-  color: var(--arc-text-secondary);
-  font-size: 13px;
-}
-
-.benefit-list li {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  line-height: 1.65;
-}
-
-.benefit-list li :deep(svg) {
-  color: var(--arc-primary);
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
 .wizard-footer {
   position: sticky;
   bottom: 0;
   z-index: 10;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 16px;
   flex-shrink: 0;
-  padding: 18px 28px 24px;
+  padding: 12px 24px 16px;
   border-top: 1px solid var(--arc-border);
   background: var(--arc-bg-surface);
 }
 
-.footer-meta p {
-  margin: 8px 0 0;
-  color: var(--arc-text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
 .footer-actions {
   display: flex;
+  width: min(800px, 100%);
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   flex-shrink: 0;
 }
@@ -1368,9 +1135,9 @@ async function goNext(): Promise<void> {
 .footer-primary-btn,
 .footer-secondary-btn,
 .footer-cancel-btn {
-  --n-height: 44px !important;
-  min-width: 110px;
-  border-radius: 10px !important;
+  --n-height: 38px !important;
+  min-width: 104px;
+  border-radius: 6px !important;
 }
 
 .footer-cancel-btn {
@@ -1383,10 +1150,10 @@ async function goNext(): Promise<void> {
 }
 
 .back-button {
-  --n-width: 40px !important;
-  --n-height: 40px !important;
+  --n-width: 34px !important;
+  --n-height: 34px !important;
   border: 1px solid var(--arc-border) !important;
-  border-radius: 10px !important;
+  border-radius: 6px !important;
 }
 
 .back-button:hover {
@@ -1394,31 +1161,14 @@ async function goNext(): Promise<void> {
 }
 
 @media (max-width: 1120px) {
-  .wizard-shell {
-    grid-template-columns: 280px minmax(0, 1fr);
-  }
-
   .genre-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 960px) {
-  .wizard-shell {
-    grid-template-columns: 260px minmax(0, 1fr);
-  }
-
   .wizard-sidebar {
-    gap: 14px;
-    padding: 18px 14px;
-  }
-
-  .sidebar-copy h1 {
-    font-size: 22px;
-  }
-
-  .sidebar-copy p {
-    display: none;
+    padding: 8px 18px;
   }
 
   .step-list {
@@ -1426,26 +1176,8 @@ async function goNext(): Promise<void> {
   }
 
   .step-item {
-    padding: 10px;
-    border-radius: 10px;
-  }
-
-  .step-text small {
-    display: none;
-  }
-
-  .sidebar-panel {
-    justify-content: flex-start;
-    padding: 14px;
-    border-radius: 10px;
-  }
-
-  .sidebar-panel h2 {
-    font-size: 18px;
-  }
-
-  .sidebar-note {
-    display: none;
+    padding: 6px 9px;
+    border-radius: 6px;
   }
 
   .wizard-header,
@@ -1466,13 +1198,21 @@ async function goNext(): Promise<void> {
 }
 
 @media (max-width: 820px) {
-  .wizard-shell {
-    grid-template-columns: 1fr;
-    border-radius: 0;
+  .wizard-sidebar {
+    display: flex;
+    padding: 8px 14px;
   }
 
-  .wizard-sidebar {
+  .wizard-nav-title {
     display: none;
+  }
+
+  .step-list {
+    justify-content: center;
+  }
+
+  .step-item {
+    padding: 6px 8px;
   }
 
   .wizard-header {
@@ -1503,10 +1243,6 @@ async function goNext(): Promise<void> {
     gap: 10px;
   }
 
-  .footer-meta {
-    display: none;
-  }
-
   .footer-actions {
     width: 100%;
   }
@@ -1516,8 +1252,7 @@ async function goNext(): Promise<void> {
   }
 
   .content-card {
-    border-radius: 10px;
-    padding: 16px 14px;
+    padding: 18px 0;
   }
 
   .section-head {
@@ -1546,15 +1281,10 @@ async function goNext(): Promise<void> {
     border-radius: 10px;
   }
 
-  .premise-helper-grid {
-    grid-template-columns: 1fr;
-  }
-
   .summary-grid {
     grid-template-columns: 1fr;
   }
 
-  .review-state,
   .toggle-panel {
     flex-direction: column;
     align-items: flex-start;
@@ -1570,9 +1300,9 @@ async function goNext(): Promise<void> {
   }
 
   .generate-icon {
-    width: 52px;
-    height: 52px;
-    border-radius: 10px;
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
   }
 
   .footer-primary-btn,
@@ -1600,8 +1330,7 @@ async function goNext(): Promise<void> {
   }
 
   .content-card {
-    padding: 14px 12px;
-    border-radius: 10px;
+    padding: 16px 0;
   }
 
   .header-copy h2 {
@@ -1654,101 +1383,6 @@ async function goNext(): Promise<void> {
   opacity: 0;
 }
 
-/* Compact step indicator (small windows) */
-.compact-steps {
-  display: none;
-}
-
-.compact-step {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: none;
-  background: transparent;
-  color: var(--arc-text-hint);
-  cursor: default;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 6px 10px;
-  border-radius: 10px;
-  transition: color 0.2s, background 0.2s;
-}
-
-.compact-step.clickable {
-  cursor: pointer;
-}
-
-.compact-step.clickable:hover {
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.compact-step.active {
-  color: var(--arc-primary);
-  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-mix));
-}
-
-.compact-step.done:not(.active) {
-  color: var(--arc-primary);
-  opacity: 0.7;
-}
-
-.compact-step-marker {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--arc-border);
-  border-radius: 999px;
-  background: var(--arc-bg-surface);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.compact-step.active .compact-step-marker {
-  border-color: color-mix(in srgb, var(--arc-primary) 25%, var(--arc-bg-mix));
-  background: color-mix(in srgb, var(--arc-primary) 12%, var(--arc-bg-mix));
-  color: var(--arc-primary);
-}
-
-.compact-step.done .compact-step-marker {
-  border-color: color-mix(in srgb, var(--arc-primary) 18%, var(--arc-bg-mix));
-  color: var(--arc-primary);
-}
-
-.compact-step-title {
-  white-space: nowrap;
-}
-
-.compact-step-track {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--arc-border);
-  border-radius: 1px;
-}
-
-.compact-step-fill {
-  height: 100%;
-  background: var(--arc-primary);
-  border-radius: 1px;
-  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@media (max-width: 820px) {
-  .compact-steps {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    position: relative;
-    padding: 10px 18px 14px;
-    border-bottom: 1px solid var(--arc-border);
-    background: var(--arc-bg-surface);
-  }
-}
-
 @keyframes pulseGlow {
   0%,
   100% {
@@ -1761,12 +1395,4 @@ async function goNext(): Promise<void> {
   }
 }
 
-@keyframes spinRing {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
 </style>
