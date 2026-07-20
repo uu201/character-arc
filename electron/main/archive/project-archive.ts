@@ -1,4 +1,3 @@
-import { app } from 'electron'
 import JSZip from 'jszip'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -472,6 +471,8 @@ function buildManifest(
   referenceWorks: WorkspaceReferenceWork[],
   assetCount: number
 ): ProjectArchiveManifest {
+  const electronRequire = eval('require') as NodeJS.Require
+  const { app } = electronRequire('electron') as { app: { getVersion: () => string } }
   return {
     app: 'CharacterArc',
     archiveVersion: '1.0',
