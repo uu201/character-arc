@@ -101,11 +101,13 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
     }, delay)
   }
 
-  function scheduleSettingsPersist(): void {
+  function scheduleSettingsPersist(options: { flushWorkspace?: boolean } = {}): void {
     if (!deps.hasHydrated.value) return
-    scheduleWorkspaceSync()
-    // Saving settings should also flush any queued workspace edits before the app closes.
-    schedulePersist('fast')
+    if (options.flushWorkspace !== false) {
+      scheduleWorkspaceSync()
+      // Saving most settings should also flush any queued workspace edits before the app closes.
+      schedulePersist('fast')
+    }
     if (settingsSaveTimer) {
       window.clearTimeout(settingsSaveTimer)
     }

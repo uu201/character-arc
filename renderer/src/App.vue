@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { Moon, Sun } from 'lucide-vue-next'
 import { createDiscreteApi, NConfigProvider, NDialogProvider, NGlobalStyle, NMessageProvider, NSpin, darkTheme } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { createNaiveThemeOverrides, getDarkModePreset } from '@/theme/presets'
@@ -21,6 +22,7 @@ const platform = window.characterArc?.platform ?? 'unknown'
 const appName = '弧光'
 const appVersion = window.characterArc?.version ?? ''
 const { message } = createDiscreteApi(['message'])
+let themeTransitionFrame: number | null = null
 
 // 根据当前选中主题生成 Naive UI 主题覆盖变量
 const themeOverrides = computed(() =>
@@ -121,6 +123,21 @@ function shouldShowManualSaveToast(): boolean {
   return appStore.currentView === 'chapter-studio' || appStore.activePanel === 'chapters'
 }
 
+function toggleDarkMode(): void {
+  const root = document.documentElement
+  root.classList.add('theme-switching')
+  if (themeTransitionFrame !== null) {
+    window.cancelAnimationFrame(themeTransitionFrame)
+  }
+  appStore.updateAppSetting('darkMode', !appStore.appSettings.darkMode, { flushWorkspace: false })
+  themeTransitionFrame = window.requestAnimationFrame(() => {
+    themeTransitionFrame = window.requestAnimationFrame(() => {
+      root.classList.remove('theme-switching')
+      themeTransitionFrame = null
+    })
+  })
+}
+
 // Ctrl+S 全局保存快捷键
 async function handleGlobalKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -148,6 +165,10 @@ onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
 onBeforeUnmount(() => {
+  if (themeTransitionFrame !== null) {
+    window.cancelAnimationFrame(themeTransitionFrame)
+    document.documentElement.classList.remove('theme-switching')
+  }
   window.removeEventListener('keydown', handleGlobalKeydown)
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })
@@ -158,7 +179,7 @@ onBeforeUnmount(() => {
     <n-message-provider>
       <n-dialog-provider>
         <n-global-style />
-        <div class="app-shell" :style="appStyleVars" :class="{ 'dark-mode': appStore.appSettings.darkMode, 'platform-darwin': platform === 'darwin' }">
+        <div class="app-shell" :class="{ 'platform-darwin': platform === 'darwin' }">
           <div class="app-titlebar">
             <span class="app-titlebar__brand">
               {{ appName }}
@@ -166,7 +187,20 @@ onBeforeUnmount(() => {
               <span class="app-titlebar__tag">开源免费</span>
               <span class="app-titlebar__qq">QQ交流群 1077457764</span>
             </span>
-            <TitlebarModelSwitcher />
+            <div class="app-titlebar__tools">
+              <TitlebarModelSwitcher />
+              <button
+                type="button"
+                class="app-titlebar__theme-toggle"
+                :class="{ 'is-dark': appStore.appSettings.darkMode }"
+                :title="appStore.appSettings.darkMode ? '切换到浅色模式' : '切换到深色模式'"
+                :aria-label="appStore.appSettings.darkMode ? '切换到浅色模式' : '切换到深色模式'"
+                @click="toggleDarkMode"
+              >
+                <Sun v-if="appStore.appSettings.darkMode" :size="15" />
+                <Moon v-else :size="15" />
+              </button>
+            </div>
           </div>
           <div class="app-content">
             <div v-if="appStore.persistenceError" class="app-error-banner">

@@ -2516,9 +2516,13 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /** 更新单个应用设置项并触发快速持久化（仅写入 app_settings 行） */
-  function updateAppSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
+  function updateAppSetting<K extends keyof AppSettings>(
+    key: K,
+    value: AppSettings[K],
+    options: { flushWorkspace?: boolean } = {}
+  ): void {
     appSettings.value[key] = value
-    scheduleSettingsPersist()
+    scheduleSettingsPersist(options)
   }
 
   function switchAiProfile(profileId: string): void {

@@ -68,6 +68,12 @@ body {
   color-scheme: dark;
 }
 
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
+}
+
 button,
 input,
 textarea {
@@ -146,6 +152,55 @@ input {
   background: var(--arc-bg-surface-hover);
   border-color: var(--arc-border);
   font-weight: 500;
+}
+
+.app-titlebar__tools {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.app-titlebar__theme-toggle {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  background: color-mix(in srgb, var(--arc-bg-surface) 72%, transparent);
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.app-titlebar__theme-toggle:hover {
+  border-color: var(--arc-border-strong);
+  background: var(--arc-bg-surface-hover);
+  color: var(--arc-text-primary);
+}
+
+.app-titlebar__theme-toggle:active {
+  transform: translateY(1px);
+}
+
+.app-titlebar__theme-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--arc-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.app-titlebar__theme-toggle.is-dark {
+  border-color: color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
+  background: var(--arc-primary-soft);
+  color: var(--arc-primary);
 }
 
 .app-titlebar + .app-content {
