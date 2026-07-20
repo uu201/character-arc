@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BookCopy, Clock3, FileText, GitMerge, Lightbulb, Network, Sparkles, Users } from 'lucide-vue-next'
+import { BookCopy, ChevronRight, Clock3, FileText, GitMerge, Lightbulb, Network, PenLine, Users } from 'lucide-vue-next'
 import { getChapterCharacterCount, getChapterPreviewText } from '@/features/chapters/editorContent'
 import { formatProjectEditedAt } from '@/features/projects/lastEdited'
 import { resolveNovelLengthLabel } from '@/features/wizard/projectGenres'
@@ -192,68 +192,78 @@ function openEntry(type: string, title: string): void {
 
 <template>
   <section class="overview-panel">
-    <div class="section-head">
-      <div>
-        <h2>作品概览</h2>
-        <p>快速查看当前项目的创作状态、结构规模和重点内容。</p>
+    <header class="overview-header">
+      <div class="overview-heading">
+        <span class="overview-kicker">作品概览</span>
+        <h2>{{ currentProject?.title ?? '未命名作品' }}</h2>
+        <div class="project-meta">
+          <span v-if="projectMeta">{{ projectMeta }}</span>
+          <span v-if="projectMeta" class="meta-divider" aria-hidden="true" />
+          <span class="edited-time">
+            <Clock3 :size="13" />
+            {{ formatProjectEditedAt(currentProject?.lastEdited) }}
+          </span>
+        </div>
       </div>
-      <div class="status-chip">
-        <Clock3 :size="14" />
-        <span>{{ formatProjectEditedAt(currentProject?.lastEdited) }}</span>
-      </div>
+      <button type="button" class="continue-action" @click="appStore.setPanel('chapters')">
+        <PenLine :size="16" />
+        <span>继续创作</span>
+      </button>
+    </header>
+
+    <div class="current-focus">
+      <span>当前章节</span>
+      <button type="button" @click="appStore.setPanel('chapters')">
+        {{ recentChapter?.title ?? '暂无章节' }}
+        <ChevronRight :size="14" />
+      </button>
     </div>
 
-    <div class="overview-grid">
-      <article class="hero-card">
-        <div class="hero-card-top">
-          <span class="hero-genre">{{ projectMeta }}</span>
-          <button class="hero-action" @click="appStore.setPanel('chapters')">
-            <Sparkles :size="16" />
-            <span>继续创作</span>
-          </button>
-        </div>
-        <h3>{{ currentProject?.title ?? '未命名作品' }}</h3>
-        <p>
-          当前聚焦章节：{{ recentChapter?.title ?? '暂无章节' }}。你可以从这里继续推进正文、补充设定或整理大纲。
-        </p>
-      </article>
-
-        <div class="stats-grid">
+    <section class="stats-section" aria-labelledby="overview-stats-title">
+      <div class="subsection-head">
+        <h3 id="overview-stats-title">创作数据</h3>
+      </div>
+      <div class="stats-grid">
         <button
           v-for="card in overviewCards"
           :key="card.key"
+          type="button"
           class="stat-card"
+          :title="`${card.label}：${card.hint}`"
           @click="goToPanel(card.target)"
         >
           <div class="stat-icon">
-            <component :is="card.icon" :size="18" />
+            <component :is="card.icon" :size="16" />
           </div>
           <div class="stat-copy">
-            <span>{{ card.label }}</span>
             <strong>{{ card.value }}</strong>
-            <small>{{ card.hint }}</small>
+            <span>{{ card.label }}</span>
           </div>
         </button>
       </div>
-    </div>
+    </section>
 
-    <section class="focus-section">
-      <div class="focus-head">
-        <h4>重点内容</h4>
+    <section class="focus-section" aria-labelledby="overview-focus-title">
+      <div class="subsection-head focus-head">
+        <h3 id="overview-focus-title">重点内容</h3>
         <span v-if="normalizedQuery">搜索结果：{{ quickEntries.length }} 条</span>
-        <span v-else>按当前项目内容聚合</span>
+        <span v-else>{{ quickEntries.length }} 项</span>
       </div>
 
       <div v-if="quickEntries.length > 0" class="focus-list">
         <button
           v-for="entry in quickEntries"
           :key="entry.id"
-          class="focus-card"
+          type="button"
+          class="focus-row"
           @click="openEntry(entry.type, entry.title)"
         >
           <span class="focus-type">{{ entry.type }}</span>
-          <h5>{{ entry.title }}</h5>
-          <p>{{ entry.description }}</p>
+          <span class="focus-copy">
+            <strong>{{ entry.title }}</strong>
+            <span>{{ entry.description }}</span>
+          </span>
+          <ChevronRight class="focus-arrow" :size="16" />
         </button>
       </div>
       <div v-else class="arc-empty-state">
@@ -265,253 +275,284 @@ function openEntry(type: string, title: string): void {
 
 <style scoped>
 .overview-panel {
-  max-width: 1180px;
+  max-width: 1160px;
   margin: 0 auto;
+  min-width: 0;
+  padding: 4px 2px 32px;
+}
+
+.overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 2px 0 20px;
+  border-bottom: 1px solid var(--arc-border);
+}
+
+.overview-heading {
   min-width: 0;
 }
 
-.section-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 24px;
+.overview-kicker {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--arc-primary);
+  font-size: 12px;
+  font-weight: 600;
 }
 
-.section-head h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+.overview-heading h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0;
   color: var(--arc-text-primary);
 }
 
-.section-head p {
-  margin: 0;
-  color: var(--arc-text-secondary);
-  font-size: 13px;
-}
-
-.status-chip {
-  display: inline-flex;
+.project-meta {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  border-radius: var(--arc-radius-sm);
-  border: 1px solid var(--arc-border);
-  background: var(--arc-bg-surface);
+  gap: 9px;
+  margin-top: 9px;
   color: var(--arc-text-secondary);
   font-size: 12px;
-  padding: 6px 10px;
 }
 
-.overview-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.95fr);
-  gap: clamp(12px, 1.6vw, 18px);
-  margin-bottom: 20px;
+.meta-divider {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--arc-text-hint);
 }
 
-.hero-card {
+.edited-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.continue-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: var(--arc-radius-md);
+  background: var(--arc-primary);
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 13px;
+  transition:
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.continue-action:hover {
+  background: var(--arc-primary-hover);
+}
+
+.continue-action:active {
+  transform: translateY(1px);
+}
+
+.current-focus {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  gap: 18px;
+  border-bottom: 1px solid var(--arc-border);
+}
+
+.current-focus > span {
+  flex-shrink: 0;
+  color: var(--arc-text-hint);
+  font-size: 12px;
+}
+
+.current-focus button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
   overflow: hidden;
-  border: 1px solid var(--arc-border);
-  border-radius: var(--arc-radius-lg);
-  background: var(--arc-bg-surface);
-  padding: clamp(20px, 2.2vw, 24px);
+  border: 0;
+  background: transparent;
+  color: var(--arc-text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.hero-card-top {
+.current-focus button:hover {
+  color: var(--arc-primary);
+}
+
+.stats-section,
+.focus-section {
+  margin-top: 28px;
+}
+
+.subsection-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 16px;
+  margin-bottom: 10px;
 }
 
-.hero-genre {
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--arc-radius-sm);
-  background: var(--arc-bg-body);
-  color: var(--arc-text-secondary);
-  font-size: 11px;
-  font-weight: 500;
-  padding: 3px 8px;
-  letter-spacing: 0.01em;
-}
-
-.hero-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--arc-primary);
-  border-radius: var(--arc-radius-md);
-  background: transparent;
-  color: var(--arc-primary);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  padding: 6px 12px;
-  transition:
-    background 0.16s ease,
-    color 0.16s ease;
-}
-
-.hero-action:hover {
-  background: var(--arc-primary-soft);
-}
-
-.hero-card h3 {
-  margin: 0 0 12px;
-  font-size: clamp(18px, 2vw, 22px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--arc-text-primary);
-}
-
-.hero-card p {
-  max-width: 44rem;
+.subsection-head h3 {
   margin: 0;
-  color: var(--arc-text-secondary);
+  color: var(--arc-text-primary);
   font-size: 14px;
-  line-height: 1.7;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.subsection-head > span {
+  color: var(--arc-text-hint);
+  font-size: 12px;
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border-top: 1px solid var(--arc-border);
+  border-bottom: 1px solid var(--arc-border);
 }
 
 .stat-card {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  border: 1px solid var(--arc-border);
-  border-radius: var(--arc-radius-lg);
-  background: var(--arc-bg-surface);
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-left: 1px solid var(--arc-border);
+  background: transparent;
   cursor: pointer;
-  padding: 14px 16px;
+  padding: 15px 13px;
   text-align: left;
-  transition: border-color 0.16s ease;
+  transition: background 0.16s ease;
+}
+
+.stat-card:first-child {
+  border-left: 0;
 }
 
 .stat-card:hover {
-  border-color: var(--arc-primary);
+  background: var(--arc-bg-surface-hover);
 }
 
 .stat-icon {
   display: inline-flex;
-  width: 36px;
-  height: 36px;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: var(--arc-radius-md);
-  background: var(--arc-primary-soft);
-  color: var(--arc-primary);
-  flex-shrink: 0;
+  color: var(--arc-text-hint);
 }
 
 .stat-copy {
   display: flex;
+  min-width: 0;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .stat-copy span {
-  color: var(--arc-text-secondary);
-  font-size: 12px;
+  overflow: hidden;
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stat-copy strong {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: 0;
   color: var(--arc-text-primary);
   font-variant-numeric: tabular-nums;
-}
-
-.stat-copy small {
-  color: var(--arc-text-hint);
-  font-size: 11px;
-}
-
-.focus-section {
-  border: 1px solid var(--arc-border);
-  border-radius: var(--arc-radius-lg);
-  background: var(--arc-bg-surface);
-  padding: clamp(16px, 2vw, 20px);
-}
-
-.focus-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-
-.focus-head h4 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--arc-text-primary);
-}
-
-.focus-head span {
-  color: var(--arc-text-hint);
-  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .focus-list {
+  border-top: 1px solid var(--arc-border);
+}
+
+.focus-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px;
-}
-
-.focus-card {
-  border: 1px solid var(--arc-border);
-  border-radius: var(--arc-radius-lg);
-  background: var(--arc-bg-surface);
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 58px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--arc-border);
+  background: transparent;
   cursor: pointer;
-  padding: 14px;
+  padding: 13px 4px;
   text-align: left;
-  transition: border-color 0.16s ease;
+  transition: background 0.16s ease;
 }
 
-.focus-card:hover {
-  border-color: var(--arc-primary);
+.focus-row:hover {
+  background: var(--arc-bg-surface-hover);
 }
 
 .focus-type {
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--arc-radius-sm);
-  background: var(--arc-bg-body);
-  color: var(--arc-text-secondary);
+  color: var(--arc-primary);
   font-size: 11px;
-  font-weight: 500;
-  padding: 2px 7px;
-  margin-bottom: 8px;
-}
-
-.focus-card h5 {
-  margin: 0 0 6px;
-  font-size: 14px;
   font-weight: 600;
-  color: var(--arc-text-primary);
 }
 
-.focus-card p {
-  display: -webkit-box;
-  margin: 0;
+.focus-copy {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(120px, 0.38fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+}
+
+.focus-copy strong,
+.focus-copy > span {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-copy strong {
+  color: var(--arc-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.focus-copy > span {
   color: var(--arc-text-secondary);
   font-size: 12px;
-  line-height: 1.6;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+}
+
+.focus-arrow {
+  color: var(--arc-text-hint);
+  transition:
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.focus-row:hover .focus-arrow {
+  color: var(--arc-primary);
+  transform: translateX(2px);
 }
 
 .empty-state {
@@ -523,29 +564,71 @@ function openEntry(type: string, title: string): void {
   font-size: 13px;
 }
 
-@media (max-width: 1240px) {
-  .hero-card p {
-    font-size: 13px;
-  }
-}
-
 @media (max-width: 1080px) {
-  .overview-grid {
-    grid-template-columns: 1fr;
+  .stats-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .stat-card:nth-child(3n + 1) {
+    border-left: 0;
+  }
+
+  .stat-card:nth-child(n + 4) {
+    border-top: 1px solid var(--arc-border);
   }
 }
 
-@media (max-width: 780px) {
+@media (max-width: 720px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stat-card {
+    border-left: 1px solid var(--arc-border);
+  }
+
+  .stat-card:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .stat-card:nth-child(n + 3) {
+    border-top: 1px solid var(--arc-border);
+  }
+}
+
+@media (max-width: 620px) {
+  .overview-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .overview-heading h2 {
+    font-size: 22px;
+  }
+
+  .continue-action {
+    align-self: flex-start;
+  }
+
+  .focus-copy {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 460px) {
   .stats-grid {
     grid-template-columns: 1fr;
   }
-}
 
-@media (max-width: 760px) {
-  .hero-card-top,
-  .focus-head {
-    align-items: flex-start;
-    flex-direction: column;
+  .stat-card,
+  .stat-card:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .stat-card:nth-child(n + 2) {
+    border-top: 1px solid var(--arc-border);
   }
 }
 </style>
