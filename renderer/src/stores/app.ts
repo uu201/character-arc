@@ -1979,19 +1979,44 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
-  /** 拖拽移动章节位置 */
-  function moveChapter(chapterId: string, targetChapterId: string): void {
+  /** 拖拽移动章节位置，跨卷时自动更新章节所属分卷 */
+  function moveChapter(
+    chapterId: string,
+    targetChapterId: string,
+    position: OutlineDropPosition = 'before'
+  ): void {
     updateCurrentWorkspace((workspace) => {
-      const sourceIndex = workspace.chapters.findIndex((chapter) => chapter.id === chapterId)
-      const targetIndex = workspace.chapters.findIndex((chapter) => chapter.id === targetChapterId)
-
-      if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+      const nextChapters = moveOutlineItemsAroundTarget(
+        workspace.chapters,
+        [chapterId],
+        targetChapterId,
+        position
+      )
+      if (nextChapters === workspace.chapters) {
         return workspace
       }
 
-      const nextChapters = [...workspace.chapters]
-      const [movedChapter] = nextChapters.splice(sourceIndex, 1)
-      nextChapters.splice(targetIndex, 0, movedChapter)
+      return {
+        ...workspace,
+        chapters: nextChapters
+      }
+    })
+    schedulePersist('fast')
+  }
+
+  /** 将章节拖到指定分卷末尾 */
+  function moveChaptersToVolumeEnd(chapterIds: string[], volumeId: string): void {
+    updateCurrentWorkspace((workspace) => {
+      const nextChapters = reorderOutlineItemsToVolumeEnd(
+        workspace.chapters,
+        chapterIds,
+        volumeId,
+        workspace.outlineVolumes.map((volume) => volume.id)
+      )
+      if (nextChapters === workspace.chapters) {
+        return workspace
+      }
+
       return {
         ...workspace,
         chapters: nextChapters
@@ -3233,6 +3258,7 @@ export const useAppStore = defineStore('app', () => {
     getChapterVersions,
     messages,
     moveChapter,
+    moveChaptersToVolumeEnd,
     moveOutlineItem,
     moveOutlineItems,
     moveOutlineItemsToVolumeEnd,

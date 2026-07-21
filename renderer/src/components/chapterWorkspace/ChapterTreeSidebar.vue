@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { ArrowLeft, ChevronDown, ChevronsDownUp, FilePlus, FileText, FolderPlus, MoreVertical, Plus, Search } from 'lucide-vue-next'
+import { ArrowLeft, ChevronDown, ChevronsDownUp, FilePlus, FileText, FolderPlus, GripVertical, MoreVertical, Plus, Search } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTag, NTooltip, useDialog, useMessage } from 'naive-ui'
 import ChapterMetaDialog from './ChapterMetaDialog.vue'
 import { useAppStore } from '@/stores/app'
 import { formatVolumeLabel, normalizeVolumeWordTarget } from '@/features/workspace/outlineVolumes'
 import { getChapterCharacterCount, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
+import type { OutlineDropPosition } from '@/features/workspace/outlineReorder'
 import type { ChapterDraft, OutlineItem, OutlineVolume } from '@/types/app'
 import type { DropdownOption, SelectOption } from 'naive-ui'
 import { toIpcPayload } from '@/utils/ipcPayload'
@@ -20,6 +21,10 @@ const message = useMessage()
 
 const keyword = ref('')
 const collapsed = reactive<Record<string, boolean>>({})
+const draggingChapterId = ref<string | null>(null)
+const dragTargetChapterId = ref<string | null>(null)
+const dragTargetPosition = ref<OutlineDropPosition | null>(null)
+const dragTargetVolumeId = ref<string | null>(null)
 
 const metaDialogVisible = ref(false)
 const metaDialogChapter = ref<ChapterDraft | null>(null)
@@ -128,6 +133,140 @@ function toggleVolume(id: string): void {
 function toggleCollapseAll(): void {
   const next = !allCollapsed.value
   for (const v of appStore.outlineVolumes) collapsed[v.id] = next
+}
+
+function readDraggedChapterId(event: DragEvent): string {
+  const dataStr = event.dataTransfer?.getData('text/plain') ?? ''
+  return dataStr.trim()
+}
+
+function resolveDropPosition(event: DragEvent): OutlineDropPosition {
+  const target = event.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+function autoScrollDragContainer(event: DragEvent): void {
+  const container = (event.currentTarget as HTMLElement).closest('.ts-scroll')
+  if (!(container instanceof HTMLElement)) {
+    return
+  }
+
+  const rect = container.getBoundingClientRect()
+  const edgeSize = Math.min(56, rect.height / 4)
+  const maxStep = 14
+  if (event.clientY < rect.top + edgeSize) {
+    const intensity = (rect.top + edgeSize - event.clientY) / edgeSize
+    container.scrollBy({ top: -Math.ceil(maxStep * intensity) })
+  } else if (event.clientY > rect.bottom - edgeSize) {
+    const intensity = (event.clientY - (rect.bottom - edgeSize)) / edgeSize
+    container.scrollBy({ top: Math.ceil(maxStep * intensity) })
+  }
+}
+
+function handleChapterDragStart(chapterId: string, event: DragEvent): void {
+  draggingChapterId.value = chapterId
+  dragTargetChapterId.value = null
+  dragTargetPosition.value = null
+  dragTargetVolumeId.value = null
+
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', chapterId)
+    const dragImage = (event.currentTarget as HTMLElement).closest('.chapter-row')
+    if (dragImage instanceof HTMLElement) {
+      event.dataTransfer.setDragImage(dragImage, 24, 18)
+    }
+  }
+}
+
+function handleChapterDragOver(chapterId: string, event: DragEvent): void {
+  if (!draggingChapterId.value || draggingChapterId.value === chapterId) {
+    return
+  }
+
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  autoScrollDragContainer(event)
+  dragTargetChapterId.value = chapterId
+  dragTargetPosition.value = resolveDropPosition(event)
+  dragTargetVolumeId.value = null
+}
+
+function handleChapterDragLeave(chapterId: string, event: DragEvent): void {
+  const currentTarget = event.currentTarget as HTMLElement
+  const relatedTarget = event.relatedTarget
+  if (relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) {
+    return
+  }
+  if (dragTargetChapterId.value === chapterId) {
+    dragTargetChapterId.value = null
+    dragTargetPosition.value = null
+  }
+}
+
+function handleChapterDrop(chapterId: string, event: DragEvent): void {
+  event.preventDefault()
+  const draggedChapterId = readDraggedChapterId(event)
+
+  if (!draggedChapterId || draggedChapterId === chapterId) {
+    resetChapterDragState()
+    return
+  }
+
+  const position = dragTargetChapterId.value === chapterId && dragTargetPosition.value
+    ? dragTargetPosition.value
+    : resolveDropPosition(event)
+  appStore.moveChapter(draggedChapterId, chapterId, position)
+  resetChapterDragState()
+}
+
+function handleVolumeDragOver(volumeId: string, event: DragEvent): void {
+  if (!draggingChapterId.value) {
+    return
+  }
+
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  autoScrollDragContainer(event)
+  dragTargetChapterId.value = null
+  dragTargetPosition.value = null
+  dragTargetVolumeId.value = volumeId
+}
+
+function handleVolumeDragLeave(volumeId: string, event: DragEvent): void {
+  const currentTarget = event.currentTarget as HTMLElement
+  const relatedTarget = event.relatedTarget
+  if (relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) {
+    return
+  }
+  if (dragTargetVolumeId.value === volumeId) {
+    dragTargetVolumeId.value = null
+  }
+}
+
+function handleDropOnVolume(volumeId: string, event: DragEvent): void {
+  event.preventDefault()
+  const draggedChapterId = readDraggedChapterId(event)
+
+  if (!draggedChapterId) {
+    resetChapterDragState()
+    return
+  }
+
+  appStore.moveChaptersToVolumeEnd([draggedChapterId], volumeId)
+  resetChapterDragState()
+}
+
+function resetChapterDragState(): void {
+  draggingChapterId.value = null
+  dragTargetChapterId.value = null
+  dragTargetPosition.value = null
+  dragTargetVolumeId.value = null
 }
 
 function allowDigitsOnly(value: string): boolean {
@@ -388,11 +527,15 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
         v-for="group in filteredGroups"
         :key="group.volume.id"
         class="volume"
-        :class="{ collapsed: collapsed[group.volume.id] }"
+        :class="{ collapsed: collapsed[group.volume.id], 'drop-target': dragTargetVolumeId === group.volume.id }"
+        @dragover="handleVolumeDragOver(group.volume.id, $event)"
+        @dragleave="handleVolumeDragLeave(group.volume.id, $event)"
+        @drop="handleDropOnVolume(group.volume.id, $event)"
       >
         <button class="volume-head" @click="toggleVolume(group.volume.id)">
           <ChevronDown :size="13" class="chevron" />
           <span class="volume-title">{{ formatVolumeLabel(group.volume, group.index, 'compact') }}</span>
+          <span v-if="dragTargetVolumeId === group.volume.id" class="volume-drop-label">放到卷末</span>
           <span class="volume-meta">{{ group.items.length }}</span>
           <n-dropdown :options="volumeMenuOptions" placement="bottom-end" @select="(k) => handleVolumeMenuSelect(k, group.volume)">
             <span class="volume-more" @click.stop>
@@ -406,9 +549,28 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
             v-for="chapter in group.items"
             :key="chapter.id"
             class="chapter-row"
-            :class="{ active: appStore.selectedChapterId === chapter.id }"
+            :class="{
+              active: appStore.selectedChapterId === chapter.id,
+              dragging: draggingChapterId === chapter.id,
+              'drop-before': dragTargetChapterId === chapter.id && dragTargetPosition === 'before',
+              'drop-after': dragTargetChapterId === chapter.id && dragTargetPosition === 'after'
+            }"
             @click="appStore.selectChapter(chapter.id); emit('navigate')"
+            @dragover.stop="handleChapterDragOver(chapter.id, $event)"
+            @dragleave.stop="handleChapterDragLeave(chapter.id, $event)"
+            @drop.stop="handleChapterDrop(chapter.id, $event)"
           >
+            <span
+              class="chap-grip"
+              draggable="true"
+              title="拖动排序"
+              aria-label="拖动排序"
+              @click.stop
+              @dragstart.stop="handleChapterDragStart(chapter.id, $event)"
+              @dragend.stop="resetChapterDragState"
+            >
+              <GripVertical :size="13" />
+            </span>
             <FileText :size="13" class="chap-icon" />
             <span class="chap-title">{{ chapter.title }}</span>
             <n-tag size="tiny" :type="statusType(chapter.status)" :bordered="false">
@@ -639,6 +801,12 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
   background: var(--arc-bg-surface-hover);
 }
 
+.volume.drop-target .volume-head {
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
+  color: var(--arc-text-primary);
+  box-shadow: inset 2px 0 0 var(--arc-primary);
+}
+
 .volume-head .chevron {
   transition: transform 0.15s;
   flex-shrink: 0;
@@ -660,6 +828,17 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
   font-size: 11px;
   color: var(--arc-text-hint);
   font-weight: 500;
+}
+
+.volume-drop-label {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--arc-primary);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 .volume-more {
@@ -684,10 +863,11 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
 }
 
 .chapter-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 10px 7px 26px;
+  gap: 7px;
+  padding: 7px 10px 7px 10px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -702,10 +882,63 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
   background: var(--arc-bg-surface-hover);
 }
 
+.chapter-row.dragging {
+  opacity: 0.45;
+  background: var(--arc-bg-surface-hover);
+}
+
+.chapter-row.drop-before,
+.chapter-row.drop-after {
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-surface));
+}
+
+.chapter-row.drop-before::before,
+.chapter-row.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--arc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 12%, transparent);
+  pointer-events: none;
+}
+
+.chapter-row.drop-before::before {
+  top: -1px;
+}
+
+.chapter-row.drop-after::after {
+  bottom: -1px;
+}
+
 .chapter-row.active {
   background: var(--arc-primary-soft);
   border-left-color: var(--arc-primary);
   font-weight: 500;
+}
+
+.chap-grip {
+  display: inline-flex;
+  width: 16px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--arc-text-hint);
+  cursor: grab;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.chap-grip:hover {
+  background: color-mix(in srgb, var(--arc-primary) 10%, transparent);
+  color: var(--arc-primary);
+}
+
+.chap-grip:active {
+  cursor: grabbing;
 }
 
 .chapter-row .chap-icon {
