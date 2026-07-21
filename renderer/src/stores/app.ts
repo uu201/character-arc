@@ -170,6 +170,19 @@ function reindexOrganizations(entries: OrganizationEntry[]): OrganizationEntry[]
   }))
 }
 
+/** 按分卷顺序重排带 volumeId 的条目，保留同卷内原始顺序 */
+function sortByVolumeOrder<T extends { volumeId: string }>(items: T[], volumeIds: string[]): T[] {
+  const volumeOrder = new Map(volumeIds.map((volumeId, index) => [volumeId, index]))
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const leftOrder = volumeOrder.get(left.item.volumeId) ?? Number.MAX_SAFE_INTEGER
+      const rightOrder = volumeOrder.get(right.item.volumeId) ?? Number.MAX_SAFE_INTEGER
+      return leftOrder === rightOrder ? left.index - right.index : leftOrder - rightOrder
+    })
+    .map(({ item }) => item)
+}
+
 
 // ══════════════════════════════════════════════════════════════════
 // 全局 Pinia Store：管理整个应用的状态
@@ -1828,6 +1841,41 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 拖拽移动分卷位置，并同步章节/大纲节点的整体卷顺序 */
+  function moveOutlineVolume(
+    volumeId: string,
+    targetVolumeId: string,
+    position: OutlineDropPosition = 'before'
+  ): void {
+    updateCurrentWorkspace((workspace) => {
+      const sourceIndex = workspace.outlineVolumes.findIndex((volume) => volume.id === volumeId)
+      const targetIndex = workspace.outlineVolumes.findIndex((volume) => volume.id === targetVolumeId)
+
+      if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+        return workspace
+      }
+
+      const nextVolumes = [...workspace.outlineVolumes]
+      const [movedVolume] = nextVolumes.splice(sourceIndex, 1)
+      const targetIndexAfterRemove = nextVolumes.findIndex((volume) => volume.id === targetVolumeId)
+      if (targetIndexAfterRemove === -1) {
+        return workspace
+      }
+
+      const insertIndex = position === 'after' ? targetIndexAfterRemove + 1 : targetIndexAfterRemove
+      nextVolumes.splice(insertIndex, 0, movedVolume)
+      const nextVolumeIds = nextVolumes.map((volume) => volume.id)
+
+      return {
+        ...workspace,
+        outlineVolumes: nextVolumes,
+        outlineItems: reindexOutlineItems(sortByVolumeOrder(workspace.outlineItems, nextVolumeIds)),
+        chapters: sortByVolumeOrder(workspace.chapters, nextVolumeIds)
+      }
+    })
+    schedulePersist('fast')
+  }
+
   function deleteOutlineVolume(volumeId: string): void {
     const volumeIndex = outlineVolumes.value.findIndex((volume) => volume.id === volumeId)
     if (volumeIndex === -1 || outlineVolumes.value.length <= 1) {
@@ -3262,6 +3310,7 @@ export const useAppStore = defineStore('app', () => {
     moveOutlineItem,
     moveOutlineItems,
     moveOutlineItemsToVolumeEnd,
+    moveOutlineVolume,
     openChapterStudio,
     openDeconstructionLibrary,
     openFanqieTrends,

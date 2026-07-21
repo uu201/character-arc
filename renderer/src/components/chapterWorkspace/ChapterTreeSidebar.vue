@@ -25,6 +25,9 @@ const draggingChapterId = ref<string | null>(null)
 const dragTargetChapterId = ref<string | null>(null)
 const dragTargetPosition = ref<OutlineDropPosition | null>(null)
 const dragTargetVolumeId = ref<string | null>(null)
+const draggingVolumeId = ref<string | null>(null)
+const volumeDragTargetId = ref<string | null>(null)
+const volumeDragTargetPosition = ref<OutlineDropPosition | null>(null)
 
 const metaDialogVisible = ref(false)
 const metaDialogChapter = ref<ChapterDraft | null>(null)
@@ -140,6 +143,11 @@ function readDraggedChapterId(event: DragEvent): string {
   return dataStr.trim()
 }
 
+function readDraggedVolumeId(event: DragEvent): string {
+  const dataStr = event.dataTransfer?.getData('text/plain') ?? ''
+  return dataStr.trim()
+}
+
 function resolveDropPosition(event: DragEvent): OutlineDropPosition {
   const target = event.currentTarget as HTMLElement
   const rect = target.getBoundingClientRect()
@@ -169,6 +177,7 @@ function handleChapterDragStart(chapterId: string, event: DragEvent): void {
   dragTargetChapterId.value = null
   dragTargetPosition.value = null
   dragTargetVolumeId.value = null
+  resetVolumeDragState()
 
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
@@ -176,6 +185,25 @@ function handleChapterDragStart(chapterId: string, event: DragEvent): void {
     const dragImage = (event.currentTarget as HTMLElement).closest('.chapter-row')
     if (dragImage instanceof HTMLElement) {
       event.dataTransfer.setDragImage(dragImage, 24, 18)
+    }
+  }
+}
+
+function handleVolumeDragStart(volumeId: string, event: DragEvent): void {
+  draggingVolumeId.value = volumeId
+  volumeDragTargetId.value = null
+  volumeDragTargetPosition.value = null
+  draggingChapterId.value = null
+  dragTargetChapterId.value = null
+  dragTargetPosition.value = null
+  dragTargetVolumeId.value = null
+
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', volumeId)
+    const dragImage = (event.currentTarget as HTMLElement).closest('.volume-head')
+    if (dragImage instanceof HTMLElement) {
+      event.dataTransfer.setDragImage(dragImage, 24, 14)
     }
   }
 }
@@ -224,6 +252,22 @@ function handleChapterDrop(chapterId: string, event: DragEvent): void {
 }
 
 function handleVolumeDragOver(volumeId: string, event: DragEvent): void {
+  if (draggingVolumeId.value) {
+    if (draggingVolumeId.value === volumeId) {
+      return
+    }
+
+    event.preventDefault()
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move'
+    }
+    autoScrollDragContainer(event)
+    volumeDragTargetId.value = volumeId
+    volumeDragTargetPosition.value = resolveDropPosition(event)
+    dragTargetVolumeId.value = null
+    return
+  }
+
   if (!draggingChapterId.value) {
     return
   }
@@ -247,10 +291,30 @@ function handleVolumeDragLeave(volumeId: string, event: DragEvent): void {
   if (dragTargetVolumeId.value === volumeId) {
     dragTargetVolumeId.value = null
   }
+  if (volumeDragTargetId.value === volumeId) {
+    volumeDragTargetId.value = null
+    volumeDragTargetPosition.value = null
+  }
 }
 
 function handleDropOnVolume(volumeId: string, event: DragEvent): void {
   event.preventDefault()
+  if (draggingVolumeId.value) {
+    const draggedVolumeId = readDraggedVolumeId(event)
+
+    if (!draggedVolumeId || draggedVolumeId === volumeId) {
+      resetVolumeDragState()
+      return
+    }
+
+    const position = volumeDragTargetId.value === volumeId && volumeDragTargetPosition.value
+      ? volumeDragTargetPosition.value
+      : resolveDropPosition(event)
+    appStore.moveOutlineVolume(draggedVolumeId, volumeId, position)
+    resetVolumeDragState()
+    return
+  }
+
   const draggedChapterId = readDraggedChapterId(event)
 
   if (!draggedChapterId) {
@@ -267,6 +331,12 @@ function resetChapterDragState(): void {
   dragTargetChapterId.value = null
   dragTargetPosition.value = null
   dragTargetVolumeId.value = null
+}
+
+function resetVolumeDragState(): void {
+  draggingVolumeId.value = null
+  volumeDragTargetId.value = null
+  volumeDragTargetPosition.value = null
 }
 
 function allowDigitsOnly(value: string): boolean {
@@ -527,14 +597,37 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
         v-for="group in filteredGroups"
         :key="group.volume.id"
         class="volume"
-        :class="{ collapsed: collapsed[group.volume.id], 'drop-target': dragTargetVolumeId === group.volume.id }"
+        :class="{
+          collapsed: collapsed[group.volume.id],
+          'drop-target': dragTargetVolumeId === group.volume.id,
+          'volume-dragging': draggingVolumeId === group.volume.id,
+          'volume-drop-before': volumeDragTargetId === group.volume.id && volumeDragTargetPosition === 'before',
+          'volume-drop-after': volumeDragTargetId === group.volume.id && volumeDragTargetPosition === 'after'
+        }"
         @dragover="handleVolumeDragOver(group.volume.id, $event)"
         @dragleave="handleVolumeDragLeave(group.volume.id, $event)"
         @drop="handleDropOnVolume(group.volume.id, $event)"
       >
         <button class="volume-head" @click="toggleVolume(group.volume.id)">
+          <span
+            class="volume-grip"
+            draggable="true"
+            title="拖动分卷排序"
+            aria-label="拖动分卷排序"
+            @click.stop
+            @dragstart.stop="handleVolumeDragStart(group.volume.id, $event)"
+            @dragend.stop="resetVolumeDragState"
+          >
+            <GripVertical :size="12" />
+          </span>
           <ChevronDown :size="13" class="chevron" />
           <span class="volume-title">{{ formatVolumeLabel(group.volume, group.index, 'compact') }}</span>
+          <span
+            v-if="volumeDragTargetId === group.volume.id && volumeDragTargetPosition"
+            class="volume-drop-label"
+          >
+            {{ volumeDragTargetPosition === 'before' ? '移到卷前' : '移到卷后' }}
+          </span>
           <span v-if="dragTargetVolumeId === group.volume.id" class="volume-drop-label">放到卷末</span>
           <span class="volume-meta">{{ group.items.length }}</span>
           <n-dropdown :options="volumeMenuOptions" placement="bottom-end" @select="(k) => handleVolumeMenuSelect(k, group.volume)">
@@ -556,9 +649,9 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
               'drop-after': dragTargetChapterId === chapter.id && dragTargetPosition === 'after'
             }"
             @click="appStore.selectChapter(chapter.id); emit('navigate')"
-            @dragover.stop="handleChapterDragOver(chapter.id, $event)"
-            @dragleave.stop="handleChapterDragLeave(chapter.id, $event)"
-            @drop.stop="handleChapterDrop(chapter.id, $event)"
+            @dragover.stop="draggingVolumeId ? handleVolumeDragOver(group.volume.id, $event) : handleChapterDragOver(chapter.id, $event)"
+            @dragleave.stop="draggingVolumeId ? handleVolumeDragLeave(group.volume.id, $event) : handleChapterDragLeave(chapter.id, $event)"
+            @drop.stop="draggingVolumeId ? handleDropOnVolume(group.volume.id, $event) : handleChapterDrop(chapter.id, $event)"
           >
             <span
               class="chap-grip"
@@ -779,6 +872,7 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
 }
 
 .volume {
+  position: relative;
   margin-bottom: 2px;
 }
 
@@ -805,6 +899,60 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
   background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
   color: var(--arc-text-primary);
   box-shadow: inset 2px 0 0 var(--arc-primary);
+}
+
+.volume.volume-dragging {
+  opacity: 0.48;
+}
+
+.volume.volume-drop-before .volume-head,
+.volume.volume-drop-after .volume-head {
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-surface));
+  color: var(--arc-text-primary);
+}
+
+.volume.volume-drop-before::before,
+.volume.volume-drop-after::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  z-index: 4;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--arc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 12%, transparent);
+  pointer-events: none;
+}
+
+.volume.volume-drop-before::before {
+  top: 0;
+}
+
+.volume.volume-drop-after::after {
+  bottom: 0;
+}
+
+.volume-grip {
+  display: inline-flex;
+  width: 16px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--arc-text-hint);
+  cursor: grab;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.volume-grip:hover {
+  background: color-mix(in srgb, var(--arc-primary) 10%, transparent);
+  color: var(--arc-primary);
+}
+
+.volume-grip:active {
+  cursor: grabbing;
 }
 
 .volume-head .chevron {
