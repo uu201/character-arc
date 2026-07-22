@@ -179,6 +179,7 @@ defineExpose({ editor })
   outline: none;
   min-height: 300px;
   font-size: inherit;
+  font-family: inherit;
   line-height: 1.8;
   color: var(--arc-text-primary);
   caret-color: var(--arc-caret-color);

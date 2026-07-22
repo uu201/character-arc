@@ -2,6 +2,7 @@ import { toRaw } from 'vue'
 import { createDefaultWorkflowDocuments, normalizeWorkflowDocuments } from '@/features/novelWorkflow/documents'
 import { createDefaultNovelWorkflowStages, normalizeNovelWorkflowStages } from '@/features/novelWorkflow/stages'
 import { DEFAULT_CHAPTER_WORD_TARGET, normalizeChapterWordTarget } from '@/features/chapters/wordTarget'
+import { DEFAULT_EDITOR_FONT, isEditorFont } from '@/features/chapters/editorTypography'
 import { createOutlineVolume as createWorkspaceVolume } from '@/features/workspace/outlineVolumes'
 import { createDemoWorkspace, normalizeWorkspace } from '@/features/workspace/projectWorkspace'
 import type {
@@ -239,6 +240,7 @@ export const defaultAppSettings: AppSettings = {
   imageApiKey: '',
   imageBaseUrl: '',
   autoSaveInterval: '5m',
+  editorFont: DEFAULT_EDITOR_FONT,
   uiScale: 1,
   darkMode: false,
   darkModeStyle: 'nord',
@@ -378,6 +380,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     imageApiKey: sanitizeSettingString(source.imageApiKey, defaultAppSettings.imageApiKey),
     imageBaseUrl: sanitizeSettingString(source.imageBaseUrl, defaultAppSettings.imageBaseUrl),
     autoSaveInterval: sanitizeSettingString(source.autoSaveInterval, defaultAppSettings.autoSaveInterval),
+    editorFont: isEditorFont(source.editorFont) ? source.editorFont : defaultAppSettings.editorFont,
     uiScale:
       typeof source.uiScale === 'number' && Number.isFinite(source.uiScale)
         ? Math.min(1.75, Math.max(0.75, source.uiScale))

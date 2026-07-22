@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ChevronRight, Folder, FocusIcon, History, Maximize2, Menu, MessageSquareQuote, Minus, Minimize2, Plus, RefreshCw, Sparkles, Wand2 } from 'lucide-vue-next'
-import { NAlert, NTag, NTooltip } from 'naive-ui'
+import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Check, ChevronDown, ChevronRight, Folder, FocusIcon, History, Maximize2, Menu, MessageSquareQuote, Minus, Minimize2, Plus, RefreshCw, Sparkles, Type, Wand2 } from 'lucide-vue-next'
+import { NAlert, NDropdown, NTag, NTooltip } from 'naive-ui'
+import type { DropdownOption } from 'naive-ui'
 import SimpleChapterEditor from './SimpleChapterEditor.vue'
 import ChapterVersionDialog from './ChapterVersionDialog.vue'
 import EditorFindBar from './EditorFindBar.vue'
 import EditorContextMenu from './EditorContextMenu.vue'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
+import { editorFontOptions, getEditorFontOption, isEditorFont } from '@/features/chapters/editorTypography'
 import { formatChapterWordTargetLabel, parseChapterWordTarget } from '@/features/chapters/wordTarget'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
 import { useAppStore } from '@/stores/app'
@@ -31,6 +33,40 @@ const FONT_LEVELS = [14, 15, 16, 17, 18, 20, 22]
 const fontIdx = ref(3)
 const fontSize = computed(() => FONT_LEVELS[fontIdx.value])
 const versionDialogVisible = ref(false)
+
+const currentEditorFont = computed(() => getEditorFontOption(appStore.appSettings.editorFont))
+const editorFontMenuOptions = computed<DropdownOption[]>(() =>
+  editorFontOptions.map((option) => ({
+    key: option.id,
+    label: () => h(
+      'span',
+      {
+        style: {
+          display: 'inline-flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          gap: '24px',
+          width: '170px',
+          fontFamily: option.fontFamily
+        }
+      },
+      [
+        h('span', option.label),
+        h('span', { style: { color: 'var(--arc-text-hint)', fontSize: '12px' } }, '“引号”')
+      ]
+    ),
+    icon: () => h(Check, {
+      size: 14,
+      style: { opacity: option.id === currentEditorFont.value.id ? '1' : '0' }
+    })
+  }))
+)
+
+function selectEditorFont(key: string | number): void {
+  if (isEditorFont(key)) {
+    appStore.updateAppSetting('editorFont', key)
+  }
+}
 
 function stepFont(delta: number): void {
   const next = Math.max(0, Math.min(FONT_LEVELS.length - 1, fontIdx.value + delta))
@@ -284,6 +320,19 @@ onBeforeUnmount(() => {
         </span>
         <span class="divider" />
 
+        <n-dropdown
+          trigger="click"
+          placement="bottom-end"
+          :options="editorFontMenuOptions"
+          @select="selectEditorFont"
+        >
+          <button class="toolbtn font-picker-tool" :title="`正文字体：${currentEditorFont.label}`">
+            <Type :size="13" />
+            <span class="font-picker-label">{{ currentEditorFont.shortLabel }}</span>
+            <ChevronDown :size="11" />
+          </button>
+        </n-dropdown>
+
         <div class="font-stepper">
           <button @click="stepFont(-1)"><Minus :size="11" /></button>
           <span class="level">{{ fontSize }}px</span>
@@ -361,6 +410,7 @@ onBeforeUnmount(() => {
           <SimpleChapterEditor
             ref="editorRef"
             class="ep-editor"
+            :style="{ fontFamily: currentEditorFont.fontFamily }"
             :chapter-id="currentChapter.id"
             :model-value="currentChapter.content ?? ''"
             :insertion-request="appStore.pendingChapterInsertion"
@@ -522,6 +572,17 @@ onBeforeUnmount(() => {
   border-radius: var(--arc-radius-sm);
   padding: 2px;
   gap: 2px;
+}
+
+.font-picker-tool {
+  min-width: 68px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.font-picker-label {
+  min-width: 24px;
+  text-align: center;
 }
 
 .font-stepper button {

@@ -58,6 +58,7 @@ const draftSettings = reactive<AppSettings>({
   imageApiKey: '',
   imageBaseUrl: '',
   autoSaveInterval: '5m',
+  editorFont: 'clear-mono',
   uiScale: 1,
   darkMode: false,
   darkModeStyle: 'nord',
@@ -117,6 +118,7 @@ const hasPendingChanges = computed(() =>
   || draftSettings.imageApiKey !== appStore.appSettings.imageApiKey
   || draftSettings.imageBaseUrl !== appStore.appSettings.imageBaseUrl
   || draftSettings.autoSaveInterval !== appStore.appSettings.autoSaveInterval
+  || draftSettings.editorFont !== appStore.appSettings.editorFont
   || draftSettings.uiScale !== appStore.appSettings.uiScale
   || draftSettings.darkMode !== appStore.appSettings.darkMode
   || draftSettings.darkModeStyle !== appStore.appSettings.darkModeStyle
@@ -137,6 +139,7 @@ function syncDraftFromStore(): void {
   draftSettings.imageApiKey = appStore.appSettings.imageApiKey
   draftSettings.imageBaseUrl = appStore.appSettings.imageBaseUrl
   draftSettings.autoSaveInterval = appStore.appSettings.autoSaveInterval
+  draftSettings.editorFont = appStore.appSettings.editorFont
   draftSettings.uiScale = appStore.appSettings.uiScale
   draftSettings.darkMode = appStore.appSettings.darkMode
   draftSettings.darkModeStyle = appStore.appSettings.darkModeStyle
@@ -355,6 +358,7 @@ async function saveSettings(): Promise<void> {
   appStore.updateAppSetting('imageApiKey', draftSettings.imageApiKey)
   appStore.updateAppSetting('imageBaseUrl', draftSettings.imageBaseUrl)
   appStore.updateAppSetting('autoSaveInterval', draftSettings.autoSaveInterval)
+  appStore.updateAppSetting('editorFont', draftSettings.editorFont)
   appStore.updateAppSetting('uiScale', draftSettings.uiScale)
   appStore.updateAppSetting('darkMode', draftSettings.darkMode)
   appStore.updateAppSetting('darkModeStyle', draftSettings.darkModeStyle)

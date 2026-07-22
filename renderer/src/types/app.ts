@@ -867,6 +867,8 @@ export interface AiProfile {
   topP?: number
 }
 
+export type EditorFont = 'clear-mono' | 'modern-sans' | 'classic-serif' | 'relaxed-kai' | 'system'
+
 export interface AppSettings {
   /** AI 供应商标识 */
   provider: string
@@ -894,6 +896,8 @@ export interface AppSettings {
   imageBaseUrl: string
   /** 自动保存间隔选项值，如 '5m'、'live' */
   autoSaveInterval: string
+  /** 写作区正文字体 */
+  editorFont: EditorFont
   /** UI 缩放比例，范围 0.75-1.75 */
   uiScale: number
   /** 是否启用深色模式 */

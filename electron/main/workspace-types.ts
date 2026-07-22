@@ -329,6 +329,7 @@ export type WorkspacePayload = {
     imageApiKey: string
     imageBaseUrl: string
     autoSaveInterval: string
+    editorFont: string
     uiScale: number
     darkMode: boolean
     darkModeStyle: string
@@ -500,6 +501,11 @@ export function normalizeAppSettings(
     imageApiKey: settings?.imageApiKey || '',
     imageBaseUrl: settings?.imageBaseUrl || '',
     autoSaveInterval: settings?.autoSaveInterval || '5m',
+    editorFont:
+      typeof settings?.editorFont === 'string'
+      && ['clear-mono', 'modern-sans', 'classic-serif', 'relaxed-kai', 'system'].includes(settings.editorFont)
+        ? settings.editorFont
+        : 'clear-mono',
     uiScale,
     darkMode: Boolean(settings?.darkMode),
     darkModeStyle:
