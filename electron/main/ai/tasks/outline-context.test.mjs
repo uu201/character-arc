@@ -29,3 +29,17 @@ test('全局助手大纲提案示例包含关联 ID 数组', () => {
   assert.match(returnExample, /relatedOrganizationIds/)
   assert.match(returnExample, /relatedWorldviewIds/)
 })
+
+test('分卷扩写提示词包含用户补充要求', () => {
+  const source = readFileSync(new URL('outline-enhance.ts', import.meta.url), 'utf8')
+
+  assert.match(source, /补充要求：\$\{String\(context\.userPrompt \?\? ''\)\}/)
+})
+
+test('大纲面板的两个扩写入口均传递用户补充要求', () => {
+  const source = readFileSync(new URL('../../../../renderer/src/components/OutlinePanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /handleExpandOutline\(userPrompt/)
+  assert.match(source, /handleExpandVolumeOutline\(targetVolume, userPrompt\)/)
+  assert.match(source, /userPrompt:\s*\[/)
+})

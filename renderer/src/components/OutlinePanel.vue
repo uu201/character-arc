@@ -40,6 +40,12 @@ const isAnyVolumeExpanding = computed(() =>
 )
 const editorVisible = ref(false) // 控制大纲节点编辑弹窗
 const volumeEditorVisible = ref(false) // 控制分卷编辑弹窗
+const expansionDialogVisible = ref(false)
+const expansionPrompt = ref('')
+const expansionTargetVolume = ref<OutlineVolume | null>(null)
+const expansionDialogTitle = computed(() =>
+  expansionTargetVolume.value ? `AI 扩写节点 · ${expansionTargetVolume.value.title}` : 'AI 扩写分卷'
+)
 const editingOutlineId = ref<string | null>(null) // 当前编辑的大纲节点 ID
 const editingVolumeId = ref<string | null>(null) // 当前编辑的分卷 ID
 const draggingOutlineId = ref<string | null>(null) // 正在拖拽的大纲节点 ID
@@ -514,7 +520,33 @@ function handleCreateOutline(volumeId = appStore.outlineVolumes[0]?.id): void {
 }
 
 // 调用 AI 接口自动扩展一个新的分卷，作为大纲的上层结构
-async function handleExpandOutline(): Promise<void> {
+function openExpandOutlineDialog(): void {
+  if (isExpanding.value) return
+  expansionTargetVolume.value = null
+  expansionPrompt.value = ''
+  expansionDialogVisible.value = true
+}
+
+function openExpandVolumeDialog(volume: OutlineVolume): void {
+  if (isAnyVolumeExpanding.value) return
+  expansionTargetVolume.value = volume
+  expansionPrompt.value = ''
+  expansionDialogVisible.value = true
+}
+
+async function submitExpansion(): Promise<void> {
+  const targetVolume = expansionTargetVolume.value
+  const userPrompt = expansionPrompt.value.trim()
+  expansionDialogVisible.value = false
+
+  if (targetVolume) {
+    await handleExpandVolumeOutline(targetVolume, userPrompt)
+    return
+  }
+  await handleExpandOutline(userPrompt)
+}
+
+async function handleExpandOutline(userPrompt = ''): Promise<void> {
   if (isExpanding.value) {
     return
   }
@@ -545,7 +577,8 @@ async function handleExpandOutline(): Promise<void> {
             outlineItems: buildAiOutlineContext(),
             ...buildAiEntityContext(),
             worldviewTitles: appStore.worldviewEntries.map((entry) => entry.title),
-            characterNames: appStore.characters.map((character) => character.name)
+            characterNames: appStore.characters.map((character) => character.name),
+            userPrompt
           }
         }))
     )
@@ -572,7 +605,7 @@ async function handleExpandOutline(): Promise<void> {
   }
 }
 
-async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
+async function handleExpandVolumeOutline(volume: OutlineVolume, userPrompt = ''): Promise<void> {
   const taskKey = expandVolumeTaskKey(volume.id)
   if (isAnyVolumeExpanding.value) {
     return
@@ -612,7 +645,10 @@ async function handleExpandVolumeOutline(volume: OutlineVolume): Promise<void> {
                   summary: item.summary,
                   status: item.status
                 })),
-              userPrompt: '请优先扩写当前分卷从现有节点往后最需要的 3 到 5 个剧情子节点。'
+              userPrompt: [
+                '请优先扩写当前分卷从现有节点往后最需要的 3 到 5 个剧情子节点。',
+                userPrompt
+              ].filter(Boolean).join('\n')
             }
           }))
     )
@@ -1815,7 +1851,7 @@ watch(
           <Rows3 :size="16" />
           <span>新增分卷</span>
         </button>
-        <button class="soft-button primary" :disabled="isExpanding" @click="handleExpandOutline">
+        <button class="soft-button primary" :disabled="isExpanding" @click="openExpandOutlineDialog">
           <Sparkles :size="16" />
           <span>{{ isExpanding ? '扩写中...' : 'AI 扩写分卷' }}</span>
         </button>
@@ -1851,7 +1887,7 @@ watch(
               <template #icon><Trash2 :size="12" /></template>
               删除
             </n-button>
-            <n-button size="small" secondary :disabled="isAnyVolumeExpanding" @click="handleExpandVolumeOutline(group.volume)">
+            <n-button size="small" secondary :disabled="isAnyVolumeExpanding" @click="openExpandVolumeDialog(group.volume)">
               {{ isExpandingVolume(group.volume.id) ? '扩写中...' : 'AI扩写节点' }}
             </n-button>
             <n-button size="small" type="primary" @click="handleCreateOutline(group.volume.id)">
@@ -1936,6 +1972,40 @@ watch(
     </div>
 
     <div v-else class="arc-empty-state">没有匹配"{{ props.searchQuery }}"的大纲节点。</div>
+
+    <n-modal
+      :show="expansionDialogVisible"
+      preset="card"
+      class="outline-expansion-modal"
+      :title="expansionDialogTitle"
+      :bordered="false"
+      @close="expansionDialogVisible = false"
+    >
+      <p class="outline-expansion-description">
+        {{ expansionTargetVolume ? `AI 将在《${expansionTargetVolume.title}》现有剧情之后生成 3-5 个连续节点。` : 'AI 将结合现有分卷、大纲和项目设定规划下一卷。' }}
+      </p>
+      <n-form label-placement="top">
+        <n-form-item label="补充要求（可选）">
+          <n-input
+            v-model:value="expansionPrompt"
+            type="textarea"
+            :autosize="{ minRows: 4, maxRows: 8 }"
+            :maxlength="1000"
+            show-count
+            placeholder="例如：重点推进主角与反派的正面冲突，保持悬疑节奏，不要引入新角色"
+          />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <div class="outline-expansion-footer">
+          <n-button @click="expansionDialogVisible = false">取消</n-button>
+          <n-button type="primary" @click="submitExpansion">
+            <template #icon><Sparkles :size="16" /></template>
+            开始扩写
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
 
     <n-modal
       :show="importVisible"
@@ -2525,6 +2595,19 @@ watch(
   flex-wrap: wrap;
   flex-shrink: 0;
   padding-top: 4px;
+}
+
+.outline-expansion-description {
+  margin: 0 0 18px;
+  color: var(--arc-text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.outline-expansion-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .import-mapping-grid {
@@ -3742,6 +3825,10 @@ watch(
 </style>
 
 <style>
+.outline-expansion-modal {
+  width: min(540px, calc(100vw - 32px));
+}
+
 .outline-import-modal {
   width: min(1200px, calc(100vw - 48px));
   max-height: calc(100vh - 80px);
