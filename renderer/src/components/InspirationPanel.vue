@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { MoreVertical, Plus, Search, Sparkles } from 'lucide-vue-next'
-import { NButton, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NSelect, NTag, useDialog, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NSelect, NTag, useDialog, useMessage } from 'naive-ui'
 import { getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { useAppStore } from '@/stores/app'
@@ -10,6 +10,8 @@ import type { InspirationEntry } from '@/types/app'
 import BatchGenerateDialog from './BatchGenerateDialog.vue'
 import { normalizeCatalogTags, useCatalogBatch } from '@/composables/useCatalogBatch'
 import { useIncrementalList } from '@/composables/useIncrementalList'
+import { useBatchSelection } from '@/composables/useBatchSelection'
+import BatchSelectionBar from './BatchSelectionBar.vue'
 
 const props = defineProps<{
   searchQuery?: string // 全局搜索关键词
@@ -66,6 +68,7 @@ const visibleEntries = useIncrementalList(
   filteredEntries,
   computed(() => `${props.searchQuery ?? ''}\u0000${keyword.value}\u0000${typeFilter.value ?? ''}\u0000${sourceFilter.value}`)
 )
+const entrySelection = useBatchSelection(computed(() => filteredEntries.value.map((item) => item.id)))
 // AI 生成的灵感数量
 const aiEntryCount = computed(() => appStore.inspirationEntries.filter((entry) => entry.source === 'ai').length)
 // 手动记录的灵感数量
@@ -199,6 +202,29 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
     }
   })
 }
+function handleEntryClick(entry: InspirationEntry): void {
+  if (entrySelection.selectionMode.value) {
+    entrySelection.toggleSelection(entry.id)
+    return
+  }
+  openEditor(entry)
+}
+
+function confirmBatchDeleteEntries(): void {
+  const ids = [...entrySelection.selectedAvailableIds.value]
+  if (!ids.length) return
+  dialog.warning({
+    title: '批量删除灵感',
+    content: `确定删除选中的 ${ids.length} 条灵感吗？此操作无法撤销。`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      ids.forEach((id) => appStore.deleteInspirationEntry(id))
+      entrySelection.finishSelection()
+      message.success(`已删除 ${ids.length} 条灵感`)
+    }
+  })
+}
 </script>
 
 <template>
@@ -250,6 +276,18 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
       </div>
     </div>
 
+    <BatchSelectionBar
+      :active="entrySelection.selectionMode.value"
+      :selected-count="entrySelection.selectedAvailableIds.value.length"
+      :total-count="filteredEntries.length"
+      :all-selected="entrySelection.allAvailableSelected.value"
+      item-label="灵感"
+      @toggle="entrySelection.toggleSelectionMode"
+      @select-all="entrySelection.toggleSelectAll"
+      @clear="entrySelection.clearSelection"
+      @delete="confirmBatchDeleteEntries"
+    />
+
     <BatchGenerateDialog
       :show="batchVisible"
       title="批量生成灵感"
@@ -268,10 +306,17 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
         v-for="entry in visibleEntries"
         :key="entry.id"
         class="inspiration-card"
-        @click="openEditor(entry)"
+        :class="{ selected: entrySelection.selectedIds.value.has(entry.id) }"
+        @click="handleEntryClick(entry)"
       >
         <div class="card-top">
           <div class="type-row">
+            <n-checkbox
+              v-if="entrySelection.selectionMode.value"
+              :checked="entrySelection.selectedIds.value.has(entry.id)"
+              @click.stop
+              @update:checked="entrySelection.toggleSelection(entry.id)"
+            />
             <span class="entry-type">{{ entry.type }}</span>
             <span class="entry-source" :class="entry.source">{{ entry.source === 'ai' ? 'AI 生成' : '手动记录' }}</span>
           </div>
@@ -505,6 +550,11 @@ function handleMenuSelect(action: string | number, entry: InspirationEntry): voi
 .inspiration-card:hover {
   border-color: color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
   background: color-mix(in srgb, var(--arc-primary) 2%, var(--arc-bg-surface));
+}
+
+.inspiration-card.selected {
+  border-color: var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
 }
 
 .card-top,

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { BookMarked, CheckCircle, Circle, MoreVertical, Plus } from 'lucide-vue-next'
-import { NButton, NDivider, NDynamicTags, NDropdown, NEmpty, NForm, NFormItem, NInput, NModal, NSelect, NTag, useDialog, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NDivider, NDynamicTags, NDropdown, NEmpty, NForm, NFormItem, NInput, NModal, NSelect, NTag, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import type { DropdownOption } from 'naive-ui'
 import type { PlotThread } from '@/types/app'
 import { useIncrementalList } from '@/composables/useIncrementalList'
+import { useBatchSelection } from '@/composables/useBatchSelection'
+import BatchSelectionBar from './BatchSelectionBar.vue'
 
 const props = defineProps<{
   searchQuery?: string
@@ -41,6 +43,7 @@ const resolvedThreads = computed(() => filteredThreads.value.filter((t) => t.sta
 const threadResetKey = computed(() => props.searchQuery?.trim().toLowerCase() ?? '')
 const visibleOpenThreads = useIncrementalList(openThreads, threadResetKey, { initialSize: 30, batchSize: 30 })
 const visibleResolvedThreads = useIncrementalList(resolvedThreads, threadResetKey, { initialSize: 30, batchSize: 30 })
+const threadSelection = useBatchSelection(computed(() => filteredThreads.value.map((item) => item.id)))
 const isEditing = computed(() => Boolean(editingThreadId.value))
 
 // 章节选项，用于关联哪章埋下/哪章收束
@@ -100,6 +103,26 @@ function handleMenuSelect(key: string, thread: PlotThread): void {
   }
 }
 
+function handleThreadClick(thread: PlotThread): void {
+  if (threadSelection.selectionMode.value) threadSelection.toggleSelection(thread.id)
+}
+
+function confirmBatchDeleteThreads(): void {
+  const ids = [...threadSelection.selectedAvailableIds.value]
+  if (!ids.length) return
+  dialog.warning({
+    title: '批量删除剧情线索',
+    content: `确定删除选中的 ${ids.length} 条剧情线索吗？此操作无法撤销。`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      ids.forEach((id) => appStore.deletePlotThread(id))
+      threadSelection.finishSelection()
+      message.success(`已删除 ${ids.length} 条剧情线索`)
+    }
+  })
+}
+
 function handleSave(): void {
   if (!form.title.trim()) {
     message.warning('请填写线索标题')
@@ -154,6 +177,18 @@ function formatTime(value: string): string {
       </n-button>
     </div>
 
+    <BatchSelectionBar
+      :active="threadSelection.selectionMode.value"
+      :selected-count="threadSelection.selectedAvailableIds.value.length"
+      :total-count="filteredThreads.length"
+      :all-selected="threadSelection.allAvailableSelected.value"
+      item-label="线索"
+      @toggle="threadSelection.toggleSelectionMode"
+      @select-all="threadSelection.toggleSelectAll"
+      @clear="threadSelection.clearSelection"
+      @delete="confirmBatchDeleteThreads"
+    />
+
     <!-- 活跃线索 -->
     <div v-if="openThreads.length > 0" class="thread-group">
       <div class="group-label"><Circle :size="13" class="group-icon open-icon" /> 活跃伏笔</div>
@@ -161,11 +196,19 @@ function formatTime(value: string): string {
         v-for="thread in visibleOpenThreads"
         :key="thread.id"
         class="thread-card"
+        :class="{ selected: threadSelection.selectedIds.value.has(thread.id) }"
+        @click="handleThreadClick(thread)"
       >
         <div class="thread-header">
+          <n-checkbox
+            v-if="threadSelection.selectionMode.value"
+            :checked="threadSelection.selectedIds.value.has(thread.id)"
+            @click.stop
+            @update:checked="threadSelection.toggleSelection(thread.id)"
+          />
           <div class="thread-title">{{ thread.title }}</div>
           <n-dropdown :options="menuOptions" @select="(key: string) => handleMenuSelect(key, thread)">
-            <n-button text size="tiny" class="more-btn">
+            <n-button text size="tiny" class="more-btn" @click.stop>
               <MoreVertical :size="14" />
             </n-button>
           </n-dropdown>
@@ -197,11 +240,19 @@ function formatTime(value: string): string {
         v-for="thread in visibleResolvedThreads"
         :key="thread.id"
         class="thread-card resolved-card"
+        :class="{ selected: threadSelection.selectedIds.value.has(thread.id) }"
+        @click="handleThreadClick(thread)"
       >
         <div class="thread-header">
+          <n-checkbox
+            v-if="threadSelection.selectionMode.value"
+            :checked="threadSelection.selectedIds.value.has(thread.id)"
+            @click.stop
+            @update:checked="threadSelection.toggleSelection(thread.id)"
+          />
           <div class="thread-title resolved-title">{{ thread.title }}</div>
           <n-dropdown :options="menuOptions" @select="(key: string) => handleMenuSelect(key, thread)">
-            <n-button text size="tiny" class="more-btn">
+            <n-button text size="tiny" class="more-btn" @click.stop>
               <MoreVertical :size="14" />
             </n-button>
           </n-dropdown>
@@ -392,6 +443,11 @@ function formatTime(value: string): string {
 
 .thread-card:hover {
   border-color: var(--arc-border-strong);
+}
+
+.thread-card.selected {
+  border-color: var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
 }
 
 .resolved-card {

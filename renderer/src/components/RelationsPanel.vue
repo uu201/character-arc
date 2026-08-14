@@ -14,7 +14,7 @@ import {
   UserRoundCog,
   Users
 } from 'lucide-vue-next'
-import { NButton, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NSelect, NSlider, useDialog, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NSelect, NSlider, useDialog, useMessage } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
 import RelationsGraphView from '@/components/RelationsGraphView.vue'
 import { buildRelationsGraphData } from '@/features/relations/graph'
@@ -27,6 +27,8 @@ import BatchGenerateDialog from './BatchGenerateDialog.vue'
 import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
 import { useCatalogBatch } from '@/composables/useCatalogBatch'
 import { useIncrementalList } from '@/composables/useIncrementalList'
+import { useBatchSelection } from '@/composables/useBatchSelection'
+import BatchSelectionBar from './BatchSelectionBar.vue'
 
 const props = defineProps<{
   searchQuery?: string // 全局搜索关键词
@@ -205,6 +207,18 @@ const filteredMemberships = computed(() => {
         .includes(query)
     return matchesOrganization && matchesQuery
   })
+})
+
+const currentSelectionIds = computed(() => {
+  if (activeListSection.value === 'organizations') return filteredOrganizations.value.map((item) => item.id)
+  if (activeListSection.value === 'relationships') return filteredRelationships.value.map((item) => item.id)
+  return filteredMemberships.value.map((item) => item.id)
+})
+const relationSelection = useBatchSelection(currentSelectionIds)
+const currentSelectionLabel = computed(() => {
+  if (activeListSection.value === 'organizations') return '组织'
+  if (activeListSection.value === 'relationships') return '关系'
+  return '归属'
 })
 
 const relationListResetKey = computed(() => `${mergedQuery.value}\u0000${activeListSection.value}`)
@@ -486,6 +500,26 @@ function revealNodeInList(label: string): void {
     ? 'organizations'
     : 'relationships'
   keyword.value = label
+}
+
+function confirmBatchDeleteRelations(): void {
+  const ids = [...relationSelection.selectedAvailableIds.value]
+  if (!ids.length) return
+  const section = activeListSection.value
+  const cascadeNote = section === 'organizations' ? '，相关成员归属也会一并清理' : ''
+  dialog.warning({
+    title: `批量删除${currentSelectionLabel.value}`,
+    content: `确定删除选中的 ${ids.length} 条${currentSelectionLabel.value}数据吗${cascadeNote}？此操作无法撤销。`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      if (section === 'organizations') ids.forEach((id) => appStore.deleteOrganization(id))
+      else if (section === 'relationships') ids.forEach((id) => appStore.deleteCharacterRelationship(id))
+      else ids.forEach((id) => appStore.deleteOrganizationMembership(id))
+      relationSelection.finishSelection()
+      message.success(`已删除 ${ids.length} 条${currentSelectionLabel.value}数据`)
+    }
+  })
 }
 
 function openGraphNodeEditor(payload: { kind: 'character' | 'organization'; entityId: string }): void {
@@ -991,20 +1025,44 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
         </button>
       </nav>
 
+      <BatchSelectionBar
+        :active="relationSelection.selectionMode.value"
+        :selected-count="relationSelection.selectedAvailableIds.value.length"
+        :total-count="currentSelectionIds.length"
+        :all-selected="relationSelection.allAvailableSelected.value"
+        :item-label="currentSelectionLabel"
+        @toggle="relationSelection.toggleSelectionMode"
+        @select-all="relationSelection.toggleSelectAll"
+        @clear="relationSelection.clearSelection"
+        @delete="confirmBatchDeleteRelations"
+      />
+
       <section v-if="activeListSection === 'organizations'" class="list-section">
         <div v-if="filteredOrganizations.length > 0" class="entity-grid">
-          <article v-for="organization in visibleOrganizations" :key="organization.id" class="entity-card">
+          <article
+            v-for="organization in visibleOrganizations"
+            :key="organization.id"
+            class="entity-card"
+            :class="{ selected: relationSelection.selectedIds.value.has(organization.id) }"
+            @click="relationSelection.selectionMode.value && relationSelection.toggleSelection(organization.id)"
+          >
             <div class="entity-card-top">
+              <n-checkbox
+                v-if="relationSelection.selectionMode.value"
+                :checked="relationSelection.selectedIds.value.has(organization.id)"
+                @click.stop
+                @update:checked="relationSelection.toggleSelection(organization.id)"
+              />
               <div class="entity-badge" :style="{ background: orgBadgeBgLight(orgBadgeColor(organization)), color: orgBadgeColor(organization) }">{{ orgInitial(organization.name) }}</div>
               <div class="entity-head-copy">
                 <h4>{{ organization.name }}</h4>
                 <span>{{ organization.type }}</span>
               </div>
               <div class="entity-actions">
-                <button class="icon-button" type="button" title="编辑组织" aria-label="编辑组织" @click="openOrganizationEditor(organization)">
+                <button class="icon-button" type="button" title="编辑组织" aria-label="编辑组织" @click.stop="openOrganizationEditor(organization)">
                   <PencilLine :size="15" />
                 </button>
-                <button class="icon-button danger" type="button" title="删除组织" aria-label="删除组织" @click="confirmDeleteOrganization(organization)">
+                <button class="icon-button danger" type="button" title="删除组织" aria-label="删除组织" @click.stop="confirmDeleteOrganization(organization)">
                   <Trash2 :size="15" />
                 </button>
               </div>
@@ -1024,18 +1082,30 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
 
       <section v-else-if="activeListSection === 'relationships'" class="list-section">
         <div v-if="filteredRelationships.length > 0" class="card-list relationship-list">
-          <article v-for="relationship in visibleRelationships" :key="relationship.id" class="entity-card">
+          <article
+            v-for="relationship in visibleRelationships"
+            :key="relationship.id"
+            class="entity-card"
+            :class="{ selected: relationSelection.selectedIds.value.has(relationship.id) }"
+            @click="relationSelection.selectionMode.value && relationSelection.toggleSelection(relationship.id)"
+          >
             <div class="entity-card-top">
+              <n-checkbox
+                v-if="relationSelection.selectionMode.value"
+                :checked="relationSelection.selectedIds.value.has(relationship.id)"
+                @click.stop
+                @update:checked="relationSelection.toggleSelection(relationship.id)"
+              />
               <div class="link-pair">
                 <span>{{ relationship.fromCharacterName }}</span>
                 <Link2 :size="14" />
                 <span>{{ relationship.toCharacterName }}</span>
               </div>
               <div class="entity-actions">
-                <button class="icon-button" type="button" title="编辑关系" aria-label="编辑关系" @click="openRelationshipEditor(relationship)">
+                <button class="icon-button" type="button" title="编辑关系" aria-label="编辑关系" @click.stop="openRelationshipEditor(relationship)">
                   <PencilLine :size="15" />
                 </button>
-                <button class="icon-button danger" type="button" title="删除关系" aria-label="删除关系" @click="confirmDeleteRelationship(relationship)">
+                <button class="icon-button danger" type="button" title="删除关系" aria-label="删除关系" @click.stop="confirmDeleteRelationship(relationship)">
                   <Trash2 :size="15" />
                 </button>
               </div>
@@ -1106,17 +1176,30 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
                 <span role="columnheader">备注</span>
                 <span role="columnheader">操作</span>
               </div>
-              <div v-for="membership in group.items" :key="membership.id" class="membership-table-row" role="row">
+              <div
+                v-for="membership in group.items"
+                :key="membership.id"
+                class="membership-table-row"
+                :class="{ selected: relationSelection.selectedIds.value.has(membership.id) }"
+                role="row"
+                @click="relationSelection.selectionMode.value && relationSelection.toggleSelection(membership.id)"
+              >
                 <strong class="membership-entity" role="cell">
+                  <n-checkbox
+                    v-if="relationSelection.selectionMode.value"
+                    :checked="relationSelection.selectedIds.value.has(membership.id)"
+                    @click.stop
+                    @update:checked="relationSelection.toggleSelection(membership.id)"
+                  />
                   {{ membershipGroupMode === 'organization' ? membership.characterName : membership.organizationName }}
                 </strong>
                 <span class="membership-role" role="cell">{{ membership.role }}</span>
                 <span class="membership-notes" role="cell" :title="membership.notes || '无备注'">{{ membership.notes || '—' }}</span>
                 <span class="membership-row-actions" role="cell">
-                  <button class="icon-button" type="button" title="编辑归属" aria-label="编辑归属" @click="openMembershipEditor(membership)">
+                  <button class="icon-button" type="button" title="编辑归属" aria-label="编辑归属" @click.stop="openMembershipEditor(membership)">
                     <PencilLine :size="15" />
                   </button>
-                  <button class="icon-button danger" type="button" title="删除归属" aria-label="删除归属" @click="confirmDeleteMembership(membership)">
+                  <button class="icon-button danger" type="button" title="删除归属" aria-label="删除归属" @click.stop="confirmDeleteMembership(membership)">
                     <Trash2 :size="15" />
                   </button>
                 </span>
@@ -1632,6 +1715,18 @@ function handleEnhanceMemApply(accepted: Record<string, string | string[]>): voi
   border-radius: 8px;
   background: var(--arc-bg-surface);
   padding: 14px;
+}
+
+.entity-card.selected,
+.membership-table-row.selected {
+  border-color: var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
+}
+
+.membership-entity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .entity-card-top {

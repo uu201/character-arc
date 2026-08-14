@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { MoreVertical, Plus, Search, Sparkles } from 'lucide-vue-next'
-import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
@@ -12,6 +12,8 @@ import BatchGenerateDialog from './BatchGenerateDialog.vue'
 import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
 import { useCatalogBatch } from '@/composables/useCatalogBatch'
 import { useIncrementalList } from '@/composables/useIncrementalList'
+import { useBatchSelection } from '@/composables/useBatchSelection'
+import BatchSelectionBar from './BatchSelectionBar.vue'
 
 const props = defineProps<{
   searchQuery?: string // 全局搜索关键词，用于过滤世界观词条
@@ -96,6 +98,7 @@ const visibleEntries = useIncrementalList(
   filteredEntries,
   computed(() => `${props.searchQuery ?? ''}\u0000${keyword.value}\u0000${typeFilter.value ?? ''}`)
 )
+const entrySelection = useBatchSelection(computed(() => filteredEntries.value.map((item) => item.id)))
 const isEditing = computed(() => Boolean(editingEntryId.value)) // 判断当前是编辑模式还是新建模式
 const menuOptions: DropdownOption[] = [ // 词条卡片的右键菜单选项
   { key: 'edit', label: '编辑词条' },
@@ -212,6 +215,30 @@ function handleMenuSelect(action: string | number, entry: WorldviewEntry): void 
     onPositiveClick: () => {
       appStore.deleteWorldviewEntry(entry.id)
       message.success('世界观词条已删除')
+    }
+  })
+}
+
+function handleEntryClick(entry: WorldviewEntry): void {
+  if (entrySelection.selectionMode.value) {
+    entrySelection.toggleSelection(entry.id)
+    return
+  }
+  openEditor(entry)
+}
+
+function confirmBatchDeleteEntries(): void {
+  const ids = [...entrySelection.selectedAvailableIds.value]
+  if (!ids.length) return
+  dialog.warning({
+    title: '批量删除世界观设定',
+    content: `确定删除选中的 ${ids.length} 条世界观设定吗？此操作无法撤销。`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      ids.forEach((id) => appStore.deleteWorldviewEntry(id))
+      entrySelection.finishSelection()
+      message.success(`已删除 ${ids.length} 条世界观设定`)
     }
   })
 }
@@ -338,6 +365,18 @@ watch(
       </div>
     </div>
 
+    <BatchSelectionBar
+      :active="entrySelection.selectionMode.value"
+      :selected-count="entrySelection.selectedAvailableIds.value.length"
+      :total-count="filteredEntries.length"
+      :all-selected="entrySelection.allAvailableSelected.value"
+      item-label="设定"
+      @toggle="entrySelection.toggleSelectionMode"
+      @select-all="entrySelection.toggleSelectAll"
+      @clear="entrySelection.clearSelection"
+      @delete="confirmBatchDeleteEntries"
+    />
+
     <BatchGenerateDialog
       :show="batchVisible"
       title="批量生成世界观"
@@ -352,8 +391,9 @@ watch(
       @submit="handleGenerateEntry"
     />
 
-    <div v-if="filteredEntries.length > 0" class="world-list">
+    <div v-if="filteredEntries.length > 0" class="world-list" :class="{ 'selection-mode': entrySelection.selectionMode.value }">
       <div class="world-list-head" aria-hidden="true">
+        <span v-if="entrySelection.selectionMode.value"></span>
         <span>分类</span>
         <span>设定内容</span>
         <span>更新信息</span>
@@ -363,10 +403,16 @@ watch(
         v-for="entry in visibleEntries"
         :key="entry.id"
         class="world-row"
-        :class="{ 'assistant-focused': focusedEntryId === entry.id }"
+        :class="{ 'assistant-focused': focusedEntryId === entry.id, selected: entrySelection.selectedIds.value.has(entry.id) }"
         :data-assistant-focus-id="entry.id"
-        @click="openEditor(entry)"
+        @click="handleEntryClick(entry)"
       >
+        <n-checkbox
+          v-if="entrySelection.selectionMode.value"
+          :checked="entrySelection.selectedIds.value.has(entry.id)"
+          @click.stop
+          @update:checked="entrySelection.toggleSelection(entry.id)"
+        />
         <span class="entry-type" :title="entry.type">{{ entry.type }}</span>
         <div class="entry-main">
           <h3>{{ entry.title }}</h3>
@@ -539,6 +585,15 @@ watch(
   gap: 16px;
 }
 
+.world-list.selection-mode .world-list-head,
+.world-list.selection-mode .world-row {
+  grid-template-columns: 24px 104px minmax(0, 1fr) 150px 36px;
+}
+
+.world-row.selected {
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
+}
+
 .world-list-head {
   min-height: 38px;
   border-bottom: 1px solid var(--arc-border);
@@ -671,8 +726,21 @@ watch(
     grid-template-columns: 86px minmax(0, 1fr) 36px;
   }
 
+  .world-list.selection-mode .world-list-head,
+  .world-list.selection-mode .world-row {
+    grid-template-columns: 24px 86px minmax(0, 1fr) 36px;
+  }
+
   .world-list-head span:nth-child(3),
   .entry-meta {
+    display: none;
+  }
+
+  .world-list.selection-mode .world-list-head span:nth-child(3) {
+    display: block;
+  }
+
+  .world-list.selection-mode .world-list-head span:nth-child(4) {
     display: none;
   }
 }
@@ -705,10 +773,19 @@ watch(
     gap: 10px;
   }
 
+  .world-list.selection-mode .world-row {
+    grid-template-columns: 24px minmax(0, 1fr) 32px;
+  }
+
   .entry-type {
     width: fit-content;
     max-width: 160px;
     grid-column: 1;
+  }
+
+  .world-list.selection-mode .entry-type,
+  .world-list.selection-mode .entry-main {
+    grid-column: 2;
   }
 
   .entry-main {
@@ -718,6 +795,10 @@ watch(
   .more-button {
     grid-column: 2;
     grid-row: 1 / span 2;
+  }
+
+  .world-list.selection-mode .more-button {
+    grid-column: 3;
   }
 }
 </style>

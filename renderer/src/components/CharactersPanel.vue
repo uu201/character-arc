@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { MoreVertical, Network, Plus, Search, Sparkles } from 'lucide-vue-next'
-import { NButton, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NSelect, NTag, useDialog, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NDropdown, NDynamicTags, NForm, NFormItem, NInput, NModal, NSelect, NTag, useDialog, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { resolveAccentColor, resolveReadableTextColor } from '@/features/relations/graph'
@@ -13,6 +13,8 @@ import BatchGenerateDialog from './BatchGenerateDialog.vue'
 import type { EnhanceFieldDiff } from './AiEnhancePreview.vue'
 import { normalizeCatalogTags, useCatalogBatch } from '@/composables/useCatalogBatch'
 import { useIncrementalList } from '@/composables/useIncrementalList'
+import { useBatchSelection } from '@/composables/useBatchSelection'
+import BatchSelectionBar from './BatchSelectionBar.vue'
 
 const appStore = useAppStore()
 const dialog = useDialog()
@@ -47,6 +49,7 @@ const visibleCharacters = useIncrementalList(
   filteredCharacters,
   computed(() => `${props.searchQuery ?? ''}\u0000${keyword.value}\u0000${roleFilter.value ?? ''}`)
 )
+const characterSelection = useBatchSelection(computed(() => filteredCharacters.value.map((item) => item.id)))
 const message = useMessage()
 const AI_TASK_KEY = 'catalog-batch:character'
 const isGenerating = computed(() => appStore.isAiTaskRunning(AI_TASK_KEY)) // AI 生成角色时的加载状态（走全局注册表）
@@ -215,6 +218,30 @@ function handleMenuSelect(action: string | number, character: CharacterCard): vo
   })
 }
 
+function handleCharacterClick(character: CharacterCard): void {
+  if (characterSelection.selectionMode.value) {
+    characterSelection.toggleSelection(character.id)
+    return
+  }
+  openEditor(character)
+}
+
+function confirmBatchDeleteCharacters(): void {
+  const ids = [...characterSelection.selectedAvailableIds.value]
+  if (!ids.length) return
+  dialog.warning({
+    title: '批量删除角色',
+    content: `确定删除选中的 ${ids.length} 个角色吗？相关人物关系和成员归属也会一并清理，此操作无法撤销。`,
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      ids.forEach((id) => appStore.deleteCharacter(id))
+      characterSelection.finishSelection()
+      message.success(`已删除 ${ids.length} 个角色`)
+    }
+  })
+}
+
 const ENHANCE_TASK_KEY = 'character-enhance'
 const enhanceLoading = computed(() => appStore.isAiTaskRunning(ENHANCE_TASK_KEY))
 const enhanceVisible = ref(false)
@@ -350,16 +377,35 @@ watch(
       </div>
     </div>
 
+    <BatchSelectionBar
+      :active="characterSelection.selectionMode.value"
+      :selected-count="characterSelection.selectedAvailableIds.value.length"
+      :total-count="filteredCharacters.length"
+      :all-selected="characterSelection.allAvailableSelected.value"
+      item-label="角色"
+      @toggle="characterSelection.toggleSelectionMode"
+      @select-all="characterSelection.toggleSelectAll"
+      @clear="characterSelection.clearSelection"
+      @delete="confirmBatchDeleteCharacters"
+    />
+
     <div class="character-grid">
       <!-- Direct card click keeps high-frequency editing faster than routing every change through the overflow menu. -->
       <article
         v-for="character in visibleCharacters"
         :key="character.id"
         class="character-card"
-        :class="{ 'assistant-focused': focusedCharacterId === character.id }"
+        :class="{ 'assistant-focused': focusedCharacterId === character.id, selected: characterSelection.selectedIds.value.has(character.id) }"
         :data-assistant-focus-id="character.id"
-        @click="openEditor(character)"
+        @click="handleCharacterClick(character)"
       >
+        <n-checkbox
+          v-if="characterSelection.selectionMode.value"
+          class="card-selection-checkbox"
+          :checked="characterSelection.selectedIds.value.has(character.id)"
+          @click.stop
+          @update:checked="characterSelection.toggleSelection(character.id)"
+        />
         <div class="avatar" :style="avatarStyle(character.avatar, character.name)">
           <span>{{ character.name.slice(0, 1) }}</span>
         </div>
@@ -575,6 +621,16 @@ watch(
 .character-card:hover {
   border-color: color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
   background: color-mix(in srgb, var(--arc-primary) 2%, var(--arc-bg-surface));
+}
+
+.character-card.selected {
+  border-color: var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface));
+}
+
+.card-selection-checkbox {
+  flex: 0 0 auto;
+  margin-top: 12px;
 }
 
 .character-card:hover h3 {
