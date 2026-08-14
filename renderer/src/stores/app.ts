@@ -477,7 +477,7 @@ export const useAppStore = defineStore('app', () => {
     if (next === aiTaskRuns.value) return
     aiTaskRuns.value = next
 
-    if (payload.stage === 'running') return
+    if (payload.stage === 'running' || payload.stage === 'error') return
     const terminalStartedAt = payload.startedAt
     window.setTimeout(() => {
       const current = aiTaskRuns.value.get(payload.taskKey)
@@ -543,7 +543,7 @@ export const useAppStore = defineStore('app', () => {
       })
     })
 
-    if (isRunning) return
+    if (isRunning || payload.status === 'failed') return
     window.setTimeout(() => {
       const current = aiTaskRuns.value.get(key)
       if (current?.runId === payload.taskId && current.stage !== 'running') {
@@ -3245,7 +3245,7 @@ export const useAppStore = defineStore('app', () => {
       .sort((a, b) => a.startedAt - b.startedAt)
   )
 
-  /** 最近已结束、仍在保留窗口内的任务（方便用户看到成功/失败反馈） */
+  /** 最近已结束的任务；成功任务短暂保留，失败任务保留到用户手动关闭。 */
   const recentAiTasks = computed<AiTaskRun[]>(() =>
     Array.from(aiTaskRuns.value.values())
       .filter((run) => run.stage !== 'running')
@@ -3266,7 +3266,7 @@ export const useAppStore = defineStore('app', () => {
    * 执行一次被跟踪的 AI 任务。
    *
    * - 同 key 已在运行时直接拒绝，避免重复请求。
-   * - 无论 executor 抛异常还是成功返回，任务都会被标记为结束并在短暂保留后自动清理。
+   * - 成功任务短暂保留后自动清理，失败任务保留到用户确认并关闭。
    * - 返回值是 executor 的返回值，方便调用方继续处理结果。
    * - 自动生成 `clientTaskId` 并注入到 executor 的闭包上下文中（通过 `getClientTaskId()`）。
    * - 不按运行时长自动取消；网络错误、协议错误或用户手动取消时结束。
@@ -3328,6 +3328,10 @@ export const useAppStore = defineStore('app', () => {
     replaceTaskRuns((next) => {
       next.set(key, { ...existing, stage, finishedAt, error })
     })
+
+    if (stage === 'error') {
+      return
+    }
 
     window.setTimeout(() => {
       const current = aiTaskRuns.value.get(key)

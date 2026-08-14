@@ -8,7 +8,7 @@ const firstDraftContextSource = readFileSync(new URL('../../../../renderer/src/f
 const firstDraftFlowSource = readFileSync(new URL('../../../../renderer/src/components/chapterWorkspace/useChapterFirstDraft.ts', import.meta.url), 'utf8')
 const chapterMetaDialogSource = readFileSync(new URL('../../../../renderer/src/components/chapterWorkspace/ChapterMetaDialog.vue', import.meta.url), 'utf8')
 const appStoreSource = readFileSync(new URL('../../../../renderer/src/stores/app.ts', import.meta.url), 'utf8')
-const aiTaskDockSource = readFileSync(new URL('../../../../renderer/src/components/AiTaskProgressDock.vue', import.meta.url), 'utf8')
+const aiTaskCenterSource = readFileSync(new URL('../../../../renderer/src/components/TitlebarAiTaskCenter.vue', import.meta.url), 'utf8')
 const projectIdContextFiles = [
   '../../../../renderer/src/composables/useCatalogBatch.ts',
   '../../../../renderer/src/components/CharactersPanel.vue',
@@ -82,5 +82,5 @@ test('初稿只建立索引，世界状态统一在章节定稿后同步', () =>
   assert.match(appStoreSource, /selection: \{ mode: 'custom', chapterIds: ids \}/)
   assert.match(appStoreSource, /onBackfillStateProgress\(handleBackfillStateProgress\)/)
   assert.match(appStoreSource, /label: '同步定稿章节故事状态'/)
-  assert.match(aiTaskDockSource, /run\.progress\?\.percentage/)
+  assert.match(aiTaskCenterSource, /run\.progress\?\.percentage/)
 })

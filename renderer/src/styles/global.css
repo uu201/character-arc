@@ -96,6 +96,8 @@ input {
 }
 
 .app-titlebar {
+  position: relative;
+  z-index: 1500;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -161,6 +163,18 @@ input {
   gap: 8px;
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+@media (max-width: 1320px) {
+  .app-titlebar__qq {
+    display: none;
+  }
+}
+
+@media (max-width: 1160px) {
+  .app-titlebar__tag {
+    display: none;
+  }
 }
 
 .app-titlebar__theme-toggle {
@@ -1225,10 +1239,6 @@ input {
 
 .spin {
   animation: claude-spin 1s linear infinite;
-}
-
-.is-open {
-  transform: rotate(180deg);
 }
 
 @keyframes claude-spin {

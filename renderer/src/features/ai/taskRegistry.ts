@@ -77,8 +77,8 @@ export interface AiTaskRunInput {
 }
 
 /**
- * 任务结束后在列表里保留多久（毫秒）。
- * 给用户一点时间看到"成功 ✓"或"失败 ×"反馈再淡出。
+ * 成功或取消任务结束后在列表里保留多久（毫秒）。
+ * 失败任务由任务中心保留到用户手动关闭。
  */
 export const AI_TASK_RETENTION_MS = 4_500
 

@@ -13,8 +13,8 @@ import DeconstructionLibraryPage from '@/pages/DeconstructionLibraryPage.vue'
 import SkillsPage from '@/pages/SkillsPage.vue'
 import CoverWorkbenchPage from '@/pages/CoverWorkbenchPage.vue'
 import FanqieTrendsPage from '@/pages/FanqieTrendsPage.vue'
-import AiTaskProgressDock from '@/components/AiTaskProgressDock.vue'
 import TitlebarModelSwitcher from '@/components/TitlebarModelSwitcher.vue'
+import TitlebarAiTaskCenter from '@/components/TitlebarAiTaskCenter.vue'
 
 // 全局应用状态
 const appStore = useAppStore()
@@ -189,6 +189,7 @@ onBeforeUnmount(() => {
             </span>
             <div class="app-titlebar__tools">
               <TitlebarModelSwitcher />
+              <TitlebarAiTaskCenter />
               <button
                 type="button"
                 class="app-titlebar__theme-toggle"
@@ -223,7 +224,6 @@ onBeforeUnmount(() => {
               <WorkbenchPage v-else key="workbench" />
             </Transition>
           </div>
-          <AiTaskProgressDock />
         </div>
       </n-dialog-provider>
     </n-message-provider>
