@@ -35,6 +35,12 @@ export interface AiTaskRun {
   stage: AiTaskRunStage
   /** 报错信息（如果 stage === 'error'）。 */
   error?: string
+  /** 可确定进度的后台任务使用；普通 AI 请求保持未定义并显示动态进度条。 */
+  progress?: {
+    current: number
+    total: number
+    percentage: number
+  }
   /** 可取消令牌：提供时，进度面板会显示"停止"按钮。 */
   onCancel?: () => void
   /** 主进程后台任务的运行版本，用于忽略上一轮迟到的终态事件。 */

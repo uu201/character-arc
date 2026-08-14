@@ -7,6 +7,8 @@ const orchestratorSource = readFileSync(new URL('../runtime/orchestrator.ts', im
 const firstDraftContextSource = readFileSync(new URL('../../../../renderer/src/features/ai/chapterAssistantContext.ts', import.meta.url), 'utf8')
 const firstDraftFlowSource = readFileSync(new URL('../../../../renderer/src/components/chapterWorkspace/useChapterFirstDraft.ts', import.meta.url), 'utf8')
 const chapterMetaDialogSource = readFileSync(new URL('../../../../renderer/src/components/chapterWorkspace/ChapterMetaDialog.vue', import.meta.url), 'utf8')
+const appStoreSource = readFileSync(new URL('../../../../renderer/src/stores/app.ts', import.meta.url), 'utf8')
+const aiTaskDockSource = readFileSync(new URL('../../../../renderer/src/components/AiTaskProgressDock.vue', import.meta.url), 'utf8')
 const projectIdContextFiles = [
   '../../../../renderer/src/composables/useCatalogBatch.ts',
   '../../../../renderer/src/components/CharactersPanel.vue',
@@ -73,10 +75,12 @@ test('初稿只建立索引，世界状态统一在章节定稿后同步', () =>
   assert.match(orchestratorSource, /context\.deferStoryStateUntilFinal === true/)
   assert.match(chapterMetaDialogSource, /form\.status === 'final'/)
   assert.match(chapterMetaDialogSource, /await appStore\.persistWorkspace\(\)/)
-  assert.match(chapterMetaDialogSource, /backfillProjectState\(toIpcPayload\(\{/)
-  assert.match(chapterMetaDialogSource, /selection: \{ mode: 'custom', chapterIds: \[chapterId\] \}/)
+  assert.match(chapterMetaDialogSource, /startChapterStateSync\(\[chapterId\]\)/)
   assert.match(chapterMetaDialogSource, /:loading="isSubmitting"/)
-  assert.match(chapterMetaDialogSource, /title="同步世界状态"/)
-  assert.match(chapterMetaDialogSource, /payload\.phase === 'applying'/)
-  assert.match(chapterMetaDialogSource, /世界状态同步完成/)
+  assert.doesNotMatch(chapterMetaDialogSource, /title="同步世界状态"/)
+  assert.match(appStoreSource, /backfillProjectState\(toIpcPayload\(\{/)
+  assert.match(appStoreSource, /selection: \{ mode: 'custom', chapterIds: ids \}/)
+  assert.match(appStoreSource, /onBackfillStateProgress\(handleBackfillStateProgress\)/)
+  assert.match(appStoreSource, /label: '同步定稿章节故事状态'/)
+  assert.match(aiTaskDockSource, /run\.progress\?\.percentage/)
 })

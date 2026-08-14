@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, h, nextTick, reactive, ref, watch } from 'vue'
-import { CheckSquare, ChevronDown, Download, FileDown, FileSpreadsheet, FilePlus2, Files, FolderTree, GripVertical, ListChecks, MoreVertical, Plus, Rows3, Sparkles, Trash2, Upload } from 'lucide-vue-next'
+import { CheckSquare, ChevronDown, ChevronsDownUp, Download, FileDown, FileSpreadsheet, FilePlus2, Files, FolderTree, GripVertical, ListChecks, MoreVertical, Plus, Rows3, Sparkles, Trash2, Upload } from 'lucide-vue-next'
 import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useEventListener } from '@vueuse/core'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { useAppStore } from '@/stores/app'
+import { readCollapsedVolumeIds, writeCollapsedVolumeIds } from '@/features/workspace/volumeCollapseState'
 import { buildProjectWritingStyleContext } from '@/features/writingStyles/presets'
 import { resolveOutlineReferenceIds } from '@/features/ai/outlineReferences'
 import { formatVolumeLabel, normalizeVolumeWordTarget } from '@/features/workspace/outlineVolumes'
@@ -80,6 +81,55 @@ const menuOptions: DropdownOption[] = [ // 大纲节点的右键菜单选项
   { key: 'delete', label: '删除节点' }
 ]
 const volumeCollapsed = reactive<Record<string, boolean>>({})
+
+const allVolumesCollapsed = computed(() =>
+  appStore.outlineVolumes.length > 0 && appStore.outlineVolumes.every((volume) => volumeCollapsed[volume.id])
+)
+
+function currentVolumeIds(): string[] {
+  return appStore.outlineVolumes.map((volume) => volume.id)
+}
+
+function loadCollapsedVolumes(): void {
+  for (const volumeId of Object.keys(volumeCollapsed)) delete volumeCollapsed[volumeId]
+  const storedIds = readCollapsedVolumeIds(
+    window.localStorage,
+    'outline',
+    appStore.selectedProjectId,
+    currentVolumeIds()
+  )
+  for (const volumeId of storedIds) volumeCollapsed[volumeId] = true
+}
+
+function persistCollapsedVolumes(): void {
+  writeCollapsedVolumeIds(
+    window.localStorage,
+    'outline',
+    appStore.selectedProjectId,
+    Object.keys(volumeCollapsed).filter((volumeId) => volumeCollapsed[volumeId]),
+    currentVolumeIds()
+  )
+}
+
+function toggleVolumeCollapsed(volumeId: string): void {
+  volumeCollapsed[volumeId] = !volumeCollapsed[volumeId]
+  persistCollapsedVolumes()
+}
+
+function toggleAllVolumes(): void {
+  const next = !allVolumesCollapsed.value
+  for (const volume of appStore.outlineVolumes) volumeCollapsed[volume.id] = next
+  persistCollapsedVolumes()
+}
+
+watch(
+  [
+    () => appStore.selectedProjectId,
+    () => appStore.outlineVolumes.map((volume) => volume.id).join('|')
+  ],
+  loadCollapsedVolumes,
+  { immediate: true }
+)
 type ImportStrategy = 'skip' | 'overwrite' | 'add'
 interface ImportPlanRow {
   key: string
@@ -599,6 +649,7 @@ async function handleExpandOutline(userPrompt = ''): Promise<void> {
       summary: volume.summary ?? 'AI 未返回有效分卷摘要'
     })
     volumeCollapsed[nextVolumeId] = false
+    persistCollapsedVolumes()
     message.success('AI 已扩展新的分卷')
   } catch (error) {
     message.error(error instanceof Error ? error.message : 'AI 扩写分卷失败，请检查模型配置')
@@ -1828,6 +1879,10 @@ watch(
         <p>按卷组织剧情骨架、冲突节拍和章节节点，方便后续创作连续推进。</p>
       </div>
       <div class="section-actions">
+        <button class="soft-button neutral" @click="toggleAllVolumes">
+          <ChevronsDownUp :size="16" />
+          <span>{{ allVolumesCollapsed ? '展开全部' : '收起全部' }}</span>
+        </button>
         <n-dropdown :options="importExportOptions" placement="bottom-start" @select="handleImportExportAction">
           <button class="soft-button neutral">
             <FileSpreadsheet :size="16" />
@@ -1874,7 +1929,7 @@ watch(
           @drop="handleDropOnVolume(group.volume.id, $event)"
           @dragleave="handleVolumeDragLeave(group.volume.id, $event)"
         >
-          <button class="volume-marker-btn" @click="volumeCollapsed[group.volume.id] = !volumeCollapsed[group.volume.id]">
+          <button class="volume-marker-btn" @click="toggleVolumeCollapsed(group.volume.id)">
             <span class="volume-diamond" />
             <span class="volume-label">{{ formatVolumeLabel(group.volume, group.index, 'formal') }}</span>
             <span v-if="dragTargetVolumeId === group.volume.id" class="volume-drop-label">放到卷末</span>

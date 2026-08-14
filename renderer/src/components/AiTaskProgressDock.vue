@@ -172,9 +172,9 @@ const runningCount = computed(() => appStore.runningAiTasks.length)
               class="task-progress"
               type="line"
               status="info"
-              :processing="true"
-              :percentage="100"
-              :show-indicator="false"
+              :processing="!run.progress"
+              :percentage="run.progress?.percentage ?? 100"
+              :show-indicator="Boolean(run.progress)"
               :height="3"
             />
           </div>

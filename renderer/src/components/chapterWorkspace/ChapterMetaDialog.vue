@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { NButton, NForm, NFormItem, NInput, NModal, NProgress, NSelect, useMessage } from 'naive-ui'
+import { computed, reactive, ref, watch } from 'vue'
+import { NButton, NForm, NFormItem, NInput, NModal, NSelect, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { DEFAULT_CHAPTER_WORD_TARGET, normalizeChapterWordTarget } from '@/features/chapters/wordTarget'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
 import { getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import { useAppStore } from '@/stores/app'
 import type { ChapterDraft } from '@/types/app'
-import { toIpcPayload } from '@/utils/ipcPayload'
 
 const props = defineProps<{
   show: boolean
@@ -21,15 +20,6 @@ const emit = defineEmits<{
 const appStore = useAppStore()
 const message = useMessage()
 const isSubmitting = ref(false)
-const activeSyncProjectId = ref('')
-const activeSyncTaskId = ref('')
-const syncModalVisible = ref(false)
-const syncStatus = ref<'starting' | 'running' | 'success' | 'error'>('starting')
-const syncProgressPercent = ref(0)
-const syncProgressText = ref('')
-const syncChapterTitle = ref('')
-const syncError = ref('')
-let syncCloseTimer: number | null = null
 
 const form = reactive({
   outlineItemId: '',
@@ -97,97 +87,6 @@ function handleShowUpdate(value: boolean): void {
   if (!isSubmitting.value) emit('update:show', value)
 }
 
-const cleanupBackfillProgress = window.characterArc.onBackfillStateProgress((payload) => {
-  if (
-    payload.projectId !== activeSyncProjectId.value
-    || (activeSyncTaskId.value && payload.taskId !== activeSyncTaskId.value)
-  ) return
-
-  syncChapterTitle.value = payload.chapterTitle || syncChapterTitle.value
-  if (payload.status === 'running' || payload.status === 'pausing' || payload.status === 'paused') {
-    syncStatus.value = 'running'
-    const phaseRatio = payload.phase === 'applying' ? 0.85 : payload.phase === 'extracting' ? 0.35 : 0.1
-    syncProgressPercent.value = payload.total > 0
-      ? Math.min(95, Math.max(12, Math.round(8 + ((Math.max(0, payload.current - 1) + phaseRatio) / payload.total) * 87)))
-      : 12
-    syncProgressText.value = payload.message || '正在分析定稿正文并提取世界状态...'
-    return
-  }
-
-  if (payload.status !== 'completed' && payload.status !== 'failed') return
-
-  activeSyncProjectId.value = ''
-  activeSyncTaskId.value = ''
-  if (payload.status === 'failed') {
-    syncStatus.value = 'error'
-    syncError.value = payload.error ?? '未知错误'
-    syncProgressText.value = '世界状态同步失败'
-    return
-  }
-  if (payload.result?.failed) {
-    const detail = payload.result.errors[0]?.message
-    syncStatus.value = 'error'
-    syncError.value = detail || '章节状态提取失败'
-    syncProgressText.value = '世界状态同步未完成'
-    return
-  }
-  syncStatus.value = 'success'
-  syncProgressPercent.value = 100
-  if (!payload.result?.totalChapters) {
-    syncProgressText.value = '世界状态已是最新，无需重复同步'
-    message.info('世界状态已是最新，无需重复同步。')
-  } else {
-    syncProgressText.value = '世界状态同步完成'
-    message.success('世界状态同步完成。')
-  }
-  syncCloseTimer = window.setTimeout(() => {
-    syncModalVisible.value = false
-    syncCloseTimer = null
-  }, 700)
-})
-
-onBeforeUnmount(() => {
-  cleanupBackfillProgress()
-  if (syncCloseTimer !== null) window.clearTimeout(syncCloseTimer)
-})
-
-async function startFinalStateSync(projectId: string, chapterId: string): Promise<void> {
-  activeSyncProjectId.value = projectId
-  activeSyncTaskId.value = ''
-  syncModalVisible.value = true
-  syncStatus.value = 'starting'
-  syncProgressPercent.value = 6
-  syncProgressText.value = '正在启动世界状态同步...'
-  syncChapterTitle.value = appStore.chapters.find((item) => item.id === chapterId)?.title ?? ''
-  syncError.value = ''
-  try {
-    const response = await window.characterArc.backfillProjectState(toIpcPayload({
-      settings: appStore.appSettings,
-      projectId,
-      selection: { mode: 'custom', chapterIds: [chapterId] }
-    }))
-    if (!response.success || !response.result?.taskId) {
-      throw new Error(response.error ?? '未能创建后台同步任务')
-    }
-    if (activeSyncProjectId.value !== projectId) return
-    activeSyncTaskId.value = response.result.taskId
-    syncStatus.value = 'running'
-    syncProgressPercent.value = Math.max(syncProgressPercent.value, 12)
-    syncProgressText.value = '正在分析定稿正文并提取世界状态...'
-  } catch (error) {
-    activeSyncProjectId.value = ''
-    activeSyncTaskId.value = ''
-    syncStatus.value = 'error'
-    syncError.value = error instanceof Error ? error.message : '未知错误'
-    syncProgressText.value = '世界状态同步启动失败'
-  }
-}
-
-function closeSyncModal(): void {
-  if (syncStatus.value === 'starting' || syncStatus.value === 'running') return
-  syncModalVisible.value = false
-}
-
 async function submit(): Promise<void> {
   if (!props.chapter || isSubmitting.value) return
   if (!form.volumeId) {
@@ -220,7 +119,6 @@ async function submit(): Promise<void> {
     }
 
     const shouldSyncState = form.status === 'final'
-    const projectId = appStore.currentProject?.id ?? ''
     const chapter = appStore.chapters.find((item) => item.id === chapterId)
     const chapterText = getPlainTextFromEditorContent(chapter?.content ?? '').trim()
 
@@ -228,11 +126,13 @@ async function submit(): Promise<void> {
     message.success(shouldSyncState ? '章节已定稿，正文和章节信息已保存。' : '章节信息已保存。')
 
     if (!shouldSyncState) return
-    if (!projectId || chapterText.length < 50) {
+    if (chapterText.length < 50) {
       message.warning('正文内容过短，暂未生成世界状态。')
       return
     }
-    void startFinalStateSync(projectId, chapterId)
+    void appStore.startChapterStateSync([chapterId]).catch((error) => {
+      message.error(`故事状态同步启动失败：${error instanceof Error ? error.message : '未知错误'}`)
+    })
   } catch (error) {
     message.error(`章节信息保存失败：${error instanceof Error ? error.message : '未知错误'}`)
   } finally {
@@ -295,36 +195,6 @@ async function submit(): Promise<void> {
     </template>
   </n-modal>
 
-  <n-modal
-    :show="syncModalVisible"
-    preset="card"
-    title="同步世界状态"
-    :style="{ width: 'min(480px, 92vw)' }"
-    :bordered="false"
-    :closable="syncStatus === 'error'"
-    :mask-closable="false"
-    @update:show="(value) => { if (!value) closeSyncModal() }"
-  >
-    <div class="sync-progress" role="status" aria-live="polite">
-      <n-progress
-        type="line"
-        :percentage="syncProgressPercent"
-        :processing="syncStatus === 'starting' || syncStatus === 'running'"
-        :status="syncStatus === 'error' ? 'error' : syncStatus === 'success' ? 'success' : 'default'"
-      />
-      <strong>{{ syncProgressText }}</strong>
-      <span v-if="syncChapterTitle" class="sync-chapter">当前章节：{{ syncChapterTitle }}</span>
-      <p v-if="syncError" class="sync-error">
-        {{ syncError }}。请重新保存定稿，或稍后在项目知识库中执行状态补录。
-      </p>
-    </div>
-
-    <template v-if="syncStatus === 'error'" #footer>
-      <div class="actions">
-        <n-button type="primary" @click="closeSyncModal">关闭</n-button>
-      </div>
-    </template>
-  </n-modal>
 </template>
 
 <style scoped>
@@ -334,28 +204,4 @@ async function submit(): Promise<void> {
   gap: 12px;
 }
 
-.sync-progress {
-  display: flex;
-  min-height: 116px;
-  flex-direction: column;
-  justify-content: center;
-  gap: 12px;
-}
-
-.sync-progress strong {
-  color: var(--arc-text-primary);
-  font-size: 14px;
-}
-
-.sync-chapter {
-  color: var(--arc-text-secondary);
-  font-size: 12px;
-}
-
-.sync-error {
-  margin: 0;
-  color: var(--arc-error, #d03050);
-  font-size: 12px;
-  line-height: 1.6;
-}
 </style>

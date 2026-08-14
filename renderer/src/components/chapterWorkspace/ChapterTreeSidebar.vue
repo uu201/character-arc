@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowLeft, ChevronDown, ChevronsDownUp, FilePlus, FileText, FolderPlus, GripVertical, MoreVertical, Plus, Search } from 'lucide-vue-next'
-import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NTag, NTooltip, useDialog, useMessage } from 'naive-ui'
+import { ArrowLeft, ChevronDown, ChevronsDownUp, FilePlus, FileText, FolderPlus, GripVertical, ListChecks, MoreVertical, Plus, Search } from 'lucide-vue-next'
+import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, NSwitch, NTag, NTooltip, useDialog, useMessage } from 'naive-ui'
 import ChapterMetaDialog from './ChapterMetaDialog.vue'
 import { useAppStore } from '@/stores/app'
 import { formatVolumeLabel, normalizeVolumeWordTarget } from '@/features/workspace/outlineVolumes'
 import { getChapterCharacterCount, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
 import type { OutlineDropPosition } from '@/features/workspace/outlineReorder'
+import { readCollapsedVolumeIds, writeCollapsedVolumeIds } from '@/features/workspace/volumeCollapseState'
 import type { ChapterDraft, OutlineItem, OutlineVolume } from '@/types/app'
 import type { DropdownOption, SelectOption } from 'naive-ui'
 import { toIpcPayload } from '@/utils/ipcPayload'
@@ -34,6 +35,11 @@ const metaDialogChapter = ref<ChapterDraft | null>(null)
 const volumeDialogVisible = ref(false)
 const editingVolumeId = ref<string | null>(null)
 const createDialogVisible = ref(false)
+const batchDialogVisible = ref(false)
+const batchSubmitting = ref(false)
+const batchStatus = ref<ChapterDraft['status']>('final')
+const batchSyncStoryState = ref(true)
+const batchSelectedIds = ref<string[]>([])
 const createForm = reactive({
   volumeId: '',
   outlineItemId: '',
@@ -50,6 +56,13 @@ const chapterMenuOptions: DropdownOption[] = [
   { key: 'edit', label: '编辑章节信息' },
   { key: 'export-txt', label: '导出 TXT' },
   { key: 'delete', label: '删除章节' }
+]
+
+const chapterStatusOptions: SelectOption[] = [
+  { label: '草稿中', value: 'draft' },
+  { label: '待检查', value: 'review' },
+  { label: '待润色', value: 'polish' },
+  { label: '已定稿', value: 'final' }
 ]
 
 const volumeMenuOptions = computed<DropdownOption[]>(() => [
@@ -78,6 +91,16 @@ const totalWords = computed(() =>
   appStore.chapters.reduce((n, c) => n + getChapterCharacterCount(c.content), 0)
 )
 
+const batchSelectedSet = computed(() => new Set(batchSelectedIds.value))
+const batchSelectedChapters = computed(() =>
+  appStore.chapters.filter((chapter) => batchSelectedSet.value.has(chapter.id))
+)
+const batchSyncEligibleIds = computed(() =>
+  batchSelectedChapters.value
+    .filter((chapter) => getPlainTextFromEditorContent(chapter.content).trim().length >= 50)
+    .map((chapter) => chapter.id)
+)
+
 type ChapterTreeGroup = (typeof appStore.chapterVolumeGroups)[number]
 type ChapterTreeRow =
   | { key: string; kind: 'volume'; group: ChapterTreeGroup }
@@ -95,7 +118,7 @@ const treeRows = computed<ChapterTreeRow[]>(() => {
   const rows: ChapterTreeRow[] = []
   for (const group of filteredGroups.value) {
     rows.push({ key: `volume:${group.volume.id}`, kind: 'volume', group })
-    if (collapsed[group.volume.id]) continue
+    if (isVolumeCollapsed(group.volume.id)) continue
     for (const chapter of group.items) {
       rows.push({ key: `chapter:${chapter.id}`, kind: 'chapter', group, chapter })
     }
@@ -130,6 +153,35 @@ function handleTreeScroll(event: Event): void {
 const allCollapsed = computed(() =>
   appStore.outlineVolumes.length > 0 && appStore.outlineVolumes.every((v) => collapsed[v.id])
 )
+
+function currentVolumeIds(): string[] {
+  return appStore.outlineVolumes.map((volume) => volume.id)
+}
+
+function loadCollapsedVolumes(): void {
+  for (const volumeId of Object.keys(collapsed)) delete collapsed[volumeId]
+  const storedIds = readCollapsedVolumeIds(
+    window.localStorage,
+    'chapter-tree',
+    appStore.selectedProjectId,
+    currentVolumeIds()
+  )
+  for (const volumeId of storedIds) collapsed[volumeId] = true
+}
+
+function persistCollapsedVolumes(): void {
+  writeCollapsedVolumeIds(
+    window.localStorage,
+    'chapter-tree',
+    appStore.selectedProjectId,
+    Object.keys(collapsed).filter((volumeId) => collapsed[volumeId]),
+    currentVolumeIds()
+  )
+}
+
+function isVolumeCollapsed(volumeId: string): boolean {
+  return !keyword.value.trim() && Boolean(collapsed[volumeId])
+}
 
 const createVolumeOptions = computed<SelectOption[]>(() =>
   appStore.outlineVolumes.map((volume, index) => ({
@@ -219,11 +271,115 @@ onBeforeUnmount(() => {
 
 function toggleVolume(id: string): void {
   collapsed[id] = !collapsed[id]
+  persistCollapsedVolumes()
 }
 
 function toggleCollapseAll(): void {
   const next = !allCollapsed.value
   for (const v of appStore.outlineVolumes) collapsed[v.id] = next
+  persistCollapsedVolumes()
+}
+
+watch(
+  [
+    () => appStore.selectedProjectId,
+    () => appStore.outlineVolumes.map((volume) => volume.id).join('|')
+  ],
+  loadCollapsedVolumes,
+  { immediate: true }
+)
+
+function setBatchSelection(chapterIds: string[]): void {
+  batchSelectedIds.value = [...new Set(chapterIds)]
+}
+
+function openBatchStatusDialog(): void {
+  batchStatus.value = 'final'
+  batchSyncStoryState.value = true
+  const currentVolumeId = appStore.selectedChapter?.volumeId ?? appStore.outlineVolumes[0]?.id ?? ''
+  const currentVolumePending = appStore.chapters
+    .filter((chapter) => chapter.volumeId === currentVolumeId && chapter.status !== 'final')
+    .map((chapter) => chapter.id)
+  setBatchSelection(currentVolumePending)
+  batchDialogVisible.value = true
+}
+
+function selectAllPendingChapters(): void {
+  setBatchSelection(appStore.chapters.filter((chapter) => chapter.status !== 'final').map((chapter) => chapter.id))
+}
+
+function selectCurrentVolumeChapters(): void {
+  const currentVolumeId = appStore.selectedChapter?.volumeId ?? appStore.outlineVolumes[0]?.id ?? ''
+  setBatchSelection(appStore.chapters.filter((chapter) => chapter.volumeId === currentVolumeId).map((chapter) => chapter.id))
+}
+
+function toggleBatchChapter(chapterId: string, checked: boolean): void {
+  const next = new Set(batchSelectedIds.value)
+  if (checked) next.add(chapterId)
+  else next.delete(chapterId)
+  batchSelectedIds.value = [...next]
+}
+
+function toggleBatchVolume(volumeId: string, checked: boolean): void {
+  const next = new Set(batchSelectedIds.value)
+  for (const chapter of appStore.chapters) {
+    if (chapter.volumeId !== volumeId) continue
+    if (checked) next.add(chapter.id)
+    else next.delete(chapter.id)
+  }
+  batchSelectedIds.value = [...next]
+}
+
+function isBatchVolumeChecked(volumeId: string): boolean {
+  const chapters = appStore.chapters.filter((chapter) => chapter.volumeId === volumeId)
+  return chapters.length > 0 && chapters.every((chapter) => batchSelectedSet.value.has(chapter.id))
+}
+
+function isBatchVolumeIndeterminate(volumeId: string): boolean {
+  const chapters = appStore.chapters.filter((chapter) => chapter.volumeId === volumeId)
+  const selectedCount = chapters.filter((chapter) => batchSelectedSet.value.has(chapter.id)).length
+  return selectedCount > 0 && selectedCount < chapters.length
+}
+
+async function submitBatchStatus(): Promise<void> {
+  if (batchSubmitting.value) return
+  const selectedChapters = batchSelectedChapters.value
+  if (selectedChapters.length === 0) {
+    message.warning('请至少选择一个章节。')
+    return
+  }
+
+  const previousStatuses = new Map(selectedChapters.map((chapter) => [chapter.id, chapter.status]))
+  batchSubmitting.value = true
+  try {
+    const changed = appStore.updateChapterStatuses(batchSelectedIds.value, batchStatus.value)
+    await appStore.persistWorkspace()
+    if (appStore.persistenceError) {
+      for (const status of ['draft', 'review', 'polish', 'final'] as const) {
+        const ids = [...previousStatuses.entries()].filter(([, previous]) => previous === status).map(([id]) => id)
+        if (ids.length) appStore.updateChapterStatuses(ids, status)
+      }
+      message.error(`批量修改失败：${appStore.persistenceError}`)
+      return
+    }
+
+    const shouldSync = batchStatus.value === 'final' && batchSyncStoryState.value
+    const eligibleIds = [...batchSyncEligibleIds.value]
+    const skippedCount = selectedChapters.length - eligibleIds.length
+    batchDialogVisible.value = false
+    message.success(changed > 0 ? `已更新 ${changed} 个章节的状态。` : '所选章节已经是目标状态。')
+
+    if (!shouldSync) return
+    if (skippedCount > 0) message.warning(`${skippedCount} 个章节正文过短，已跳过故事状态同步。`)
+    if (eligibleIds.length === 0) return
+    void appStore.startChapterStateSync(eligibleIds).catch((error) => {
+      message.error(`故事状态同步启动失败：${error instanceof Error ? error.message : '未知错误'}`)
+    })
+  } catch (error) {
+    message.error(`批量修改失败：${error instanceof Error ? error.message : '未知错误'}`)
+  } finally {
+    batchSubmitting.value = false
+  }
 }
 
 function readDraggedChapterId(event: DragEvent): string {
@@ -478,10 +634,12 @@ function submitVolume(): void {
   } else if (volumeForm.bindVolumeId) {
     appStore.updateOutlineVolume(volumeForm.bindVolumeId, payload)
     collapsed[volumeForm.bindVolumeId] = false
+    persistCollapsedVolumes()
     message.success('已绑定大纲分卷信息')
   } else {
     const volumeId = appStore.createOutlineVolume(payload)
     collapsed[volumeId] = false
+    persistCollapsedVolumes()
     message.success('已新建分卷信息')
   }
 
@@ -667,6 +825,12 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
       </n-tooltip>
       <n-tooltip trigger="hover" placement="bottom">
         <template #trigger>
+          <button class="icon-btn flex" @click="openBatchStatusDialog"><ListChecks :size="14" /></button>
+        </template>
+        批量修改章节状态
+      </n-tooltip>
+      <n-tooltip trigger="hover" placement="bottom">
+        <template #trigger>
           <button class="icon-btn flex" @click="toggleCollapseAll">
             <ChevronsDownUp :size="14" />
           </button>
@@ -687,7 +851,7 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
           v-if="row.kind === 'volume'"
           class="volume virtual-tree-row"
           :class="{
-            collapsed: collapsed[row.group.volume.id],
+            collapsed: isVolumeCollapsed(row.group.volume.id),
             'drop-target': dragTargetVolumeId === row.group.volume.id,
             'volume-dragging': draggingVolumeId === row.group.volume.id,
             'volume-drop-before': volumeDragTargetId === row.group.volume.id && volumeDragTargetPosition === 'before',
@@ -784,6 +948,80 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
     />
 
     <NModal
+      v-model:show="batchDialogVisible"
+      preset="card"
+      title="批量修改章节状态"
+      :style="{ width: 'min(680px, 94vw)' }"
+      :bordered="false"
+      :mask-closable="!batchSubmitting"
+      :closable="!batchSubmitting"
+    >
+      <div class="batch-status-layout">
+        <div class="batch-quick-actions">
+          <NButton size="small" secondary @click="selectCurrentVolumeChapters">选择当前卷</NButton>
+          <NButton size="small" secondary @click="selectAllPendingChapters">选择全部未定稿</NButton>
+          <NButton size="small" tertiary @click="setBatchSelection(appStore.chapters.map((chapter) => chapter.id))">全选</NButton>
+          <NButton size="small" tertiary @click="setBatchSelection([])">清空</NButton>
+          <span>{{ batchSelectedIds.length }} / {{ appStore.chapters.length }} 章</span>
+        </div>
+
+        <div class="batch-chapter-list arc-scrollbar">
+          <section v-for="group in appStore.chapterVolumeGroups" :key="group.volume.id" class="batch-volume-group">
+            <div class="batch-volume-head">
+              <NCheckbox
+                :checked="isBatchVolumeChecked(group.volume.id)"
+                :indeterminate="isBatchVolumeIndeterminate(group.volume.id)"
+                @update:checked="(checked) => toggleBatchVolume(group.volume.id, checked)"
+              >
+                {{ formatVolumeLabel(group.volume, group.index, 'formal') }}
+              </NCheckbox>
+              <span>{{ group.items.length }} 章</span>
+            </div>
+            <div v-for="chapter in group.items" :key="chapter.id" class="batch-chapter-row">
+              <NCheckbox
+                :checked="batchSelectedSet.has(chapter.id)"
+                @update:checked="(checked) => toggleBatchChapter(chapter.id, checked)"
+              />
+              <span class="batch-chapter-title">{{ chapter.title }}</span>
+              <NTag size="tiny" :type="statusType(chapter.status)" :bordered="false">
+                {{ formatStatus(chapter.status) }}
+              </NTag>
+            </div>
+          </section>
+        </div>
+
+        <NForm label-placement="left" label-width="90">
+          <NFormItem label="目标状态">
+            <NSelect v-model:value="batchStatus" :options="chapterStatusOptions" />
+          </NFormItem>
+          <NFormItem v-if="batchStatus === 'final'" label="后台同步">
+            <div class="batch-sync-setting">
+              <NSwitch v-model:value="batchSyncStoryState" />
+              <div>
+                <strong>同步故事状态</strong>
+                <span>
+                  将在右下角后台处理 {{ batchSyncEligibleIds.length }} 章
+                  <template v-if="batchSelectedIds.length > batchSyncEligibleIds.length">
+                    ，跳过 {{ batchSelectedIds.length - batchSyncEligibleIds.length }} 章正文过短的章节
+                  </template>
+                </span>
+              </div>
+            </div>
+          </NFormItem>
+        </NForm>
+      </div>
+
+      <template #footer>
+        <div class="create-actions">
+          <NButton round strong :disabled="batchSubmitting" @click="batchDialogVisible = false">取消</NButton>
+          <NButton type="primary" round strong :loading="batchSubmitting" :disabled="batchSelectedIds.length === 0" @click="submitBatchStatus">
+            {{ batchStatus === 'final' && batchSyncStoryState ? '保存并后台同步' : '保存章节状态' }}
+          </NButton>
+        </div>
+      </template>
+    </NModal>
+
+    <NModal
       v-model:show="volumeDialogVisible"
       preset="card"
       :title="editingVolumeId ? '编辑分卷信息' : '新建分卷信息'"
@@ -869,6 +1107,105 @@ function handleMenuSelect(key: string | number, chapter: ChapterDraft): void {
 </template>
 
 <style scoped>
+.batch-status-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.batch-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.batch-quick-actions > span {
+  margin-left: auto;
+  color: var(--arc-text-hint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.batch-chapter-list {
+  max-height: min(420px, 48vh);
+  overflow-y: auto;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  background: var(--arc-bg-surface);
+}
+
+.batch-volume-group + .batch-volume-group {
+  border-top: 1px solid var(--arc-border);
+}
+
+.batch-volume-head,
+.batch-chapter-row {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+}
+
+.batch-volume-head {
+  justify-content: space-between;
+  background: var(--arc-bg-mix);
+  color: var(--arc-text-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.batch-volume-head > span {
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.batch-chapter-row {
+  margin: 0;
+  border-top: 1px solid color-mix(in srgb, var(--arc-border) 72%, transparent);
+  cursor: pointer;
+}
+
+.batch-chapter-row:hover {
+  background: var(--arc-bg-surface-hover);
+}
+
+.batch-chapter-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--arc-text-secondary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-sync-setting {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.batch-sync-setting > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.batch-sync-setting strong {
+  color: var(--arc-text-primary);
+  font-size: 13px;
+}
+
+.batch-sync-setting span {
+  color: var(--arc-text-hint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .tree-sidebar {
   display: flex;
   flex-direction: column;

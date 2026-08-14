@@ -17,6 +17,7 @@ import {
   type OutlineDropPosition
 } from '@/features/workspace/outlineReorder'
 import { getThemePreset } from '@/theme/presets'
+import { toIpcPayload } from '@/utils/ipcPayload'
 import { createEmptyWorkspace, normalizeGlobalAssistantProposal, mergeGlobalAssistantProposals, normalizeOutlineReferenceIds } from '@/features/workspace/projectWorkspace'
 import { createWorkspacePersistence } from '@/features/workspace/persistence'
 import {
@@ -488,6 +489,101 @@ export const useAppStore = defineStore('app', () => {
         replaceTaskRuns((runs) => runs.delete(payload.taskKey))
       }
     }, AI_TASK_RETENTION_MS)
+  }
+
+  function backfillTaskKey(projectId: string): string {
+    return `chapter-state-backfill:${projectId}`
+  }
+
+  function resolveBackfillProgress(payload: CharacterArcBackfillStateProgressPayload): number {
+    if (payload.status === 'completed') return 100
+    if (payload.total <= 0) return payload.phase === 'starting' ? 5 : 10
+    const phaseRatio = payload.phase === 'applying' ? 0.85 : payload.phase === 'extracting' ? 0.35 : 0.1
+    return Math.min(99, Math.max(1, Math.round(((Math.max(0, payload.current - 1) + phaseRatio) / payload.total) * 100)))
+  }
+
+  function describeBackfillTask(payload: CharacterArcBackfillStateProgressPayload): string {
+    if (payload.status === 'completed') {
+      const result = payload.result
+      if (!result?.totalChapters) return '故事状态已是最新，无需重复同步'
+      if (result.failed > 0) return `已处理 ${result.processedChapters} 章，${result.failed} 章失败`
+      return `已完成 ${result.processedChapters} 章故事状态同步`
+    }
+    if (payload.status === 'failed') return payload.error || '故事状态同步失败'
+    const position = payload.total > 0 ? `${Math.min(payload.current, payload.total)}/${payload.total}` : '准备中'
+    const chapter = payload.chapterTitle ? `《${payload.chapterTitle}》` : ''
+    return [position, chapter, payload.message].filter(Boolean).join(' · ')
+  }
+
+  function handleBackfillStateProgress(payload: CharacterArcBackfillStateProgressPayload): void {
+    if (!payload?.projectId || !payload.taskId) return
+    const key = backfillTaskKey(payload.projectId)
+    const existing = aiTaskRuns.value.get(key)
+    const isRunning = payload.status === 'running' || payload.status === 'pausing' || payload.status === 'paused'
+    if (existing?.runId && existing.runId !== payload.taskId && !isRunning) return
+
+    const startedAt = Date.parse(payload.startedAt) || existing?.startedAt || Date.now()
+    replaceTaskRuns((next) => {
+      next.set(key, {
+        key,
+        kind: 'chapter-post-process',
+        label: '同步定稿章节故事状态',
+        description: describeBackfillTask(payload),
+        panel: 'project-knowledge',
+        startedAt,
+        finishedAt: isRunning ? undefined : Date.now(),
+        stage: isRunning ? 'running' : payload.status === 'completed' ? 'done' : 'error',
+        error: payload.status === 'failed' ? payload.error : undefined,
+        progress: {
+          current: payload.current,
+          total: payload.total,
+          percentage: resolveBackfillProgress(payload)
+        },
+        runId: payload.taskId
+      })
+    })
+
+    if (isRunning) return
+    window.setTimeout(() => {
+      const current = aiTaskRuns.value.get(key)
+      if (current?.runId === payload.taskId && current.stage !== 'running') {
+        replaceTaskRuns((next) => next.delete(key))
+      }
+    }, AI_TASK_RETENTION_MS)
+  }
+
+  async function startChapterStateSync(chapterIds: string[]): Promise<void> {
+    const projectId = selectedProjectId.value
+    const ids = [...new Set(chapterIds.map(String).filter(Boolean))]
+    if (!projectId || ids.length === 0) return
+
+    const key = backfillTaskKey(projectId)
+    if (isAiTaskRunning(key)) {
+      throw new Error('该项目已有故事状态同步任务正在进行。')
+    }
+    registerManualTask({
+      key,
+      kind: 'chapter-post-process',
+      label: '同步定稿章节故事状态',
+      description: `正在准备 ${ids.length} 章的后台同步队列`,
+      panel: 'project-knowledge'
+    })
+
+    try {
+      const response = await window.characterArc.backfillProjectState(toIpcPayload({
+        settings: appSettings.value,
+        projectId,
+        selection: { mode: 'custom', chapterIds: ids }
+      }))
+      if (!response.success || !response.result?.taskId) {
+        throw new Error(response.error ?? '未能创建故事状态同步任务')
+      }
+      handleBackfillStateProgress(response.result)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '未知错误'
+      finalizeManualTask(key, 'error', detail)
+      throw error
+    }
   }
 
   function getChapterPostGenerationIssues(chapterId: string): CharacterArcChapterPostGenerationIssuesPayload | null {
@@ -2548,6 +2644,20 @@ export const useAppStore = defineStore('app', () => {
     }))
   }
 
+  function updateChapterStatuses(chapterIds: string[], status: ChapterDraft['status']): number {
+    const selectedIds = new Set(chapterIds)
+    let changed = 0
+    updateCurrentWorkspace((workspace) => ({
+      ...workspace,
+      chapters: workspace.chapters.map((chapter) => {
+        if (!selectedIds.has(chapter.id) || chapter.status === status) return chapter
+        changed += 1
+        return normalizeChapterDraft({ ...chapter, status })
+      })
+    }))
+    return changed
+  }
+
   // ── 章节版本管理 ──
   /** 获取指定章节的历史版本列表，按创建时间降序排列 */
   function getChapterVersions(chapterId: string): ChapterVersion[] {
@@ -3284,6 +3394,7 @@ export const useAppStore = defineStore('app', () => {
   window.characterArc.onChapterStateWarnings(handleChapterStateWarnings)
   window.characterArc.onChapterPostGenerationIssues(handleChapterPostGenerationIssues)
   window.characterArc.onChapterPostGenerationTask(handleChapterPostGenerationTask)
+  window.characterArc.onBackfillStateProgress(handleBackfillStateProgress)
 
   // ── 响应式监听器 ──
   // 切换章节时清空选中文本
@@ -3442,6 +3553,7 @@ export const useAppStore = defineStore('app', () => {
     flushWorkspaceSync,
     persistWorkspace,
     updateChapter,
+    updateChapterStatuses,
     updateChapterContent,
     reloadChapterFromDb,
     updateChapterSelection,
@@ -3470,6 +3582,7 @@ export const useAppStore = defineStore('app', () => {
     cancelAiTask,
     registerManualTask,
     finalizeManualTask,
+    startChapterStateSync,
     getChapterStateWarnings,
     dismissChapterStateWarnings,
     getChapterPostGenerationIssues,
