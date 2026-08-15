@@ -877,6 +877,8 @@ export interface AiProfile {
   apiProtocol?: 'auto' | 'openai-responses' | 'openai-chat' | 'anthropic'
   temperature?: number
   topP?: number
+  presencePenalty?: number
+  frequencyPenalty?: number
 }
 
 export type EditorFont = 'clear-mono' | 'modern-sans' | 'classic-serif' | 'relaxed-kai' | 'system'
@@ -898,6 +900,10 @@ export interface AppSettings {
   temperature?: number
   /** 可选：模型 nucleus sampling 参数，留空时使用服务端默认值 */
   topP?: number
+  /** 可选：降低已出现主题的复用，留空时使用服务端默认值 */
+  presencePenalty?: number
+  /** 可选：降低高频词语和句式的复用，留空时使用服务端默认值 */
+  frequencyPenalty?: number
   /** 已保存的 AI 接口配置列表 */
   aiProfiles: AiProfile[]
   /** 当前激活的 AI 接口配置 ID */

@@ -4,7 +4,7 @@ import type { ZodTypeAny } from 'zod'
 import { buildSystemPrompt, createModel, providerSupportsNativeStructuredOutput } from './provider'
 import type { AiRunUsage, AppSettings, AiStreamHandlers, PromptPair } from './shared-types'
 import { stripReasoningMarkup } from './reasoning'
-import { isOpenAIReasoningChatModel, resolveProviderOptions } from './request-options'
+import { isOpenAIReasoningChatModel, resolveProviderOptions, resolveSamplingOptions } from './request-options'
 import { isAnthropicProtocol, isOpenAIChatProtocol } from '@shared/ai-provider-catalog'
 import { AiStreamProtocolError } from './sse'
 
@@ -18,17 +18,6 @@ function shouldRetryGenericUpstreamError(settings: AppSettings, error: unknown):
     return false
   }
   return error instanceof Error && error.message.toLowerCase().includes('upstream request failed')
-}
-
-function resolveSamplingOptions(settings: AppSettings): { temperature?: number; topP?: number } {
-  if (isOpenAIReasoningChatModel(settings)) {
-    return {}
-  }
-
-  return {
-    temperature: typeof settings.temperature === 'number' && Number.isFinite(settings.temperature) ? settings.temperature : undefined,
-    topP: typeof settings.topP === 'number' && Number.isFinite(settings.topP) ? settings.topP : undefined
-  }
 }
 
 export type AiGenerateOptions = {

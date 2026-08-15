@@ -18,6 +18,7 @@ import { useAppStore } from '@/stores/app'
 import { darkModePresets, themePresets } from '@/theme/presets'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { AiProfile, AppSettings, DarkModeStyle, ThemeName } from '@/types/app'
+import { isOpenAIChatProtocol, resolveAiProviderProtocol } from '@shared/ai-provider-catalog'
 
 const props = defineProps<{
   show: boolean
@@ -62,6 +63,8 @@ const draftSettings = reactive<AppSettings>({
   proxyUrl: '',
   temperature: undefined,
   topP: undefined,
+  presencePenalty: undefined,
+  frequencyPenalty: undefined,
   aiProfiles: [],
   activeAiProfileId: '',
   imageProvider: '',
@@ -129,6 +132,19 @@ function handleScroll(): void {
 }
 
 const activeProviderPreset = computed(() => getProviderPreset(editingProfile.value?.provider ?? draftSettings.provider))
+const activeApiProtocol = computed(() => resolveAiProviderProtocol(
+  editingProfile.value?.provider ?? draftSettings.provider,
+  editingProfile.value?.model ?? draftSettings.model,
+  editingProfile.value?.apiProtocol ?? draftSettings.apiProtocol ?? 'auto'
+))
+const activeApiProtocolLabel = computed(() =>
+  apiProtocolOptions.find((option) => option.value === activeApiProtocol.value)?.label ?? activeApiProtocol.value
+)
+const supportsPenaltySettings = computed(() => isOpenAIChatProtocol(
+  editingProfile.value?.provider ?? draftSettings.provider,
+  editingProfile.value?.model ?? draftSettings.model,
+  editingProfile.value?.apiProtocol ?? draftSettings.apiProtocol ?? 'auto'
+))
 const currentVersion = window.characterArc.version
 const modelSelectOptions = computed(() =>
   fetchedModels.value.map((m) => ({ label: m.id, value: m.id }))
@@ -163,6 +179,8 @@ function syncDraftFromStore(): void {
   proxyTestIp.value = ''
   draftSettings.temperature = appStore.appSettings.temperature
   draftSettings.topP = appStore.appSettings.topP
+  draftSettings.presencePenalty = appStore.appSettings.presencePenalty
+  draftSettings.frequencyPenalty = appStore.appSettings.frequencyPenalty
   draftSettings.aiProfiles = appStore.appSettings.aiProfiles.map((profile) => ({ ...profile }))
   draftSettings.activeAiProfileId = appStore.appSettings.activeAiProfileId
   draftSettings.imageProvider = appStore.appSettings.imageProvider
@@ -309,7 +327,9 @@ function handleAddProfile(): void {
     model: defaults.model,
     apiProtocol: 'auto',
     temperature: undefined,
-    topP: undefined
+    topP: undefined,
+    presencePenalty: undefined,
+    frequencyPenalty: undefined
   }
   draftSettings.aiProfiles.push(newProfile)
   editingProfileId.value = id
@@ -329,7 +349,9 @@ function handleCopyProfile(): void {
     model: source.model,
     apiProtocol: source.apiProtocol ?? 'auto',
     temperature: source.temperature,
-    topP: source.topP
+    topP: source.topP,
+    presencePenalty: source.presencePenalty,
+    frequencyPenalty: source.frequencyPenalty
   }
   draftSettings.aiProfiles.push(copy)
   editingProfileId.value = id
@@ -364,6 +386,8 @@ function updateEditingProfile(updates: Partial<AiProfile>): void {
     if (updates.apiProtocol !== undefined) draftSettings.apiProtocol = updates.apiProtocol
     if ('temperature' in updates) draftSettings.temperature = updates.temperature
     if ('topP' in updates) draftSettings.topP = updates.topP
+    if ('presencePenalty' in updates) draftSettings.presencePenalty = updates.presencePenalty
+    if ('frequencyPenalty' in updates) draftSettings.frequencyPenalty = updates.frequencyPenalty
   }
 }
 
@@ -417,7 +441,9 @@ function buildProfilePayload(): AppSettings {
     baseUrl: profile.baseUrl,
     apiProtocol: profile.apiProtocol ?? 'auto',
     temperature: profile.temperature,
-    topP: profile.topP
+    topP: profile.topP,
+    presencePenalty: profile.presencePenalty,
+    frequencyPenalty: profile.frequencyPenalty
   }
 }
 
@@ -472,7 +498,9 @@ async function saveSettings(): Promise<void> {
     baseUrl: activeProfile?.baseUrl ?? draftSettings.baseUrl,
     apiProtocol: activeProfile?.apiProtocol ?? draftSettings.apiProtocol ?? 'auto',
     temperature: activeProfile?.temperature ?? draftSettings.temperature,
-    topP: activeProfile?.topP ?? draftSettings.topP
+    topP: activeProfile?.topP ?? draftSettings.topP,
+    presencePenalty: activeProfile?.presencePenalty ?? draftSettings.presencePenalty,
+    frequencyPenalty: activeProfile?.frequencyPenalty ?? draftSettings.frequencyPenalty
   }
 
   const saved = await appStore.saveAppSettingsDraft(nextSettings, draftTheme.value)
@@ -660,8 +688,37 @@ async function saveSettings(): Promise<void> {
                       @update:value="(value) => updateEditingProfile({ topP: toOptionalNumber(value) })"
                     />
                   </n-form-item>
+                  <n-form-item label="Presence Penalty">
+                    <n-input-number
+                      :value="editingProfile.presencePenalty"
+                      :min="-2"
+                      :max="2"
+                      :step="0.1"
+                      :precision="1"
+                      clearable
+                      placeholder="默认"
+                      :disabled="!supportsPenaltySettings"
+                      @update:value="(value) => updateEditingProfile({ presencePenalty: toOptionalNumber(value) })"
+                    />
+                  </n-form-item>
+                  <n-form-item label="Frequency Penalty">
+                    <n-input-number
+                      :value="editingProfile.frequencyPenalty"
+                      :min="-2"
+                      :max="2"
+                      :step="0.1"
+                      :precision="1"
+                      clearable
+                      placeholder="默认"
+                      :disabled="!supportsPenaltySettings"
+                      @update:value="(value) => updateEditingProfile({ frequencyPenalty: toOptionalNumber(value) })"
+                    />
+                  </n-form-item>
                 </div>
-                <p class="advanced-settings-hint">留空时使用模型默认值；温度越高表达越发散，Top P 越低输出越保守。</p>
+                <p class="advanced-settings-hint">留空时使用模型默认值；温度越高表达越发散，Top P 越低输出越保守。Presence 抑制主题复用，Frequency 抑制高频词句复用；正值抑制，负值鼓励。</p>
+                <p v-if="!supportsPenaltySettings" class="advanced-settings-hint advanced-settings-hint-warning">
+                  当前协议为“{{ activeApiProtocolLabel }}”，不支持 Presence/Frequency Penalty；已填写的值会保留，但不会随请求发送。
+                </p>
               </div>
             </details>
             <div class="section-actions">
@@ -1318,6 +1375,11 @@ async function saveSettings(): Promise<void> {
   color: var(--arc-text-hint);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.advanced-settings-hint-warning {
+  margin-top: 6px;
+  color: var(--arc-warning, #b7791f);
 }
 
 .section-actions {

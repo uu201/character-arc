@@ -311,6 +311,8 @@ function formatRequestBodySummary(value: unknown): string {
     maxOutputTokens: body.max_output_tokens,
     temperature: body.temperature,
     topP: body.top_p,
+    presencePenalty: body.presence_penalty,
+    frequencyPenalty: body.frequency_penalty,
     responseFormat: body.response_format && typeof body.response_format === 'object'
       ? (body.response_format as Record<string, unknown>).type
       : body.response_format,

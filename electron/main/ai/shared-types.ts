@@ -36,6 +36,10 @@ export type AppSettings = {
   temperature?: number
   /** 可选：模型 nucleus sampling 参数，留空时使用服务端默认值 */
   topP?: number
+  /** 可选：降低已出现主题的复用，留空时使用服务端默认值 */
+  presencePenalty?: number
+  /** 可选：降低高频词语和句式的复用，留空时使用服务端默认值 */
+  frequencyPenalty?: number
   /** 可选：embedding 专用模型，为空时从 model 推断 */
   embeddingModel: string
   /** 可选：图片生成模型 */

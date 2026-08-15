@@ -321,6 +321,8 @@ export type WorkspacePayload = {
     proxyUrl: string
     temperature?: number
     topP?: number
+    presencePenalty?: number
+    frequencyPenalty?: number
     aiProfiles: Array<{
       id: string
       name: string
@@ -331,6 +333,8 @@ export type WorkspacePayload = {
       apiProtocol?: 'auto' | 'openai-responses' | 'openai-chat' | 'anthropic'
       temperature?: number
       topP?: number
+      presencePenalty?: number
+      frequencyPenalty?: number
     }>
     activeAiProfileId: string
     imageProvider: string
@@ -488,6 +492,14 @@ export function normalizeAppSettings(
     typeof settings?.topP === 'number' && Number.isFinite(settings.topP)
       ? Math.min(1, Math.max(0, settings.topP))
       : undefined
+  const presencePenalty =
+    typeof settings?.presencePenalty === 'number' && Number.isFinite(settings.presencePenalty)
+      ? Math.min(2, Math.max(-2, settings.presencePenalty))
+      : undefined
+  const frequencyPenalty =
+    typeof settings?.frequencyPenalty === 'number' && Number.isFinite(settings.frequencyPenalty)
+      ? Math.min(2, Math.max(-2, settings.frequencyPenalty))
+      : undefined
 
   return {
     provider: settings?.provider || 'openai-compatible',
@@ -498,6 +510,8 @@ export function normalizeAppSettings(
     proxyUrl: settings?.proxyUrl || '',
     temperature,
     topP,
+    presencePenalty,
+    frequencyPenalty,
     aiProfiles: Array.isArray(settings?.aiProfiles)
       ? settings.aiProfiles
           .filter((item): item is NonNullable<typeof settings.aiProfiles>[number] => !!item && typeof item === 'object')
@@ -516,6 +530,14 @@ export function normalizeAppSettings(
             topP:
               typeof item.topP === 'number' && Number.isFinite(item.topP)
                 ? Math.min(1, Math.max(0, item.topP))
+                : undefined,
+            presencePenalty:
+              typeof item.presencePenalty === 'number' && Number.isFinite(item.presencePenalty)
+                ? Math.min(2, Math.max(-2, item.presencePenalty))
+                : undefined,
+            frequencyPenalty:
+              typeof item.frequencyPenalty === 'number' && Number.isFinite(item.frequencyPenalty)
+                ? Math.min(2, Math.max(-2, item.frequencyPenalty))
                 : undefined
           }))
           .filter((item) => item.id)

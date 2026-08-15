@@ -4,6 +4,7 @@ import type { AiRunUsage, AppSettings, AiAgentStreamHandlers, ToolCallTrace } fr
 import type { Tool, ToolContext } from './tools/types'
 import { stripReasoningMarkup } from '../reasoning'
 import { isAiStreamIdleTimeoutError } from '../sse'
+import { resolveSamplingOptions } from '../request-options'
 
 export type RunAgentParams = {
   settings: AppSettings
@@ -155,6 +156,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     model: createModel(params.settings),
     system: buildSystemPrompt(params.settings, params.systemPrompt),
     prompt: params.userPrompt,
+    ...resolveSamplingOptions(params.settings),
     ...(params.disableTools ? {} : { tools: sdkTools, stopWhen: stepCountIs(maxSteps) }),
     abortSignal: params.ctx.signal,
     onError: ({ error }) => captureError(error),
@@ -327,6 +329,7 @@ async function synthesizeFinalAnswer(
       observationText,
       '请不要调用任何工具，直接给出完整的最终答案，并严格满足任务要求的输出格式。'
     ].join('\n\n'),
+    ...resolveSamplingOptions(params.settings),
     abortSignal: params.ctx.signal
   })
 

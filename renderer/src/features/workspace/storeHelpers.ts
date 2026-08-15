@@ -349,7 +349,9 @@ function normalizeAiProfile(profile: AiProfile): AiProfile {
         ? profile.apiProtocol
         : 'auto',
     temperature: normalizeOptionalNumber(profile.temperature, 0, 2),
-    topP: normalizeOptionalNumber(profile.topP, 0, 1)
+    topP: normalizeOptionalNumber(profile.topP, 0, 1),
+    presencePenalty: normalizeOptionalNumber(profile.presencePenalty, -2, 2),
+    frequencyPenalty: normalizeOptionalNumber(profile.frequencyPenalty, -2, 2)
   }
 }
 
@@ -367,6 +369,8 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
       : 'auto'
   const temperature = normalizeOptionalNumber(source.temperature, 0, 2)
   const topP = normalizeOptionalNumber(source.topP, 0, 1)
+  const presencePenalty = normalizeOptionalNumber(source.presencePenalty, -2, 2)
+  const frequencyPenalty = normalizeOptionalNumber(source.frequencyPenalty, -2, 2)
 
   let aiProfiles = Array.isArray(source.aiProfiles)
     ? source.aiProfiles.map(normalizeAiProfile).filter((profile) => profile.id)
@@ -375,7 +379,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
 
   if (aiProfiles.length === 0 && (apiKey || model !== defaultAppSettings.model)) {
     const migratedId = `profile-${Date.now()}`
-    aiProfiles = [{ id: migratedId, name: provider || 'Default', provider, baseUrl, apiKey, model, apiProtocol, temperature, topP }]
+    aiProfiles = [{ id: migratedId, name: provider || 'Default', provider, baseUrl, apiKey, model, apiProtocol, temperature, topP, presencePenalty, frequencyPenalty }]
     activeAiProfileId = migratedId
   }
 
@@ -392,6 +396,8 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     proxyUrl: sanitizeSettingString(source.proxyUrl, defaultAppSettings.proxyUrl),
     temperature,
     topP,
+    presencePenalty,
+    frequencyPenalty,
     aiProfiles,
     activeAiProfileId,
     imageProvider: sanitizeSettingString(source.imageProvider, defaultAppSettings.imageProvider),

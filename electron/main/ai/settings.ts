@@ -45,6 +45,8 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     proxyUrl: settings.proxyUrl?.trim() || '',
     temperature: normalizeOptionalNumber(settings.temperature, 0, 2),
     topP: normalizeOptionalNumber(settings.topP, 0, 1),
+    presencePenalty: normalizeOptionalNumber(settings.presencePenalty, -2, 2),
+    frequencyPenalty: normalizeOptionalNumber(settings.frequencyPenalty, -2, 2),
     embeddingModel: settings.embeddingModel?.trim() || '',
     imageModel: settings.imageModel?.trim() || '',
     imageApiKey: settings.imageApiKey?.trim() || '',

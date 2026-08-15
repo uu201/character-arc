@@ -15,6 +15,7 @@ import { getTaskHandler } from '../tasks'
 import { getStructuredTaskSchema } from '../tasks/object-schemas'
 import { resolveTaskSkills } from '../skills'
 import { addAiRunUsage, aiGenerateText, aiGenerateTextWithUsage, aiStreamObjectWithUsage, aiStreamTextWithUsage } from '../generate'
+import { resolveSamplingOptions } from '../request-options'
 import { buildSystemPrompt, createModel, isToolUseNotSupportedError } from '../provider'
 import { buildPromptInput } from './context-builder'
 import { enrichTaskContextForGeneration } from './task-context'
@@ -427,7 +428,8 @@ export async function testAiConnection(rawSettings: AppSettings): Promise<{
   await generateText({
     model: createModel(settings),
     system: buildSystemPrompt(settings, probePrompt.system),
-    prompt: probePrompt.user
+    prompt: probePrompt.user,
+    ...resolveSamplingOptions(settings)
   })
   return {
     provider: settings.provider,

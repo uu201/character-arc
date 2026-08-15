@@ -2798,6 +2798,8 @@ export const useAppStore = defineStore('app', () => {
     appSettings.value.apiProtocol = profile.apiProtocol ?? 'auto'
     appSettings.value.temperature = profile.temperature
     appSettings.value.topP = profile.topP
+    appSettings.value.presencePenalty = profile.presencePenalty
+    appSettings.value.frequencyPenalty = profile.frequencyPenalty
     scheduleSettingsPersist({ flushWorkspace: false })
   }
 
@@ -2831,6 +2833,8 @@ export const useAppStore = defineStore('app', () => {
       if (updates.apiProtocol !== undefined) appSettings.value.apiProtocol = updates.apiProtocol
       if ('temperature' in updates) appSettings.value.temperature = updates.temperature
       if ('topP' in updates) appSettings.value.topP = updates.topP
+      if ('presencePenalty' in updates) appSettings.value.presencePenalty = updates.presencePenalty
+      if ('frequencyPenalty' in updates) appSettings.value.frequencyPenalty = updates.frequencyPenalty
     }
     scheduleSettingsPersist()
   }

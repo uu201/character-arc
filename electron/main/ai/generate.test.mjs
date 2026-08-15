@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { isOpenCodeReasoningChatModel, resolveProviderOptions } from './request-options.ts'
+import { isOpenCodeReasoningChatModel, resolveProviderOptions, resolveSamplingOptions } from './request-options.ts'
 
 const baseSettings = {
   apiKey: 'test-key',
@@ -48,4 +48,35 @@ test('OpenCode 已知推理模型的流式请求使用低推理强度', () => {
     ...settings,
     model: 'ling-3.0-flash-free'
   }), false)
+})
+
+test('OpenAI Chat 请求携带四项采样参数，其他协议省略 penalty', () => {
+  const settings = {
+    ...baseSettings,
+    provider: 'deepseek',
+    model: 'deepseek-chat',
+    presencePenalty: 0.4,
+    frequencyPenalty: -0.2
+  }
+  assert.deepEqual(resolveSamplingOptions(settings), {
+    temperature: 0.7,
+    topP: 0.9,
+    presencePenalty: 0.4,
+    frequencyPenalty: -0.2
+  })
+  assert.deepEqual(resolveSamplingOptions({
+    ...settings,
+    apiProtocol: 'anthropic'
+  }), {
+    temperature: 0.7,
+    topP: 0.9
+  })
+  assert.deepEqual(resolveSamplingOptions({
+    ...settings,
+    provider: 'openai',
+    apiProtocol: 'openai-responses'
+  }), {
+    temperature: 0.7,
+    topP: 0.9
+  })
 })

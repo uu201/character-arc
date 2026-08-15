@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { mergeAppSettingsIntoWorkspaceSnapshot, normalizeWorkspacePayload } from './workspace-types.ts'
+import { mergeAppSettingsIntoWorkspaceSnapshot, normalizeAppSettings, normalizeWorkspacePayload } from './workspace-types.ts'
+
+test('采样惩罚参数按 -2 到 2 规范化，缺失值保持为空', () => {
+  const normalized = normalizeAppSettings({
+    presencePenalty: 4,
+    frequencyPenalty: -4
+  })
+  assert.equal(normalized.presencePenalty, 2)
+  assert.equal(normalized.frequencyPenalty, -2)
+  assert.equal(normalizeAppSettings({}).presencePenalty, undefined)
+})
 
 test('保存 AI 设置时刷新内存快照并保留未落盘的工作区数据', () => {
   const workspaceMarker = { unsaved: true }

@@ -19,7 +19,9 @@ export interface AppSettingsPayload {
   proxyUrl: string
   temperature?: number
   topP?: number
-  aiProfiles: Array<{ id: string; name: string; provider: string; baseUrl: string; apiKey: string; model: string; apiProtocol?: 'auto' | 'openai-responses' | 'openai-chat' | 'anthropic'; temperature?: number; topP?: number }>
+  presencePenalty?: number
+  frequencyPenalty?: number
+  aiProfiles: Array<{ id: string; name: string; provider: string; baseUrl: string; apiKey: string; model: string; apiProtocol?: 'auto' | 'openai-responses' | 'openai-chat' | 'anthropic'; temperature?: number; topP?: number; presencePenalty?: number; frequencyPenalty?: number }>
   activeAiProfileId: string
   imageProvider: string
   imageModel: string
