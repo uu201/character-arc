@@ -916,6 +916,8 @@ export interface AppSettings {
   editorFont: EditorFont
   /** UI 缩放比例，范围 0.75-1.75 */
   uiScale: number
+  /** 工作台创作模块的全局菜单顺序，使用稳定菜单 ID */
+  workspaceMenuOrder: string[]
   /** 是否启用深色模式 */
   darkMode: boolean
   /** 深色模式风格预设 */

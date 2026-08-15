@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { Copy, Cpu, Download, Image, MonitorCog, Moon, Network, Palette, PlugZap, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, Copy, Cpu, Download, GripVertical, Image, MonitorCog, Moon, Network, Palette, PlugZap, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-vue-next'
 import { NButton, NFormItem, NInput, NInputNumber, NModal, NSelect, NSwitch, useMessage } from 'naive-ui'
 import { autoSaveOptions } from '@/features/settings/autoSave'
 import { getProviderPreset, providerOptions, resolveProviderDefaults } from '@/features/settings/providerPresets'
 import { imageProviderOptions, resolveImageProviderDefaults } from '@/features/settings/imageProviderPresets'
+import {
+  DEFAULT_WORKBENCH_MENU_ORDER,
+  moveWorkbenchMenuItem,
+  normalizeWorkbenchMenuOrder,
+  shiftWorkbenchMenuItem,
+  WORKBENCH_MENU_DEFINITIONS,
+  type WorkbenchMenuDropPosition,
+  type WorkbenchMenuId
+} from '@/features/workspace/workbenchMenu'
 import { useAppStore } from '@/stores/app'
 import { darkModePresets, themePresets } from '@/theme/presets'
 import { toIpcPayload } from '@/utils/ipcPayload'
@@ -62,12 +71,26 @@ const draftSettings = reactive<AppSettings>({
   autoSaveInterval: '5m',
   editorFont: 'clear-mono',
   uiScale: 1,
+  workspaceMenuOrder: [...DEFAULT_WORKBENCH_MENU_ORDER],
   darkMode: false,
   darkModeStyle: 'nord',
   aiTimeoutSeconds: 180
 })
 const draftTheme = ref<ThemeName>('ocean')
 const editingProfileId = ref<string>('')
+const draggedMenuId = ref<WorkbenchMenuId | null>(null)
+const dragTargetMenuId = ref<WorkbenchMenuId | null>(null)
+const dragTargetPosition = ref<WorkbenchMenuDropPosition>('before')
+const menuOrderAnnouncement = ref('')
+
+const workbenchMenuDefinitionById = new Map(
+  WORKBENCH_MENU_DEFINITIONS.map((item) => [item.id, item])
+)
+const orderedWorkbenchMenuItems = computed(() =>
+  normalizeWorkbenchMenuOrder(draftSettings.workspaceMenuOrder)
+    .map((id) => workbenchMenuDefinitionById.get(id))
+    .filter((item): item is typeof WORKBENCH_MENU_DEFINITIONS[number] => Boolean(item))
+)
 
 const editingProfile = computed<AiProfile | undefined>(() =>
   draftSettings.aiProfiles.find((p) => p.id === editingProfileId.value)
@@ -124,6 +147,7 @@ const hasPendingChanges = computed(() =>
   || draftSettings.autoSaveInterval !== appStore.appSettings.autoSaveInterval
   || draftSettings.editorFont !== appStore.appSettings.editorFont
   || draftSettings.uiScale !== appStore.appSettings.uiScale
+  || JSON.stringify(draftSettings.workspaceMenuOrder) !== JSON.stringify(appStore.appSettings.workspaceMenuOrder)
   || draftSettings.darkMode !== appStore.appSettings.darkMode
   || draftSettings.darkModeStyle !== appStore.appSettings.darkModeStyle
   || draftSettings.aiTimeoutSeconds !== appStore.appSettings.aiTimeoutSeconds
@@ -148,6 +172,7 @@ function syncDraftFromStore(): void {
   draftSettings.autoSaveInterval = appStore.appSettings.autoSaveInterval
   draftSettings.editorFont = appStore.appSettings.editorFont
   draftSettings.uiScale = appStore.appSettings.uiScale
+  draftSettings.workspaceMenuOrder = normalizeWorkbenchMenuOrder(appStore.appSettings.workspaceMenuOrder)
   draftSettings.darkMode = appStore.appSettings.darkMode
   draftSettings.darkModeStyle = appStore.appSettings.darkModeStyle
   draftSettings.aiTimeoutSeconds = appStore.appSettings.aiTimeoutSeconds
@@ -157,6 +182,63 @@ function syncDraftFromStore(): void {
 function handleProxyUrlChange(value: string): void {
   draftSettings.proxyUrl = value
   proxyTestIp.value = ''
+}
+
+function announceMenuPosition(menuId: WorkbenchMenuId): void {
+  const label = workbenchMenuDefinitionById.get(menuId)?.label ?? menuId
+  const position = normalizeWorkbenchMenuOrder(draftSettings.workspaceMenuOrder).indexOf(menuId) + 1
+  menuOrderAnnouncement.value = `${label}已移动到第 ${position} 项`
+}
+
+function shiftMenuItem(menuId: WorkbenchMenuId, offset: -1 | 1): void {
+  draftSettings.workspaceMenuOrder = shiftWorkbenchMenuItem(
+    draftSettings.workspaceMenuOrder,
+    menuId,
+    offset
+  )
+  announceMenuPosition(menuId)
+}
+
+function resetMenuOrder(): void {
+  draftSettings.workspaceMenuOrder = [...DEFAULT_WORKBENCH_MENU_ORDER]
+  menuOrderAnnouncement.value = '已恢复默认菜单顺序'
+}
+
+function handleMenuDragStart(event: DragEvent, menuId: WorkbenchMenuId): void {
+  draggedMenuId.value = menuId
+  event.dataTransfer?.setData('text/plain', menuId)
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+
+function handleMenuDragOver(event: DragEvent, menuId: WorkbenchMenuId): void {
+  if (!draggedMenuId.value || draggedMenuId.value === menuId) return
+  event.preventDefault()
+  const row = event.currentTarget as HTMLElement
+  const bounds = row.getBoundingClientRect()
+  dragTargetMenuId.value = menuId
+  dragTargetPosition.value = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+}
+
+function clearMenuDragState(): void {
+  draggedMenuId.value = null
+  dragTargetMenuId.value = null
+  dragTargetPosition.value = 'before'
+}
+
+function handleMenuDrop(event: DragEvent, targetId: WorkbenchMenuId): void {
+  event.preventDefault()
+  const sourceId = draggedMenuId.value
+  if (sourceId && sourceId !== targetId) {
+    draftSettings.workspaceMenuOrder = moveWorkbenchMenuItem(
+      draftSettings.workspaceMenuOrder,
+      sourceId,
+      targetId,
+      dragTargetPosition.value
+    )
+    announceMenuPosition(sourceId)
+  }
+  clearMenuDragState()
 }
 
 async function handleTestProxyConnection(): Promise<void> {
@@ -382,6 +464,7 @@ async function saveSettings(): Promise<void> {
   const nextSettings: AppSettings = {
     ...draftSettings,
     aiProfiles: draftSettings.aiProfiles.map((profile) => ({ ...profile })),
+    workspaceMenuOrder: normalizeWorkbenchMenuOrder(draftSettings.workspaceMenuOrder),
     activeAiProfileId: draftSettings.activeAiProfileId,
     provider: activeProfile?.provider ?? draftSettings.provider,
     model: activeProfile?.model ?? draftSettings.model,
@@ -729,7 +812,7 @@ async function saveSettings(): Promise<void> {
             <MonitorCog :size="18" />
             <div>
               <strong>应用偏好</strong>
-              <p>保存节奏与显示比例。</p>
+              <p>保存节奏、显示比例与工作台布局。</p>
             </div>
           </div>
           <div class="settings-grid">
@@ -747,6 +830,73 @@ async function saveSettings(): Promise<void> {
                 @update:value="(value) => { draftSettings.uiScale = value ?? 1 }"
               />
             </n-form-item>
+          </div>
+          <div class="menu-order-block">
+            <div class="menu-order-heading">
+              <div class="menu-order-title">
+                <span>工作台菜单顺序</span>
+                <span class="menu-order-count">{{ orderedWorkbenchMenuItems.length }} 项</span>
+              </div>
+              <button
+                type="button"
+                class="menu-order-reset"
+                title="恢复默认顺序"
+                aria-label="恢复默认菜单顺序"
+                @click="resetMenuOrder"
+              >
+                <RotateCcw :size="15" />
+              </button>
+            </div>
+            <ol class="menu-order-list">
+              <li
+                v-for="(item, index) in orderedWorkbenchMenuItems"
+                :key="item.id"
+                class="menu-order-item"
+                :class="{
+                  'is-dragging': draggedMenuId === item.id,
+                  'drop-before': dragTargetMenuId === item.id && dragTargetPosition === 'before',
+                  'drop-after': dragTargetMenuId === item.id && dragTargetPosition === 'after'
+                }"
+                @dragover="handleMenuDragOver($event, item.id)"
+                @drop="handleMenuDrop($event, item.id)"
+              >
+                <button
+                  type="button"
+                  class="menu-drag-handle"
+                  draggable="true"
+                  :aria-label="`拖动${item.label}`"
+                  @dragstart="handleMenuDragStart($event, item.id)"
+                  @dragend="clearMenuDragState"
+                >
+                  <GripVertical :size="16" />
+                </button>
+                <span class="menu-order-index">{{ String(index + 1).padStart(2, '0') }}</span>
+                <span class="menu-order-label">{{ item.label }}</span>
+                <div class="menu-order-actions">
+                  <button
+                    type="button"
+                    class="menu-order-action"
+                    :disabled="index === 0"
+                    :title="`上移${item.label}`"
+                    :aria-label="`上移${item.label}`"
+                    @click="shiftMenuItem(item.id, -1)"
+                  >
+                    <ArrowUp :size="15" />
+                  </button>
+                  <button
+                    type="button"
+                    class="menu-order-action"
+                    :disabled="index === orderedWorkbenchMenuItems.length - 1"
+                    :title="`下移${item.label}`"
+                    :aria-label="`下移${item.label}`"
+                    @click="shiftMenuItem(item.id, 1)"
+                  >
+                    <ArrowDown :size="15" />
+                  </button>
+                </div>
+              </li>
+            </ol>
+            <span class="menu-order-announcement" aria-live="polite">{{ menuOrderAnnouncement }}</span>
           </div>
           <div class="dark-mode-row">
             <div class="dark-mode-label">
@@ -815,7 +965,9 @@ async function saveSettings(): Promise<void> {
   display: grid;
   grid-template-columns: 192px minmax(0, 1fr);
   gap: 0;
+  height: min(76vh, 720px, calc(100dvh - 160px));
   min-height: 0;
+  overflow: hidden;
 }
 
 /* ── Left Nav ── */
@@ -875,8 +1027,9 @@ async function saveSettings(): Promise<void> {
 
 /* ── Right Content ── */
 .settings-main {
-  max-height: min(76vh, 720px);
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
   padding: 24px 28px;
   scroll-behavior: smooth;
 }
@@ -922,6 +1075,201 @@ async function saveSettings(): Promise<void> {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+.menu-order-block {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--arc-border);
+}
+
+.menu-order-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  margin-bottom: 10px;
+  color: var(--arc-text-primary);
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.menu-order-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.menu-order-count {
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.menu-order-reset,
+.menu-drag-handle,
+.menu-order-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--arc-text-hint);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.menu-order-reset {
+  width: 32px;
+  height: 32px;
+}
+
+.menu-order-reset:hover,
+.menu-drag-handle:hover,
+.menu-order-action:hover:not(:disabled) {
+  border-color: var(--arc-border);
+  background: var(--arc-bg-surface-hover);
+  color: var(--arc-text-primary);
+}
+
+.menu-order-reset:focus-visible,
+.menu-drag-handle:focus-visible,
+.menu-order-action:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--arc-primary) 44%, var(--arc-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 12%, transparent);
+}
+
+.menu-order-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
+  list-style: none;
+}
+
+.menu-order-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 40px 34px minmax(0, 1fr) 72px;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 8px 0 4px;
+  border-bottom: 1px solid var(--arc-bg-surface-hover);
+  background: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+.menu-order-item:last-child {
+  border-bottom: none;
+}
+
+.menu-order-item:hover,
+.menu-order-item:focus-within {
+  background: var(--arc-bg-weak);
+}
+
+.menu-order-item::before,
+.menu-order-item::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  left: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--arc-primary);
+  opacity: 0;
+  z-index: 1;
+}
+
+.menu-order-item::before {
+  top: -1px;
+}
+
+.menu-order-item::after {
+  bottom: -1px;
+}
+
+.menu-order-item.drop-before::before,
+.menu-order-item.drop-after::after {
+  opacity: 1;
+}
+
+.menu-order-item.is-dragging {
+  background: color-mix(in srgb, var(--arc-primary) 7%, var(--arc-bg-surface));
+  opacity: 0.56;
+}
+
+.menu-drag-handle {
+  width: 40px;
+  height: 40px;
+  cursor: grab;
+}
+
+.menu-drag-handle:active {
+  cursor: grabbing;
+}
+
+.menu-order-index {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-hint);
+  font-size: 10.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-order-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--arc-text-primary);
+  font-size: 13.2px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-order-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  opacity: 0.48;
+  transition: opacity 0.15s ease;
+}
+
+.menu-order-item:hover .menu-order-actions,
+.menu-order-item:focus-within .menu-order-actions {
+  opacity: 1;
+}
+
+.menu-order-action {
+  width: 34px;
+  height: 34px;
+}
+
+.menu-order-action:disabled {
+  cursor: default;
+  opacity: 0.24;
+}
+
+.menu-order-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .provider-hint-block {
@@ -1344,7 +1692,12 @@ async function saveSettings(): Promise<void> {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .theme-dot {
+  .theme-dot,
+  .menu-order-item,
+  .menu-order-actions,
+  .menu-order-reset,
+  .menu-drag-handle,
+  .menu-order-action {
     transition: none;
   }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from 'vue'
 import {
   BookMarked,
   BookOpenText,
@@ -19,6 +19,11 @@ import {
   GitMerge
 } from 'lucide-vue-next'
 import { NButton, NInput } from 'naive-ui'
+import {
+  normalizeWorkbenchMenuOrder,
+  WORKBENCH_MENU_DEFINITIONS,
+  type WorkbenchMenuId
+} from '@/features/workspace/workbenchMenu'
 import { resolveNovelLengthLabel } from '@/features/wizard/projectGenres'
 import { useAppStore } from '@/stores/app'
 import NovelWorkflowPanel from '@/components/NovelWorkflowPanel.vue'
@@ -71,19 +76,30 @@ const panelSearch = reactive<Record<string, string>>({
 // 当前面板的搜索关键词（与 panelSearch 双向同步）
 const searchKeyword = ref(panelSearch[appStore.activePanel] ?? '')
 
-// 侧边栏导航项配置列表，定义各模块的 id、标签、描述和图标
-const sidebarItems = [
-  { id: 'overview', label: '作品概览', description: '掌握项目进度与全局信息', icon: LayoutDashboard, color: '#8b5cf6' },
-  { id: 'characters', label: '角色图鉴', description: '维护人物卡、关系与成长线索', icon: Users, color: '#ec4899' },
-  { id: 'relations', label: '关系组织', description: '维护势力结构、人物关系与成员归属', icon: Network, color: '#6b7280' },
-  { id: 'world', label: '世界观设定', description: '沉淀世界规则、地点与设定条目', icon: Globe2, color: '#06b6d4' },
-  { id: 'outline', label: '剧情大纲', description: '组织卷宗结构与关键情节点', icon: GitMerge, color: '#10b981' },
-  { id: 'threads', label: '剧情线索', description: '追踪未收尾伏笔与活跃剧情线', icon: BookMarked, color: '#6366f1' },
-  { id: 'chapters', label: '章节创作', description: '进入正文草稿与章节推进流程', icon: FileText, color: '#3b82f6' },
-  { id: 'inspiration', label: '灵感模块', description: '收集标题、桥段、转折与人物动机', icon: Lightbulb, color: '#f59e0b' },
-  { id: 'project-knowledge', label: '项目知识库', description: '一致性审计与从已有章节补录状态', icon: FileCheck2, color: '#14b8a6' },
-  { id: 'global-assistant-v2', label: '全局助手 v2', description: 'Runtime v2 · 多轮对话 + 暂存变更审阅', icon: Sparkles, color: '#0d7d5a' }
-] as const
+const sidebarItemPresentation = {
+  overview: { description: '掌握项目进度与全局信息', icon: LayoutDashboard, color: '#8b5cf6' },
+  characters: { description: '维护人物卡、关系与成长线索', icon: Users, color: '#ec4899' },
+  relations: { description: '维护势力结构、人物关系与成员归属', icon: Network, color: '#6b7280' },
+  world: { description: '沉淀世界规则、地点与设定条目', icon: Globe2, color: '#06b6d4' },
+  outline: { description: '组织卷宗结构与关键情节点', icon: GitMerge, color: '#10b981' },
+  threads: { description: '追踪未收尾伏笔与活跃剧情线', icon: BookMarked, color: '#6366f1' },
+  chapters: { description: '进入正文草稿与章节推进流程', icon: FileText, color: '#3b82f6' },
+  inspiration: { description: '收集标题、桥段、转折与人物动机', icon: Lightbulb, color: '#f59e0b' },
+  'project-knowledge': { description: '一致性审计与从已有章节补录状态', icon: FileCheck2, color: '#14b8a6' },
+  'global-assistant-v2': { description: 'Runtime v2 · 多轮对话 + 暂存变更审阅', icon: Sparkles, color: '#0d7d5a' }
+} satisfies Record<WorkbenchMenuId, { description: string; icon: Component; color: string }>
+
+const sidebarItemCatalog = WORKBENCH_MENU_DEFINITIONS.map((item) => ({
+  ...item,
+  ...sidebarItemPresentation[item.id]
+}))
+
+const sidebarItems = computed(() => {
+  const itemById = new Map(sidebarItemCatalog.map((item) => [item.id, item]))
+  return normalizeWorkbenchMenuOrder(appStore.appSettings.workspaceMenuOrder)
+    .map((id) => itemById.get(id))
+    .filter((item): item is typeof sidebarItemCatalog[number] => Boolean(item))
+})
 
 const hiddenPanelLabels: Partial<Record<PanelName, string>> = {
   deconstruction: '拆书知识库',
@@ -110,7 +126,7 @@ const activeViewLabel = computed(() => {
     return '项目设置'
   }
 
-  return sidebarItems.find((item) => item.id === appStore.activePanel)?.label
+  return sidebarItems.value.find((item) => item.id === appStore.activePanel)?.label
     ?? hiddenPanelLabels[appStore.activePanel]
     ?? '项目工作台'
 })

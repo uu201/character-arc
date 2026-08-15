@@ -340,6 +340,7 @@ export type WorkspacePayload = {
     autoSaveInterval: string
     editorFont: string
     uiScale: number
+    workspaceMenuOrder: string[]
     darkMode: boolean
     darkModeStyle: string
   }
@@ -531,6 +532,12 @@ export function normalizeAppSettings(
         ? settings.editorFont
         : 'clear-mono',
     uiScale,
+    workspaceMenuOrder: Array.isArray(settings?.workspaceMenuOrder)
+      ? [...new Set(settings.workspaceMenuOrder
+          .filter((item): item is string => typeof item === 'string')
+          .map((item) => item.trim())
+          .filter(Boolean))]
+      : [],
     darkMode: Boolean(settings?.darkMode),
     darkModeStyle:
       settings?.darkModeStyle === 'nord'

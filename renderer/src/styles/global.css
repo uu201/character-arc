@@ -1454,8 +1454,23 @@ input {
   border-radius: var(--arc-radius-lg);
 }
 
-.arc-settings-modal .n-card {
+.arc-settings-modal.n-card {
+  display: flex;
+  max-height: calc(100dvh - 32px);
+  flex-direction: column;
+  overflow: hidden;
   border-radius: var(--arc-radius-lg);
+}
+
+.arc-settings-modal.n-card > .n-card__content {
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.arc-settings-modal.n-card > .n-card-header,
+.arc-settings-modal.n-card > .n-card__footer {
+  flex-shrink: 0;
 }
 
 .arc-modal-actions {

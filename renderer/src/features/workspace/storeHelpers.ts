@@ -33,6 +33,7 @@ import type {
   ThemeName,
   WorldviewEntry
 } from '@/types/app'
+import { normalizeWorkbenchMenuOrder } from './workbenchMenu'
 
 // 持久化到本地存储的完整应用状态结构
 export interface StoredState {
@@ -245,6 +246,7 @@ export const defaultAppSettings: AppSettings = {
   autoSaveInterval: '5m',
   editorFont: DEFAULT_EDITOR_FONT,
   uiScale: 1,
+  workspaceMenuOrder: normalizeWorkbenchMenuOrder(),
   darkMode: false,
   darkModeStyle: 'nord',
   aiTimeoutSeconds: 180
@@ -402,6 +404,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
       typeof source.uiScale === 'number' && Number.isFinite(source.uiScale)
         ? Math.min(1.75, Math.max(0.75, source.uiScale))
         : defaultAppSettings.uiScale,
+    workspaceMenuOrder: normalizeWorkbenchMenuOrder(source.workspaceMenuOrder),
     darkMode: typeof source.darkMode === 'boolean' ? source.darkMode : defaultAppSettings.darkMode,
     darkModeStyle: source.darkModeStyle === 'nord' ? 'nord' : defaultAppSettings.darkModeStyle,
     aiTimeoutSeconds:

@@ -27,6 +27,7 @@ export interface AppSettingsPayload {
   imageBaseUrl: string
   autoSaveInterval: string
   uiScale: number
+  workspaceMenuOrder: string[]
   darkMode: boolean
   darkModeStyle: string
 }

@@ -100,6 +100,23 @@ test('旧 AI 设置和配置档案缺少协议时迁移为 auto', () => {
   assert.equal(merged.appSettings.aiProfiles[0].apiProtocol, 'auto')
 })
 
+test('工作台菜单顺序按应用设置保存并清理重复值', () => {
+  const normalized = normalizeWorkspacePayload({
+    theme: 'ocean',
+    selectedProjectId: '',
+    projects: [],
+    workspaces: {},
+    knowledgeDocuments: [],
+    referenceWorks: [],
+    coverWorkbenchHistory: [],
+    appSettings: {
+      workspaceMenuOrder: ['chapters', 'overview', 'chapters', '  outline  ', '']
+    }
+  })
+
+  assert.deepEqual(normalized.appSettings.workspaceMenuOrder, ['chapters', 'overview', 'outline'])
+})
+
 test('全局 AI 日志会合并旧项目级记录并按 ID 去重', () => {
   const legacyRun = {
     id: 'run-legacy',
