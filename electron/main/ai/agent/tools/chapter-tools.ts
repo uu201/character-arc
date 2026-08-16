@@ -8,6 +8,7 @@ import {
   resolveProjectChapterId,
   searchProjectData
 } from './chapter-data-access'
+import { formatTextWindowNote, sliceTextWindow } from './text-window'
 
 export type ChapterToolCallbacks = {
   currentChapterId: string
@@ -101,6 +102,14 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
           include_content: {
             type: 'boolean',
             description: 'Whether to include full chapter content. Defaults to true.'
+          },
+          content_offset: {
+            type: 'integer',
+            description: 'Optional zero-based character offset for reading long chapter content in chunks. When a result includes Next content_offset, pass that value here to continue.'
+          },
+          content_limit: {
+            type: 'integer',
+            description: 'Optional character window size for chapter content. Defaults to 15000 and is capped at 30000.'
           }
         }
       }
@@ -142,11 +151,14 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
         `Summary: ${chapter.summary || '(none)'}`
       ]
 
-      if (plainContent) {
-        const truncated = plainContent.length > 15000
-          ? `${plainContent.slice(0, 15000)}\n...(truncated)`
-          : plainContent
-        lines.push(`\nContent:\n${truncated}`)
+      if (plainContent !== null) {
+        const window = sliceTextWindow(plainContent, {
+          offset: input.content_offset,
+          limit: input.content_limit,
+          defaultLimit: 15000,
+          maxLimit: 30000
+        })
+        lines.push(`\n${formatTextWindowNote(window)}\nContent:\n${window.text}`)
       }
 
       return { content: lines.join('\n') }
@@ -287,6 +299,14 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
           max_results: {
             type: 'integer',
             description: 'Maximum number of results. Defaults to 10.'
+          },
+          output_offset: {
+            type: 'integer',
+            description: 'Optional zero-based character offset for continuing a long search result. When a result includes Next output_offset, pass that value here with the same query.'
+          },
+          output_limit: {
+            type: 'integer',
+            description: 'Optional character window size for search output. Defaults to 12000 and is capped at 30000.'
           }
         },
         required: ['query']
@@ -315,8 +335,15 @@ export function createChapterTools(callbacks: ChapterToolCallbacks): Tool[] {
         ].join('\n'))
         .join('\n\n---\n\n')
 
+      const output = `Found ${results.length} result(s).\n\n${formatted}`
+      const window = sliceTextWindow(output, {
+        offset: input.output_offset,
+        limit: input.output_limit,
+        defaultLimit: 12000,
+        maxLimit: 30000
+      })
       return {
-        content: `Found ${results.length} result(s).\n\n${formatted}`.slice(0, 12000)
+        content: `${formatTextWindowNote(window, 'Search output', 'output_offset')}\n${window.text}`
       }
     }
   }

@@ -3,6 +3,7 @@ import { join, relative, sep } from 'node:path'
 import type { SkillDefinition } from '../../skills/types'
 import { loadSkillReferenceFile, resolveSkillRelativePath } from '../../skills/loader'
 import { runScript } from './script-runner'
+import { formatTextWindowNote, sliceTextWindow } from './text-window'
 import type { Tool, ToolHandlerResult } from './types'
 
 export type SkillToolFactoryOptions = {
@@ -28,6 +29,8 @@ const DEFAULT_REFERENCE_CHAR_CAP = 0
 const DEFAULT_GLOB_ENTRY_CAP = 200
 /** 脚本执行默认超时（毫秒） */
 const DEFAULT_SCRIPT_TIMEOUT_MS = 30_000
+/** 单路 stdout/stderr 最大允许返回 1MB，避免脚本刷屏撑爆工具结果 */
+const MAX_SCRIPT_OUTPUT_BYTES = 1_048_576
 
 /** 构造成功的工具返回 */
 function ok(content: string): ToolHandlerResult {
@@ -180,7 +183,15 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
         type: 'object',
         properties: {
           skill_id: { type: 'string', description: 'skill 的 id' },
-          file: { type: 'string', description: '相对 skill 根目录的路径，如 "references/output-templates.md"' }
+          file: { type: 'string', description: '相对 skill 根目录的路径，如 "references/output-templates.md"' },
+          content_offset: {
+            type: 'integer',
+            description: '可选。长参考文件分段读取的零基字符偏移；结果含 Next content_offset 时用该值继续读。'
+          },
+          content_limit: {
+            type: 'integer',
+            description: '可选。长参考文件单次读取字符数；默认使用工具上限或 15000，最高 30000。'
+          }
         },
         required: ['skill_id', 'file']
       }
@@ -192,8 +203,16 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
         const result = resolveSkillOrError(skillId)
         if ('error' in result) return err(result.error)
         const content = await loadSkillReferenceFile(result, file)
-        if (!maxReferenceChars || content.length <= maxReferenceChars) return ok(content)
-        return ok(`${content.slice(0, maxReferenceChars)}\n\n[已截断 ${content.length - maxReferenceChars} 字。如需完整请调用更精确的范围，或分段读取。]`)
+        const usesWindow = maxReferenceChars > 0 || typeof input.content_offset === 'number' || typeof input.content_limit === 'number'
+        if (!usesWindow) return ok(content)
+
+        const window = sliceTextWindow(content, {
+          offset: input.content_offset,
+          limit: input.content_limit,
+          defaultLimit: maxReferenceChars || 15000,
+          maxLimit: maxReferenceChars || 30000
+        })
+        return ok(`${formatTextWindowNote(window, 'Reference content')}\n${window.text}`)
       } catch (error) {
         return err(error instanceof Error ? error.message : String(error))
       }
@@ -203,12 +222,20 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
   const skillGlob: Tool = {
     definition: {
       name: 'skill_glob',
-      description: '列出 skill 目录下的所有文件（递归）。可选传 substring 过滤文件名/路径。返回相对 skill 根目录的路径。',
+      description: '列出 skill 目录下的文件（递归）。可选传 substring 过滤文件名/路径。返回相对 skill 根目录的路径。结果支持 offset/limit 翻页。',
       inputSchema: {
         type: 'object',
         properties: {
           skill_id: { type: 'string', description: 'skill 的 id' },
-          pattern: { type: 'string', description: '可选，过滤文件路径的 substring（不区分大小写，含路径）' }
+          pattern: { type: 'string', description: '可选，过滤文件路径的 substring（不区分大小写，含路径）' },
+          offset: {
+            type: 'integer',
+            description: '可选，零基结果偏移；返回 Next offset 时用该值继续读取下一页。'
+          },
+          limit: {
+            type: 'integer',
+            description: `可选，本页最多返回多少个文件。默认 ${maxGlobEntries}，最高 ${maxGlobEntries}。`
+          }
         },
         required: ['skill_id']
       }
@@ -219,10 +246,22 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
         const pattern = typeof input.pattern === 'string' ? input.pattern.trim().toLowerCase() : ''
         const result = resolveSkillOrError(skillId)
         if ('error' in result) return err(result.error)
-        const files = await listFilesRecursive(result.rootDir, maxGlobEntries)
+        const files = await listFilesRecursive(result.rootDir)
         const filtered = pattern ? files.filter((f) => f.toLowerCase().includes(pattern)) : files
         if (filtered.length === 0) return ok('（无匹配文件）')
-        return ok(filtered.join('\n'))
+        const offset = typeof input.offset === 'number' && Number.isFinite(input.offset)
+          ? Math.max(0, Math.floor(input.offset))
+          : 0
+        const limit = typeof input.limit === 'number' && Number.isFinite(input.limit)
+          ? Math.max(1, Math.min(Math.floor(input.limit), maxGlobEntries))
+          : maxGlobEntries
+        const start = Math.min(offset, filtered.length)
+        const end = Math.min(start + limit, filtered.length)
+        const page = filtered.slice(start, end)
+        const note = end < filtered.length
+          ? `Showing files ${start + 1}-${end} of ${filtered.length}. Next offset: ${end}.`
+          : `Showing files ${start + 1}-${end} of ${filtered.length}. End of list.`
+        return ok(`${page.join('\n')}\n\n(${note})`)
       } catch (error) {
         return err(error instanceof Error ? error.message : String(error))
       }
@@ -242,6 +281,10 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
             type: 'array',
             description: '传给脚本的命令行参数',
             items: { type: 'string' }
+          },
+          max_output_bytes: {
+            type: 'integer',
+            description: `可选。stdout/stderr 各自最大返回字节数，默认 65536，最高 ${MAX_SCRIPT_OUTPUT_BYTES}。脚本输出被截断时可调大，或让脚本把大结果写入文件。`
           }
         },
         required: ['skill_id', 'script']
@@ -254,6 +297,9 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
         const args = Array.isArray(input.args)
           ? input.args.map((a) => String(a))
           : []
+        const maxOutputBytes = typeof input.max_output_bytes === 'number' && Number.isFinite(input.max_output_bytes)
+          ? Math.max(1, Math.min(Math.floor(input.max_output_bytes), MAX_SCRIPT_OUTPUT_BYTES))
+          : undefined
         const result = resolveSkillOrError(skillId)
         if ('error' in result) return err(result.error)
         if (opts.allowScriptExecution && !opts.allowScriptExecution(result)) {
@@ -264,13 +310,16 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
           cwd: result.rootDir,
           args,
           timeoutMs: scriptTimeoutMs,
+          maxOutputBytes,
           signal: ctx.signal
         })
         const summary = [
           `exitCode: ${run.exitCode === null ? '(null)' : run.exitCode}`,
           run.signal ? `signal: ${run.signal}` : '',
           run.timedOut ? `timedOut: true（超过 ${scriptTimeoutMs}ms 被强杀）` : '',
-          run.truncated ? 'truncated: true（输出超过上限被截断）' : '',
+          run.truncated
+            ? `truncated: true（输出超过上限被截断；可用 max_output_bytes 调大至 ${MAX_SCRIPT_OUTPUT_BYTES}，或让脚本把大结果写入文件/减少输出）`
+            : '',
           run.error ? `error: ${run.error}` : '',
           `durationMs: ${run.durationMs}`,
           '',
@@ -291,19 +340,16 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
 }
 
 /**
- * 递归列出目录下所有文件（相对路径），达到上限时提前终止
+ * 递归列出目录下所有文件（相对路径）
  * @param rootDir - 根目录绝对路径
- * @param cap - 最大返回文件数
  * @returns 排序后的相对路径数组
  */
-async function listFilesRecursive(rootDir: string, cap: number): Promise<string[]> {
+async function listFilesRecursive(rootDir: string): Promise<string[]> {
   const out: string[] = []
 
   async function walk(dir: string): Promise<void> {
-    if (out.length >= cap) return
     const entries = await readdir(dir, { withFileTypes: true })
     for (const entry of entries) {
-      if (out.length >= cap) return
       // 跳过常见的"应该忽略"目录，避免噪音
       if (entry.isDirectory()) {
         if (entry.name === 'node_modules' || entry.name === '.git' || entry.name.startsWith('.')) continue

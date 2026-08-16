@@ -2,6 +2,7 @@
 
 import type { Tool } from '../../agent/tools/types'
 import { resolveProjectChapterId } from '../../agent/tools/chapter-data-access'
+import { formatTextWindowNote, sliceTextWindow } from '../../agent/tools/text-window'
 import { ensureWorkspaceDb } from '../../../workspace-store'
 import type { StagedChangesStore } from '../staged-changes-store'
 
@@ -219,7 +220,15 @@ export function makeListChapterVersionsTool(deps: StageChapterManagementToolDeps
         properties: {
           chapter_id: { type: 'string', description: '章节 ID、标题或自然引用；省略时使用当前章节。' },
           limit: { type: 'integer', description: '最多返回多少个版本，默认 10，最大 20。' },
-          include_content: { type: 'boolean', description: '是否附带每个版本的正文预览，默认 false。' }
+          include_content: { type: 'boolean', description: '是否附带每个版本的正文窗口，默认 false。' },
+          content_offset: {
+            type: 'integer',
+            description: '可选。版本正文分段读取的零基字符偏移；结果含 Next content_offset 时用该值继续读。'
+          },
+          content_limit: {
+            type: 'integer',
+            description: '可选。版本正文单次读取字符数；默认 500，最高 30000。'
+          }
         }
       }
     },
@@ -247,6 +256,14 @@ export function makeListChapterVersionsTool(deps: StageChapterManagementToolDeps
       const includeContent = input.include_content === true
       const lines = versions.map((version, index) => {
         const plain = stripHtml(version.content)
+        const window = includeContent
+          ? sliceTextWindow(plain, {
+              offset: input.content_offset,
+              limit: input.content_limit,
+              defaultLimit: 500,
+              maxLimit: 30000
+            })
+          : null
         const detail = [
           `${index + 1}. version_id=${version.id}`,
           `时间：${version.created_at}`,
@@ -254,7 +271,7 @@ export function makeListChapterVersionsTool(deps: StageChapterManagementToolDeps
           `状态：${version.status}`,
           `摘要：${version.summary || '（空）'}`,
           `正文字符数：${plain.replace(/\s/g, '').length}`,
-          includeContent ? `正文预览：${plain.slice(0, 500)}${plain.length > 500 ? '…' : ''}` : ''
+          window ? `${formatTextWindowNote(window, 'Version content')}\n正文：\n${window.text}` : ''
         ].filter(Boolean)
         return detail.join('\n')
       })

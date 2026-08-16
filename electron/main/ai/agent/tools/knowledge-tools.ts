@@ -110,6 +110,13 @@ export function createKnowledgeTools(opts: KnowledgeToolFactoryOptions): Tool[] 
           return err(`参数 sourceType 非法：${rawSourceType}。可选：${Array.from(VALID_SOURCE_TYPES).join(', ')}`)
         }
 
+        if (content.length > maxContent) {
+          return err([
+            `文档 content 长度 ${content.length} 字，超过单文档上限 ${maxContent} 字，已拒绝保存以避免静默截断。`,
+            '请把内容按主题拆成多份 knowledge_save_document 调用，或先压缩成不超过上限的结构化摘要后再保存。'
+          ].join('\n'))
+        }
+
         const summaryRaw = typeof input.summary === 'string' ? input.summary.trim() : ''
         const summary = summaryRaw || content.slice(0, 220)
 
@@ -129,9 +136,6 @@ export function createKnowledgeTools(opts: KnowledgeToolFactoryOptions): Tool[] 
           ? { sourceTitle: opts.defaultSourceLabel, ...metadataInput }
           : metadataInput
 
-        const truncatedContent = content.length > maxContent ? content.slice(0, maxContent) : content
-        const truncated = truncatedContent.length < content.length
-
         const sourceLabel = typeof input.sourceLabel === 'string' && input.sourceLabel.trim()
           ? input.sourceLabel.trim()
           : opts.defaultSourceLabel ?? ''
@@ -140,7 +144,7 @@ export function createKnowledgeTools(opts: KnowledgeToolFactoryOptions): Tool[] 
           title,
           sourceType,
           sourceLabel,
-          content: truncatedContent,
+          content,
           summary,
           ...(keywords ? { keywords } : {}),
           ...(Object.keys(metadata).length > 0 ? { metadata } : {})
@@ -150,7 +154,7 @@ export function createKnowledgeTools(opts: KnowledgeToolFactoryOptions): Tool[] 
         savedCount += 1
 
         return ok([
-          `已落库第 ${savedCount} 份知识文档：${title}（${sourceType}，${truncatedContent.length} 字${truncated ? '，超长已截断' : ''}${savedId ? `，ID: ${savedId}` : ''}）。`,
+          `已落库第 ${savedCount} 份知识文档：${title}（${sourceType}，${content.length} 字${savedId ? `，ID: ${savedId}` : ''}）。`,
           '继续保存其余维度的知识，或如果已经覆盖完所有需要拆解的内容，直接给出最终回复结束本次任务。'
         ].join('\n'))
       } catch (error) {

@@ -1,5 +1,6 @@
 import { ensureWorkspaceDb } from '../../../workspace-store'
 import type { Tool, ToolHandlerResult } from './types'
+import { formatTextWindowNote, sliceTextWindow } from './text-window'
 
 type WorkspaceDb = Awaited<ReturnType<typeof ensureWorkspaceDb>>
 
@@ -52,7 +53,7 @@ export function createProjectDataTools(): Tool[] {
   const readProjectData: Tool = {
     definition: {
       name: 'read_project_data',
-      description: 'Read current project data by module. Omit entity_type to get a lightweight index first. Use available_deconstructions for the public deconstruction/reference-work library available to all projects. Supports targeted reads with entity_id, summary_only, limit, offset, and doc_key (for workflow_documents). Use the returned Next offset to page through a module without repeating the same call.',
+      description: 'Read current project data by module. Omit entity_type to get a lightweight index first. Use available_deconstructions for the public deconstruction/reference-work library available to all projects. Supports targeted reads with entity_id, summary_only, limit, offset, content_offset, content_limit, and doc_key (for workflow_documents). Use the returned Next offset to page through a module without repeating the same call. Use Next content_offset to continue long entity content.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -77,6 +78,14 @@ export function createProjectDataTools(): Tool[] {
             type: 'integer',
             description: 'Optional. Zero-based row offset for pagination. When a result includes Next offset, pass that value here to read the next page.'
           },
+          content_offset: {
+            type: 'integer',
+            description: 'Optional. Zero-based character offset for long entity content when a targeted read returns Next content_offset.'
+          },
+          content_limit: {
+            type: 'integer',
+            description: 'Optional. Character window size for long entity content. Defaults to 15000 where windowing is supported and is capped at 30000.'
+          },
           doc_key: {
             type: 'string',
             description: 'Optional. For workflow_documents, read a specific document by doc_key.'
@@ -99,6 +108,12 @@ export function createProjectDataTools(): Tool[] {
         const offset = typeof input.offset === 'number' && Number.isFinite(input.offset)
           ? Math.max(0, Math.floor(input.offset))
           : 0
+        const contentOffset = typeof input.content_offset === 'number' && Number.isFinite(input.content_offset)
+          ? Math.max(0, Math.floor(input.content_offset))
+          : 0
+        const contentLimit = typeof input.content_limit === 'number' && Number.isFinite(input.content_limit)
+          ? Math.max(1, Math.min(Math.floor(input.content_limit), 30000))
+          : undefined
         const docKey = typeof input.doc_key === 'string' ? input.doc_key.trim() : ''
 
         if (!entityType) {
@@ -115,6 +130,8 @@ export function createProjectDataTools(): Tool[] {
           summaryOnly,
           limit,
           offset,
+          contentOffset,
+          contentLimit,
           docKey
         }))
       } catch (error) {
@@ -191,6 +208,8 @@ type ReadEntitiesOptions = {
   summaryOnly: boolean
   limit?: number
   offset: number
+  contentOffset: number
+  contentLimit?: number
   docKey: string
 }
 
@@ -210,6 +229,20 @@ function withLimitNote(body: string, originalCount: number, limit?: number, offs
     ? `Showing items ${start + 1}-${end} of ${originalCount}. Next offset: ${end}.`
     : `Showing items ${start + 1}-${end} of ${originalCount}. End of list.`
   return body ? `${body}\n\n(${pageNote})` : `(${pageNote})`
+}
+
+function formatWindowedValue(
+  value: string,
+  options: Pick<ReadEntitiesOptions, 'contentOffset' | 'contentLimit'>,
+  label = 'Content'
+): string {
+  const window = sliceTextWindow(value, {
+    offset: options.contentOffset,
+    limit: options.contentLimit,
+    defaultLimit: 15000,
+    maxLimit: 30000
+  })
+  return `${formatTextWindowNote(window, label)}\n${window.text}`
 }
 
 function normalizeNaturalRef(value: string): string {
@@ -276,14 +309,14 @@ function resolveOrderedEntity<T extends { id: string; title: string }>(
 
 async function readEntities(projectId: string, options: ReadEntitiesOptions): Promise<string> {
   const db = await ensureWorkspaceDb()
-  const { type, entityId, summaryOnly, limit, offset, docKey } = options
+  const { type, entityId, summaryOnly, limit, offset, contentOffset, contentLimit, docKey } = options
 
   switch (type) {
     case 'worldview': {
       if (entityId) {
         const row = db.prepare('SELECT title, content FROM worldview_entries WHERE id = ? AND project_id = ?').get(entityId, projectId) as { title: string; content: string } | undefined
         if (!row) return `Worldview entry not found: ${entityId}`
-        return summaryOnly ? `# ${row.title}\n\n${truncateText(row.content, 400)}` : `# ${row.title}\n\n${row.content}`
+        return summaryOnly ? `# ${row.title}\n\n${truncateText(row.content, 400)}` : `# ${row.title}\n\n${formatWindowedValue(row.content, options)}`
       }
       const rows = db.prepare('SELECT id, title, content FROM worldview_entries WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string; content: string }[]
       if (!rows.length) return 'No worldview entries.'
@@ -299,7 +332,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         if (!row) return `Character not found: ${entityId}`
         return summaryOnly
           ? `# ${row.name}${row.role ? ` (${row.role})` : ''}\n\n${truncateText(row.description, 320)}`
-          : `# ${row.name}${row.role ? ` (${row.role})` : ''}\n\n${row.description}`
+          : `# ${row.name}${row.role ? ` (${row.role})` : ''}\n\n${formatWindowedValue(row.description, options, 'Description')}`
       }
       const rows = db.prepare('SELECT id, name, role, description FROM characters WHERE project_id = ?').all(projectId) as { id: string; name: string; role: string; description: string }[]
       if (!rows.length) return 'No characters.'
@@ -315,7 +348,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         if (!row) return `Organization not found: ${entityId}`
         return summaryOnly
           ? [`# ${row.name}${row.type ? ` (${row.type})` : ''}`, truncateText(row.description, 240), row.motto ? `Motto: ${row.motto}` : ''].filter(Boolean).join('\n\n')
-          : [`# ${row.name}${row.type ? ` (${row.type})` : ''}`, row.description, row.motto ? `Motto: ${row.motto}` : ''].filter(Boolean).join('\n\n')
+          : [`# ${row.name}${row.type ? ` (${row.type})` : ''}`, formatWindowedValue(row.description, options, 'Description'), row.motto ? `Motto: ${row.motto}` : ''].filter(Boolean).join('\n\n')
       }
       const rows = db.prepare('SELECT id, name, type, description FROM organizations WHERE project_id = ?').all(projectId) as { id: string; name: string; type: string; description: string }[]
       if (!rows.length) return 'No organizations.'
@@ -337,7 +370,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         const title = `${from} -> ${to}${row.type ? ` (${String(row.type)})` : ''}`
         return summaryOnly
           ? `${title}\nIntensity: ${String(row.intensity ?? '')}\n${truncateText(description, 320)}`
-          : `${title}\nIntensity: ${String(row.intensity ?? '')}\n\n${description}`
+          : `${title}\nIntensity: ${String(row.intensity ?? '')}\n\n${formatWindowedValue(description, options, 'Description')}`
       }
       const rows = db.prepare('SELECT id, from_character_id, to_character_id, type, description, intensity FROM character_relationships WHERE project_id = ?').all(projectId) as Array<Record<string, unknown>>
       if (!rows.length) return 'No relationships.'
@@ -369,7 +402,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         const notes = String(row.notes ?? '').trim()
         return summaryOnly
           ? `${character} -> ${organization}${role ? ` (${role})` : ''}${notes ? `: ${truncateText(notes, 240)}` : ''}`
-          : [`${character} -> ${organization}${role ? ` (${role})` : ''}`, notes].filter(Boolean).join('\n\n')
+          : [`${character} -> ${organization}${role ? ` (${role})` : ''}`, notes ? formatWindowedValue(notes, options, 'Notes') : ''].filter(Boolean).join('\n\n')
       }
       const rows = db.prepare('SELECT id, character_id, organization_id, role, notes FROM organization_memberships WHERE project_id = ?').all(projectId) as Array<Record<string, unknown>>
       if (!rows.length) return 'No organization memberships.'
@@ -412,23 +445,32 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         const row = db.prepare('SELECT id, title, summary, status, word_target, content, sort_order FROM chapters WHERE id = ? AND project_id = ?').get(entityId, projectId) as Record<string, unknown> | undefined
         if (!row) return `Chapter not found: ${entityId}`
         const content = stripHtml(String(row.content ?? ''))
-        return summaryOnly
-          ? [
-              `# ${String(row.title)}`,
-              `Status: ${String(row.status)}`,
-              `Word target: ${String(row.word_target)}`,
-              `Summary: ${String(row.summary || '(none)')}`,
-              '',
-              truncateText(content, 800)
-            ].join('\n')
-          : [
-              `# ${String(row.title)}`,
-              `Status: ${String(row.status)}`,
-              `Word target: ${String(row.word_target)}`,
-              `Summary: ${String(row.summary || '(none)')}`,
-              '',
-              content.length > 15000 ? `${content.slice(0, 15000)}\n...(truncated)` : content
-            ].join('\n')
+        if (summaryOnly) {
+          return [
+            `# ${String(row.title)}`,
+            `Status: ${String(row.status)}`,
+            `Word target: ${String(row.word_target)}`,
+            `Summary: ${String(row.summary || '(none)')}`,
+            '',
+            truncateText(content, 800)
+          ].join('\n')
+        }
+
+        const window = sliceTextWindow(content, {
+          offset: contentOffset,
+          limit: contentLimit,
+          defaultLimit: 15000,
+          maxLimit: 30000
+        })
+        return [
+          `# ${String(row.title)}`,
+          `Status: ${String(row.status)}`,
+          `Word target: ${String(row.word_target)}`,
+          `Summary: ${String(row.summary || '(none)')}`,
+          '',
+          formatTextWindowNote(window),
+          window.text
+        ].join('\n')
       }
       const rows = db.prepare('SELECT id, title, summary, status, content FROM chapters WHERE project_id = ? ORDER BY sort_order').all(projectId) as Array<Record<string, unknown>>
       if (!rows.length) return 'No chapters.'
@@ -437,7 +479,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         ? limitedRows.map((row) => `- [${String(row.id)}] ${String(row.title)} (${String(row.status)}): ${truncateText(String(row.summary ?? ''), 140)}`).join('\n')
         : limitedRows.map((row) => {
             const content = stripHtml(String(row.content ?? ''))
-            return `# ${String(row.title)} (${String(row.status)})\nSummary: ${String(row.summary || '(none)')}\n\n${truncateText(content, 1200)}`
+            return `# ${String(row.title)} (${String(row.status)})\nSummary: ${String(row.summary || '(none)')}\n\nContent preview (first 1200 chars; for full content, read this entity_id with content_offset/content_limit or use read_chapter):\n${truncateText(content, 1200)}`
           }).join('\n\n---\n\n')
       return withLimitNote(body, rows.length, limit, offset)
     }
@@ -453,7 +495,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
           tags.length ? `Tags: ${tags.join(', ')}` : '',
           `Updated: ${String(row.updated_at ?? '')}`,
           '',
-          summaryOnly ? truncateText(String(row.description ?? ''), 500) : String(row.description ?? '')
+          summaryOnly ? truncateText(String(row.description ?? ''), 500) : formatWindowedValue(String(row.description ?? ''), options, 'Description')
         ].filter(Boolean).join('\n')
       }
       const rows = db.prepare('SELECT id, title, description, status FROM plot_threads WHERE project_id = ?').all(projectId) as { id: string; title: string; description: string; status: string }[]
@@ -470,7 +512,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         if (!row) return `Inspiration entry not found: ${entityId}`
         return summaryOnly
           ? `# ${row.title}\nSource: ${row.source || 'unknown'}\n\n${truncateText(row.content, 320)}`
-          : `# ${row.title}\nSource: ${row.source || 'unknown'}\n\n${row.content}`
+          : `# ${row.title}\nSource: ${row.source || 'unknown'}\n\n${formatWindowedValue(row.content, options)}`
       }
       const rows = db.prepare('SELECT id, title, content FROM inspiration_entries WHERE project_id = ?').all(projectId) as { id: string; title: string; content: string }[]
       if (!rows.length) return 'No inspiration entries.'
@@ -486,7 +528,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         if (!row) return `Knowledge document not found: ${entityId}`
         return summaryOnly
           ? [`# ${row.title}`, row.source_label ? `Source: ${row.source_label}` : '', row.summary ? `Summary: ${row.summary}` : '', '', truncateText(row.content, 500)].filter(Boolean).join('\n')
-          : [`# ${row.title}`, row.source_label ? `Source: ${row.source_label}` : '', row.summary ? `Summary: ${row.summary}` : '', '', row.content].filter(Boolean).join('\n')
+          : [`# ${row.title}`, row.source_label ? `Source: ${row.source_label}` : '', row.summary ? `Summary: ${row.summary}` : '', '', formatWindowedValue(row.content, options)].filter(Boolean).join('\n')
       }
       const rows = db.prepare('SELECT id, title, summary FROM knowledge_documents WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as { id: string; title: string; summary: string }[]
       if (!rows.length) return 'No project knowledge documents.'
@@ -501,6 +543,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         if (!row) return `Available deconstruction not found: ${entityId}`
         const analysis = safeParseJson(String(row.analysis_json ?? '{}'))
         const analysisText = formatReferenceAnalysis(analysis, summaryOnly)
+        const analysisBlock = summaryOnly ? analysisText : formatWindowedValue(analysisText, options, 'Reference analysis')
         return [
           `# ${String(row.title)}`,
           String(row.source) ? `Source: ${String(row.source)}` : '',
@@ -508,7 +551,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
           'Scope: public deconstruction library',
           `Updated: ${String(row.updated_at ?? '')}`,
           String(row.notes) ? `Notes: ${String(row.notes)}` : '',
-          analysisText ? `\n${analysisText}` : ''
+          analysisText ? `\n${analysisBlock}` : ''
         ].filter(Boolean).join('\n')
       }
       if (!available.rows.length) {
@@ -527,7 +570,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         if (!row) return `Deconstruction document not found: ${entityId}`
         return summaryOnly
           ? [`# ${row.title}`, row.summary ? `Summary: ${row.summary}` : '', '', truncateText(row.content, 500)].filter(Boolean).join('\n')
-          : [`# ${row.title}`, row.summary ? `Summary: ${row.summary}` : '', '', row.content].filter(Boolean).join('\n')
+          : [`# ${row.title}`, row.summary ? `Summary: ${row.summary}` : '', '', formatWindowedValue(row.content, options)].filter(Boolean).join('\n')
       }
       const rows = db.prepare("SELECT id, title, summary, source_type FROM knowledge_documents WHERE project_id = '' OR project_id IS NULL ORDER BY updated_at DESC").all() as { id: string; title: string; summary: string; source_type: string }[]
       if (!rows.length) return 'No deconstruction documents.'
@@ -541,13 +584,14 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         if (!row) return `Reference work not found: ${entityId}`
         const analysis = safeParseJson(String(row.analysis_json ?? '{}'))
         const analysisText = formatReferenceAnalysis(analysis, summaryOnly)
+        const analysisBlock = summaryOnly ? analysisText : formatWindowedValue(analysisText, options, 'Reference analysis')
         return [
           `# ${String(row.title)}`,
           String(row.source) ? `Source: ${String(row.source)}` : '',
           String(row.file_name) ? `File: ${String(row.file_name)}` : '',
           `Updated: ${String(row.updated_at ?? '')}`,
           String(row.notes) ? `Notes: ${String(row.notes)}` : '',
-          analysisText ? `\n${analysisText}` : ''
+          analysisText ? `\n${analysisBlock}` : ''
         ].filter(Boolean).join('\n')
       }
       const rows = db.prepare('SELECT id, title, source, notes, file_name, analysis_json FROM reference_works ORDER BY created_at DESC, rowid DESC').all() as Array<Record<string, unknown>>
@@ -562,14 +606,14 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         if (!row) return `Creative memory not found for doc_key: ${docKey}`
         return summaryOnly
           ? [`# ${row.title}`, `ID: ${row.id}`, `Key: ${row.doc_key}`, `Updated: ${row.updated_at}`, '', truncateText(row.content, 500)].join('\n')
-          : [`# ${row.title}`, `ID: ${row.id}`, `Key: ${row.doc_key}`, `Updated: ${row.updated_at}`, '', row.content].join('\n')
+          : [`# ${row.title}`, `ID: ${row.id}`, `Key: ${row.doc_key}`, `Updated: ${row.updated_at}`, '', formatWindowedValue(row.content, options)].join('\n')
       }
       if (entityId) {
         const row = db.prepare('SELECT title, doc_key, content, updated_at FROM workflow_documents WHERE id = ? AND project_id = ?').get(entityId, projectId) as { title: string; doc_key: string; content: string; updated_at: string } | undefined
         if (!row) return `Creative memory not found: ${entityId}`
         return summaryOnly
           ? [`# ${row.title}`, `Key: ${row.doc_key}`, `Updated: ${row.updated_at}`, '', truncateText(row.content, 500)].join('\n')
-          : [`# ${row.title}`, `Key: ${row.doc_key}`, `Updated: ${row.updated_at}`, '', row.content].join('\n')
+          : [`# ${row.title}`, `Key: ${row.doc_key}`, `Updated: ${row.updated_at}`, '', formatWindowedValue(row.content, options)].join('\n')
       }
       const rows = db.prepare('SELECT id, title, doc_key, content, updated_at FROM workflow_documents WHERE project_id = ? ORDER BY sort_order').all(projectId) as { id: string; title: string; doc_key: string; content: string; updated_at: string }[]
       if (!rows.length) return 'No creative memory.'
@@ -591,7 +635,7 @@ async function readEntities(projectId: string, options: ReadEntitiesOptions): Pr
         const scope = typeof metadata.scope === 'string' ? metadata.scope : ''
         return summaryOnly
           ? [`# ${row.title}`, scope ? `Scope: ${scope}` : '', `Updated: ${row.updated_at}`, row.summary ? `Summary: ${row.summary}` : '', '', truncateText(row.content, 500)].filter(Boolean).join('\n')
-          : [`# ${row.title}`, scope ? `Scope: ${scope}` : '', `Updated: ${row.updated_at}`, row.summary ? `Summary: ${row.summary}` : '', '', row.content].filter(Boolean).join('\n')
+          : [`# ${row.title}`, scope ? `Scope: ${scope}` : '', `Updated: ${row.updated_at}`, row.summary ? `Summary: ${row.summary}` : '', '', formatWindowedValue(row.content, options)].filter(Boolean).join('\n')
       }
       const rows = db.prepare(`
         SELECT id, title, content, summary, metadata_json, updated_at
