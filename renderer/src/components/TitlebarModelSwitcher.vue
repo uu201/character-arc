@@ -99,6 +99,8 @@ const taskLabelMap: Record<string, string> = {
   'outline-batch': '分卷补全',
   'outline-chain': '大纲链编',
   'outline-enhance': '大纲补充',
+  'ranking-style-analysis': 'AI 扫榜分析',
+  'ranking-idea-combinations': '扫榜脑洞生成',
   'reference-deep-analyze': '深度拆书',
   'reference-style-chunk': '风格拆解',
   'reference-style-analysis': '风格分析',

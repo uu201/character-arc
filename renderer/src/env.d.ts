@@ -659,6 +659,15 @@ declare global {
         mirror?: string
         error?: string
       }>
+      fetchQidianRank: (type: string, category?: string, force?: boolean) => Promise<{
+        success: boolean
+        data?: unknown
+        fromCache?: boolean
+        stale?: boolean
+        fetchedAt?: number
+        source?: string
+        error?: string
+      }>
 
       /** Assistant Runtime v2 IPC 通道。参数与返回值见 @shared/assistant-runtime。 */
       assistant: {

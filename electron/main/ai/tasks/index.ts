@@ -47,6 +47,8 @@ import relationEnhance from './relation-enhance'
 import catalogBatch from './catalog-batch'
 import continuationImportChunk from './continuation-import-chunk'
 import continuationImportAggregate from './continuation-import-aggregate'
+import rankingStyleAnalysis from './ranking-style-analysis'
+import rankingIdeaCombinations from './ranking-idea-combinations'
 
 /** 任务处理器注册表，按任务名称映射 */
 const TASK_REGISTRY = new Map<AiTaskName, TaskHandler>()
@@ -103,6 +105,8 @@ register(relationEnhance)
 register(catalogBatch)
 register(continuationImportChunk)
 register(continuationImportAggregate)
+register(rankingStyleAnalysis)
+register(rankingIdeaCombinations)
 
 /**
  * 根据任务名称获取对应的任务处理器

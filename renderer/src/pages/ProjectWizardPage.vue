@@ -24,6 +24,9 @@ import type { NovelLength } from '@/types/app'
 
 const appStore = useAppStore()
 const message = useMessage()
+const wizardDraft = appStore.consumeWizardDraft()
+const draftGenre = typeof wizardDraft?.genre === 'string' ? wizardDraft.genre.trim() : ''
+const draftGenreOption = PROJECT_GENRE_OPTIONS.find((option) => !option.isCustom && option.label === draftGenre)
 
 const step = ref(1)
 const isGenerating = ref(false)
@@ -33,11 +36,11 @@ const isPremiseOptimizing = ref(false)
 type GenerationMode = 'off' | 'quick' | 'deep'
 
 const formData = reactive({
-  title: '',
-  selectedGenreKey: DEFAULT_PROJECT_GENRE_KEY,
-  customGenre: '',
+  title: typeof wizardDraft?.title === 'string' ? wizardDraft.title.trim() : '',
+  selectedGenreKey: draftGenreOption?.key || (draftGenre ? 'custom' : DEFAULT_PROJECT_GENRE_KEY),
+  customGenre: draftGenreOption ? '' : draftGenre,
   novelLength: 'long' as NovelLength,
-  premise: '',
+  premise: typeof wizardDraft?.premise === 'string' ? wizardDraft.premise.trim() : '',
   generationMode: 'deep' as GenerationMode
 })
 

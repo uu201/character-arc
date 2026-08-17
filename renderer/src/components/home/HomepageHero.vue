@@ -42,7 +42,7 @@ const emit = defineEmits<{
         <RefreshCw :size="18" />
         <span v-if="updateStatus && updateStatus !== 'none'" class="status-dot" :class="`status-dot--${updateStatus}`" />
       </button>
-      <button class="hero-icon-btn" title="番茄风向标" @click="emit('openFanqieTrends')">
+      <button class="hero-icon-btn" title="网文风向标" @click="emit('openFanqieTrends')">
         <Flame :size="18" />
       </button>
 

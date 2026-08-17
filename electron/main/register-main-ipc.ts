@@ -13,6 +13,7 @@ import { getProjectSkillsDirPath as getSkillsDirPath } from './ai/skills/discove
 import { extractReferenceNovelContext, type ReferenceNovelLocalContext } from './referenceAnalysis'
 import { fetchWithCache } from './github-mirror'
 import { fetchFanqieTrends } from './fanqie-trends'
+import { fetchQidianRank } from './qidian-rank'
 import { getWorkspaceDirPath } from './workspace-store'
 import { inspectContinuationNovelFile } from './continuation-import'
 import {
@@ -1580,6 +1581,16 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     const remotePath = typeof payload?.path === 'string' ? payload.path : ''
     const force = payload?.force === true
     return fetchFanqieTrends(remotePath, force)
+  })
+
+  // ── 起点中文网：公开移动端榜单（按榜单与作品分类缓存） ──
+  ipcMain.handle('characterarc:qidian-rank-fetch', async (
+    _event,
+    payload: { type?: string; category?: string; force?: boolean }
+  ) => {
+    const type = typeof payload?.type === 'string' ? payload.type : 'hotsales'
+    const category = typeof payload?.category === 'string' ? payload.category : '-1'
+    return fetchQidianRank(type, category, payload?.force === true)
   })
 
   // ── AI 助手会话持久化 ──

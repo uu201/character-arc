@@ -35,9 +35,10 @@ function setActiveMirror(repo: string, idx: number): void {
 
 // ── 缓存层 ──
 
-type CacheEnvelope = {
+export type CacheEnvelope = {
   fetchedAt: number
-  mirror: string
+  mirror?: string
+  source?: string
   data: unknown
 }
 
@@ -50,7 +51,7 @@ function getCacheFilePath(dirName: string, remotePath: string): string {
   return join(getCacheDir(dirName), `${hash}.json`)
 }
 
-async function readCache(dirName: string, remotePath: string): Promise<CacheEnvelope | null> {
+export async function readCache(dirName: string, remotePath: string): Promise<CacheEnvelope | null> {
   try {
     const raw = await readFile(getCacheFilePath(dirName, remotePath), 'utf-8')
     const parsed = JSON.parse(raw) as CacheEnvelope
@@ -63,7 +64,7 @@ async function readCache(dirName: string, remotePath: string): Promise<CacheEnve
   }
 }
 
-async function writeCache(dirName: string, remotePath: string, envelope: CacheEnvelope): Promise<void> {
+export async function writeCache(dirName: string, remotePath: string, envelope: CacheEnvelope): Promise<void> {
   try {
     await mkdir(getCacheDir(dirName), { recursive: true })
     await writeFile(getCacheFilePath(dirName, remotePath), JSON.stringify(envelope), 'utf-8')

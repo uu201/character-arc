@@ -232,6 +232,9 @@ contextBridge.exposeInMainWorld('characterArc', {
   /** 抓取番茄风向标榜单数据（主进程带本地缓存，force=true 时强制刷新） */
   fetchFanqieTrends: (path: string, force = false) =>
     ipcRenderer.invoke('characterarc:fanqie-trends-fetch', { path, force }),
+  /** 抓取起点中文网公开榜单数据（主进程带本地缓存） */
+  fetchQidianRank: (type: string, category = '-1', force = false) =>
+    ipcRenderer.invoke('characterarc:qidian-rank-fetch', { type, category, force }),
 
   // ── Assistant Runtime v2 ──
   /**
