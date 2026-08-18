@@ -659,6 +659,14 @@ declare global {
         mirror?: string
         error?: string
       }>
+      fetchQimaoTrends: (path: string, force?: boolean) => Promise<{
+        success: boolean
+        data?: unknown
+        fromCache?: boolean
+        fetchedAt?: number
+        mirror?: string
+        error?: string
+      }>
       fetchQidianRank: (type: string, category?: string, force?: boolean) => Promise<{
         success: boolean
         data?: unknown
