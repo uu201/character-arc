@@ -668,6 +668,35 @@ declare global {
         source?: string
         error?: string
       }>
+      listRankingScanHistory: (projectId?: string) => Promise<{
+        success: boolean
+        result?: Array<{
+          id: string
+          projectId: string
+          platform: string
+          board: string
+          category: string
+          sampleCount: number
+          analysisModes: unknown[]
+          model: string
+          status: string
+          progress: number
+          currentStage: number
+          createdAt: string
+          startedAt: string
+          completedAt: string
+          durationMs: number | null
+          summary: string
+          report: string
+          ideas: unknown[]
+          logs: unknown[]
+          error: string
+          sourceDate: string
+        }>
+        error?: string
+      }>
+      saveRankingScanHistory: (payload: unknown) => Promise<{ success: boolean; error?: string }>
+      deleteRankingScanHistory: (id: string) => Promise<{ success: boolean; error?: string }>
 
       /** Assistant Runtime v2 IPC 通道。参数与返回值见 @shared/assistant-runtime。 */
       assistant: {

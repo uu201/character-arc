@@ -263,6 +263,30 @@ export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS ranking_scan_runs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL DEFAULT '',
+      platform TEXT NOT NULL,
+      board TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT '',
+      sample_count INTEGER NOT NULL DEFAULT 0,
+      analysis_modes_json TEXT NOT NULL DEFAULT '[]',
+      model TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      current_stage INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      started_at TEXT NOT NULL DEFAULT '',
+      completed_at TEXT NOT NULL DEFAULT '',
+      duration_ms INTEGER,
+      summary TEXT NOT NULL DEFAULT '',
+      report TEXT NOT NULL DEFAULT '',
+      ideas_json TEXT NOT NULL DEFAULT '[]',
+      logs_json TEXT NOT NULL DEFAULT '[]',
+      error TEXT NOT NULL DEFAULT '',
+      source_date TEXT NOT NULL DEFAULT ''
+    ) STRICT;
+
     CREATE TABLE IF NOT EXISTS global_ai_runs (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL DEFAULT '',

@@ -235,6 +235,15 @@ contextBridge.exposeInMainWorld('characterArc', {
   /** 抓取起点中文网公开榜单数据（主进程带本地缓存） */
   fetchQidianRank: (type: string, category = '-1', force = false) =>
     ipcRenderer.invoke('characterarc:qidian-rank-fetch', { type, category, force }),
+  /** 读取 AI 扫榜历史记录 */
+  listRankingScanHistory: (projectId?: string) =>
+    ipcRenderer.invoke('characterarc:ranking-scan-list', projectId ?? ''),
+  /** 新增或更新一条 AI 扫榜历史记录 */
+  saveRankingScanHistory: (payload: unknown) =>
+    ipcRenderer.invoke('characterarc:ranking-scan-save', toIpcPayload(payload)),
+  /** 删除一条 AI 扫榜历史记录 */
+  deleteRankingScanHistory: (id: string) =>
+    ipcRenderer.invoke('characterarc:ranking-scan-delete', id),
 
   // ── Assistant Runtime v2 ──
   /**

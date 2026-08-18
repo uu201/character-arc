@@ -1593,6 +1593,141 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     return fetchQidianRank(type, category, payload?.force === true)
   })
 
+  // ── AI 扫榜历史：持久化任务参数、报告和过程日志 ──
+  ipcMain.handle('characterarc:ranking-scan-list', async (_event, projectId?: unknown) => {
+    try {
+      const db = await deps.ensureWorkspaceDb()
+      const scope = typeof projectId === 'string' ? projectId : ''
+      const rows = db.prepare(`
+        SELECT id, project_id, platform, board, category, sample_count, analysis_modes_json,
+               model, status, progress, current_stage, created_at, started_at, completed_at,
+               duration_ms, summary, report, ideas_json, logs_json, error, source_date
+        FROM ranking_scan_runs
+        WHERE project_id = ? OR project_id = ''
+        ORDER BY created_at DESC
+      `).all(scope) as Array<Record<string, unknown>>
+
+      const parseJson = (value: unknown, fallback: unknown): unknown => {
+        if (typeof value !== 'string' || !value.trim()) return fallback
+        try {
+          return JSON.parse(value)
+        } catch {
+          return fallback
+        }
+      }
+
+      return {
+        success: true,
+        result: rows.map((row) => ({
+          id: String(row.id ?? ''),
+          projectId: String(row.project_id ?? ''),
+          platform: String(row.platform ?? ''),
+          board: String(row.board ?? ''),
+          category: String(row.category ?? ''),
+          sampleCount: Number(row.sample_count ?? 0),
+          analysisModes: parseJson(row.analysis_modes_json, []),
+          model: String(row.model ?? ''),
+          status: String(row.status ?? 'failed'),
+          progress: Number(row.progress ?? 0),
+          currentStage: Number(row.current_stage ?? 0),
+          createdAt: String(row.created_at ?? ''),
+          startedAt: String(row.started_at ?? ''),
+          completedAt: String(row.completed_at ?? ''),
+          durationMs: row.duration_ms == null ? null : Number(row.duration_ms),
+          summary: String(row.summary ?? ''),
+          report: String(row.report ?? ''),
+          ideas: parseJson(row.ideas_json, []),
+          logs: parseJson(row.logs_json, []),
+          error: String(row.error ?? ''),
+          sourceDate: String(row.source_date ?? '')
+        }))
+      }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '读取扫榜历史失败' }
+    }
+  })
+
+  ipcMain.handle('characterarc:ranking-scan-save', async (_event, payload: unknown) => {
+    try {
+      const input = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+      const id = typeof input.id === 'string' ? input.id.trim() : ''
+      if (!id) return { success: false, error: '扫榜记录缺少 id' }
+      const asJson = (value: unknown, fallback: unknown): string => {
+        try {
+          return JSON.stringify(value ?? fallback)
+        } catch {
+          return JSON.stringify(fallback)
+        }
+      }
+      const db = await deps.ensureWorkspaceDb()
+      db.prepare(`
+        INSERT INTO ranking_scan_runs (
+          id, project_id, platform, board, category, sample_count, analysis_modes_json,
+          model, status, progress, current_stage, created_at, started_at, completed_at,
+          duration_ms, summary, report, ideas_json, logs_json, error, source_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          project_id = excluded.project_id,
+          platform = excluded.platform,
+          board = excluded.board,
+          category = excluded.category,
+          sample_count = excluded.sample_count,
+          analysis_modes_json = excluded.analysis_modes_json,
+          model = excluded.model,
+          status = excluded.status,
+          progress = excluded.progress,
+          current_stage = excluded.current_stage,
+          created_at = excluded.created_at,
+          started_at = excluded.started_at,
+          completed_at = excluded.completed_at,
+          duration_ms = excluded.duration_ms,
+          summary = excluded.summary,
+          report = excluded.report,
+          ideas_json = excluded.ideas_json,
+          logs_json = excluded.logs_json,
+          error = excluded.error,
+          source_date = excluded.source_date
+      `).run(
+        id,
+        typeof input.projectId === 'string' ? input.projectId : '',
+        typeof input.platform === 'string' ? input.platform : '',
+        typeof input.board === 'string' ? input.board : '',
+        typeof input.category === 'string' ? input.category : '',
+        Number(input.sampleCount ?? 0) || 0,
+        asJson(input.analysisModes, []),
+        typeof input.model === 'string' ? input.model : '',
+        typeof input.status === 'string' ? input.status : 'draft',
+        Math.max(0, Math.min(100, Number(input.progress ?? 0) || 0)),
+        Math.max(0, Number(input.currentStage ?? 0) || 0),
+        typeof input.createdAt === 'string' ? input.createdAt : new Date().toISOString(),
+        typeof input.startedAt === 'string' ? input.startedAt : '',
+        typeof input.completedAt === 'string' ? input.completedAt : '',
+        input.durationMs == null ? null : Number(input.durationMs) || 0,
+        typeof input.summary === 'string' ? input.summary : '',
+        typeof input.report === 'string' ? input.report : '',
+        asJson(input.ideas, []),
+        asJson(input.logs, []),
+        typeof input.error === 'string' ? input.error : '',
+        typeof input.sourceDate === 'string' ? input.sourceDate : ''
+      )
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '保存扫榜历史失败' }
+    }
+  })
+
+  ipcMain.handle('characterarc:ranking-scan-delete', async (_event, id: unknown) => {
+    try {
+      const recordId = typeof id === 'string' ? id.trim() : ''
+      if (!recordId) return { success: false, error: '扫榜记录 id 无效' }
+      const db = await deps.ensureWorkspaceDb()
+      db.prepare('DELETE FROM ranking_scan_runs WHERE id = ?').run(recordId)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '删除扫榜历史失败' }
+    }
+  })
+
   // ── AI 助手会话持久化 ──
 
   ipcMain.handle('characterarc:session-list', async (_event, projectId: string) => {

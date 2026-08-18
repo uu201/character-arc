@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { CheckCircle2, ChevronLeft, Copy, ExternalLink, Flame, Lightbulb, RefreshCw, Sparkles } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { CheckCircle2, ChevronLeft, CircleAlert, Copy, ExternalLink, Flame, History, Lightbulb, RefreshCw, Search, Sparkles } from 'lucide-vue-next'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { NButton, NCard, NModal, NSelect, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { renderMarkdown } from '@/composables/useGlobalAssistant'
@@ -10,7 +10,50 @@ const appStore = useAppStore()
 const message = useMessage()
 
 type Platform = 'fanqie' | 'qidian'
-type ScanStage = 'setup' | 'running' | 'error' | 'report' | 'ideating' | 'idea-error' | 'ideas'
+type ScanStage = 'setup' | 'running' | 'error' | 'report' | 'ideating' | 'idea-error' | 'ideas' | 'cancelled'
+
+type RankingScanStatus = 'draft' | 'running' | 'success' | 'failed' | 'cancelled'
+type RankingScanLogLevel = 'info' | 'success' | 'warn' | 'error'
+type RankingScanLog = { at: string; level: RankingScanLogLevel; message: string }
+type RankingScanHistoryRecord = {
+  id: string
+  projectId: string
+  platform: Platform
+  board: string
+  category: string
+  sampleCount: number
+  analysisModes: string[]
+  model: string
+  status: RankingScanStatus
+  progress: number
+  currentStage: number
+  createdAt: string
+  startedAt: string
+  completedAt: string
+  durationMs: number | null
+  summary: string
+  report: string
+  ideas: RankingIdeaDirection[]
+  logs: RankingScanLog[]
+  error: string
+  sourceDate: string
+}
+
+const RANKING_SCAN_STAGES = [
+  '准备分析参数',
+  '获取榜单数据',
+  '清洗和筛选样本',
+  '生成市场风向报告',
+  '整理原创选题方向',
+  '保存分析记录',
+  '完成'
+]
+const RANKING_SCAN_MODES = ['市场风向', '书名 / 简介钩子', '主角与情绪模型', '差异化选题']
+const RANKING_SCAN_SAMPLE_OPTIONS = [
+  { label: '20 条 · 快速', value: 20 },
+  { label: '40 条 · 推荐', value: 40 },
+  { label: '60 条 · 深度', value: 60 }
+]
 
 type RankingIdeaCombination = {
   id: string
@@ -56,6 +99,21 @@ const scanStage = ref<ScanStage>('setup')
 const scanSelectedPlatform = ref<Platform>('fanqie')
 const scanSelectedBoard = ref('female-new')
 const scanSelectedCategory = ref('-1')
+const scanHistory = ref<RankingScanHistoryRecord[]>([])
+const scanHistorySearch = ref('')
+const scanHistoryFilter = ref<'all' | RankingScanStatus>('all')
+const scanActiveId = ref('')
+const scanProgress = ref(0)
+const scanCurrentStage = ref(0)
+const scanLogs = ref<RankingScanLog[]>([])
+const scanClientTaskId = ref('')
+const scanStartedAt = ref('')
+const scanDurationMs = ref<number | null>(null)
+const scanAnalysisModes = ref<string[]>(['市场风向', '书名 / 简介钩子', '主角与情绪模型'])
+const scanSampleCount = ref(0)
+const scanSampleLimit = ref(40)
+const scanCancelRequested = ref(false)
+const ideaCancelRequested = ref(false)
 
 function openBookUrl(url: unknown): void {
   const target = typeof url === 'string' ? url.trim() : ''
@@ -175,6 +233,70 @@ const scanModalTitle = computed(() => {
   }
   return `${scanSelectedPlatformLabel.value} · ${scanSelectedBoardLabel.value}${scanSelectedPlatform.value === 'qidian' ? ` · ${scanSelectedCategoryLabel.value}` : ''}风格报告`
 })
+const scanCurrentStageLabel = computed(() => RANKING_SCAN_STAGES[Math.min(scanCurrentStage.value, RANKING_SCAN_STAGES.length - 1)] || '准备分析参数')
+const filteredScanHistory = computed(() => {
+  const keyword = scanHistorySearch.value.trim().toLowerCase()
+  return scanHistory.value.filter((record) => {
+    const matchesStatus = scanHistoryFilter.value === 'all' || record.status === scanHistoryFilter.value
+    const matchesKeyword = !keyword || [record.board, record.category, record.platform, record.summary].some((value) => value.toLowerCase().includes(keyword))
+    return matchesStatus && matchesKeyword
+  })
+})
+
+function normalizeRankingScanRecord(input: unknown): RankingScanHistoryRecord | null {
+  if (!input || typeof input !== 'object') return null
+  const value = input as Record<string, unknown>
+  const status = String(value.status || 'failed') as RankingScanStatus
+  const logs = Array.isArray(value.logs)
+    ? value.logs.flatMap((item) => {
+        if (!item || typeof item !== 'object') return []
+        const log = item as Record<string, unknown>
+        return [{
+          at: String(log.at || ''),
+          level: (String(log.level || 'info') as RankingScanLogLevel),
+          message: String(log.message || '')
+        }]
+      })
+    : []
+  return {
+    id: String(value.id || ''),
+    projectId: String(value.projectId || ''),
+    platform: value.platform === 'qidian' ? 'qidian' : 'fanqie',
+    board: String(value.board || ''),
+    category: String(value.category || ''),
+    sampleCount: Number(value.sampleCount || 0),
+    analysisModes: Array.isArray(value.analysisModes) ? value.analysisModes.map(String) : [],
+    model: String(value.model || ''),
+    status: ['draft', 'running', 'success', 'failed', 'cancelled'].includes(status) ? status : 'failed',
+    progress: Math.max(0, Math.min(100, Number(value.progress || 0))),
+    currentStage: Math.max(0, Math.min(RANKING_SCAN_STAGES.length - 1, Number(value.currentStage || 0))),
+    createdAt: String(value.createdAt || ''),
+    startedAt: String(value.startedAt || ''),
+    completedAt: String(value.completedAt || ''),
+    durationMs: value.durationMs == null ? null : Number(value.durationMs),
+    summary: String(value.summary || ''),
+    report: String(value.report || ''),
+    ideas: Array.isArray(value.ideas) ? value.ideas as RankingIdeaDirection[] : [],
+    logs,
+    error: String(value.error || ''),
+    sourceDate: String(value.sourceDate || '')
+  }
+}
+
+function formatScanTime(value: string): string {
+  if (!value) return '刚刚'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function scanStatusLabel(status: RankingScanStatus): string {
+  return status === 'running' ? '运行中' : status === 'success' ? '已完成' : status === 'failed' ? '失败' : status === 'cancelled' ? '已取消' : '配置中'
+}
+
+function scanStatusClass(status: RankingScanStatus): string {
+  return `ranking-scan-history-item--${status}`
+}
 
 // ===== 工具 =====
 function fmtScore(n: number): string {
@@ -329,7 +451,7 @@ function bookMeta(book: AnyRecord): string {
   return `${book.author || '未知作者'} · ${book.reads || 0} 在读`
 }
 
-function collectRankingScanBooks(): AnyRecord[] {
+function collectRankingScanBooks(limit = scanSampleLimit.value): AnyRecord[] {
   const groups = categories.value.map((category) => ({
     name: category.name,
     books: Array.isArray(category.books) ? category.books : []
@@ -337,7 +459,7 @@ function collectRankingScanBooks(): AnyRecord[] {
   const selected: AnyRecord[] = []
   const seen = new Set<string>()
 
-  for (let index = 0; selected.length < 48; index += 1) {
+  for (let index = 0; selected.length < limit; index += 1) {
     let added = false
     for (const group of groups) {
       const book = group.books[index]
@@ -354,11 +476,173 @@ function collectRankingScanBooks(): AnyRecord[] {
         wordCount: book.word_display || book.word_count || book.reads || '',
         intro: book.intro || ''
       })
-      if (selected.length >= 48) break
+      if (selected.length >= limit) break
     }
     if (!added || index >= 59) break
   }
   return selected
+}
+
+function createScanId(): string {
+  const random = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)
+  return `ranking-scan-${Date.now()}-${random}`
+}
+
+function currentScanRecord(status: RankingScanStatus = scanStage.value === 'running' ? 'running' : 'draft'): RankingScanHistoryRecord {
+  const now = new Date().toISOString()
+  const existing = scanHistory.value.find((record) => record.id === scanActiveId.value)
+  const isFinished = status === 'success' || status === 'failed' || status === 'cancelled'
+  return {
+    id: scanActiveId.value || createScanId(),
+    projectId: appStore.selectedProjectId || '',
+    platform: scanSelectedPlatform.value,
+    board: scanSelectedBoardLabel.value,
+    category: scanSelectedPlatform.value === 'qidian' ? scanSelectedCategoryLabel.value : '全部分类',
+    sampleCount: scanSampleCount.value || existing?.sampleCount || 0,
+    analysisModes: scanAnalysisModes.value,
+    model: appStore.appSettings.model || '当前模型',
+    status,
+    progress: scanProgress.value,
+    currentStage: scanCurrentStage.value,
+    createdAt: existing?.createdAt || now,
+    startedAt: scanStartedAt.value || existing?.startedAt || '',
+    completedAt: isFinished ? existing?.completedAt || now : existing?.completedAt || '',
+    durationMs: scanDurationMs.value ?? existing?.durationMs ?? null,
+    summary: existing?.summary || scanReport.value.replace(/[#*_>`\[\]]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180),
+    report: scanReport.value,
+    ideas: ideaDirections.value,
+    logs: scanLogs.value,
+    error: scanError.value || ideaError.value,
+    sourceDate: dataDate.value.replace(/^数据日期\s*/, '')
+  }
+}
+
+function upsertScanHistory(record: RankingScanHistoryRecord): void {
+  const index = scanHistory.value.findIndex((item) => item.id === record.id)
+  if (index >= 0) scanHistory.value.splice(index, 1, record)
+  else scanHistory.value.unshift(record)
+  scanHistory.value.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+function persistScanHistory(status?: RankingScanStatus): void {
+  if (!scanActiveId.value) return
+  const record = currentScanRecord(status)
+  scanActiveId.value = record.id
+  upsertScanHistory(record)
+  // contextBridge 会在进入 preload 前执行结构化克隆，不能直接传递 Vue 的响应式 Proxy。
+  // 先在渲染进程转成纯 JSON 数据，同时避免历史保存失败打断当前扫榜任务。
+  try {
+    const payload = toIpcPayload(record)
+    void window.characterArc.saveRankingScanHistory(payload).catch(() => {
+      // 历史记录属于辅助持久化，失败时不影响当前分析流程。
+    })
+  } catch {
+    // 记录序列化失败时保留内存状态，当前任务仍可继续运行。
+  }
+}
+
+async function loadRankingScanHistory(): Promise<void> {
+  try {
+    const result = await window.characterArc.listRankingScanHistory(appStore.selectedProjectId || '')
+    if (!result.success || !Array.isArray(result.result)) return
+    scanHistory.value = result.result
+      .map(normalizeRankingScanRecord)
+      .filter((record): record is RankingScanHistoryRecord => Boolean(record))
+      .map((record) => record.status === 'running'
+        ? { ...record, status: 'failed', error: record.error || '应用关闭时任务未完成，请重新运行' }
+        : record)
+  } catch {
+    // 历史读取失败不阻断当前榜单和新任务流程。
+  }
+}
+
+function appendScanLog(message: string, level: RankingScanLogLevel = 'info'): void {
+  scanLogs.value = [
+    ...scanLogs.value,
+    { at: new Date().toLocaleTimeString('zh-CN', { hour12: false }), level, message }
+  ].slice(-100)
+  persistScanHistory()
+}
+
+function updateScanProgress(progress: number, stage: number, message?: string, level: RankingScanLogLevel = 'info'): void {
+  scanProgress.value = Math.max(scanProgress.value, Math.min(100, progress))
+  scanCurrentStage.value = Math.max(0, Math.min(RANKING_SCAN_STAGES.length - 1, stage))
+  if (message) appendScanLog(message, level)
+  else persistScanHistory()
+}
+
+function openRankingHistory(record: RankingScanHistoryRecord): void {
+  if (scanLoading.value && scanActiveId.value !== record.id) {
+    message.warning('当前扫榜仍在运行，请先取消或等待完成')
+    return
+  }
+  scanActiveId.value = record.id
+  scanSelectedPlatform.value = record.platform
+  scanSelectedBoard.value = SCAN_BOARD_CATALOG[record.platform].some((option) => option.label === record.board || option.value === record.board)
+    ? (SCAN_BOARD_CATALOG[record.platform].find((option) => option.label === record.board || option.value === record.board)?.value || SCAN_BOARD_CATALOG[record.platform][0]?.value || '')
+    : SCAN_BOARD_CATALOG[record.platform][0]?.value || ''
+  scanSelectedCategory.value = record.platform === 'qidian'
+    ? (QIDIAN_CATEGORIES.find((option) => option.label === record.category || option.value === record.category)?.value || '-1')
+    : '-1'
+  scanProgress.value = record.progress
+  scanCurrentStage.value = record.currentStage
+  scanLogs.value = record.logs
+  scanStartedAt.value = record.startedAt
+  scanDurationMs.value = record.durationMs
+  scanSampleCount.value = record.sampleCount
+  scanSampleLimit.value = record.sampleCount || 40
+  scanAnalysisModes.value = record.analysisModes.length ? record.analysisModes : ['市场风向', '书名 / 简介钩子', '主角与情绪模型']
+  scanReport.value = record.report
+  scanGeneratedAt.value = record.completedAt ? formatScanTime(record.completedAt) : ''
+  scanError.value = record.error
+  ideaDirections.value = record.ideas
+  scanStage.value = record.status === 'success' ? 'report' : record.status === 'failed' ? 'error' : record.status === 'cancelled' ? 'cancelled' : record.status === 'running' ? 'running' : 'setup'
+  scanVisible.value = true
+}
+
+function createNewRankingScan(): void {
+  if (scanLoading.value) {
+    message.warning('当前扫榜仍在运行，请先取消或等待完成')
+    return
+  }
+  scanCancelRequested.value = false
+  scanActiveId.value = ''
+  scanProgress.value = 0
+  scanCurrentStage.value = 0
+  scanLogs.value = []
+  scanStartedAt.value = ''
+  scanDurationMs.value = null
+  scanSampleCount.value = 0
+  scanSampleLimit.value = 40
+  scanAnalysisModes.value = ['市场风向', '书名 / 简介钩子', '主角与情绪模型']
+  scanReport.value = ''
+  scanGeneratedAt.value = ''
+  scanError.value = ''
+  ideaError.value = ''
+  ideaDirections.value = []
+  selectedDirectionId.value = ''
+  selectedIdeaId.value = ''
+  scanStage.value = 'setup'
+  scanVisible.value = true
+}
+
+async function cancelRankingScan(): Promise<void> {
+  if (!scanClientTaskId.value) return
+  scanCancelRequested.value = true
+  await window.characterArc.cancelAiTask(scanClientTaskId.value)
+  scanStage.value = 'cancelled'
+  scanLoading.value = false
+  appendScanLog('用户取消任务，已保存当前进度', 'warn')
+  persistScanHistory('cancelled')
+}
+
+async function cancelIdeaGeneration(): Promise<void> {
+  if (!scanClientTaskId.value) return
+  ideaCancelRequested.value = true
+  await window.characterArc.cancelAiTask(scanClientTaskId.value)
+  scanStage.value = 'report'
+  appendScanLog('已取消创作方向生成', 'warn')
+  persistScanHistory('success')
 }
 
 function openRankingStyleScan(): void {
@@ -368,10 +652,7 @@ function openRankingStyleScan(): void {
     ? String(curBoard.value)
     : availableBoards[0]?.value || ''
   scanSelectedCategory.value = platform.value === 'qidian' ? qidianCategory.value : '-1'
-  scanStage.value = 'setup'
-  scanLoading.value = false
-  scanError.value = ''
-  scanVisible.value = true
+  createNewRankingScan()
 }
 
 function updateScanPlatform(value: Platform): void {
@@ -379,6 +660,12 @@ function updateScanPlatform(value: Platform): void {
   scanSelectedPlatform.value = value
   scanSelectedBoard.value = SCAN_BOARD_CATALOG[value]?.[0]?.value || ''
   scanSelectedCategory.value = value === 'qidian' ? qidianCategory.value : '-1'
+}
+
+function toggleScanAnalysisMode(mode: string): void {
+  scanAnalysisModes.value = scanAnalysisModes.value.includes(mode)
+    ? scanAnalysisModes.value.filter((item) => item !== mode)
+    : [...scanAnalysisModes.value, mode]
 }
 
 function returnToScanSetup(): void {
@@ -427,33 +714,64 @@ async function runRankingStyleScan(force = false): Promise<void> {
   selectedIdeaId.value = ''
   ideaError.value = ''
 
+  const previousRecord = scanHistory.value.find((record) => record.id === scanActiveId.value)
+  if (force && previousRecord && previousRecord.status !== 'running') {
+    scanActiveId.value = ''
+    scanLogs.value = []
+  }
+  if (!scanActiveId.value) scanActiveId.value = createScanId()
+  scanClientTaskId.value = `${scanActiveId.value}-report`
+  scanCancelRequested.value = false
+  scanStartedAt.value = new Date().toISOString()
+  scanDurationMs.value = null
+  scanProgress.value = 4
+  scanCurrentStage.value = 0
+  appendScanLog(force ? '已创建重新分析任务' : '已创建扫榜任务')
+  persistScanHistory('running')
+
   try {
+    if (!scanAnalysisModes.value.length) throw new Error('请至少选择一个分析维度')
+    updateScanProgress(10, 0, '正在准备分析参数')
     await prepareSelectedRankingForScan()
+    if (scanCancelRequested.value) return
+    updateScanProgress(28, 1, `已加载${scanSelectedPlatformLabel.value}榜单数据`)
     const books = collectRankingScanBooks()
     if (!books.length) throw new Error('所选榜单没有可分析的作品数据')
+    scanSampleCount.value = books.length
+    updateScanProgress(44, 2, `已筛选 ${books.length} 条有效样本`)
+    persistScanHistory('running')
 
     const cacheKey = `${platform.value}:${curBoard.value || 'default'}:${platform.value === 'qidian' ? qidianCategory.value : 'all'}:${dataDate.value}`
     const cachedReport = scanCache.get(cacheKey)
     if (!force && cachedReport) {
       scanReport.value = cachedReport.content
       scanGeneratedAt.value = cachedReport.generatedAt
+      scanProgress.value = 100
+      scanCurrentStage.value = RANKING_SCAN_STAGES.length - 1
+      appendScanLog('命中本地缓存，已恢复扫榜报告', 'success')
       scanStage.value = 'report'
+      scanDurationMs.value = Date.now() - new Date(scanStartedAt.value).getTime()
+      persistScanHistory('success')
       return
     }
 
     scanReport.value = ''
     scanGeneratedAt.value = ''
+    updateScanProgress(58, 3, '正在生成市场风向报告')
     const board = curBoardItem.value
     const response = await window.characterArc.generateAi(toIpcPayload({
+      clientTaskId: scanClientTaskId.value,
       task: 'ranking-style-analysis',
       settings: appStore.appSettings,
       context: {
         platformName: platform.value === 'qidian' ? '起点中文网' : '番茄小说',
         boardName: `${board?.name || '当前榜单'}${platform.value === 'qidian' ? ` · ${QIDIAN_CATEGORIES.find((option) => option.value === qidianCategory.value)?.label || '全部分类'}` : ''}`,
         dataDate: dataDate.value.replace(/^数据日期\s*/, ''),
+        analysisModes: scanAnalysisModes.value,
         books
       }
     }))
+    if (scanCancelRequested.value) return
     const content = (response.result as { content?: unknown } | undefined)?.content
     if (!response.success || typeof content !== 'string' || !content.trim()) {
       throw new Error(response.error || 'AI 未返回有效的扫榜报告')
@@ -461,12 +779,24 @@ async function runRankingStyleScan(force = false): Promise<void> {
     scanReport.value = content.trim()
     scanGeneratedAt.value = new Date().toLocaleString('zh-CN')
     scanCache.set(cacheKey, { content: scanReport.value, generatedAt: scanGeneratedAt.value })
+    updateScanProgress(86, 4, '市场风向报告已生成', 'success')
+    updateScanProgress(94, 5, '正在保存分析记录')
     scanStage.value = 'report'
+    scanProgress.value = 100
+    scanCurrentStage.value = RANKING_SCAN_STAGES.length - 1
+    scanDurationMs.value = Date.now() - new Date(scanStartedAt.value).getTime()
+    appendScanLog('扫榜报告已保存', 'success')
+    persistScanHistory('success')
   } catch (error) {
+    if (scanCancelRequested.value) return
     scanError.value = error instanceof Error ? error.message : 'AI 扫榜分析失败'
     scanStage.value = 'error'
+    scanDurationMs.value = scanStartedAt.value ? Date.now() - new Date(scanStartedAt.value).getTime() : null
+    appendScanLog(scanError.value, 'error')
+    persistScanHistory('failed')
   } finally {
     scanLoading.value = false
+    scanClientTaskId.value = ''
   }
 }
 
@@ -479,7 +809,12 @@ async function generateIdeaDirections(force = false): Promise<void> {
 
   scanStage.value = 'ideating'
   ideaError.value = ''
+  ideaCancelRequested.value = false
+  scanClientTaskId.value = `${scanActiveId.value || createScanId()}-ideas`
+  appendScanLog(force ? '正在重新生成创作方向' : '正在生成创作方向')
   try {
+    await prepareSelectedRankingForScan()
+    if (ideaCancelRequested.value) return
     const books = collectRankingScanBooks()
     const board = curBoardItem.value
     const boardName = `${board?.name || '当前榜单'}${platform.value === 'qidian' ? ` · ${QIDIAN_CATEGORIES.find((option) => option.value === qidianCategory.value)?.label || '全部分类'}` : ''}`
@@ -490,10 +825,12 @@ async function generateIdeaDirections(force = false): Promise<void> {
       selectedDirectionId.value = ''
       selectedIdeaId.value = ''
       scanStage.value = 'ideas'
+      persistScanHistory('success')
       return
     }
 
     const response = await window.characterArc.generateAi(toIpcPayload({
+      clientTaskId: scanClientTaskId.value,
       task: 'ranking-idea-combinations',
       settings: appStore.appSettings,
       context: {
@@ -503,6 +840,7 @@ async function generateIdeaDirections(force = false): Promise<void> {
         books
       }
     }))
+    if (ideaCancelRequested.value) return
     const directions = (response.result as { directions?: unknown } | undefined)?.directions
     if (!response.success || !Array.isArray(directions) || !directions.length) {
       throw new Error(response.error || 'AI 未返回有效的创作方向')
@@ -512,9 +850,16 @@ async function generateIdeaDirections(force = false): Promise<void> {
     selectedDirectionId.value = ''
     selectedIdeaId.value = ''
     scanStage.value = 'ideas'
+    appendScanLog('创作方向已生成', 'success')
+    persistScanHistory('success')
   } catch (error) {
+    if (ideaCancelRequested.value) return
     ideaError.value = error instanceof Error ? error.message : '生成创作方向失败'
     scanStage.value = 'idea-error'
+    appendScanLog(ideaError.value, 'error')
+    persistScanHistory('success')
+  } finally {
+    scanClientTaskId.value = ''
   }
 }
 
@@ -640,7 +985,14 @@ function fmt(n: unknown): string {
 }
 
 onMounted(() => {
+  void loadRankingScanHistory()
   void loadAll()
+})
+
+onBeforeUnmount(() => {
+  if (scanClientTaskId.value) {
+    void window.characterArc.cancelAiTask(scanClientTaskId.value)
+  }
 })
 </script>
 
@@ -897,11 +1249,46 @@ onMounted(() => {
       style="width: min(1080px, calc(100vw - 36px));"
       @close="scanVisible = false"
     >
+      <div class="ranking-scan-layout">
+        <aside class="ranking-scan-history" aria-label="扫榜历史记录">
+          <div class="ranking-scan-history__head">
+            <span>扫榜历史</span>
+            <span class="ranking-scan-history__count">{{ scanHistory.length }}</span>
+          </div>
+          <n-button block size="small" type="primary" @click="createNewRankingScan">
+            <template #icon><Sparkles :size="14" /></template>
+            新建扫榜
+          </n-button>
+          <div class="ranking-scan-history__search">
+            <Search :size="14" aria-hidden="true" />
+            <input v-model="scanHistorySearch" type="search" placeholder="搜索榜单或报告" aria-label="搜索扫榜历史" />
+          </div>
+          <div class="ranking-scan-history__filters" role="tablist" aria-label="筛选扫榜历史">
+            <button v-for="filter in (['all', 'running', 'success', 'failed', 'cancelled'] as const)" :key="filter" type="button" :class="{ active: scanHistoryFilter === filter }" @click="scanHistoryFilter = filter">
+              {{ filter === 'all' ? '全部' : scanStatusLabel(filter) }}
+            </button>
+          </div>
+          <div v-if="filteredScanHistory.length" class="ranking-scan-history__list">
+            <button
+              v-for="record in filteredScanHistory"
+              :key="record.id"
+              type="button"
+              class="ranking-scan-history__item"
+              :class="[scanStatusClass(record.status), { active: scanActiveId === record.id }]"
+              @click="openRankingHistory(record)"
+            >
+              <strong>{{ record.platform === 'qidian' ? '起点' : '番茄' }} · {{ record.board }}</strong>
+              <span>{{ record.category || '全部分类' }} · {{ record.sampleCount || '—' }} 条样本</span>
+              <small>
+                <span class="ranking-scan-history__status"><i></i>{{ scanStatusLabel(record.status) }}</span>
+                <time>{{ formatScanTime(record.createdAt) }}</time>
+              </small>
+            </button>
+          </div>
+          <div v-else class="ranking-scan-history__empty">暂无扫榜记录</div>
+        </aside>
+        <section class="ranking-scan-main">
       <div v-if="scanStage === 'setup'" class="ranking-scan-setup">
-        <div class="ranking-scan-setup__intro">
-          <strong>选择扫榜范围</strong>
-          <p>先选择小说平台、目标榜单与作品分类。这里只做配置，不会自动加载榜单或调用 AI。</p>
-        </div>
 
         <div class="ranking-scan-choice-grid">
           <div class="ranking-scan-choice">
@@ -937,23 +1324,58 @@ onMounted(() => {
             <label>作品分类</label>
             <n-select v-model:value="scanSelectedCategory" :options="QIDIAN_CATEGORIES" />
           </div>
+
+          <div class="ranking-scan-choice">
+            <label>样本数量</label>
+            <n-select v-model:value="scanSampleLimit" :options="RANKING_SCAN_SAMPLE_OPTIONS" />
+          </div>
+
+          <div class="ranking-scan-choice ranking-scan-choice--modes">
+            <label>分析维度</label>
+            <div class="ranking-scan-mode-list">
+              <button v-for="mode in RANKING_SCAN_MODES" :key="mode" type="button" :class="{ active: scanAnalysisModes.includes(mode) }" @click="toggleScanAnalysisMode(mode)">{{ mode }}</button>
+            </div>
+          </div>
         </div>
 
-        <div class="ranking-scan-setup-note">
-          <Sparkles :size="16" />
-          <span>点击“开始扫榜”后，才会加载所选榜单并调用当前模型生成风格报告。</span>
+      </div>
+
+      <div v-else-if="scanStage === 'running'" class="ranking-scan-running">
+        <div class="ranking-scan-progress-head">
+          <div>
+            <strong>{{ scanCurrentStageLabel }}</strong>
+            <span>{{ scanCurrentStage === 3 ? 'AI 正在整理样本特征与市场信号' : '正在处理榜单样本' }}</span>
+          </div>
+          <b>{{ scanProgress }}%</b>
+        </div>
+        <div class="ranking-scan-progress-track" :class="{ 'is-ai-generating': scanCurrentStage === 3 }">
+          <span :style="{ width: `${scanProgress}%` }"></span>
+        </div>
+        <div v-if="scanCurrentStage === 3" class="ranking-scan-ai-status" aria-live="polite">
+          <Sparkles :size="14" aria-hidden="true" />
+          <span>正在生成报告</span>
+          <i v-for="index in 3" :key="index" :style="{ animationDelay: `${(index - 1) * 160}ms` }"></i>
+        </div>
+        <div class="ranking-scan-progress-meta">{{ scanSelectedPlatformLabel }} · {{ scanSelectedBoardLabel }} · {{ scanSampleCount || '—' }} 条样本</div>
+        <div class="ranking-scan-timeline">
+          <div v-for="(stage, index) in RANKING_SCAN_STAGES" :key="stage" class="ranking-scan-timeline__item" :class="{ done: index < scanCurrentStage, active: index === scanCurrentStage }">
+            <span class="ranking-scan-timeline__mark">{{ index < scanCurrentStage ? '✓' : index + 1 }}</span>
+            <span>{{ stage }}</span>
+            <small>{{ index < scanCurrentStage ? '已完成' : index === scanCurrentStage ? '进行中' : '等待中' }}</small>
+          </div>
         </div>
       </div>
 
-      <div v-else-if="scanStage === 'running'" class="ranking-scan-state">
-        <div class="spinner" aria-hidden="true"></div>
-        <strong>正在分析榜单市场风格</strong>
-        <p>将根据书名、分类和简介识别题材组合、核心钩子、主角模型与情绪承诺。</p>
-      </div>
-
-      <div v-else-if="scanStage === 'error'" class="ranking-scan-state ranking-scan-state--error">
-        <strong>扫榜分析失败</strong>
+      <div v-else-if="scanStage === 'error'" class="ranking-scan-error">
+        <div class="ranking-scan-error__title"><CircleAlert :size="18" /><strong>扫榜分析失败</strong></div>
         <p>{{ scanError }}</p>
+        <div class="ranking-scan-error__stage">失败阶段：{{ RANKING_SCAN_STAGES[scanCurrentStage] }}</div>
+      </div>
+
+      <div v-else-if="scanStage === 'cancelled'" class="ranking-scan-error ranking-scan-error--cancelled">
+        <div class="ranking-scan-error__title"><History :size="18" /><strong>任务已取消</strong></div>
+        <p>已保留当前进度，可以重新运行或返回配置。</p>
+        <div class="ranking-scan-progress-meta">已完成 {{ scanProgress }}%</div>
       </div>
 
       <div v-else-if="scanStage === 'ideating'" class="ranking-scan-state">
@@ -1033,6 +1455,9 @@ onMounted(() => {
 
       <article v-else class="ranking-scan-report" v-html="scanReportHtml"></article>
 
+        </section>
+      </div>
+
       <template #footer>
         <div class="ranking-scan-footer">
           <span v-if="scanStage === 'setup'">配置完成前不会加载数据或调用 AI</span>
@@ -1047,18 +1472,22 @@ onMounted(() => {
             </n-button>
           </div>
           <div v-else-if="scanStage === 'running'" class="ranking-scan-footer__actions">
-            <n-button type="primary" loading disabled>正在扫榜</n-button>
+            <n-button type="warning" @click="cancelRankingScan">取消任务</n-button>
           </div>
           <div v-else-if="scanStage === 'error'" class="ranking-scan-footer__actions">
             <n-button quaternary @click="returnToScanSetup">重新选择</n-button>
             <n-button type="primary" @click="runRankingStyleScan(true)">重试</n-button>
           </div>
           <div v-else-if="scanStage === 'ideating'" class="ranking-scan-footer__actions">
-            <n-button type="primary" loading disabled>正在生成脑洞</n-button>
+            <n-button type="warning" @click="cancelIdeaGeneration">取消生成</n-button>
           </div>
           <div v-else-if="scanStage === 'idea-error'" class="ranking-scan-footer__actions">
             <n-button quaternary @click="scanStage = 'report'">返回报告</n-button>
             <n-button type="primary" @click="generateIdeaDirections(true)">重新生成</n-button>
+          </div>
+          <div v-else-if="scanStage === 'cancelled'" class="ranking-scan-footer__actions">
+            <n-button quaternary @click="returnToScanSetup">返回配置</n-button>
+            <n-button type="primary" @click="runRankingStyleScan(true)">重新运行</n-button>
           </div>
           <div v-else-if="scanStage === 'ideas'" class="ranking-scan-footer__actions">
             <n-button quaternary @click="scanStage = 'report'">返回报告</n-button>
@@ -1770,7 +2199,201 @@ onMounted(() => {
   text-align: center;
 }
 
+.ranking-scan-modal :deep(.n-card__content) {
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+}
+.ranking-scan-layout {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  height: min(68vh, 680px);
+  min-height: 520px;
+  border-top: 1px solid var(--arc-border);
+  border-bottom: 1px solid var(--arc-border);
+}
+.ranking-scan-history {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--arc-border);
+  background: var(--arc-bg-weak);
+}
+.ranking-scan-history__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--arc-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.ranking-scan-history__count {
+  color: var(--arc-text-hint);
+  font-variant-numeric: tabular-nums;
+}
+.ranking-scan-history__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.ranking-scan-history__search svg {
+  position: absolute;
+  left: 9px;
+  color: var(--arc-text-hint);
+  pointer-events: none;
+}
+.ranking-scan-history__search input {
+  width: 100%;
+  height: 34px;
+  padding: 0 9px 0 29px;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  outline: none;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-primary);
+  font-size: 12px;
+}
+.ranking-scan-history__search input:focus { border-color: var(--arc-primary); }
+.ranking-scan-history__filters { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--arc-border); }
+.ranking-scan-history__filters button {
+  min-height: 26px;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--arc-radius-sm);
+  background: transparent;
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+}
+.ranking-scan-history__filters button:hover,
+.ranking-scan-history__filters button.active {
+  border-color: color-mix(in srgb, var(--arc-primary) 24%, var(--arc-border));
+  background: var(--arc-primary-soft);
+  color: var(--arc-primary);
+}
+.ranking-scan-history__list { min-height: 0; display: flex; flex-direction: column; gap: 5px; overflow-y: auto; }
+.ranking-scan-history__item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 11px 10px 14px;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.ranking-scan-history__item:hover { border-color: color-mix(in srgb, var(--arc-primary) 35%, var(--arc-border)); background: var(--arc-bg-surface-hover); transform: translateY(-1px); }
+.ranking-scan-history__item.active {
+  border-color: color-mix(in srgb, var(--arc-primary) 42%, var(--arc-border));
+  background: var(--arc-primary-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arc-primary) 10%, transparent);
+}
+.ranking-scan-history__item strong { overflow: hidden; color: var(--arc-text-primary); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-scan-history__item > span { color: var(--arc-text-hint); font-size: 11px; }
+.ranking-scan-history__item small { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--arc-text-hint); font-size: 10.5px; }
+.ranking-scan-history__status { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.ranking-scan-history__status i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--arc-text-hint); }
+.ranking-scan-history__item time { flex: 0 0 auto; color: var(--arc-text-hint); font-variant-numeric: tabular-nums; }
+.ranking-scan-history-item--running .ranking-scan-history__status i { background: var(--arc-warning); }
+.ranking-scan-history-item--success .ranking-scan-history__status i { background: var(--arc-success); }
+.ranking-scan-history-item--failed .ranking-scan-history__status i { background: var(--arc-danger); }
+.ranking-scan-history-item--cancelled .ranking-scan-history__status i { background: var(--arc-text-hint); }
+.ranking-scan-history__empty { padding: 28px 8px; color: var(--arc-text-hint); font-size: 12px; text-align: center; }
+.ranking-scan-main { min-width: 0; min-height: 0; padding: 22px 24px; overflow-y: auto; background: var(--arc-bg-body); }
+.ranking-scan-setup { gap: 18px; padding: 0; }
+.ranking-scan-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.ranking-scan-choice--modes { grid-column: 1 / -1; }
+.ranking-scan-mode-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.ranking-scan-mode-list button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+.ranking-scan-mode-list button:hover,
+.ranking-scan-mode-list button.active { border-color: color-mix(in srgb, var(--arc-primary) 42%, var(--arc-border)); background: var(--arc-primary-soft); color: var(--arc-primary); }
+.ranking-scan-platform { min-height: 58px; border-radius: var(--arc-radius-lg); }
+.ranking-scan-running { display: flex; flex-direction: column; gap: 16px; }
+.ranking-scan-progress-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.ranking-scan-progress-head > div { display: flex; flex-direction: column; gap: 3px; }
+.ranking-scan-progress-head strong { color: var(--arc-text-primary); font-size: 15px; }
+.ranking-scan-progress-head span { color: var(--arc-text-hint); font-size: 12px; }
+.ranking-scan-progress-head b { color: var(--arc-primary); font-size: 22px; font-variant-numeric: tabular-nums; }
+.ranking-scan-progress-track { height: 8px; overflow: hidden; border-radius: 999px; background: var(--arc-bg-surface-hover); }
+.ranking-scan-progress-track span { position: relative; display: block; height: 100%; overflow: hidden; border-radius: inherit; background: var(--arc-primary); transition: width .28s ease; }
+.ranking-scan-progress-track.is-ai-generating span::after {
+  position: absolute;
+  inset: 0 auto 0 -35%;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, white 58%, transparent), transparent);
+  content: '';
+  animation: ranking-scan-progress-glint 1.35s ease-in-out infinite;
+}
+.ranking-scan-ai-status { display: flex; align-items: center; gap: 6px; margin-top: -7px; color: var(--arc-primary); font-size: 11.5px; }
+.ranking-scan-ai-status svg { animation: ranking-scan-sparkle 1.8s ease-in-out infinite; }
+.ranking-scan-ai-status i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: ranking-scan-dot 1.1s ease-in-out infinite; }
+.ranking-scan-progress-meta { color: var(--arc-text-hint); font-size: 11.5px; }
+.ranking-scan-timeline { display: flex; flex-direction: column; }
+.ranking-scan-timeline__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 9px;
+  min-height: 42px;
+  color: var(--arc-text-secondary);
+  font-size: 12.5px;
+}
+.ranking-scan-timeline__item:not(:last-child)::before { position: absolute; top: 20px; bottom: 0; left: 9px; width: 1px; background: var(--arc-border); content: ''; }
+.ranking-scan-timeline__mark { z-index: 1; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--arc-border); border-radius: 50%; background: var(--arc-bg-surface); color: var(--arc-text-hint); font-size: 10px; }
+.ranking-scan-timeline__item small { color: var(--arc-text-hint); font-size: 11px; }
+.ranking-scan-timeline__item.done .ranking-scan-timeline__mark { border-color: var(--arc-success); background: var(--arc-success); color: white; }
+.ranking-scan-timeline__item.active { color: var(--arc-text-primary); font-weight: 650; }
+.ranking-scan-timeline__item.active .ranking-scan-timeline__mark { border-color: var(--arc-primary); color: var(--arc-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 12%, transparent); }
+.ranking-scan-error { display: flex; flex-direction: column; gap: 14px; }
+.ranking-scan-error__title { display: flex; align-items: center; gap: 8px; color: var(--arc-danger); }
+.ranking-scan-error__title strong { color: inherit; font-size: 16px; }
+.ranking-scan-error > p { margin: 0; color: var(--arc-text-secondary); line-height: 1.65; }
+.ranking-scan-error__stage { padding: 9px 11px; border-left: 3px solid var(--arc-danger); background: color-mix(in srgb, var(--arc-danger) 6%, var(--arc-bg-surface)); color: var(--arc-text-secondary); font-size: 12px; }
+.ranking-scan-error--cancelled .ranking-scan-error__title { color: var(--arc-text-secondary); }
+.ranking-scan-footer { justify-content: flex-end; }
+.ranking-scan-footer > span { display: none; }
+
+@keyframes ranking-scan-progress-glint {
+  0% { transform: translateX(0); opacity: 0; }
+  18% { opacity: 1; }
+  72%, 100% { transform: translateX(390%); opacity: 0; }
+}
+@keyframes ranking-scan-sparkle {
+  0%, 100% { transform: rotate(-8deg) scale(.92); opacity: .72; }
+  50% { transform: rotate(8deg) scale(1.08); opacity: 1; }
+}
+@keyframes ranking-scan-dot {
+  0%, 100% { transform: translateY(0); opacity: .35; }
+  50% { transform: translateY(-2px); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ranking-scan-progress-track.is-ai-generating span::after,
+  .ranking-scan-ai-status svg,
+  .ranking-scan-ai-status i { animation: none; }
+}
+
 @media (max-width: 700px) {
+  .ranking-scan-layout { grid-template-columns: 1fr; grid-template-rows: 180px minmax(0, 1fr); height: calc(100dvh - 180px); min-height: 0; }
+  .ranking-scan-history { border-right: 0; border-bottom: 1px solid var(--arc-border); }
+  .ranking-scan-history__list { flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+  .ranking-scan-history__item { min-width: 210px; }
+  .ranking-scan-main { padding: 18px 16px; }
   .ranking-scan-choice-grid { grid-template-columns: 1fr; }
   .ranking-scan-platforms { grid-template-columns: 1fr; }
   .ranking-idea-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
