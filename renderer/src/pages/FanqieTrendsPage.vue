@@ -880,10 +880,9 @@ onMounted(() => {
           </div>
         </template>
       </div>
-    </div>
-  </section>
 
-  <n-modal
+    </div>
+    <n-modal
     v-model:show="scanVisible"
     class="ranking-scan-modal"
     :mask-closable="!['running', 'ideating'].includes(scanStage)"
@@ -1077,7 +1076,8 @@ onMounted(() => {
         </div>
       </template>
     </n-card>
-  </n-modal>
+    </n-modal>
+  </section>
 </template>
 
 <style scoped>
