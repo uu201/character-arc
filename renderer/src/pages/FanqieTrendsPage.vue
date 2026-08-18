@@ -114,6 +114,7 @@ const scanSampleCount = ref(0)
 const scanSampleLimit = ref(40)
 const scanCancelRequested = ref(false)
 const ideaCancelRequested = ref(false)
+const scanBusy = computed(() => scanLoading.value || scanStage.value === 'ideating')
 
 function openBookUrl(url: unknown): void {
   const target = typeof url === 'string' ? url.trim() : ''
@@ -139,6 +140,10 @@ async function copyBookIntro(intro: unknown): Promise<void> {
 }
 
 function backToProjectCenter(): void {
+  if (scanBusy.value) {
+    message.warning('创作方向正在生成，请等待完成或先取消任务')
+    return
+  }
   appStore.backToProjects()
 }
 
@@ -572,8 +577,8 @@ function updateScanProgress(progress: number, stage: number, message?: string, l
 }
 
 function openRankingHistory(record: RankingScanHistoryRecord): void {
-  if (scanLoading.value && scanActiveId.value !== record.id) {
-    message.warning('当前扫榜仍在运行，请先取消或等待完成')
+  if (scanBusy.value) {
+    message.warning('当前任务仍在运行，请先取消或等待完成')
     return
   }
   scanActiveId.value = record.id
@@ -596,13 +601,23 @@ function openRankingHistory(record: RankingScanHistoryRecord): void {
   scanGeneratedAt.value = record.completedAt ? formatScanTime(record.completedAt) : ''
   scanError.value = record.error
   ideaDirections.value = record.ideas
-  scanStage.value = record.status === 'success' ? 'report' : record.status === 'failed' ? 'error' : record.status === 'cancelled' ? 'cancelled' : record.status === 'running' ? 'running' : 'setup'
+  scanStage.value = record.status === 'failed'
+    ? 'error'
+    : record.status === 'cancelled'
+      ? 'cancelled'
+      : record.status === 'running'
+        ? 'running'
+        : record.ideas.length
+          ? 'ideas'
+          : record.report.trim()
+            ? 'report'
+            : 'setup'
   scanVisible.value = true
 }
 
 function createNewRankingScan(): void {
-  if (scanLoading.value) {
-    message.warning('当前扫榜仍在运行，请先取消或等待完成')
+  if (scanBusy.value) {
+    message.warning('当前任务仍在运行，请先取消或等待完成')
     return
   }
   scanCancelRequested.value = false
@@ -807,6 +822,14 @@ async function generateIdeaDirections(force = false): Promise<void> {
     return
   }
 
+  if (!force && ideaDirections.value.length) {
+    selectedDirectionId.value = ''
+    selectedIdeaId.value = ''
+    scanStage.value = 'ideas'
+    persistScanHistory('success')
+    return
+  }
+
   scanStage.value = 'ideating'
   ideaError.value = ''
   ideaCancelRequested.value = false
@@ -905,6 +928,10 @@ async function copyScanReport(): Promise<void> {
 }
 
 function switchPlatform(nextPlatform: Platform): void {
+  if (scanBusy.value) {
+    message.warning('创作方向正在生成，请等待完成或先取消任务')
+    return
+  }
   if (nextPlatform === platform.value) return
   platform.value = nextPlatform
   boardsList.value = []
@@ -917,6 +944,10 @@ function switchPlatform(nextPlatform: Platform): void {
 }
 
 function switchQidianCategory(categoryId: string): void {
+  if (scanBusy.value) {
+    message.warning('创作方向正在生成，请等待完成或先取消任务')
+    return
+  }
   if (platform.value !== 'qidian' || qidianCategory.value === categoryId || switching.value) return
   qidianCategory.value = categoryId
   if (curBoard.value) void switchBoard(curBoard.value)
@@ -1001,7 +1032,7 @@ onBeforeUnmount(() => {
     <div class="fanqie-shell">
       <div class="topbar">
         <div class="topbar-lead">
-          <n-button quaternary size="small" class="back-btn" @click="backToProjectCenter">
+          <n-button quaternary size="small" class="back-btn" :disabled="scanBusy" @click="backToProjectCenter">
             <template #icon><ChevronLeft :size="16" /></template>
             返回项目中心
           </n-button>
@@ -1009,8 +1040,8 @@ onBeforeUnmount(() => {
           <p class="sub">{{ pageSubtitle }}</p>
           <p class="sub">{{ pageSource }}</p>
           <div class="platform-tabs">
-            <button type="button" class="platform-tab" :class="{ active: platform === 'fanqie' }" @click="switchPlatform('fanqie')">番茄小说</button>
-            <button type="button" class="platform-tab" :class="{ active: platform === 'qidian' }" @click="switchPlatform('qidian')">起点中文网</button>
+            <button type="button" class="platform-tab" :class="{ active: platform === 'fanqie' }" :disabled="scanBusy" @click="switchPlatform('fanqie')">番茄小说</button>
+            <button type="button" class="platform-tab" :class="{ active: platform === 'qidian' }" :disabled="scanBusy" @click="switchPlatform('qidian')">起点中文网</button>
           </div>
         </div>
         <div class="meta">
@@ -1044,6 +1075,7 @@ onBeforeUnmount(() => {
             :key="b.slug"
             class="board-tab"
             :class="{ active: b.slug === curBoard, empty: b._empty }"
+            :disabled="scanBusy"
             :title="b._empty ? '该榜单暂无数据' : ''"
             @click="switchBoard(b.slug)"
           >
@@ -1060,7 +1092,7 @@ onBeforeUnmount(() => {
               type="button"
               class="qidian-category-tab"
               :class="{ active: qidianCategory === category.value }"
-              :disabled="switching"
+              :disabled="switching || scanBusy"
               @click="switchQidianCategory(category.value)"
             >{{ category.label }}</button>
           </div>
@@ -1237,15 +1269,15 @@ onBeforeUnmount(() => {
     <n-modal
     v-model:show="scanVisible"
     class="ranking-scan-modal"
-    :mask-closable="!['running', 'ideating'].includes(scanStage)"
-    :close-on-esc="!['running', 'ideating'].includes(scanStage)"
+    :mask-closable="!scanBusy"
+    :close-on-esc="!scanBusy"
   >
     <n-card
       :title="scanModalTitle"
       :bordered="false"
       role="dialog"
       aria-modal="true"
-      :closable="!['running', 'ideating'].includes(scanStage)"
+      :closable="!scanBusy"
       style="width: min(1080px, calc(100vw - 36px));"
       @close="scanVisible = false"
     >
@@ -1255,7 +1287,7 @@ onBeforeUnmount(() => {
             <span>扫榜历史</span>
             <span class="ranking-scan-history__count">{{ scanHistory.length }}</span>
           </div>
-          <n-button block size="small" type="primary" @click="createNewRankingScan">
+          <n-button block size="small" type="primary" :disabled="scanBusy" @click="createNewRankingScan">
             <template #icon><Sparkles :size="14" /></template>
             新建扫榜
           </n-button>
@@ -1275,6 +1307,7 @@ onBeforeUnmount(() => {
               type="button"
               class="ranking-scan-history__item"
               :class="[scanStatusClass(record.status), { active: scanActiveId === record.id }]"
+              :disabled="scanBusy"
               @click="openRankingHistory(record)"
             >
               <strong>{{ record.platform === 'qidian' ? '起点' : '番茄' }} · {{ record.board }}</strong>
@@ -1379,9 +1412,25 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else-if="scanStage === 'ideating'" class="ranking-scan-state">
-        <div class="spinner" aria-hidden="true"></div>
-        <strong>正在生成创作方向与脑洞组合</strong>
-        <p>AI 正在把榜单市场信号转化为原创选题，并检查方向之间是否具有足够差异。</p>
+        <div class="ranking-idea-loading" aria-live="polite">
+          <div class="ranking-idea-loading__visual" aria-hidden="true">
+            <span class="ranking-idea-loading__orbit ranking-idea-loading__orbit--outer"></span>
+            <span class="ranking-idea-loading__orbit ranking-idea-loading__orbit--inner"></span>
+            <span class="ranking-idea-loading__spark ranking-idea-loading__spark--one"><Sparkles :size="13" /></span>
+            <span class="ranking-idea-loading__spark ranking-idea-loading__spark--two"><Lightbulb :size="13" /></span>
+            <span class="ranking-idea-loading__core"><Lightbulb :size="24" /></span>
+          </div>
+          <div class="ranking-idea-loading__copy">
+            <span>AI 创作工作台</span>
+            <strong>正在生成创作方向</strong>
+            <p>把榜单里的市场信号转译成可落地的原创选题，并检查方向之间的差异度。</p>
+          </div>
+          <div class="ranking-idea-loading__steps" aria-hidden="true">
+            <span class="active"><i></i>提取市场信号</span>
+            <span class="active"><i></i>组合故事冲突</span>
+            <span><i></i>检查方向差异</span>
+          </div>
+        </div>
       </div>
 
       <div v-else-if="scanStage === 'idea-error'" class="ranking-scan-state ranking-scan-state--error">
@@ -1390,6 +1439,14 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else-if="scanStage === 'ideas'" class="ranking-idea-workbench">
+        <div class="ranking-idea-summary">
+          <div class="ranking-idea-summary__icon"><Sparkles :size="17" /></div>
+          <div>
+            <strong>已生成 {{ ideaDirections.length }} 个创作方向</strong>
+            <span>从 {{ scanSelectedPlatformLabel }} · {{ scanSelectedBoardLabel }} 的榜单信号中整理而来</span>
+          </div>
+          <span class="ranking-idea-summary__status">可继续挑选脑洞</span>
+        </div>
         <header class="ranking-idea-heading">
           <div><span>第一步</span><h3>选择一个创作方向</h3></div>
           <p>方向决定主要读者承诺与差异化策略；选中后再从该方向的三个脑洞中挑一个。</p>
@@ -1397,7 +1454,7 @@ onBeforeUnmount(() => {
 
         <div class="ranking-direction-grid">
           <button
-            v-for="direction in ideaDirections"
+            v-for="(direction, index) in ideaDirections"
             :key="direction.id"
             type="button"
             class="ranking-direction-card"
@@ -1405,6 +1462,7 @@ onBeforeUnmount(() => {
             @click="chooseIdeaDirection(direction.id)"
           >
             <div class="ranking-direction-card__title">
+              <span class="ranking-direction-card__index">{{ String(index + 1).padStart(2, '0') }}</span>
               <Lightbulb :size="17" />
               <strong>{{ direction.name }}</strong>
               <CheckCircle2 v-if="selectedDirectionId === direction.id" :size="17" />
@@ -2100,6 +2158,35 @@ onBeforeUnmount(() => {
 .ranking-scan-state strong { color: var(--arc-text-primary); font-size: 17px; }
 .ranking-scan-state p { max-width: 560px; margin: 0; line-height: 1.7; }
 .ranking-scan-state--error strong { color: var(--arc-danger); }
+.ranking-idea-loading {
+  width: min(100%, 620px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 28px 24px 24px;
+  border: 1px solid var(--arc-border);
+  border-radius: 14px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--arc-primary) 6%, var(--arc-bg-surface)), var(--arc-bg-surface));
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--arc-primary) 8%, transparent);
+}
+.ranking-idea-loading__visual { position: relative; width: 92px; height: 92px; display: grid; place-items: center; color: var(--arc-primary); }
+.ranking-idea-loading__orbit { position: absolute; display: block; border: 1px solid color-mix(in srgb, var(--arc-primary) 35%, transparent); border-radius: 50%; transform: rotate(-20deg); }
+.ranking-idea-loading__orbit--outer { width: 86px; height: 46px; animation: ranking-idea-orbit 3.4s linear infinite; }
+.ranking-idea-loading__orbit--inner { width: 62px; height: 34px; border-style: dashed; animation: ranking-idea-orbit 2.4s linear infinite reverse; }
+.ranking-idea-loading__core { z-index: 1; width: 48px; height: 48px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--arc-primary) 45%, var(--arc-border)); border-radius: 50%; background: var(--arc-bg-surface); box-shadow: 0 0 0 7px color-mix(in srgb, var(--arc-primary) 8%, transparent), 0 6px 18px color-mix(in srgb, var(--arc-primary) 18%, transparent); animation: ranking-idea-core 1.8s ease-in-out infinite; }
+.ranking-idea-loading__spark { position: absolute; z-index: 2; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--arc-bg-surface); color: var(--arc-accent); box-shadow: 0 4px 12px color-mix(in srgb, var(--arc-text-primary) 10%, transparent); }
+.ranking-idea-loading__spark--one { top: 3px; right: 8px; animation: ranking-idea-spark-one 2.6s ease-in-out infinite; }
+.ranking-idea-loading__spark--two { bottom: 2px; left: 8px; animation: ranking-idea-spark-two 2.8s ease-in-out infinite; }
+.ranking-idea-loading__copy { display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; }
+.ranking-idea-loading__copy > span { color: var(--arc-primary); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.ranking-idea-loading__copy strong { color: var(--arc-text-primary); font-size: 18px; }
+.ranking-idea-loading__copy p { max-width: 460px; color: var(--arc-text-secondary); font-size: 13px; }
+.ranking-idea-loading__steps { width: min(100%, 470px); display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ranking-idea-loading__steps span { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 6px; border: 1px solid var(--arc-border); border-radius: 8px; color: var(--arc-text-hint); font-size: 11px; }
+.ranking-idea-loading__steps span.active { border-color: color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border)); color: var(--arc-text-secondary); }
+.ranking-idea-loading__steps i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.ranking-idea-loading__steps span.active i { color: var(--arc-primary); animation: ranking-idea-step 1.15s ease-in-out infinite; }
 .ranking-scan-report { color: var(--arc-text-secondary); font-size: 14px; line-height: 1.75; overflow-x: auto; }
 .ranking-scan-report :deep(h1),
 .ranking-scan-report :deep(h2),
@@ -2142,6 +2229,12 @@ onBeforeUnmount(() => {
 .ranking-scan-footer__actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .ranking-idea-workbench { display: flex; flex-direction: column; gap: 20px; padding: 2px 0 10px; }
+.ranking-idea-summary { display: flex; align-items: center; gap: 11px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--arc-primary) 24%, var(--arc-border)); border-radius: 10px; background: var(--arc-primary-soft); }
+.ranking-idea-summary__icon { width: 30px; height: 30px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 8px; background: var(--arc-bg-surface); color: var(--arc-primary); }
+.ranking-idea-summary > div:nth-child(2) { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
+.ranking-idea-summary strong { color: var(--arc-text-primary); font-size: 13px; }
+.ranking-idea-summary span { color: var(--arc-text-secondary); font-size: 11.5px; }
+.ranking-idea-summary__status { flex: 0 0 auto; color: var(--arc-primary) !important; font-size: 11px !important; font-weight: 650; }
 .ranking-idea-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
 .ranking-idea-heading > div > span { display: inline-block; margin-bottom: 4px; color: var(--arc-primary); font-size: 12px; font-weight: 700; }
 .ranking-idea-heading h3 { margin: 0; color: var(--arc-text-primary); font-size: 19px; }
@@ -2168,6 +2261,7 @@ onBeforeUnmount(() => {
 }
 .ranking-direction-card__title, .ranking-combination-card__title { display: flex; align-items: center; gap: 8px; }
 .ranking-direction-card__title svg, .ranking-combination-card__title svg { flex: 0 0 auto; color: var(--arc-primary); }
+.ranking-direction-card__index { color: var(--arc-text-hint); font-size: 11px; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
 .ranking-direction-card__title strong, .ranking-combination-card__title strong { flex: 1; font-size: 15px; }
 .ranking-direction-card > p { margin: 10px 0 12px; color: var(--arc-text-secondary); font-size: 13px; line-height: 1.65; }
 .ranking-direction-card__meta { display: flex; flex-direction: column; gap: 5px; color: var(--arc-text-hint); font-size: 12px; line-height: 1.5; }
@@ -2382,10 +2476,34 @@ onBeforeUnmount(() => {
   0%, 100% { transform: translateY(0); opacity: .35; }
   50% { transform: translateY(-2px); opacity: 1; }
 }
+@keyframes ranking-idea-orbit {
+  from { transform: rotate(-20deg) rotate(0deg); }
+  to { transform: rotate(-20deg) rotate(360deg); }
+}
+@keyframes ranking-idea-core {
+  0%, 100% { transform: scale(.96); }
+  50% { transform: scale(1.04); }
+}
+@keyframes ranking-idea-spark-one {
+  0%, 100% { transform: translate(0, 0); opacity: .6; }
+  50% { transform: translate(4px, -3px); opacity: 1; }
+}
+@keyframes ranking-idea-spark-two {
+  0%, 100% { transform: translate(0, 0); opacity: .6; }
+  50% { transform: translate(-3px, 3px); opacity: 1; }
+}
+@keyframes ranking-idea-step {
+  0%, 100% { transform: scale(.75); opacity: .35; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
   .ranking-scan-progress-track.is-ai-generating span::after,
   .ranking-scan-ai-status svg,
-  .ranking-scan-ai-status i { animation: none; }
+  .ranking-scan-ai-status i,
+  .ranking-idea-loading__orbit,
+  .ranking-idea-loading__core,
+  .ranking-idea-loading__spark,
+  .ranking-idea-loading__steps span.active i { animation: none; }
 }
 
 @media (max-width: 700px) {
@@ -2396,6 +2514,8 @@ onBeforeUnmount(() => {
   .ranking-scan-main { padding: 18px 16px; }
   .ranking-scan-choice-grid { grid-template-columns: 1fr; }
   .ranking-scan-platforms { grid-template-columns: 1fr; }
+  .ranking-idea-summary { align-items: flex-start; }
+  .ranking-idea-summary__status { margin-left: auto; }
   .ranking-idea-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
   .ranking-idea-heading > p { text-align: left; }
   .ranking-direction-grid, .ranking-combination-grid { grid-template-columns: 1fr; }
