@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useMessage } from 'naive-ui'
 import {
   BookMarked,
+  BrainCircuit,
   FileCheck2,
   Globe2,
   Network,
@@ -20,6 +21,7 @@ import AssistantSessionList from './AssistantSessionList.vue'
 import AssistantMessages from './AssistantMessages.vue'
 import AssistantComposer from './AssistantComposer.vue'
 import StagedChangesView from './StagedChangesView.vue'
+import AgentCapabilitiesDialog from './AgentCapabilitiesDialog.vue'
 
 const appStore = useAppStore()
 const { selectedProjectId } = storeToRefs(appStore)
@@ -45,6 +47,7 @@ const composerValue = computed({
 type AssistantMode = 'ingest' | 'correct' | 'audit'
 
 const activeMode = ref<AssistantMode>('ingest')
+const capabilitiesVisible = ref(false)
 
 const modeOptions: Array<{
   id: AssistantMode
@@ -359,6 +362,16 @@ async function handleCommit(ids?: string[]): Promise<void> {
     </button>
 
     <div class="main">
+      <button
+        v-if="!assistant.isStreaming.value"
+        type="button"
+        class="capability-trigger"
+        title="长期记忆、MCP 与子智能体"
+        @click="capabilitiesVisible = true"
+      >
+        <BrainCircuit :size="15" />
+        智能体能力
+      </button>
       <div v-if="assistant.isStreaming.value" class="stream-strip">
         <span class="dot" /> 生成中…
       </div>
@@ -447,6 +460,12 @@ async function handleCommit(ids?: string[]): Promise<void> {
         @clear-restored="assistant.clearRestoredDraft()"
       />
     </div>
+
+    <AgentCapabilitiesDialog
+      :visible="capabilitiesVisible"
+      :project-id="selectedProjectId || ''"
+      @close="capabilitiesVisible = false"
+    />
 
     <!-- 折叠态：竖窄条 -->
     <button
@@ -600,6 +619,24 @@ async function handleCommit(ids?: string[]): Promise<void> {
   min-width: 0;
   position: relative;
 }
+.capability-trigger {
+  position: absolute;
+  top: 12px;
+  right: 20px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--arc-border);
+  border-radius: 9px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+.capability-trigger:hover { border-color: var(--arc-primary); color: var(--arc-primary); }
 .starter {
   flex: 1;
   min-height: 0;

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useMessage } from 'naive-ui'
 import {
+  BrainCircuit,
   History,
   MessageSquareText,
   Plus,
@@ -17,6 +18,7 @@ import AssistantSessionList from './AssistantSessionList.vue'
 import AssistantMessages from './AssistantMessages.vue'
 import AssistantComposer from './AssistantComposer.vue'
 import StagedChangesView from './StagedChangesView.vue'
+import AgentCapabilitiesDialog from './AgentCapabilitiesDialog.vue'
 
 const props = defineProps<{
   activeViewLabel?: string
@@ -53,6 +55,7 @@ type PanelTab = 'chat' | 'staged' | 'sessions'
 const activeTab = ref<PanelTab>('chat')
 const activeMode = ref<AssistantMode>('ingest')
 const isCommitting = ref(false)
+const capabilitiesVisible = ref(false)
 
 const modeOptions: Array<{ id: AssistantMode; label: string; description: string }> = [
   { id: 'ingest', label: '录入', description: '沉淀设定、计划和创作记忆' },
@@ -183,6 +186,9 @@ async function handleCommit(ids?: string[]): Promise<void> {
         </div>
       </div>
       <div class="head-actions">
+        <button type="button" title="长期记忆、MCP 与子智能体" @click="capabilitiesVisible = true">
+          <BrainCircuit :size="16" />
+        </button>
         <button type="button" title="新建对话" @click="createSession">
           <Plus :size="16" />
         </button>
@@ -191,6 +197,12 @@ async function handleCommit(ids?: string[]): Promise<void> {
         </button>
       </div>
     </header>
+
+    <AgentCapabilitiesDialog
+      :visible="capabilitiesVisible"
+      :project-id="selectedProjectId || ''"
+      @close="capabilitiesVisible = false"
+    />
 
     <div class="session-strip">
       <span>{{ activeSessionTitle }}</span>

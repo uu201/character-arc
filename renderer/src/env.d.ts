@@ -710,6 +710,37 @@ declare global {
           Promise<import('@shared/assistant-runtime').StagedChangeCommitResult[]>
         stageBindTarget: (payload: import('@shared/assistant-runtime').StageBindTargetRequest) =>
           Promise<import('@shared/assistant-runtime').StagedChange | null>
+        memoryList: (payload: { projectId: string; limit?: number }) =>
+          Promise<import('@shared/assistant-runtime').AgentMemory[]>
+        memoryCreate: (payload: {
+          projectId: string
+          kind?: import('@shared/assistant-runtime').AgentMemoryKind
+          content: string
+          importance?: number
+        }) => Promise<import('@shared/assistant-runtime').AgentMemory>
+        memoryDelete: (payload: { id: string; projectId: string }) => Promise<{ ok: boolean }>
+        memorySetImportance: (payload: { id: string; projectId: string; importance: number }) =>
+          Promise<import('@shared/assistant-runtime').AgentMemory | null>
+        mcpServerList: (payload: { projectId: string }) =>
+          Promise<import('@shared/assistant-runtime').ControlledMcpServer[]>
+        mcpServerSave: (payload: {
+          id?: string
+          projectId: string
+          name: string
+          url: string
+          apiKey?: string
+        }) => Promise<import('@shared/assistant-runtime').ControlledMcpServer>
+        mcpServerDelete: (payload: { id: string; projectId: string }) => Promise<{ ok: boolean }>
+        mcpServerTest: (payload: { id: string; projectId: string }) => Promise<{
+          ok: boolean
+          message: string
+          server?: import('@shared/assistant-runtime').ControlledMcpServer
+          tools: import('@shared/assistant-runtime').ControlledMcpTool[]
+        }>
+        mcpServerSetEnabled: (payload: { id: string; projectId: string; enabled: boolean }) =>
+          Promise<import('@shared/assistant-runtime').ControlledMcpServer>
+        mcpServerSetAllowedTools: (payload: { id: string; projectId: string; tools: string[] }) =>
+          Promise<import('@shared/assistant-runtime').ControlledMcpServer>
         onEvent: (
           callback: (payload: import('@shared/assistant-runtime').AssistantEventPush) => void
         ) => () => void

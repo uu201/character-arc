@@ -17,7 +17,7 @@ import { registerAssistantIpcHandlers } from './ipc'
 import { createExecutionPlanner } from './execution-plan'
 import { createCommitter } from './committer'
 import { registerBuiltinProviders } from './providers'
-import { getSharedConversation, peekSharedConversation } from './state'
+import { getAgentMemoryStore, getSharedConversation, peekSharedConversation } from './state'
 
 export interface BootstrapAssistantRuntimeDeps {
   /** 首次调用时 ensure schema，返回 DatabaseSync 实例。 */
@@ -39,7 +39,8 @@ export function bootstrapAssistantRuntime(deps: BootstrapAssistantRuntimeDeps): 
   registerBuiltinProviders({
     contextBuilder,
     snapshot: snapshotAccessor,
-    getConversation: () => getSharedConversation()
+    getConversation: () => getSharedConversation(),
+    getMemoryStore: () => getAgentMemoryStore()
   })
 
   // 2. 构造 execution planner

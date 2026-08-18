@@ -15,6 +15,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import {
   ASSISTANT_IPC_CHANNELS,
   type AssistantEventPush,
+  type AgentMemoryKind,
   type AssistantSession,
   type StageAcceptRequest,
   type StageBindTargetRequest,
@@ -33,9 +34,10 @@ import { buildRunMeta } from '../runtime/run-meta'
 import type { ConversationManager } from './conversation-manager'
 import { stagedChangesStore, type StagedChangeCommitter } from './staged-changes-store'
 import { AgentLoop, type AgentLoopRunResult, type ToolFactory } from './agent-loop'
-import { configureRuntimeState, getSharedConversation } from './state'
+import { configureRuntimeState, getAgentMemoryStore, getControlledMcpStore, getSharedConversation } from './state'
 import type { EvidenceLedger } from './evidence-ledger'
 import type { AssistantRuntimePlan } from './planner'
+import { ControlledHttpMcpClient, validateControlledMcpUrl } from './controlled-mcp-client'
 
 /** Phase 2 才注入的执行计划解析器：把 Surface + user request → prompt + tools。 */
 export type ResolveTurnExecutionPlan = (params: {
@@ -213,6 +215,118 @@ export function registerAssistantIpcHandlers(injected: AssistantIpcDeps): void {
   registerSessionHandlers()
   registerTurnHandlers()
   registerStageHandlers()
+  registerCapabilityHandlers()
+}
+
+// ============================================================================
+// 可控智能体能力：长期记忆 / HTTP MCP 白名单
+// ============================================================================
+
+function registerCapabilityHandlers(): void {
+  ipcMain.handle(ASSISTANT_IPC_CHANNELS.MEMORY_LIST, async (_event, payload: { projectId?: string; limit?: number }) => {
+    const store = await getAgentMemoryStore()
+    return store.list(String(payload?.projectId ?? ''), Number(payload?.limit ?? 50))
+  })
+
+  ipcMain.handle(ASSISTANT_IPC_CHANNELS.MEMORY_CREATE, async (_event, payload: {
+    projectId?: string
+    kind?: AgentMemoryKind
+    content?: string
+    importance?: number
+  }) => {
+    const store = await getAgentMemoryStore()
+    return store.create({
+      projectId: String(payload?.projectId ?? ''),
+      kind: payload?.kind,
+      content: String(payload?.content ?? ''),
+      source: 'user',
+      importance: Number(payload?.importance ?? 3)
+    })
+  })
+
+  ipcMain.handle(ASSISTANT_IPC_CHANNELS.MEMORY_DELETE, async (_event, payload: { id?: string; projectId?: string }) => {
+    const store = await getAgentMemoryStore()
+    return { ok: store.remove(String(payload?.id ?? ''), String(payload?.projectId ?? '')) }
+  })
+
+  ipcMain.handle(ASSISTANT_IPC_CHANNELS.MEMORY_SET_IMPORTANCE, async (_event, payload: {
+    id?: string
+    projectId?: string
+    importance?: number
+  }) => {
+    const store = await getAgentMemoryStore()
+    return store.setImportance(
+      String(payload?.id ?? ''),
+      String(payload?.projectId ?? ''),
+      Number(payload?.importance ?? 3)
+    )
+  })
+
+  ipcMain.handle(ASSISTANT_IPC_CHANNELS.MCP_SERVER_LIST, async (_event, payload: { projectId?: string }) => {
+    const store = await getControlledMcpStore()
+    return store.list(String(payload?.projectId ?? ''))
+  })
+
+  ipcMain.handle(ASSISTANT_IPC_CHANNELS.MCP_SERVER_SAVE, async (_event, payload: {
+    id?: string
+    projectId?: string
+    name?: string
+    url?: string
+    apiKey?: string
+  }) => {
+    const store = await getControlledMcpStore()
+    return store.save({
+      id: typeof payload?.id === 'string' ? payload.id : undefined,
+      projectId: String(payload?.projectId ?? ''),
+      name: String(payload?.name ?? ''),
+      url: validateControlledMcpUrl(String(payload?.url ?? '')),
+      apiKey: typeof payload?.apiKey === 'string' ? payload.apiKey : undefined
+    })
+  })
+
+  ipcMain.handle(ASSISTANT_IPC_CHANNELS.MCP_SERVER_DELETE, async (_event, payload: { id?: string; projectId?: string }) => {
+    const store = await getControlledMcpStore()
+    return { ok: store.remove(String(payload?.id ?? ''), String(payload?.projectId ?? '')) }
+  })
+
+  ipcMain.handle(ASSISTANT_IPC_CHANNELS.MCP_SERVER_TEST, async (_event, payload: { id?: string; projectId?: string }) => {
+    const store = await getControlledMcpStore()
+    const projectId = String(payload?.projectId ?? '')
+    const server = store.getSecret(String(payload?.id ?? ''), projectId)
+    if (!server) throw new Error('MCP 服务器不存在或不属于当前项目。')
+    try {
+      const client = new ControlledHttpMcpClient(server.url, server.apiKey)
+      const tools = await client.listTools()
+      const updated = store.recordConnection(server.id, projectId, tools)
+      return { ok: true, message: `连接成功，发现 ${tools.length} 个工具。`, server: updated, tools }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      store.recordConnection(server.id, projectId, server.discoveredTools, message)
+      return { ok: false, message, tools: [] }
+    }
+  })
+
+  ipcMain.handle(ASSISTANT_IPC_CHANNELS.MCP_SERVER_SET_ENABLED, async (_event, payload: {
+    id?: string
+    projectId?: string
+    enabled?: boolean
+  }) => {
+    const store = await getControlledMcpStore()
+    return store.setEnabled(String(payload?.id ?? ''), String(payload?.projectId ?? ''), payload?.enabled === true)
+  })
+
+  ipcMain.handle(ASSISTANT_IPC_CHANNELS.MCP_SERVER_SET_ALLOWED_TOOLS, async (_event, payload: {
+    id?: string
+    projectId?: string
+    tools?: string[]
+  }) => {
+    const store = await getControlledMcpStore()
+    return store.setAllowedTools(
+      String(payload?.id ?? ''),
+      String(payload?.projectId ?? ''),
+      Array.isArray(payload?.tools) ? payload.tools : []
+    )
+  })
 }
 
 // ============================================================================

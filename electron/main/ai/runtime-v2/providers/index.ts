@@ -5,6 +5,7 @@
 
 import type { ContextBuilder } from '../context-builder'
 import type { ConversationManager } from '../conversation-manager'
+import type { AgentMemoryStore } from '../agent-memory-store'
 import type { SnapshotAccessor } from './shared'
 
 import { makeProjectBriefProvider } from './project-brief'
@@ -12,6 +13,7 @@ import { makeCurrentChapterProvider } from './current-chapter'
 import { makeWorldviewProvider } from './worldview'
 import { makeCharactersProvider } from './characters'
 import { makeRecentMessagesProvider } from './recent-messages'
+import { makeAgentMemoriesProvider } from './agent-memories'
 import {
   makeConstraintsProvider,
   makeInspirationProvider,
@@ -27,11 +29,13 @@ export interface RegisterBuiltinProvidersDeps {
   contextBuilder: ContextBuilder
   snapshot: SnapshotAccessor
   getConversation: () => Promise<ConversationManager>
+  getMemoryStore: () => Promise<AgentMemoryStore>
 }
 
 export function registerBuiltinProviders(deps: RegisterBuiltinProvidersDeps): void {
-  const { contextBuilder, snapshot, getConversation } = deps
+  const { contextBuilder, snapshot, getConversation, getMemoryStore } = deps
   contextBuilder.register(makeProjectBriefProvider(snapshot))
+  contextBuilder.register(makeAgentMemoriesProvider(getMemoryStore))
   contextBuilder.register(makeCurrentChapterProvider(snapshot))
   contextBuilder.register(makeRecentMessagesProvider(getConversation))
   contextBuilder.register(makeWorldviewProvider(snapshot))

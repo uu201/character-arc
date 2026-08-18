@@ -272,6 +272,27 @@ contextBridge.exposeInMainWorld('characterArc', {
       ipcRenderer.invoke('characterarc:assistant:stage:commit', toIpcPayload(payload)),
     stageBindTarget: (payload: unknown) =>
       ipcRenderer.invoke('characterarc:assistant:stage:bind-target', toIpcPayload(payload)),
+    // Controlled agent capabilities
+    memoryList: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:memory:list', toIpcPayload(payload)),
+    memoryCreate: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:memory:create', toIpcPayload(payload)),
+    memoryDelete: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:memory:delete', toIpcPayload(payload)),
+    memorySetImportance: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:memory:set-importance', toIpcPayload(payload)),
+    mcpServerList: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:mcp:server-list', toIpcPayload(payload)),
+    mcpServerSave: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:mcp:server-save', toIpcPayload(payload)),
+    mcpServerDelete: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:mcp:server-delete', toIpcPayload(payload)),
+    mcpServerTest: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:mcp:server-test', toIpcPayload(payload)),
+    mcpServerSetEnabled: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:mcp:server-set-enabled', toIpcPayload(payload)),
+    mcpServerSetAllowedTools: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:mcp:server-set-allowed-tools', toIpcPayload(payload)),
     /** 订阅主进程推送的 TurnEvent 流。返回 unsubscribe 函数。 */
     onEvent: (callback: (payload: unknown) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)

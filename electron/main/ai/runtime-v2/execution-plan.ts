@@ -38,6 +38,10 @@ import { getProjectView, type SnapshotAccessor } from './providers/shared'
 import { saveRuntimeKnowledgeDocument } from './knowledge-writer'
 import { createEvidenceLedger, wrapToolsWithRuntimeBudget } from './evidence-ledger'
 import { createRuntimePlan, type AssistantRuntimePlan } from './planner'
+import { getAgentMemoryStore, getControlledMcpStore } from './state'
+import { createControlledMemoryTools } from './tools/memory-tools'
+import { createControlledMcpTools } from './tools/controlled-mcp-tools'
+import { createDelegateNovelTools } from './tools/delegate-novel-tools'
 
 /** 大多数主流长上下文模型的保守窗口。实际 provider 若更小，会由压缩层兜底。 */
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 128000
@@ -72,6 +76,8 @@ export function createExecutionPlanner(
     // 与 validateSettings 一并调用，配置缺失时立即抛错而不是发出去空转。
     const settings = normalizeSettings(rawSettings)
     validateSettings(settings)
+    const memoryStore = await getAgentMemoryStore()
+    const mcpStore = await getControlledMcpStore()
 
     // 1. Planner：先决定本轮是轻量对话、审计、修正还是分批任务。
     const runtimePlan = createRuntimePlan({ surface, request })
@@ -194,6 +200,17 @@ export function createExecutionPlanner(
         projectId: ctx.projectId,
         stagedStore: stagedChangesStore
       })
+      const memoryTools = createControlledMemoryTools({
+        store: memoryStore,
+        projectId: ctx.projectId,
+        turnId: ctx.turnId,
+        userMessage: request.userMessage
+      })
+      const mcpTools = createControlledMcpTools({
+        store: mcpStore,
+        projectId: ctx.projectId
+      })
+      const delegateTools = createDelegateNovelTools(settings)
       const combined: Tool[] = [
         ...chapterReadTools,
         ...projectDataTools,
@@ -204,7 +221,10 @@ export function createExecutionPlanner(
         stageChapterDelete,
         ...chapterManagementTools,
         ...stageEntityTools,
-        ...stageProjectEntityTools
+        ...stageProjectEntityTools,
+        ...memoryTools,
+        ...mcpTools,
+        ...delegateTools
       ]
       return wrapToolsWithRuntimeBudget(
         filterToolsBySurface(combined, surface),

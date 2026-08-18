@@ -20,7 +20,7 @@ export interface AssistantRuntimePlan {
   guidance: string
 }
 
-const BASE_CONTEXT: ContextProviderId[] = ['project-brief', 'recent-messages', 'skill-index']
+const BASE_CONTEXT: ContextProviderId[] = ['project-brief', 'agent-memories', 'recent-messages', 'skill-index']
 
 /** 具体的章节修改方向词——命中说明用户已给出明确改法，无需追问。对齐 v1。 */
 const CONCRETE_EDIT_DIRECTIONS = [

@@ -8,8 +8,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { ConversationManager } from './conversation-manager'
 import { stagedChangesStore } from './staged-changes-store'
+import { AgentMemoryStore } from './agent-memory-store'
+import { ControlledMcpStore } from './controlled-mcp-store'
 
 let sharedConversation: ConversationManager | null = null
+let sharedMemoryStore: AgentMemoryStore | null = null
+let sharedMcpStore: ControlledMcpStore | null = null
 let ensureDbFn: (() => Promise<DatabaseSync>) | null = null
 
 /** bootstrap 阶段配置 db 获取器；ipc.ts 首次调用时用它建单例。 */
@@ -25,6 +29,23 @@ export async function getSharedConversation(): Promise<ConversationManager> {
   stagedChangesStore.configure(db)
   sharedConversation = new ConversationManager(db)
   return sharedConversation
+}
+
+async function getRuntimeDb(): Promise<DatabaseSync> {
+  if (!ensureDbFn) throw new Error('Runtime state not configured; call configureRuntimeState first.')
+  return ensureDbFn()
+}
+
+export async function getAgentMemoryStore(): Promise<AgentMemoryStore> {
+  if (sharedMemoryStore) return sharedMemoryStore
+  sharedMemoryStore = new AgentMemoryStore(await getRuntimeDb())
+  return sharedMemoryStore
+}
+
+export async function getControlledMcpStore(): Promise<ControlledMcpStore> {
+  if (sharedMcpStore) return sharedMcpStore
+  sharedMcpStore = new ControlledMcpStore(await getRuntimeDb())
+  return sharedMcpStore
 }
 
 /**

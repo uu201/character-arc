@@ -188,6 +188,7 @@ export interface StagedChangeCommitResult {
 /** 内置 ContextProvider id。第三方扩展可绕过此联合类型。 */
 export type ContextProviderId =
   | 'project-brief'
+  | 'agent-memories'
   | 'current-chapter'
   | 'selection'
   | 'recent-messages'
@@ -246,11 +247,50 @@ export type PermissionMatrix = Readonly<Record<SurfaceId, readonly ToolMatcher[]
  * 用 `*` 通配简化维护；后续新增工具时按前缀自动生效。
  */
 export const DEFAULT_PERMISSION_MATRIX: PermissionMatrix = {
-  'global-page': ['read_*', 'search_*', 'list_*', 'stage_*', 'skill_*', 'knowledge_*'],
-  'global-panel': ['read_*', 'search_*', 'list_*', 'stage_*', 'skill_*', 'knowledge_*'],
-  'chapter-panel': ['read_*', 'search_*', 'list_*', 'stage_chapter_edit', 'skill_*', 'knowledge_*'],
+  'global-page': ['read_*', 'search_*', 'list_*', 'stage_*', 'skill_*', 'knowledge_*', 'memory_*', 'mcp_*', 'delegate_*'],
+  'global-panel': ['read_*', 'search_*', 'list_*', 'stage_*', 'skill_*', 'knowledge_*', 'memory_*', 'mcp_*', 'delegate_*'],
+  'chapter-panel': ['read_*', 'search_*', 'list_*', 'stage_chapter_edit', 'skill_*', 'knowledge_*', 'memory_*'],
   'inline-selection': ['read_chapter', 'stage_chapter_edit']
 } as const
+
+// ============================================================================
+// 可控智能体能力：长期记忆 / HTTP MCP / 小说子任务
+// ============================================================================
+
+export type AgentMemoryKind = 'preference' | 'lesson' | 'fact' | 'method'
+
+export interface AgentMemory {
+  id: string
+  projectId: string
+  kind: AgentMemoryKind
+  content: string
+  source: 'user' | 'agent' | 'system'
+  importance: number
+  sourceTurnId?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ControlledMcpTool {
+  name: string
+  description?: string
+  inputSchema?: Record<string, unknown>
+}
+
+export interface ControlledMcpServer {
+  id: string
+  projectId: string
+  name: string
+  url: string
+  enabled: boolean
+  allowedTools: string[]
+  discoveredTools: ControlledMcpTool[]
+  hasApiKey: boolean
+  lastConnectedAt?: string
+  lastError?: string
+  createdAt: string
+  updatedAt: string
+}
 
 // ============================================================================
 // IPC 通道
@@ -278,7 +318,18 @@ export const ASSISTANT_IPC_CHANNELS = {
   STAGE_ACCEPT: 'characterarc:assistant:stage:accept',
   STAGE_REJECT: 'characterarc:assistant:stage:reject',
   STAGE_COMMIT: 'characterarc:assistant:stage:commit',
-  STAGE_BIND_TARGET: 'characterarc:assistant:stage:bind-target'
+  STAGE_BIND_TARGET: 'characterarc:assistant:stage:bind-target',
+  // 可控智能体能力
+  MEMORY_LIST: 'characterarc:assistant:memory:list',
+  MEMORY_CREATE: 'characterarc:assistant:memory:create',
+  MEMORY_DELETE: 'characterarc:assistant:memory:delete',
+  MEMORY_SET_IMPORTANCE: 'characterarc:assistant:memory:set-importance',
+  MCP_SERVER_LIST: 'characterarc:assistant:mcp:server-list',
+  MCP_SERVER_SAVE: 'characterarc:assistant:mcp:server-save',
+  MCP_SERVER_DELETE: 'characterarc:assistant:mcp:server-delete',
+  MCP_SERVER_TEST: 'characterarc:assistant:mcp:server-test',
+  MCP_SERVER_SET_ENABLED: 'characterarc:assistant:mcp:server-set-enabled',
+  MCP_SERVER_SET_ALLOWED_TOOLS: 'characterarc:assistant:mcp:server-set-allowed-tools'
 } as const
 
 export type AssistantIpcChannel =
