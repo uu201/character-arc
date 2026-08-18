@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle2, ChevronLeft, CircleAlert, Copy, ExternalLink, Flame, History, Lightbulb, RefreshCw, Search, Sparkles } from 'lucide-vue-next'
+import { Bookmark, BookmarkCheck, CheckCircle2, ChevronLeft, CircleAlert, Copy, ExternalLink, Flame, History, Lightbulb, RefreshCw, Search, Sparkles } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { NButton, NCard, NModal, NSelect, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
@@ -87,6 +87,21 @@ type RankingIdeaDirection = {
   combinations: RankingIdeaCombination[]
 }
 
+type RankingDirectionFavorite = {
+  key: string
+  savedAt: string
+  source: string
+  direction: RankingIdeaDirection
+}
+
+type RankingIdeaFavorite = {
+  key: string
+  savedAt: string
+  source: string
+  directionName: string
+  idea: RankingIdeaCombination
+}
+
 type QidianRankData = {
   date?: string
   title?: string
@@ -105,6 +120,11 @@ const ideaDirections = ref<RankingIdeaDirection[]>([])
 const ideaError = ref('')
 const selectedDirectionId = ref('')
 const selectedIdeaId = ref('')
+const selectedFavoriteDirection = ref<RankingIdeaDirection | null>(null)
+const ideaGenerationMode = ref<'directions' | 'combinations'>('directions')
+const favoriteDirections = ref<RankingDirectionFavorite[]>([])
+const favoriteIdeas = ref<RankingIdeaFavorite[]>([])
+const favoritePanelOpen = ref(false)
 const scanStage = ref<ScanStage>('setup')
 const scanSelectedPlatform = ref<Platform>('fanqie')
 const scanSelectedBoard = ref('female-new')
@@ -281,7 +301,9 @@ const scanSelectedCategoryLabel = computed(() =>
 const scanHasCategory = computed(() => scanSelectedPlatform.value === 'qidian' || scanSelectedPlatform.value === 'qimao' || scanSelectedPlatform.value === 'zongheng')
 const scanCategorySuffix = computed(() => scanHasCategory.value ? ` · ${scanSelectedCategoryLabel.value}` : '')
 const selectedDirection = computed(() =>
-  ideaDirections.value.find((direction) => direction.id === selectedDirectionId.value) || null
+  selectedFavoriteDirection.value
+    || ideaDirections.value.find((direction) => direction.id === selectedDirectionId.value)
+    || null
 )
 const selectedIdea = computed(() =>
   selectedDirection.value?.combinations.find((idea) => idea.id === selectedIdeaId.value) || null
@@ -294,6 +316,7 @@ const scanModalTitle = computed(() => {
   return `${scanSelectedPlatformLabel.value} · ${scanSelectedBoardLabel.value}${scanCategorySuffix.value}风格报告`
 })
 const scanCurrentStageLabel = computed(() => RANKING_SCAN_STAGES[Math.min(scanCurrentStage.value, RANKING_SCAN_STAGES.length - 1)] || '准备分析参数')
+const favoriteCount = computed(() => favoriteDirections.value.length + favoriteIdeas.value.length)
 const filteredScanHistory = computed(() => {
   const keyword = scanHistorySearch.value.trim().toLowerCase()
   return scanHistory.value.filter((record) => {
@@ -302,6 +325,131 @@ const filteredScanHistory = computed(() => {
     return matchesStatus && matchesKeyword
   })
 })
+
+function favoriteStorageKey(): string {
+  return `character-arc:ranking-idea-favorites:${appStore.selectedProjectId || 'global'}`
+}
+
+function cloneDirection(direction: RankingIdeaDirection): RankingIdeaDirection {
+  return JSON.parse(JSON.stringify(direction)) as RankingIdeaDirection
+}
+
+function cloneIdea(idea: RankingIdeaCombination): RankingIdeaCombination {
+  return JSON.parse(JSON.stringify(idea)) as RankingIdeaCombination
+}
+
+function directionFavoriteKey(direction: RankingIdeaDirection): string {
+  return [direction.name, direction.readerPromise, direction.rationale].join('\u241f')
+}
+
+function ideaFavoriteKey(idea: RankingIdeaCombination): string {
+  return [idea.title, idea.hook, idea.premise].join('\u241f')
+}
+
+function persistIdeaFavorites(): void {
+  try {
+    localStorage.setItem(favoriteStorageKey(), JSON.stringify({
+      directions: favoriteDirections.value,
+      ideas: favoriteIdeas.value
+    }))
+  } catch {
+    message.warning('收藏保存失败，请检查本地存储空间')
+  }
+}
+
+function loadIdeaFavorites(): void {
+  try {
+    const raw = localStorage.getItem(favoriteStorageKey())
+    if (!raw) return
+    const value = JSON.parse(raw) as { directions?: unknown; ideas?: unknown }
+    favoriteDirections.value = Array.isArray(value.directions)
+      ? value.directions.filter((item): item is RankingDirectionFavorite => Boolean(
+          item && typeof item === 'object' && (item as RankingDirectionFavorite).key && (item as RankingDirectionFavorite).direction?.name
+        )).slice(0, 100)
+      : []
+    favoriteIdeas.value = Array.isArray(value.ideas)
+      ? value.ideas.filter((item): item is RankingIdeaFavorite => Boolean(
+          item && typeof item === 'object' && (item as RankingIdeaFavorite).key && (item as RankingIdeaFavorite).idea?.title
+        )).slice(0, 200)
+      : []
+  } catch {
+    favoriteDirections.value = []
+    favoriteIdeas.value = []
+  }
+}
+
+function currentFavoriteSource(): string {
+  return `${scanSelectedPlatformLabel.value} · ${scanSelectedBoardLabel.value}${scanCategorySuffix.value}`
+}
+
+function isDirectionFavorite(direction: RankingIdeaDirection): boolean {
+  const key = directionFavoriteKey(direction)
+  return favoriteDirections.value.some((item) => item.key === key)
+}
+
+function isIdeaFavorite(idea: RankingIdeaCombination): boolean {
+  const key = ideaFavoriteKey(idea)
+  return favoriteIdeas.value.some((item) => item.key === key)
+}
+
+function toggleDirectionFavorite(direction: RankingIdeaDirection): void {
+  const key = directionFavoriteKey(direction)
+  const index = favoriteDirections.value.findIndex((item) => item.key === key)
+  if (index >= 0) {
+    favoriteDirections.value.splice(index, 1)
+    message.success('已取消收藏该创作方向')
+  } else {
+    favoriteDirections.value.unshift({
+      key,
+      savedAt: new Date().toISOString(),
+      source: currentFavoriteSource(),
+      direction: cloneDirection(direction)
+    })
+    message.success('创作方向已收藏')
+  }
+  persistIdeaFavorites()
+}
+
+function toggleIdeaFavorite(idea: RankingIdeaCombination, direction: RankingIdeaDirection | string): void {
+  const key = ideaFavoriteKey(idea)
+  const index = favoriteIdeas.value.findIndex((item) => item.key === key)
+  if (index >= 0) {
+    favoriteIdeas.value.splice(index, 1)
+    message.success('已取消收藏该脑洞')
+  } else {
+    favoriteIdeas.value.unshift({
+      key,
+      savedAt: new Date().toISOString(),
+      source: currentFavoriteSource(),
+      directionName: typeof direction === 'string' ? direction : direction.name,
+      idea: cloneIdea(idea)
+    })
+    message.success('脑洞组合已收藏')
+  }
+  persistIdeaFavorites()
+}
+
+function openFavoriteDirection(favorite: RankingDirectionFavorite): void {
+  selectedFavoriteDirection.value = cloneDirection(favorite.direction)
+  selectedDirectionId.value = `favorite:${favorite.key}`
+  selectedIdeaId.value = ''
+  favoritePanelOpen.value = false
+}
+
+function openFavoriteIdea(favorite: RankingIdeaFavorite): void {
+  const idea = cloneIdea(favorite.idea)
+  selectedFavoriteDirection.value = {
+    id: `favorite:${favorite.key}`,
+    name: favorite.directionName || '已收藏方向',
+    rationale: '来自我的收藏',
+    readerPromise: '',
+    risk: '',
+    combinations: [idea]
+  }
+  selectedDirectionId.value = selectedFavoriteDirection.value.id
+  selectedIdeaId.value = idea.id
+  favoritePanelOpen.value = false
+}
 
 function normalizeRankingScanRecord(input: unknown): RankingScanHistoryRecord | null {
   if (!input || typeof input !== 'object') return null
@@ -861,6 +1009,7 @@ function createNewRankingScan(): void {
   ideaDirections.value = []
   selectedDirectionId.value = ''
   selectedIdeaId.value = ''
+  selectedFavoriteDirection.value = null
   scanStage.value = 'setup'
   scanVisible.value = true
 }
@@ -879,7 +1028,7 @@ async function cancelIdeaGeneration(): Promise<void> {
   if (!scanClientTaskId.value) return
   ideaCancelRequested.value = true
   await window.characterArc.cancelAiTask(scanClientTaskId.value)
-  scanStage.value = 'report'
+  scanStage.value = ideaDirections.value.length ? 'ideas' : 'report'
   appendScanLog('已取消创作方向生成', 'warn')
   persistScanHistory('success')
 }
@@ -1012,6 +1161,7 @@ async function runRankingStyleScan(force = false): Promise<void> {
   ideaDirections.value = []
   selectedDirectionId.value = ''
   selectedIdeaId.value = ''
+  selectedFavoriteDirection.value = null
   ideaError.value = ''
 
   const previousRecord = scanHistory.value.find((record) => record.id === scanActiveId.value)
@@ -1114,6 +1264,8 @@ async function generateIdeaDirections(force = false): Promise<void> {
     return
   }
 
+  const hadDirections = ideaDirections.value.length > 0
+  ideaGenerationMode.value = 'directions'
   scanStage.value = 'ideating'
   ideaError.value = ''
   ideaCancelRequested.value = false
@@ -1143,7 +1295,14 @@ async function generateIdeaDirections(force = false): Promise<void> {
         platformName: currentPlatformName(),
         boardName,
         scanReport: scanReport.value,
-        books
+        books,
+        excludedDirections: force
+          ? ideaDirections.value.map((direction) => ({
+              name: direction.name,
+              rationale: direction.rationale,
+              readerPromise: direction.readerPromise
+            }))
+          : []
       }
     }))
     if (ideaCancelRequested.value) return
@@ -1153,6 +1312,7 @@ async function generateIdeaDirections(force = false): Promise<void> {
     }
     ideaDirections.value = directions as RankingIdeaDirection[]
     ideaCache.set(ideaCacheKey, ideaDirections.value)
+    selectedFavoriteDirection.value = null
     selectedDirectionId.value = ''
     selectedIdeaId.value = ''
     scanStage.value = 'ideas'
@@ -1161,7 +1321,8 @@ async function generateIdeaDirections(force = false): Promise<void> {
   } catch (error) {
     if (ideaCancelRequested.value) return
     ideaError.value = error instanceof Error ? error.message : '生成创作方向失败'
-    scanStage.value = 'idea-error'
+    scanStage.value = hadDirections ? 'ideas' : 'idea-error'
+    if (hadDirections) message.error(ideaError.value)
     appendScanLog(ideaError.value, 'error')
     persistScanHistory('success')
   } finally {
@@ -1169,7 +1330,77 @@ async function generateIdeaDirections(force = false): Promise<void> {
   }
 }
 
+async function refreshSelectedDirectionIdeas(): Promise<void> {
+  const direction = selectedDirection.value
+  if (!direction) {
+    message.warning('请先选择一个创作方向')
+    return
+  }
+
+  ideaGenerationMode.value = 'combinations'
+  ideaError.value = ''
+  ideaCancelRequested.value = false
+  scanStage.value = 'ideating'
+  scanClientTaskId.value = `${scanActiveId.value || createScanId()}-combinations-${Date.now()}`
+  appendScanLog(`正在为“${direction.name}”换一批脑洞组合`)
+
+  try {
+    await prepareSelectedRankingForScan()
+    if (ideaCancelRequested.value) return
+    const books = collectRankingScanBooks()
+    const response = await window.characterArc.generateAi(toIpcPayload({
+      clientTaskId: scanClientTaskId.value,
+      task: 'ranking-idea-combinations',
+      settings: appStore.appSettings,
+      context: {
+        platformName: currentPlatformName(),
+        boardName: currentScanBoardName(),
+        scanReport: scanReport.value,
+        books,
+        refreshMode: 'combinations',
+        selectedDirection: {
+          id: direction.id,
+          name: direction.name,
+          rationale: direction.rationale,
+          readerPromise: direction.readerPromise,
+          risk: direction.risk,
+          combinations: direction.combinations.map((idea) => ({ title: idea.title, hook: idea.hook }))
+        }
+      }
+    }))
+    if (ideaCancelRequested.value) return
+    const directions = (response.result as { directions?: unknown } | undefined)?.directions
+    if (!response.success || !Array.isArray(directions) || !directions.length) {
+      throw new Error(response.error || 'AI 未返回有效的脑洞组合')
+    }
+    const generated = directions[0] as RankingIdeaDirection
+    const refreshed: RankingIdeaDirection = {
+      ...cloneDirection(direction),
+      combinations: generated.combinations.map(cloneIdea)
+    }
+    if (selectedFavoriteDirection.value) {
+      selectedFavoriteDirection.value = refreshed
+    } else {
+      const index = ideaDirections.value.findIndex((item) => item.id === selectedDirectionId.value)
+      if (index >= 0) ideaDirections.value.splice(index, 1, refreshed)
+    }
+    selectedIdeaId.value = ''
+    scanStage.value = 'ideas'
+    appendScanLog(`“${direction.name}”的新脑洞组合已生成`, 'success')
+    persistScanHistory('success')
+  } catch (error) {
+    if (ideaCancelRequested.value) return
+    ideaError.value = error instanceof Error ? error.message : '刷新脑洞组合失败'
+    scanStage.value = 'ideas'
+    message.error(ideaError.value)
+    appendScanLog(ideaError.value, 'error')
+  } finally {
+    scanClientTaskId.value = ''
+  }
+}
+
 function chooseIdeaDirection(directionId: string): void {
+  selectedFavoriteDirection.value = null
   selectedDirectionId.value = directionId
   selectedIdeaId.value = ''
 }
@@ -1307,6 +1538,7 @@ function fmt(n: unknown): string {
 }
 
 onMounted(() => {
+  loadIdeaFavorites()
   void loadRankingScanHistory()
   void loadAll()
 })
@@ -1746,8 +1978,8 @@ onBeforeUnmount(() => {
           </div>
           <div class="ranking-idea-loading__copy">
             <span>AI 创作工作台</span>
-            <strong>正在生成创作方向</strong>
-            <p>把榜单里的市场信号转译成可落地的原创选题，并检查方向之间的差异度。</p>
+            <strong>{{ ideaGenerationMode === 'combinations' ? '正在生成其他脑洞组合' : '正在生成其他创作方向' }}</strong>
+            <p>{{ ideaGenerationMode === 'combinations' ? '保留已选方向的读者承诺，重新组合不同的主角、世界规则与核心冲突。' : '把榜单里的市场信号转译成新的原创选题，并避开已经看过的方向。' }}</p>
           </div>
           <div class="ranking-idea-loading__steps" aria-hidden="true">
             <span class="active"><i></i>提取市场信号</span>
@@ -1771,24 +2003,75 @@ onBeforeUnmount(() => {
           </div>
           <span class="ranking-idea-summary__status">可继续挑选脑洞</span>
         </div>
+        <div class="ranking-favorites">
+          <button type="button" class="ranking-favorites__toggle" :class="{ active: favoritePanelOpen }" @click="favoritePanelOpen = !favoritePanelOpen">
+            <Bookmark :size="15" />
+            我的收藏
+            <b>{{ favoriteCount }}</b>
+          </button>
+          <div v-if="favoritePanelOpen" class="ranking-favorites__panel">
+            <div v-if="favoriteCount" class="ranking-favorites__grid">
+              <section>
+                <h4>收藏的方向 <span>{{ favoriteDirections.length }}</span></h4>
+                <div v-if="favoriteDirections.length" class="ranking-favorites__list">
+                  <article v-for="favorite in favoriteDirections" :key="favorite.key">
+                    <div><strong>{{ favorite.direction.name }}</strong><span>{{ favorite.source }}</span></div>
+                    <div class="ranking-favorites__actions">
+                      <button type="button" @click="openFavoriteDirection(favorite)">查看</button>
+                      <button type="button" title="取消收藏" aria-label="取消收藏" @click="toggleDirectionFavorite(favorite.direction)"><BookmarkCheck :size="14" /></button>
+                    </div>
+                  </article>
+                </div>
+                <p v-else>还没有收藏创作方向</p>
+              </section>
+              <section>
+                <h4>收藏的脑洞 <span>{{ favoriteIdeas.length }}</span></h4>
+                <div v-if="favoriteIdeas.length" class="ranking-favorites__list">
+                  <article v-for="favorite in favoriteIdeas" :key="favorite.key">
+                    <div><strong>{{ favorite.idea.title }}</strong><span>{{ favorite.directionName }} · {{ favorite.idea.genre }}</span></div>
+                    <div class="ranking-favorites__actions">
+                      <button type="button" @click="openFavoriteIdea(favorite)">使用</button>
+                      <button type="button" title="取消收藏" aria-label="取消收藏" @click="toggleIdeaFavorite(favorite.idea, favorite.directionName)"><BookmarkCheck :size="14" /></button>
+                    </div>
+                  </article>
+                </div>
+                <p v-else>还没有收藏脑洞组合</p>
+              </section>
+            </div>
+            <div v-else class="ranking-favorites__empty">点击方向或脑洞卡片右上角的收藏按钮，之后换一批也不会丢失。</div>
+          </div>
+        </div>
         <header class="ranking-idea-heading">
-          <div><span>第一步</span><h3>选择一个创作方向</h3></div>
+          <div>
+            <span>第一步</span>
+            <div class="ranking-idea-heading__title">
+              <h3>选择一个创作方向</h3>
+              <button type="button" class="ranking-idea-refresh" title="生成其他创作方向" @click="generateIdeaDirections(true)"><RefreshCw :size="14" /> 换一批</button>
+            </div>
+          </div>
           <p>方向决定主要读者承诺与差异化策略；选中后再从该方向的三个脑洞中挑一个。</p>
         </header>
 
         <div class="ranking-direction-grid">
-          <button
+          <article
             v-for="(direction, index) in ideaDirections"
             :key="direction.id"
-            type="button"
+            role="button"
+            tabindex="0"
             class="ranking-direction-card"
             :class="{ active: selectedDirectionId === direction.id }"
             @click="chooseIdeaDirection(direction.id)"
+            @keydown.enter.prevent="chooseIdeaDirection(direction.id)"
+            @keydown.space.prevent="chooseIdeaDirection(direction.id)"
           >
             <div class="ranking-direction-card__title">
               <span class="ranking-direction-card__index">{{ String(index + 1).padStart(2, '0') }}</span>
               <Lightbulb :size="17" />
               <strong>{{ direction.name }}</strong>
+              <button type="button" class="ranking-card-bookmark" :class="{ active: isDirectionFavorite(direction) }" :title="isDirectionFavorite(direction) ? '取消收藏' : '收藏这个方向'" @click.stop="toggleDirectionFavorite(direction)">
+                <BookmarkCheck v-if="isDirectionFavorite(direction)" :size="16" />
+                <Bookmark v-else :size="16" />
+              </button>
               <CheckCircle2 v-if="selectedDirectionId === direction.id" :size="17" />
             </div>
             <p>{{ direction.rationale }}</p>
@@ -1796,26 +2079,39 @@ onBeforeUnmount(() => {
               <span><b>读者承诺：</b>{{ direction.readerPromise }}</span>
               <span><b>规避风险：</b>{{ direction.risk }}</span>
             </div>
-          </button>
+          </article>
         </div>
 
         <div v-if="selectedDirection" class="ranking-idea-combinations">
           <header class="ranking-idea-heading ranking-idea-heading--second">
-            <div><span>第二步</span><h3>选择一个脑洞组合</h3></div>
+            <div>
+              <span>第二步</span>
+              <div class="ranking-idea-heading__title">
+                <h3>选择一个脑洞组合</h3>
+                <button type="button" class="ranking-idea-refresh" title="保留当前方向并生成其他脑洞" @click="refreshSelectedDirectionIdeas"><RefreshCw :size="14" /> 换一批</button>
+              </div>
+            </div>
             <p>选中的组合会预填到新书向导，书名、题材和简介仍可继续修改。</p>
           </header>
           <div class="ranking-combination-grid">
-            <button
+            <article
               v-for="idea in selectedDirection.combinations"
               :key="idea.id"
-              type="button"
+              role="button"
+              tabindex="0"
               class="ranking-combination-card"
               :class="{ active: selectedIdeaId === idea.id }"
               @click="chooseIdea(idea.id)"
+              @keydown.enter.prevent="chooseIdea(idea.id)"
+              @keydown.space.prevent="chooseIdea(idea.id)"
             >
               <div class="ranking-combination-card__title">
                 <Sparkles :size="16" />
                 <strong>{{ idea.title }}</strong>
+                <button type="button" class="ranking-card-bookmark" :class="{ active: isIdeaFavorite(idea) }" :title="isIdeaFavorite(idea) ? '取消收藏' : '收藏这个脑洞'" @click.stop="toggleIdeaFavorite(idea, selectedDirection)">
+                  <BookmarkCheck v-if="isIdeaFavorite(idea)" :size="16" />
+                  <Bookmark v-else :size="16" />
+                </button>
                 <CheckCircle2 v-if="selectedIdeaId === idea.id" :size="16" />
               </div>
               <span class="ranking-combination-card__genre">{{ idea.genre }}</span>
@@ -1829,7 +2125,7 @@ onBeforeUnmount(() => {
               <div class="ranking-combination-card__tags">
                 <span v-for="tag in idea.tags" :key="tag">{{ tag }}</span>
               </div>
-            </button>
+            </article>
           </div>
         </div>
         <div v-else class="ranking-idea-empty">先选择上方一个方向，再查看对应脑洞组合。</div>
@@ -2559,8 +2855,50 @@ onBeforeUnmount(() => {
 .ranking-idea-summary strong { color: var(--arc-text-primary); font-size: 13px; }
 .ranking-idea-summary span { color: var(--arc-text-secondary); font-size: 11.5px; }
 .ranking-idea-summary__status { flex: 0 0 auto; color: var(--arc-primary) !important; font-size: 11px !important; font-weight: 650; }
+.ranking-favorites { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.ranking-favorites__toggle,
+.ranking-idea-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  transition: border-color .18s ease, background-color .18s ease, color .18s ease, transform .18s ease;
+}
+.ranking-favorites__toggle:hover,
+.ranking-favorites__toggle.active,
+.ranking-idea-refresh:hover { border-color: color-mix(in srgb, var(--arc-primary) 46%, var(--arc-border)); background: var(--arc-primary-soft); color: var(--arc-primary); }
+.ranking-favorites__toggle:active,
+.ranking-idea-refresh:active { transform: translateY(1px); }
+.ranking-favorites__toggle b { min-width: 18px; padding: 1px 5px; border-radius: 999px; background: var(--arc-bg-weak); color: var(--arc-primary); font-size: 10px; text-align: center; }
+.ranking-favorites__panel { width: 100%; padding: 14px; border: 1px solid color-mix(in srgb, var(--arc-primary) 24%, var(--arc-border)); border-radius: 11px; background: color-mix(in srgb, var(--arc-primary) 3%, var(--arc-bg-surface)); }
+.ranking-favorites__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.ranking-favorites__grid section { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.ranking-favorites__grid h4 { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--arc-text-primary); font-size: 12px; }
+.ranking-favorites__grid h4 span { color: var(--arc-text-hint); font-size: 10px; }
+.ranking-favorites__grid section > p,
+.ranking-favorites__empty { margin: 0; padding: 12px; border: 1px dashed var(--arc-border); border-radius: 8px; color: var(--arc-text-hint); font-size: 11.5px; line-height: 1.55; text-align: center; }
+.ranking-favorites__list { max-height: 172px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.ranking-favorites__list article { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; border: 1px solid var(--arc-border); border-radius: 8px; background: var(--arc-bg-surface); }
+.ranking-favorites__list article > div:first-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ranking-favorites__list strong,
+.ranking-favorites__list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-favorites__list strong { color: var(--arc-text-primary); font-size: 11.5px; }
+.ranking-favorites__list span { color: var(--arc-text-hint); font-size: 10px; }
+.ranking-favorites__actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.ranking-favorites__actions button { min-height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 3px 7px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--arc-primary); cursor: pointer; font-size: 11px; }
+.ranking-favorites__actions button:hover { border-color: var(--arc-border); background: var(--arc-bg-weak); }
 .ranking-idea-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
 .ranking-idea-heading > div > span { display: inline-block; margin-bottom: 4px; color: var(--arc-primary); font-size: 12px; font-weight: 700; }
+.ranking-idea-heading__title { display: flex; align-items: center; gap: 10px; }
 .ranking-idea-heading h3 { margin: 0; color: var(--arc-text-primary); font-size: 19px; }
 .ranking-idea-heading > p { max-width: 520px; margin: 0; color: var(--arc-text-secondary); font-size: 13px; line-height: 1.6; text-align: right; }
 .ranking-direction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -2578,6 +2916,7 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--arc-primary) 50%, var(--arc-border));
   transform: translateY(-1px);
 }
+.ranking-direction-card:focus-visible, .ranking-combination-card:focus-visible { outline: 2px solid var(--arc-primary); outline-offset: 2px; }
 .ranking-direction-card.active, .ranking-combination-card.active {
   border-color: var(--arc-primary);
   background: color-mix(in srgb, var(--arc-primary) 7%, var(--arc-bg-surface));
@@ -2585,6 +2924,10 @@ onBeforeUnmount(() => {
 }
 .ranking-direction-card__title, .ranking-combination-card__title { display: flex; align-items: center; gap: 8px; }
 .ranking-direction-card__title svg, .ranking-combination-card__title svg { flex: 0 0 auto; color: var(--arc-primary); }
+.ranking-card-bookmark { width: 30px; height: 30px; display: inline-grid; flex: 0 0 auto; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--arc-text-hint); cursor: pointer; transition: border-color .18s ease, background-color .18s ease, color .18s ease; }
+.ranking-card-bookmark svg { color: currentColor !important; }
+.ranking-card-bookmark:hover { border-color: var(--arc-border); background: var(--arc-bg-weak); color: var(--arc-primary); }
+.ranking-card-bookmark.active { border-color: color-mix(in srgb, var(--arc-primary) 24%, var(--arc-border)); background: var(--arc-primary-soft); color: var(--arc-primary); }
 .ranking-direction-card__index { color: var(--arc-text-hint); font-size: 11px; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
 .ranking-direction-card__title strong, .ranking-combination-card__title strong { flex: 1; font-size: 15px; }
 .ranking-direction-card > p { margin: 10px 0 12px; color: var(--arc-text-secondary); font-size: 13px; line-height: 1.65; }
@@ -2841,7 +3184,9 @@ onBeforeUnmount(() => {
   .ranking-idea-summary { align-items: flex-start; }
   .ranking-idea-summary__status { margin-left: auto; }
   .ranking-idea-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .ranking-idea-heading__title { align-items: flex-start; flex-wrap: wrap; }
   .ranking-idea-heading > p { text-align: left; }
+  .ranking-favorites__grid { grid-template-columns: 1fr; }
   .ranking-direction-grid, .ranking-combination-grid { grid-template-columns: 1fr; }
   .ranking-combination-card { min-height: 0; }
   .ranking-scan-footer { align-items: flex-start; flex-direction: column; }

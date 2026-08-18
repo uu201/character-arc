@@ -25,6 +25,21 @@ const handler: TaskHandler = {
         }
       })
       .filter((book) => book.title)
+    const refreshCombinations = context.refreshMode === 'combinations'
+    const selectedDirection = context.selectedDirection && typeof context.selectedDirection === 'object'
+      ? context.selectedDirection as Record<string, unknown>
+      : null
+    const excludedDirections = Array.isArray(context.excludedDirections)
+      ? context.excludedDirections.slice(0, 12)
+      : []
+    const generationRequest = refreshCombinations && selectedDirection
+      ? `本次只为下列已选创作方向更换脑洞，不要改变方向名称、读者承诺、风险和策略：
+${JSON.stringify(selectedDirection, null, 2)}
+
+返回恰好 1 个方向，完整保留该方向的 id、name、rationale、readerPromise 和 risk，并生成恰好 3 个全新脑洞组合。新脑洞不得与 combinations 中的现有书名、核心钩子或故事前提重复。`
+      : `请生成恰好 4 个彼此明显不同的创作方向，每个方向恰好包含 3 个脑洞组合。${excludedDirections.length
+          ? `\n以下是用户已经看过的方向，本次要给出其他方向，不得只换名改写：\n${JSON.stringify(excludedDirections, null, 2)}`
+          : ''}`
 
     return {
       system: `${capabilityPreamble.system}
@@ -49,7 +64,9 @@ ${scanReport}
 榜单样本（仅作市场信号证据）：
 ${JSON.stringify(books, null, 2)}
 
-请生成恰好 4 个彼此明显不同的创作方向，每个方向恰好包含 3 个脑洞组合。返回以下 JSON：
+${generationRequest}
+
+返回以下 JSON：
 {
   "directions": [
     {
@@ -77,7 +94,7 @@ ${JSON.stringify(books, null, 2)}
 }`
     }
   },
-  normalize(raw: string): AiTaskResult {
+  normalize(raw: string, context?: Record<string, unknown>): AiTaskResult {
     const parsed = extractJsonObject(raw)
     const directions = Array.isArray(parsed.directions)
       ? parsed.directions.slice(0, 4).map((value, directionIndex) => {
@@ -112,12 +129,15 @@ ${JSON.stringify(books, null, 2)}
           }
         }).filter((direction) => direction.combinations.length > 0)
       : []
-    return { directions } as RankingIdeaCombinationsResult
+    const minimumDirectionCount = context?.refreshMode === 'combinations' ? 1 : 2
+    return {
+      directions: directions.length >= minimumDirectionCount ? directions : []
+    } as RankingIdeaCombinationsResult
   },
   validate(result: AiTaskResult): boolean {
     const value = result as RankingIdeaCombinationsResult
     return Array.isArray(value.directions)
-      && value.directions.length >= 2
+      && value.directions.length >= 1
       && value.directions.every((direction) => direction.combinations.length >= 2)
   },
   resolveMaxTokens(): number {
