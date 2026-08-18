@@ -14,6 +14,7 @@ import { extractReferenceNovelContext, type ReferenceNovelLocalContext } from '.
 import { fetchWithCache } from './github-mirror'
 import { fetchFanqieTrends } from './fanqie-trends'
 import { fetchQidianRank } from './qidian-rank'
+import { fetchQimaoTrends } from './qimao-trends'
 import { getWorkspaceDirPath } from './workspace-store'
 import { inspectContinuationNovelFile } from './continuation-import'
 import {
@@ -1581,6 +1582,12 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     const remotePath = typeof payload?.path === 'string' ? payload.path : ''
     const force = payload?.force === true
     return fetchFanqieTrends(remotePath, force)
+  })
+
+  // ── 七猫风向标：公开静态榜单 API（主进程缓存 + 路径白名单） ──
+  ipcMain.handle('characterarc:qimao-trends-fetch', async (_event, payload: { path?: string; force?: boolean }) => {
+    const remotePath = typeof payload?.path === 'string' ? payload.path : ''
+    return fetchQimaoTrends(remotePath, payload?.force === true)
   })
 
   // ── 起点中文网：公开移动端榜单（按榜单与作品分类缓存） ──
