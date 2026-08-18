@@ -61,6 +61,8 @@ export type AiTaskName =
   | 'outline-chain'
   | 'reference-style-chunk'
   | 'reference-style-analysis'
+  | 'ranking-style-analysis'
+  | 'ranking-idea-combinations'
   | 'reference-deep-analyze'
   | 'style-fingerprint-extract'
   | 'workflow-documents'
@@ -522,6 +524,32 @@ export type ContinuationImportAggregateResult = {
   volumeSummaries: Array<{ title: string; summary: string }>
 }
 
+export type RankingIdeaCombination = {
+  id: string
+  title: string
+  genre: string
+  premise: string
+  hook: string
+  protagonist: string
+  world: string
+  conflict: string
+  innovation: string
+  tags: string[]
+}
+
+export type RankingIdeaDirection = {
+  id: string
+  name: string
+  rationale: string
+  readerPromise: string
+  risk: string
+  combinations: RankingIdeaCombination[]
+}
+
+export type RankingIdeaCombinationsResult = {
+  directions: RankingIdeaDirection[]
+}
+
 /** 所有 AI 任务结果类型的联合类型 */
 export type AiTaskResult =
   | WorldviewResult
@@ -551,6 +579,7 @@ export type AiTaskResult =
   | SpiralValidateResult
   | ContinuationImportChunkResult
   | ContinuationImportAggregateResult
+  | RankingIdeaCombinationsResult
 
 /** AI 任务的完整响应：结果 + 运行元数据 */
 export type AiTaskResponse = {

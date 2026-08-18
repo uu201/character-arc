@@ -208,6 +208,7 @@ export const useAppStore = defineStore('app', () => {
   const hasHydrated = ref(false)
   /** 当前视图：项目列表 / 新建向导 / 工作台 / 章节写作 / 独立能力页 */
   const currentView = ref<'projects' | 'wizard' | 'continuation-import' | 'workbench' | 'chapter-studio' | 'deconstruction-library' | 'skills' | 'cover-workbench' | 'fanqie-trends'>('projects')
+  const pendingWizardDraft = ref<{ title?: string; genre?: string; premise?: string } | null>(null)
   /** 工作台中当前激活的面板 */
   const activePanel = ref<PanelName>('outline')
   /** 上一次在工作台中查看的面板（非 chapters），用于从章节写作返回时恢复 */
@@ -1087,7 +1088,7 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
-  /** 打开番茄风向标独立页面（全局功能，不依赖项目） */
+  /** 打开网文风向标独立页面（全局功能，不依赖项目） */
   function openFanqieTrends(): void {
     pendingChapterInsertion.value = null
     currentView.value = 'fanqie-trends'
@@ -1129,8 +1130,15 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /** 打开新建项目向导 */
-  function openWizard(): void {
+  function openWizard(draft?: { title?: string; genre?: string; premise?: string }): void {
+    pendingWizardDraft.value = draft && typeof draft === 'object' ? { ...draft } : null
     currentView.value = 'wizard'
+  }
+
+  function consumeWizardDraft(): { title?: string; genre?: string; premise?: string } | null {
+    const draft = pendingWizardDraft.value
+    pendingWizardDraft.value = null
+    return draft
   }
 
   /** 从主页打开独立的小说续写导入向导 */
@@ -3440,6 +3448,7 @@ export const useAppStore = defineStore('app', () => {
     characters,
     inspirationEntries,
     closeWizard,
+    consumeWizardDraft,
     createProject,
     createProjectWorkspace,
     reserveProjectId,

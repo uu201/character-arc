@@ -36,6 +36,8 @@ const TASK_DEFAULT_CAPABILITIES: Record<AiTaskName, PromptCapabilityId[]> = {
   'outline-chain': ['settings', 'outline', 'chapters', 'worldview', 'characters', 'relations', 'writing-style', 'project-skills'],
   'reference-style-chunk': ['settings', 'analysis', 'writing-style', 'outline', 'import-export', 'project-skills'],
   'reference-style-analysis': ['settings', 'analysis', 'writing-style', 'outline', 'import-export', 'project-skills'],
+  'ranking-style-analysis': ['settings', 'analysis', 'writing-style'],
+  'ranking-idea-combinations': ['settings', 'analysis', 'writing-style'],
   'reference-deep-analyze': ['settings', 'analysis', 'writing-style', 'project-skills', 'import-export'],
   'style-fingerprint-extract': ['settings', 'analysis', 'writing-style', 'project-skills'],
   'workflow-documents': ['settings', 'workflow', 'import-export'],

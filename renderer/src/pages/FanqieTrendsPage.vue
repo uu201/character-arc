@@ -1,11 +1,61 @@
 <script setup lang="ts">
-import { ChevronLeft, Copy, ExternalLink, Flame, RefreshCw } from 'lucide-vue-next'
+import { CheckCircle2, ChevronLeft, Copy, ExternalLink, Flame, Lightbulb, RefreshCw, Sparkles } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
-import { NButton, useMessage } from 'naive-ui'
+import { NButton, NCard, NModal, NSelect, useMessage } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
+import { renderMarkdown } from '@/composables/useGlobalAssistant'
+import { toIpcPayload } from '@/utils/ipcPayload'
 
 const appStore = useAppStore()
 const message = useMessage()
+
+type Platform = 'fanqie' | 'qidian'
+type ScanStage = 'setup' | 'running' | 'error' | 'report' | 'ideating' | 'idea-error' | 'ideas'
+
+type RankingIdeaCombination = {
+  id: string
+  title: string
+  genre: string
+  premise: string
+  hook: string
+  protagonist: string
+  world: string
+  conflict: string
+  innovation: string
+  tags: string[]
+}
+
+type RankingIdeaDirection = {
+  id: string
+  name: string
+  rationale: string
+  readerPromise: string
+  risk: string
+  combinations: RankingIdeaCombination[]
+}
+
+type QidianRankData = {
+  date?: string
+  title?: string
+  books?: AnyRecord[]
+}
+
+const platform = ref<Platform>('fanqie')
+const scanVisible = ref(false)
+const scanLoading = ref(false)
+const scanReport = ref('')
+const scanError = ref('')
+const scanGeneratedAt = ref('')
+const scanCache = new Map<string, { content: string; generatedAt: string }>()
+const ideaCache = new Map<string, RankingIdeaDirection[]>()
+const ideaDirections = ref<RankingIdeaDirection[]>([])
+const ideaError = ref('')
+const selectedDirectionId = ref('')
+const selectedIdeaId = ref('')
+const scanStage = ref<ScanStage>('setup')
+const scanSelectedPlatform = ref<Platform>('fanqie')
+const scanSelectedBoard = ref('female-new')
+const scanSelectedCategory = ref('-1')
 
 function openBookUrl(url: unknown): void {
   const target = typeof url === 'string' ? url.trim() : ''
@@ -36,6 +86,36 @@ function backToProjectCenter(): void {
 
 // ===== 频道标签与展示顺序 =====
 const BOARD_ORDER = ['female-new', 'male-new']
+const QIDIAN_BOARDS: BoardItem[] = [
+  { slug: 'hotsales', name: '畅销榜', channel: '可分类', has_genres: false },
+  { slug: 'monthly', name: '月票榜', channel: '可分类', has_genres: false },
+  { slug: 'newbook', name: '新书榜', channel: '可分类', has_genres: false },
+  { slug: 'newauthor', name: '新人作者新书榜', channel: '可分类', has_genres: false }
+]
+const QIDIAN_CATEGORIES = [
+  { label: '全部分类', value: '-1' },
+  { label: '玄幻', value: '21' },
+  { label: '奇幻', value: '1' },
+  { label: '武侠', value: '2' },
+  { label: '仙侠', value: '22' },
+  { label: '都市', value: '4' },
+  { label: '现实', value: '15' },
+  { label: '军事', value: '6' },
+  { label: '历史', value: '5' },
+  { label: '游戏', value: '7' },
+  { label: '体育', value: '8' },
+  { label: '科幻', value: '9' },
+  { label: '诸天无限', value: '20109' },
+  { label: '悬疑灵异', value: '10' },
+  { label: '轻小说', value: '12' }
+]
+const SCAN_BOARD_CATALOG: Record<Platform, Array<{ label: string; value: string }>> = {
+  fanqie: [
+    { label: '女频新书榜', value: 'female-new' },
+    { label: '男频新书榜', value: 'male-new' }
+  ],
+  qidian: QIDIAN_BOARDS.map((board) => ({ label: board.name, value: board.slug }))
+}
 const CHANNEL_LABEL: Record<string, string> = { female: '女频', male: '男频', mixed: '综合' }
 
 type BoardItem = {
@@ -54,6 +134,7 @@ const switching = ref(false)
 const errorMsg = ref('')
 const boardsList = ref<BoardItem[]>([])
 const curBoard = ref<string | null>(null)
+const qidianCategory = ref('-1')
 const summaryData = ref<AnyRecord | null>(null)
 const allData = ref<AnyRecord | null>(null)
 const curPeriod = ref('7')
@@ -63,6 +144,37 @@ const dataPrev = ref('')
 const srcNote = ref('')
 const boardEmptyName = ref('')
 const boardEmpty = ref(false)
+let boardRequestId = 0
+
+const pageTitle = computed(() => platform.value === 'qidian' ? '起点风向标' : '番茄风向标')
+const pageSubtitle = computed(() => platform.value === 'qidian'
+  ? '起点中文网榜单 · 支持榜单与作品分类组合筛选'
+  : '番茄小说榜单 · 每日趋势与题材风向')
+const pageSource = computed(() => platform.value === 'qidian'
+  ? '抓取逻辑参考 QiuNova/Qbook（MIT）'
+  : '数据来源于 https://github.com/uu201/FanqieRankTracker')
+const scanReportHtml = computed(() => renderMarkdown(scanReport.value))
+const scanBoardOptions = computed(() => SCAN_BOARD_CATALOG[scanSelectedPlatform.value] || [])
+const scanSelectedPlatformLabel = computed(() => scanSelectedPlatform.value === 'qidian' ? '起点中文网' : '番茄小说')
+const scanSelectedBoardLabel = computed(() =>
+  scanBoardOptions.value.find((option) => option.value === scanSelectedBoard.value)?.label || '当前榜单'
+)
+const scanSelectedCategoryLabel = computed(() =>
+  QIDIAN_CATEGORIES.find((option) => option.value === scanSelectedCategory.value)?.label || '全部分类'
+)
+const selectedDirection = computed(() =>
+  ideaDirections.value.find((direction) => direction.id === selectedDirectionId.value) || null
+)
+const selectedIdea = computed(() =>
+  selectedDirection.value?.combinations.find((idea) => idea.id === selectedIdeaId.value) || null
+)
+const scanModalTitle = computed(() => {
+  if (scanStage.value === 'setup') return 'AI 扫榜分析'
+  if (['ideating', 'ideas', 'idea-error'].includes(scanStage.value)) {
+    return `${scanSelectedPlatformLabel.value} · 从榜单到新书`
+  }
+  return `${scanSelectedPlatformLabel.value} · ${scanSelectedBoardLabel.value}${scanSelectedPlatform.value === 'qidian' ? ` · ${scanSelectedCategoryLabel.value}` : ''}风格报告`
+})
 
 // ===== 工具 =====
 function fmtScore(n: number): string {
@@ -85,6 +197,8 @@ async function fetchJson(path: string, force = false): Promise<AnyRecord> {
 async function switchBoard(slug: string, force = false): Promise<void> {
   const board = boardsList.value.find((b) => b.slug === slug)
   if (!board) return
+  const requestId = ++boardRequestId
+  const requestedPlatform = platform.value
   curBoard.value = slug
   curCat.value = null
   curPeriod.value = '7'
@@ -101,10 +215,38 @@ async function switchBoard(slug: string, force = false): Promise<void> {
   switching.value = true
   errorMsg.value = ''
   try {
+    if (platform.value === 'qidian') {
+      const result = await window.characterArc.fetchQidianRank(slug, qidianCategory.value, force)
+      if (!result.success || !result.data) {
+        throw new Error(result.error || '起点榜单加载失败')
+      }
+      if (requestId !== boardRequestId || platform.value !== requestedPlatform) return
+      const data = result.data as QidianRankData
+      const books = Array.isArray(data.books)
+        ? data.books.map((book) => ({
+            ...book,
+            qidianMeta: [book.author, book.category, book.word_display].filter(Boolean).join(' · ')
+          }))
+        : []
+      summaryData.value = { date: data.date, periods: {} }
+      allData.value = {
+        date: data.date,
+        categories: [{ name: data.title || board.name, books, trend: {} }]
+      }
+      dataDate.value = '数据日期 ' + (data.date || '—')
+      dataPrev.value = ''
+      srcNote.value = `${result.fromCache ? (result.stale ? '过期缓存 · ' : '缓存 · ') : '实时 · '}${result.source || '起点移动端公开榜单'}`
+      curCat.value = allData.value.categories[0].name
+      loading.value = false
+      switching.value = false
+      return
+    }
+
     const [summary, all] = await Promise.all([
       fetchJson(`data/${slug}/market_summary.json`, force),
       fetchJson(`api/${slug}/lastest/all.json`, force)
     ])
+    if (requestId !== boardRequestId || platform.value !== requestedPlatform) return
     summaryData.value = summary
     allData.value = all
     dataDate.value = '数据日期 ' + (all.date || summary.date || '—')
@@ -114,6 +256,7 @@ async function switchBoard(slug: string, force = false): Promise<void> {
     loading.value = false
     switching.value = false
   } catch (e) {
+    if (requestId !== boardRequestId || platform.value !== requestedPlatform) return
     loading.value = false
     switching.value = false
     errorMsg.value = `加载榜单「${board.name}」失败：` + (e instanceof Error ? e.message : String(e))
@@ -125,6 +268,13 @@ async function loadAll(force = false): Promise<void> {
   loading.value = true
   errorMsg.value = ''
   try {
+    if (platform.value === 'qidian') {
+      boardsList.value = QIDIAN_BOARDS.map((board) => ({ ...board, _empty: false }))
+      const firstReady = boardsList.value.find((board) => board.slug === curBoard.value) || boardsList.value[0]
+      if (firstReady) await switchBoard(firstReady.slug, force)
+      return
+    }
+
     let known: BoardItem[] = []
     try {
       known = ((await fetchJson('api/boards.json', force)).boards || []) as BoardItem[]
@@ -170,6 +320,261 @@ function selectCat(name: string): void {
 
 function channelLabel(b: BoardItem): string {
   return CHANNEL_LABEL[b.channel || ''] || b.channel || ''
+}
+
+function bookMeta(book: AnyRecord): string {
+  if (platform.value === 'qidian') {
+    return book.qidianMeta || [book.author, book.category, book.word_display].filter(Boolean).join(' · ')
+  }
+  return `${book.author || '未知作者'} · ${book.reads || 0} 在读`
+}
+
+function collectRankingScanBooks(): AnyRecord[] {
+  const groups = categories.value.map((category) => ({
+    name: category.name,
+    books: Array.isArray(category.books) ? category.books : []
+  }))
+  const selected: AnyRecord[] = []
+  const seen = new Set<string>()
+
+  for (let index = 0; selected.length < 48; index += 1) {
+    let added = false
+    for (const group of groups) {
+      const book = group.books[index]
+      if (!book) continue
+      added = true
+      const key = String(book.id || book.title || '').trim()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      selected.push({
+        rank: Number(book.rank) || index + 1,
+        title: book.title || '未命名作品',
+        author: book.author || '未知作者',
+        category: book.category || group.name || '未分类',
+        wordCount: book.word_display || book.word_count || book.reads || '',
+        intro: book.intro || ''
+      })
+      if (selected.length >= 48) break
+    }
+    if (!added || index >= 59) break
+  }
+  return selected
+}
+
+function openRankingStyleScan(): void {
+  scanSelectedPlatform.value = platform.value
+  const availableBoards = SCAN_BOARD_CATALOG[platform.value] || []
+  scanSelectedBoard.value = availableBoards.some((option) => option.value === curBoard.value)
+    ? String(curBoard.value)
+    : availableBoards[0]?.value || ''
+  scanSelectedCategory.value = platform.value === 'qidian' ? qidianCategory.value : '-1'
+  scanStage.value = 'setup'
+  scanLoading.value = false
+  scanError.value = ''
+  scanVisible.value = true
+}
+
+function updateScanPlatform(value: Platform): void {
+  if (value !== 'fanqie' && value !== 'qidian') return
+  scanSelectedPlatform.value = value
+  scanSelectedBoard.value = SCAN_BOARD_CATALOG[value]?.[0]?.value || ''
+  scanSelectedCategory.value = value === 'qidian' ? qidianCategory.value : '-1'
+}
+
+function returnToScanSetup(): void {
+  scanStage.value = 'setup'
+  scanLoading.value = false
+  scanError.value = ''
+}
+
+async function prepareSelectedRankingForScan(): Promise<void> {
+  const targetPlatform = scanSelectedPlatform.value
+  const targetBoard = scanSelectedBoard.value
+  const targetCategory = targetPlatform === 'qidian' ? scanSelectedCategory.value : '-1'
+  if (!targetBoard) throw new Error('请先选择要分析的榜单')
+
+  if (platform.value !== targetPlatform) {
+    platform.value = targetPlatform
+    if (targetPlatform === 'qidian') qidianCategory.value = targetCategory
+    boardsList.value = []
+    curBoard.value = null
+    summaryData.value = null
+    allData.value = null
+    curCat.value = null
+    srcNote.value = ''
+    await loadAll()
+  }
+
+  const categoryChanged = targetPlatform === 'qidian' && qidianCategory.value !== targetCategory
+  if (categoryChanged) qidianCategory.value = targetCategory
+  if (curBoard.value !== targetBoard || !allData.value || categoryChanged) {
+    const board = boardsList.value.find((item) => item.slug === targetBoard)
+    if (!board) throw new Error('所选榜单暂不可用，请刷新榜单数据后重试')
+    await switchBoard(targetBoard)
+  }
+  if (curBoard.value !== targetBoard || !allData.value) {
+    throw new Error(errorMsg.value || '所选榜单数据加载失败')
+  }
+}
+
+async function runRankingStyleScan(force = false): Promise<void> {
+  scanVisible.value = true
+  scanStage.value = 'running'
+  scanLoading.value = true
+  scanError.value = ''
+  ideaDirections.value = []
+  selectedDirectionId.value = ''
+  selectedIdeaId.value = ''
+  ideaError.value = ''
+
+  try {
+    await prepareSelectedRankingForScan()
+    const books = collectRankingScanBooks()
+    if (!books.length) throw new Error('所选榜单没有可分析的作品数据')
+
+    const cacheKey = `${platform.value}:${curBoard.value || 'default'}:${platform.value === 'qidian' ? qidianCategory.value : 'all'}:${dataDate.value}`
+    const cachedReport = scanCache.get(cacheKey)
+    if (!force && cachedReport) {
+      scanReport.value = cachedReport.content
+      scanGeneratedAt.value = cachedReport.generatedAt
+      scanStage.value = 'report'
+      return
+    }
+
+    scanReport.value = ''
+    scanGeneratedAt.value = ''
+    const board = curBoardItem.value
+    const response = await window.characterArc.generateAi(toIpcPayload({
+      task: 'ranking-style-analysis',
+      settings: appStore.appSettings,
+      context: {
+        platformName: platform.value === 'qidian' ? '起点中文网' : '番茄小说',
+        boardName: `${board?.name || '当前榜单'}${platform.value === 'qidian' ? ` · ${QIDIAN_CATEGORIES.find((option) => option.value === qidianCategory.value)?.label || '全部分类'}` : ''}`,
+        dataDate: dataDate.value.replace(/^数据日期\s*/, ''),
+        books
+      }
+    }))
+    const content = (response.result as { content?: unknown } | undefined)?.content
+    if (!response.success || typeof content !== 'string' || !content.trim()) {
+      throw new Error(response.error || 'AI 未返回有效的扫榜报告')
+    }
+    scanReport.value = content.trim()
+    scanGeneratedAt.value = new Date().toLocaleString('zh-CN')
+    scanCache.set(cacheKey, { content: scanReport.value, generatedAt: scanGeneratedAt.value })
+    scanStage.value = 'report'
+  } catch (error) {
+    scanError.value = error instanceof Error ? error.message : 'AI 扫榜分析失败'
+    scanStage.value = 'error'
+  } finally {
+    scanLoading.value = false
+  }
+}
+
+async function generateIdeaDirections(force = false): Promise<void> {
+  if (!scanReport.value.trim()) {
+    ideaError.value = '请先完成扫榜分析'
+    scanStage.value = 'idea-error'
+    return
+  }
+
+  scanStage.value = 'ideating'
+  ideaError.value = ''
+  try {
+    const books = collectRankingScanBooks()
+    const board = curBoardItem.value
+    const boardName = `${board?.name || '当前榜单'}${platform.value === 'qidian' ? ` · ${QIDIAN_CATEGORIES.find((option) => option.value === qidianCategory.value)?.label || '全部分类'}` : ''}`
+    const ideaCacheKey = `${platform.value}:${curBoard.value || 'default'}:${platform.value === 'qidian' ? qidianCategory.value : 'all'}:${dataDate.value}:${scanReport.value.slice(0, 120)}`
+    const cachedIdeas = ideaCache.get(ideaCacheKey)
+    if (!force && cachedIdeas) {
+      ideaDirections.value = cachedIdeas
+      selectedDirectionId.value = ''
+      selectedIdeaId.value = ''
+      scanStage.value = 'ideas'
+      return
+    }
+
+    const response = await window.characterArc.generateAi(toIpcPayload({
+      task: 'ranking-idea-combinations',
+      settings: appStore.appSettings,
+      context: {
+        platformName: platform.value === 'qidian' ? '起点中文网' : '番茄小说',
+        boardName,
+        scanReport: scanReport.value,
+        books
+      }
+    }))
+    const directions = (response.result as { directions?: unknown } | undefined)?.directions
+    if (!response.success || !Array.isArray(directions) || !directions.length) {
+      throw new Error(response.error || 'AI 未返回有效的创作方向')
+    }
+    ideaDirections.value = directions as RankingIdeaDirection[]
+    ideaCache.set(ideaCacheKey, ideaDirections.value)
+    selectedDirectionId.value = ''
+    selectedIdeaId.value = ''
+    scanStage.value = 'ideas'
+  } catch (error) {
+    ideaError.value = error instanceof Error ? error.message : '生成创作方向失败'
+    scanStage.value = 'idea-error'
+  }
+}
+
+function chooseIdeaDirection(directionId: string): void {
+  selectedDirectionId.value = directionId
+  selectedIdeaId.value = ''
+}
+
+function chooseIdea(ideaId: string): void {
+  selectedIdeaId.value = ideaId
+}
+
+function startNovelFromIdea(): void {
+  const idea = selectedIdea.value
+  if (!idea) {
+    message.warning('请先选择一个脑洞组合')
+    return
+  }
+
+  const premise = [
+    idea.premise,
+    '',
+    '【立项锚点】',
+    `核心钩子：${idea.hook}`,
+    `主角设计：${idea.protagonist}`,
+    `世界设定：${idea.world}`,
+    `核心冲突：${idea.conflict}`,
+    `差异化：${idea.innovation}`
+  ].filter((line) => !line.endsWith('：undefined') && !line.endsWith('：')).join('\n')
+
+  scanVisible.value = false
+  appStore.openWizard({ title: idea.title, genre: idea.genre, premise })
+}
+
+async function copyScanReport(): Promise<void> {
+  if (!scanReport.value) return
+  try {
+    await navigator.clipboard.writeText(scanReport.value)
+    message.success('扫榜报告已复制')
+  } catch {
+    message.error('复制失败，请重试')
+  }
+}
+
+function switchPlatform(nextPlatform: Platform): void {
+  if (nextPlatform === platform.value) return
+  platform.value = nextPlatform
+  boardsList.value = []
+  curBoard.value = null
+  summaryData.value = null
+  allData.value = null
+  curCat.value = null
+  srcNote.value = ''
+  void loadAll()
+}
+
+function switchQidianCategory(categoryId: string): void {
+  if (platform.value !== 'qidian' || qidianCategory.value === categoryId || switching.value) return
+  qidianCategory.value = categoryId
+  if (curBoard.value) void switchBoard(curBoard.value)
 }
 
 // ===== 派生数据 =====
@@ -248,15 +653,22 @@ onMounted(() => {
             <template #icon><ChevronLeft :size="16" /></template>
             返回项目中心
           </n-button>
-          <h1><span class="flame"><Flame :size="24" /></span> 番茄风向标</h1>
-          <p class="sub">番茄小说榜单 · 每日趋势与题材风向</p>
-          <p class="sub">数据来源于https://github.com/uu201/FanqieRankTracker</p>
+          <h1><span class="flame"><Flame :size="24" /></span> {{ pageTitle }}</h1>
+          <p class="sub">{{ pageSubtitle }}</p>
+          <p class="sub">{{ pageSource }}</p>
+          <div class="platform-tabs">
+            <button type="button" class="platform-tab" :class="{ active: platform === 'fanqie' }" @click="switchPlatform('fanqie')">番茄小说</button>
+            <button type="button" class="platform-tab" :class="{ active: platform === 'qidian' }" @click="switchPlatform('qidian')">起点中文网</button>
+          </div>
         </div>
         <div class="meta">
           <div class="date num">{{ dataDate }}</div>
           <div v-if="dataPrev" class="prev">{{ dataPrev }}</div>
           <button class="refresh-btn" :disabled="loading" @click="loadAll(true)">
             <RefreshCw :size="13" /> 刷新
+          </button>
+          <button class="refresh-btn scan-btn" title="选择平台和榜单后开始分析" @click="openRankingStyleScan">
+            <Sparkles :size="13" /> AI 扫榜
           </button>
           <div v-if="srcNote" class="src-note">{{ srcNote }}</div>
         </div>
@@ -287,6 +699,21 @@ onMounted(() => {
           </button>
         </div>
 
+        <div v-if="platform === 'qidian'" class="qidian-category-filter">
+          <strong>作品分类</strong>
+          <div class="qidian-category-tabs">
+            <button
+              v-for="category in QIDIAN_CATEGORIES"
+              :key="category.value"
+              type="button"
+              class="qidian-category-tab"
+              :class="{ active: qidianCategory === category.value }"
+              :disabled="switching"
+              @click="switchQidianCategory(category.value)"
+            >{{ category.label }}</button>
+          </div>
+        </div>
+
         <div v-if="boardEmpty" class="state">
           <div>「{{ boardEmptyName }}」榜单暂无数据</div>
           <div class="src-note" style="margin-top:10px;max-width:460px;line-height:1.7">
@@ -295,7 +722,7 @@ onMounted(() => {
         </div>
 
         <template v-else>
-          <div class="period-tabs">
+          <div v-if="platform === 'fanqie'" class="period-tabs">
             <button
               v-for="p in periodTabs"
               :key="p.key"
@@ -305,7 +732,7 @@ onMounted(() => {
             >{{ p.label }}</button>
           </div>
 
-          <div class="summary-card">
+          <div v-if="platform === 'fanqie'" class="summary-card">
             <div class="label">AI 风向速评 <span class="badge-src">{{ summarySrc }}</span></div>
             <p class="text">{{ summaryText }}</p>
           </div>
@@ -392,7 +819,7 @@ onMounted(() => {
                   <img v-if="b.cover" loading="lazy" :src="b.cover" :alt="`${b.title} 封面`" @error="(e) => ((e.target as HTMLImageElement).style.visibility = 'hidden')" />
                   <div class="bk-info">
                     <div class="bk-title">{{ b.title }} <span v-if="isNewBook(b.title)" class="tag-new">NEW</span></div>
-                    <div class="bk-meta">{{ b.author }} · <span class="bk-reads num">{{ b.reads }} 在读</span></div>
+                    <div class="bk-meta">{{ bookMeta(b) }}</div>
                     <div class="bk-intro">{{ b.intro }}</div>
                     <div class="bk-actions">
                       <button
@@ -455,6 +882,202 @@ onMounted(() => {
       </div>
     </div>
   </section>
+
+  <n-modal
+    v-model:show="scanVisible"
+    class="ranking-scan-modal"
+    :mask-closable="!['running', 'ideating'].includes(scanStage)"
+    :close-on-esc="!['running', 'ideating'].includes(scanStage)"
+  >
+    <n-card
+      :title="scanModalTitle"
+      :bordered="false"
+      role="dialog"
+      aria-modal="true"
+      :closable="!['running', 'ideating'].includes(scanStage)"
+      style="width: min(1080px, calc(100vw - 36px));"
+      @close="scanVisible = false"
+    >
+      <div v-if="scanStage === 'setup'" class="ranking-scan-setup">
+        <div class="ranking-scan-setup__intro">
+          <strong>选择扫榜范围</strong>
+          <p>先选择小说平台、目标榜单与作品分类。这里只做配置，不会自动加载榜单或调用 AI。</p>
+        </div>
+
+        <div class="ranking-scan-choice-grid">
+          <div class="ranking-scan-choice">
+            <label>小说平台</label>
+            <div class="ranking-scan-platforms">
+              <button
+                type="button"
+                class="ranking-scan-platform"
+                :class="{ active: scanSelectedPlatform === 'fanqie' }"
+                @click="updateScanPlatform('fanqie')"
+              >
+                <strong>番茄小说</strong>
+                <span>男频、女频新书榜</span>
+              </button>
+              <button
+                type="button"
+                class="ranking-scan-platform"
+                :class="{ active: scanSelectedPlatform === 'qidian' }"
+                @click="updateScanPlatform('qidian')"
+              >
+                <strong>起点中文网</strong>
+                <span>畅销、月票与新书</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="ranking-scan-choice">
+            <label>目标榜单</label>
+            <n-select v-model:value="scanSelectedBoard" :options="scanBoardOptions" />
+          </div>
+
+          <div v-if="scanSelectedPlatform === 'qidian'" class="ranking-scan-choice">
+            <label>作品分类</label>
+            <n-select v-model:value="scanSelectedCategory" :options="QIDIAN_CATEGORIES" />
+          </div>
+        </div>
+
+        <div class="ranking-scan-setup-note">
+          <Sparkles :size="16" />
+          <span>点击“开始扫榜”后，才会加载所选榜单并调用当前模型生成风格报告。</span>
+        </div>
+      </div>
+
+      <div v-else-if="scanStage === 'running'" class="ranking-scan-state">
+        <div class="spinner" aria-hidden="true"></div>
+        <strong>正在分析榜单市场风格</strong>
+        <p>将根据书名、分类和简介识别题材组合、核心钩子、主角模型与情绪承诺。</p>
+      </div>
+
+      <div v-else-if="scanStage === 'error'" class="ranking-scan-state ranking-scan-state--error">
+        <strong>扫榜分析失败</strong>
+        <p>{{ scanError }}</p>
+      </div>
+
+      <div v-else-if="scanStage === 'ideating'" class="ranking-scan-state">
+        <div class="spinner" aria-hidden="true"></div>
+        <strong>正在生成创作方向与脑洞组合</strong>
+        <p>AI 正在把榜单市场信号转化为原创选题，并检查方向之间是否具有足够差异。</p>
+      </div>
+
+      <div v-else-if="scanStage === 'idea-error'" class="ranking-scan-state ranking-scan-state--error">
+        <strong>创作方向生成失败</strong>
+        <p>{{ ideaError }}</p>
+      </div>
+
+      <div v-else-if="scanStage === 'ideas'" class="ranking-idea-workbench">
+        <header class="ranking-idea-heading">
+          <div><span>第一步</span><h3>选择一个创作方向</h3></div>
+          <p>方向决定主要读者承诺与差异化策略；选中后再从该方向的三个脑洞中挑一个。</p>
+        </header>
+
+        <div class="ranking-direction-grid">
+          <button
+            v-for="direction in ideaDirections"
+            :key="direction.id"
+            type="button"
+            class="ranking-direction-card"
+            :class="{ active: selectedDirectionId === direction.id }"
+            @click="chooseIdeaDirection(direction.id)"
+          >
+            <div class="ranking-direction-card__title">
+              <Lightbulb :size="17" />
+              <strong>{{ direction.name }}</strong>
+              <CheckCircle2 v-if="selectedDirectionId === direction.id" :size="17" />
+            </div>
+            <p>{{ direction.rationale }}</p>
+            <div class="ranking-direction-card__meta">
+              <span><b>读者承诺：</b>{{ direction.readerPromise }}</span>
+              <span><b>规避风险：</b>{{ direction.risk }}</span>
+            </div>
+          </button>
+        </div>
+
+        <div v-if="selectedDirection" class="ranking-idea-combinations">
+          <header class="ranking-idea-heading ranking-idea-heading--second">
+            <div><span>第二步</span><h3>选择一个脑洞组合</h3></div>
+            <p>选中的组合会预填到新书向导，书名、题材和简介仍可继续修改。</p>
+          </header>
+          <div class="ranking-combination-grid">
+            <button
+              v-for="idea in selectedDirection.combinations"
+              :key="idea.id"
+              type="button"
+              class="ranking-combination-card"
+              :class="{ active: selectedIdeaId === idea.id }"
+              @click="chooseIdea(idea.id)"
+            >
+              <div class="ranking-combination-card__title">
+                <Sparkles :size="16" />
+                <strong>{{ idea.title }}</strong>
+                <CheckCircle2 v-if="selectedIdeaId === idea.id" :size="16" />
+              </div>
+              <span class="ranking-combination-card__genre">{{ idea.genre }}</span>
+              <p class="ranking-combination-card__hook">{{ idea.hook }}</p>
+              <div class="ranking-combination-card__details">
+                <p><b>故事前提：</b>{{ idea.premise }}</p>
+                <p><b>主角：</b>{{ idea.protagonist }}</p>
+                <p><b>核心冲突：</b>{{ idea.conflict }}</p>
+                <p><b>差异化：</b>{{ idea.innovation }}</p>
+              </div>
+              <div class="ranking-combination-card__tags">
+                <span v-for="tag in idea.tags" :key="tag">{{ tag }}</span>
+              </div>
+            </button>
+          </div>
+        </div>
+        <div v-else class="ranking-idea-empty">先选择上方一个方向，再查看对应脑洞组合。</div>
+      </div>
+
+      <article v-else class="ranking-scan-report" v-html="scanReportHtml"></article>
+
+      <template #footer>
+        <div class="ranking-scan-footer">
+          <span v-if="scanStage === 'setup'">配置完成前不会加载数据或调用 AI</span>
+          <span v-else-if="['ideas', 'idea-error', 'ideating'].includes(scanStage)">榜单用于识别市场信号，生成的方向与脑洞需保持原创</span>
+          <span v-else>{{ scanGeneratedAt ? `生成于 ${scanGeneratedAt} · ` : '' }}基于榜单元数据，不等于正文文风分析</span>
+
+          <div v-if="scanStage === 'setup'" class="ranking-scan-footer__actions">
+            <n-button quaternary @click="scanVisible = false">取消</n-button>
+            <n-button type="primary" :loading="scanLoading" @click="runRankingStyleScan(false)">
+              <template #icon><Sparkles :size="15" /></template>
+              开始扫榜
+            </n-button>
+          </div>
+          <div v-else-if="scanStage === 'running'" class="ranking-scan-footer__actions">
+            <n-button type="primary" loading disabled>正在扫榜</n-button>
+          </div>
+          <div v-else-if="scanStage === 'error'" class="ranking-scan-footer__actions">
+            <n-button quaternary @click="returnToScanSetup">重新选择</n-button>
+            <n-button type="primary" @click="runRankingStyleScan(true)">重试</n-button>
+          </div>
+          <div v-else-if="scanStage === 'ideating'" class="ranking-scan-footer__actions">
+            <n-button type="primary" loading disabled>正在生成脑洞</n-button>
+          </div>
+          <div v-else-if="scanStage === 'idea-error'" class="ranking-scan-footer__actions">
+            <n-button quaternary @click="scanStage = 'report'">返回报告</n-button>
+            <n-button type="primary" @click="generateIdeaDirections(true)">重新生成</n-button>
+          </div>
+          <div v-else-if="scanStage === 'ideas'" class="ranking-scan-footer__actions">
+            <n-button quaternary @click="scanStage = 'report'">返回报告</n-button>
+            <n-button type="primary" :disabled="!selectedIdea" @click="startNovelFromIdea">用这个脑洞新建小说</n-button>
+          </div>
+          <div v-else class="ranking-scan-footer__actions">
+            <n-button quaternary @click="returnToScanSetup">更换榜单</n-button>
+            <n-button quaternary @click="copyScanReport"><Copy :size="14" /> 复制报告</n-button>
+            <n-button quaternary @click="runRankingStyleScan(true)"><RefreshCw :size="14" /> 重新分析</n-button>
+            <n-button type="primary" @click="generateIdeaDirections(false)">
+              <template #icon><Lightbulb :size="14" /></template>
+              生成创作方向
+            </n-button>
+          </div>
+        </div>
+      </template>
+    </n-card>
+  </n-modal>
 </template>
 
 <style scoped>
@@ -912,5 +1535,250 @@ onMounted(() => {
 }
 @keyframes fanqie-spin { to { transform: rotate(360deg); } }
 .state .err-detail { font-size: 12px; margin-top: 10px; color: var(--arc-danger, #dc2626); }
+
+.platform-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 4px;
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  background: var(--arc-bg-weak);
+}
+.platform-tab {
+  min-height: 34px;
+  padding: 6px 15px;
+  border: 0;
+  border-radius: calc(var(--arc-radius-md) - 3px);
+  background: transparent;
+  color: var(--arc-text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: color .18s ease, background .18s ease, box-shadow .18s ease;
+}
+.platform-tab:hover { color: var(--arc-text-primary); background: var(--arc-bg-surface-hover); }
+.platform-tab.active { color: var(--arc-primary); background: var(--arc-bg-surface); box-shadow: var(--arc-shadow-sm); }
+.scan-btn {
+  margin-left: 6px;
+  border-color: color-mix(in srgb, var(--arc-primary) 38%, var(--arc-border));
+  background: var(--arc-primary-soft);
+  color: var(--arc-primary);
+  font-weight: 650;
+}
+
+.qidian-category-filter {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: -4px 0 20px;
+  padding: 12px 14px;
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
+}
+.qidian-category-filter > strong {
+  flex: 0 0 auto;
+  padding-top: 6px;
+  color: var(--arc-text-primary);
+  font-size: 13px;
+}
+.qidian-category-tabs { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.qidian-category-tab {
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: color .18s ease, background-color .18s ease, border-color .18s ease;
+}
+.qidian-category-tab:hover:not(:disabled) { color: var(--arc-primary); background: var(--arc-bg-surface-hover); }
+.qidian-category-tab.active {
+  border-color: color-mix(in srgb, var(--arc-primary) 38%, transparent);
+  background: color-mix(in srgb, var(--arc-primary) 10%, var(--arc-bg-surface));
+  color: var(--arc-primary);
+  font-weight: 700;
+}
+.qidian-category-tab:disabled { cursor: wait; opacity: .55; }
+.cat-detail:has(.trend-side:empty) { grid-template-columns: 1fr; }
+.trend-side:empty { display: none; }
+
+.ranking-scan-modal :deep(.n-card__content) {
+  max-height: min(72vh, 760px);
+  overflow-y: auto;
+  padding: 20px 24px 28px;
+}
+.ranking-scan-setup { display: flex; flex-direction: column; gap: 24px; padding: 4px 0 8px; }
+.ranking-scan-setup__intro strong { color: var(--arc-text-primary); font-size: 18px; }
+.ranking-scan-setup__intro p { margin: 8px 0 0; color: var(--arc-text-secondary); line-height: 1.7; }
+.ranking-scan-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+.ranking-scan-choice { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ranking-scan-choice > label { color: var(--arc-text-primary); font-size: 13px; font-weight: 700; }
+.ranking-scan-platforms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ranking-scan-platform {
+  min-height: 68px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-card);
+  color: var(--arc-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease;
+}
+.ranking-scan-platform:hover { border-color: color-mix(in srgb, var(--arc-accent) 55%, var(--arc-border)); }
+.ranking-scan-platform.active {
+  border-color: var(--arc-accent);
+  background: color-mix(in srgb, var(--arc-accent) 9%, var(--arc-bg-card));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arc-accent) 14%, transparent);
+}
+.ranking-scan-platform strong { font-size: 14px; }
+.ranking-scan-platform span { color: var(--arc-text-secondary); font-size: 12px; }
+.ranking-scan-setup-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ranking-scan-setup-note svg { flex: 0 0 auto; margin-top: 2px; color: var(--arc-accent); }
+.ranking-scan-state {
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  color: var(--arc-text-secondary);
+}
+.ranking-scan-state strong { color: var(--arc-text-primary); font-size: 17px; }
+.ranking-scan-state p { max-width: 560px; margin: 0; line-height: 1.7; }
+.ranking-scan-state--error strong { color: var(--arc-danger); }
+.ranking-scan-report { color: var(--arc-text-secondary); font-size: 14px; line-height: 1.75; overflow-x: auto; }
+.ranking-scan-report :deep(h1),
+.ranking-scan-report :deep(h2),
+.ranking-scan-report :deep(h3) { color: var(--arc-text-primary); line-height: 1.35; }
+.ranking-scan-report :deep(h2) {
+  margin: 26px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--arc-border);
+  font-size: 18px;
+}
+.ranking-scan-report :deep(h2:first-child) { margin-top: 0; }
+.ranking-scan-report :deep(h3) { margin: 20px 0 8px; font-size: 15px; }
+.ranking-scan-report :deep(p) { margin: 8px 0; }
+.ranking-scan-report :deep(ul), .ranking-scan-report :deep(ol) { margin: 8px 0; padding-left: 24px; }
+.ranking-scan-report :deep(li) { margin: 5px 0; }
+.ranking-scan-report :deep(blockquote) {
+  margin: 14px 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--arc-primary);
+  border-radius: 0 var(--arc-radius-md) var(--arc-radius-md) 0;
+  background: var(--arc-primary-soft);
+}
+.ranking-scan-report :deep(table) { width: 100%; min-width: 720px; margin: 14px 0; border-collapse: collapse; font-size: 12.5px; }
+.ranking-scan-report :deep(th), .ranking-scan-report :deep(td) {
+  padding: 9px 10px;
+  border: 1px solid var(--arc-border);
+  text-align: left;
+  vertical-align: top;
+}
+.ranking-scan-report :deep(th) { background: var(--arc-bg-weak); color: var(--arc-text-primary); font-weight: 700; }
+.ranking-scan-footer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--arc-text-hint);
+  font-size: 12px;
+}
+.ranking-scan-footer__actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+.ranking-idea-workbench { display: flex; flex-direction: column; gap: 20px; padding: 2px 0 10px; }
+.ranking-idea-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+.ranking-idea-heading > div > span { display: inline-block; margin-bottom: 4px; color: var(--arc-primary); font-size: 12px; font-weight: 700; }
+.ranking-idea-heading h3 { margin: 0; color: var(--arc-text-primary); font-size: 19px; }
+.ranking-idea-heading > p { max-width: 520px; margin: 0; color: var(--arc-text-secondary); font-size: 13px; line-height: 1.6; text-align: right; }
+.ranking-direction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ranking-direction-card,
+.ranking-combination-card {
+  border: 1px solid var(--arc-border);
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.ranking-direction-card { min-height: 160px; padding: 16px; border-radius: 11px; }
+.ranking-direction-card:hover, .ranking-combination-card:hover {
+  border-color: color-mix(in srgb, var(--arc-primary) 50%, var(--arc-border));
+  transform: translateY(-1px);
+}
+.ranking-direction-card.active, .ranking-combination-card.active {
+  border-color: var(--arc-primary);
+  background: color-mix(in srgb, var(--arc-primary) 7%, var(--arc-bg-surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--arc-primary) 14%, transparent);
+}
+.ranking-direction-card__title, .ranking-combination-card__title { display: flex; align-items: center; gap: 8px; }
+.ranking-direction-card__title svg, .ranking-combination-card__title svg { flex: 0 0 auto; color: var(--arc-primary); }
+.ranking-direction-card__title strong, .ranking-combination-card__title strong { flex: 1; font-size: 15px; }
+.ranking-direction-card > p { margin: 10px 0 12px; color: var(--arc-text-secondary); font-size: 13px; line-height: 1.65; }
+.ranking-direction-card__meta { display: flex; flex-direction: column; gap: 5px; color: var(--arc-text-hint); font-size: 12px; line-height: 1.5; }
+.ranking-idea-combinations { display: flex; flex-direction: column; gap: 14px; padding-top: 20px; border-top: 1px solid var(--arc-border); }
+.ranking-combination-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ranking-combination-card { min-height: 330px; display: flex; flex-direction: column; padding: 16px; border-radius: 11px; }
+.ranking-combination-card__genre {
+  align-self: flex-start;
+  margin-top: 9px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--arc-bg-weak);
+  color: var(--arc-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+.ranking-combination-card__hook { margin: 12px 0; color: var(--arc-text-primary); font-size: 13px; font-weight: 600; line-height: 1.6; }
+.ranking-combination-card__details { display: flex; flex-direction: column; gap: 7px; }
+.ranking-combination-card__details p { margin: 0; color: var(--arc-text-secondary); font-size: 12px; line-height: 1.55; }
+.ranking-combination-card__details b { color: var(--arc-text-primary); font-weight: 700; }
+.ranking-combination-card__tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; padding-top: 14px; }
+.ranking-combination-card__tags span { padding: 2px 7px; border-radius: 999px; background: var(--arc-bg-weak); color: var(--arc-text-hint); font-size: 11px; }
+.ranking-idea-empty {
+  padding: 28px;
+  border: 1px dashed var(--arc-border);
+  border-radius: 10px;
+  color: var(--arc-text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+
+@media (max-width: 700px) {
+  .ranking-scan-choice-grid { grid-template-columns: 1fr; }
+  .ranking-scan-platforms { grid-template-columns: 1fr; }
+  .ranking-idea-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .ranking-idea-heading > p { text-align: left; }
+  .ranking-direction-grid, .ranking-combination-grid { grid-template-columns: 1fr; }
+  .ranking-combination-card { min-height: 0; }
+  .ranking-scan-footer { align-items: flex-start; flex-direction: column; }
+  .ranking-scan-footer__actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+}
 </style>
 

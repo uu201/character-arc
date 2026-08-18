@@ -22,6 +22,27 @@ const outlineItemSchema = z.object({
 })
 
 const taskObjectSchemas: Partial<Record<AiTaskName, z.ZodTypeAny>> = {
+  'ranking-idea-combinations': z.object({
+    directions: z.array(z.object({
+      id: stringField,
+      name: stringField,
+      rationale: stringField,
+      readerPromise: stringField,
+      risk: stringField,
+      combinations: z.array(z.object({
+        id: stringField,
+        title: stringField,
+        genre: stringField,
+        premise: stringField,
+        hook: stringField,
+        protagonist: stringField,
+        world: stringField,
+        conflict: stringField,
+        innovation: stringField,
+        tags: stringList
+      }))
+    }))
+  }),
   'premise-enhance': z.object({
     premise: stringField
   }),
