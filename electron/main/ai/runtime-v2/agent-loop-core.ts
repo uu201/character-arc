@@ -28,6 +28,7 @@ import type { Tool } from '../agent/tools/types'
 import type { RunAgentParams, RunAgentResult } from '../agent/run-agent'
 import type { ConversationManager } from './conversation-manager'
 import type { StagedChangesStore } from './staged-changes-store'
+import { formatUnknownError } from '../error-message'
 
 export interface AgentLoopRunOptions {
   session: AssistantSession
@@ -326,7 +327,7 @@ export class AgentLoopCore {
         status = 'error'
         errorMessage = this.isToolUseNotSupportedError(e)
           ? '当前模型不支持工具调用（tool_use），无法驱动全局助手 v2 的读取与暂存流程。请在设置中切换到支持工具调用的模型（如 Claude / GPT 系列）后重试。'
-          : e instanceof Error ? e.message : String(e)
+          : formatUnknownError(e, 'AI Agent 调用失败')
         this.dispatch(sessionId, turnId, {
           kind: 'error',
           seq: 0,

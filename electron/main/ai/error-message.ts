@@ -40,6 +40,25 @@ function parseBody(value: unknown): string {
   }
 }
 
+/**
+ * 将跨 SDK / IPC 传递的异常值稳定转换为用户可读文本。
+ * 某些 provider 会抛出普通对象；直接 String(value) 会得到无意义的
+ * `[object Object]`，也会把这个文本持久化到助手会话里。
+ */
+export function formatUnknownError(error: unknown, fallback = ''): string {
+  if (typeof error === 'string') return trimDetail(error) || fallback
+  if (error instanceof Error) {
+    const message = error.message.trim()
+    if (message && message !== '[object Object]') return trimDetail(message)
+    const nested = parseBody(error.cause)
+    return nested || fallback
+  }
+
+  const detail = parseBody(error)
+  if (detail && detail !== '[object Object]') return detail
+  return fallback
+}
+
 function findResponseBody(error: unknown): unknown {
   let current: unknown = error
   const visited = new Set<unknown>()
@@ -64,7 +83,7 @@ export function formatAiErrorMessage(error: unknown, fallback: string): string {
   const record = asRecord(error)
   const statusCode = record?.statusCode ?? asRecord(record?.cause)?.statusCode
   const upstreamDetail = parseBody(findResponseBody(error))
-  const baseMessage = error instanceof Error ? error.message.trim() : String(error ?? '').trim()
+  const baseMessage = formatUnknownError(error)
   const genericMessages = new Set(['not found', 'bad request', 'unauthorized', 'forbidden', 'internal server error'])
 
   if (upstreamDetail && upstreamDetail.toLowerCase() !== baseMessage.toLowerCase()) {

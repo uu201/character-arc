@@ -89,6 +89,45 @@ export interface AssistantSendOptions {
   attachments?: TurnAttachment[]
 }
 
+const MAX_ERROR_LENGTH = 1200
+
+function trimErrorText(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= MAX_ERROR_LENGTH) return normalized
+  return `${normalized.slice(0, MAX_ERROR_LENGTH - 1)}…`
+}
+
+/** IPC / 历史回放的错误字段理论上是 string，但 SDK 可能返回普通对象。 */
+function formatAssistantError(error: unknown, seen = new Set<object>()): string {
+  if (typeof error === 'string') return trimErrorText(error)
+  if (error instanceof Error) {
+    const message = error.message.trim()
+    if (message && message !== '[object Object]') return trimErrorText(message)
+  }
+
+  if (error && typeof error === 'object') {
+    if (seen.has(error)) return ''
+    seen.add(error)
+    const record = error as Record<string, unknown>
+    for (const key of ['error', 'message', 'detail', 'msg', 'description', 'responseBody', 'response_body', 'data', 'body']) {
+      const nested = record[key]
+      if (typeof nested === 'string' && nested.trim()) return trimErrorText(nested)
+      if (nested && typeof nested === 'object') {
+        const nestedText = formatAssistantError(nested, seen)
+        if (nestedText) return nestedText
+      }
+    }
+    try {
+      const serialized = JSON.stringify(error)
+      if (serialized && serialized !== '{}') return trimErrorText(serialized)
+    } catch {
+      // Ignore circular error objects and use the generic fallback below.
+    }
+  }
+
+  return '助手请求失败'
+}
+
 export function useAssistant(options: UseAssistantOptions) {
   const A = window.characterArc.assistant
   const appStore = useAppStore()
@@ -267,7 +306,7 @@ export function useAssistant(options: UseAssistantOptions) {
           }
           break
         case 'error':
-          finalError = evt.error
+          finalError = formatAssistantError(evt.error)
           break
         default:
           break
