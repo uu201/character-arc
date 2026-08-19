@@ -35,8 +35,13 @@ test('脑洞任务要求四个方向、每个三个组合，并在前端手动�
 
   assert.match(taskSource, /恰好 4 个彼此明显不同的创作方向/)
   assert.match(taskSource, /每个方向恰好包含 3 个脑洞组合/)
+  assert.match(taskSource, /refreshMode === 'combinations'/)
+  assert.match(taskSource, /不得与 combinations 中的现有书名/)
   assert.match(taskSource, /不得复制、续写或拼接任何榜单作品/)
   assert.match(pageSource, /scanStage\.value = 'setup'/)
   assert.match(pageSource, /开始扫榜/)
+  assert.match(pageSource, /refreshSelectedDirectionIdeas/)
+  assert.match(pageSource, /我的收藏/)
+  assert.match(pageSource, /character-arc:ranking-idea-favorites/)
   assert.match(pageSource, /appStore\.openWizard\(\{ title: idea\.title, genre: idea\.genre, premise \}\)/)
 })
