@@ -235,6 +235,9 @@ contextBridge.exposeInMainWorld('characterArc', {
   /** 抓取七猫风向标公开静态榜单数据（主进程带本地缓存与路径白名单） */
   fetchQimaoTrends: (path: string, force = false) =>
     ipcRenderer.invoke('characterarc:qimao-trends-fetch', { path, force }),
+  /** 抓取纵横风向标公开静态榜单数据（主进程带本地缓存与路径白名单） */
+  fetchZonghengTrends: (path: string, force = false) =>
+    ipcRenderer.invoke('characterarc:zongheng-trends-fetch', { path, force }),
   /** 抓取起点中文网公开榜单数据（主进程带本地缓存） */
   fetchQidianRank: (type: string, category = '-1', force = false) =>
     ipcRenderer.invoke('characterarc:qidian-rank-fetch', { type, category, force }),

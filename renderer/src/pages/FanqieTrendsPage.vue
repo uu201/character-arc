@@ -10,11 +10,16 @@ import {
   parseQimaoBoardCatalog,
   type QimaoBoardMeta
 } from '@/features/ranking/qimaoRanking'
+import {
+  buildZonghengViewData,
+  parseZonghengBoardCatalog,
+  type ZonghengBoardMeta
+} from '@/features/ranking/zonghengRanking'
 
 const appStore = useAppStore()
 const message = useMessage()
 
-type Platform = 'fanqie' | 'qidian' | 'qimao'
+type Platform = 'fanqie' | 'qidian' | 'qimao' | 'zongheng'
 type ScanStage = 'setup' | 'running' | 'error' | 'report' | 'ideating' | 'idea-error' | 'ideas' | 'cancelled'
 
 type RankingScanStatus = 'draft' | 'running' | 'success' | 'failed' | 'cancelled'
@@ -122,6 +127,7 @@ const ideaCancelRequested = ref(false)
 const scanBusy = computed(() => scanLoading.value || scanStage.value === 'ideating')
 const scanCatalogLoading = ref(false)
 const qimaoBoards = ref<QimaoBoardMeta[]>([])
+const zonghengBoards = ref<ZonghengBoardMeta[]>([])
 
 function openBookUrl(url: unknown): void {
   const target = typeof url === 'string' ? url.trim() : ''
@@ -179,7 +185,8 @@ const QIDIAN_CATEGORIES = [
   { label: '悬疑灵异', value: '10' },
   { label: '轻小说', value: '12' }
 ]
-const SCAN_BOARD_CATALOG: Record<Exclude<Platform, 'qimao'>, Array<{ label: string; value: string }>> = {
+const ZONGHENG_CATEGORIES = ['玄幻奇幻', '武侠仙侠', '都市', '历史', '科幻', '奇闻异事', '游戏', 'N次元', '现实题材']
+const SCAN_BOARD_CATALOG: Record<Exclude<Platform, 'qimao' | 'zongheng'>, Array<{ label: string; value: string }>> = {
   fanqie: [
     { label: '女频新书榜', value: 'female-new' },
     { label: '男频新书榜', value: 'male-new' }
@@ -193,6 +200,9 @@ type BoardItem = {
   name: string
   channel?: string
   has_genres?: boolean
+  description?: string
+  metricLabel?: string
+  isAuthor?: boolean
   _empty?: boolean
 }
 
@@ -219,32 +229,45 @@ let boardRequestId = 0
 const pageTitle = computed(() => ({
   fanqie: '番茄风向标',
   qidian: '起点风向标',
-  qimao: '七猫风向标'
+  qimao: '七猫风向标',
+  zongheng: '纵横风向标'
 })[platform.value])
 const pageSubtitle = computed(() => ({
   fanqie: '番茄小说榜单 · 每日趋势与题材风向',
   qidian: '起点中文网榜单 · 支持榜单与作品分类组合筛选',
-  qimao: '七猫中文网 · 男女频 16 个榜单与动态作品分类'
+  qimao: '七猫中文网 · 男女频 16 个榜单与动态作品分类',
+  zongheng: '纵横中文网 · 10 榜全量追踪与分类趋势'
 })[platform.value])
 const pageSource = computed(() => ({
   fanqie: '数据来源于 https://github.com/uu201/FanqieRankTracker',
   qidian: '抓取逻辑参考 QiuNova/Qbook（MIT）',
-  qimao: '公开榜单数据来源于 siweimidu/QiMaoRankTracker2'
+  qimao: '公开榜单数据来源于 siweimidu/QiMaoRankTracker2',
+  zongheng: '公开榜单数据来源于 siweimidu/ZongHengRankTracker'
 })[platform.value])
 const scanReportHtml = computed(() => renderMarkdown(scanReport.value))
 const scanBoardOptions = computed(() => scanSelectedPlatform.value === 'qimao'
   ? qimaoBoards.value.map((board) => ({ label: board.name, value: board.slug }))
-  : SCAN_BOARD_CATALOG[scanSelectedPlatform.value] || [])
+  : scanSelectedPlatform.value === 'zongheng'
+    ? zonghengBoards.value.map((board) => ({ label: board.name, value: board.slug }))
+    : SCAN_BOARD_CATALOG[scanSelectedPlatform.value] || [])
 const scanSelectedPlatformLabel = computed(() => ({
   fanqie: '番茄小说',
   qidian: '起点中文网',
-  qimao: '七猫中文网'
+  qimao: '七猫中文网',
+  zongheng: '纵横中文网'
 })[scanSelectedPlatform.value])
 const scanSelectedBoardLabel = computed(() =>
   scanBoardOptions.value.find((option) => option.value === scanSelectedBoard.value)?.label || '当前榜单'
 )
 const scanCategoryOptions = computed(() => {
   if (scanSelectedPlatform.value === 'qidian') return QIDIAN_CATEGORIES
+  if (scanSelectedPlatform.value === 'zongheng') {
+    const categories = zonghengCategoryOptions.value.length ? zonghengCategoryOptions.value : ZONGHENG_CATEGORIES
+    return [
+      { label: '全部分类', value: '__all__' },
+      ...categories.map((category) => ({ label: category, value: category }))
+    ]
+  }
   if (scanSelectedPlatform.value !== 'qimao') return []
   const board = qimaoBoards.value.find((item) => item.slug === scanSelectedBoard.value)
   return [
@@ -255,7 +278,7 @@ const scanCategoryOptions = computed(() => {
 const scanSelectedCategoryLabel = computed(() =>
   scanCategoryOptions.value.find((option) => option.value === scanSelectedCategory.value)?.label || '全部分类'
 )
-const scanHasCategory = computed(() => scanSelectedPlatform.value === 'qidian' || scanSelectedPlatform.value === 'qimao')
+const scanHasCategory = computed(() => scanSelectedPlatform.value === 'qidian' || scanSelectedPlatform.value === 'qimao' || scanSelectedPlatform.value === 'zongheng')
 const scanCategorySuffix = computed(() => scanHasCategory.value ? ` · ${scanSelectedCategoryLabel.value}` : '')
 const selectedDirection = computed(() =>
   ideaDirections.value.find((direction) => direction.id === selectedDirectionId.value) || null
@@ -302,7 +325,9 @@ function normalizeRankingScanRecord(input: unknown): RankingScanHistoryRecord | 
       ? 'qidian'
       : value.platform === 'qimao'
         ? 'qimao'
-        : 'fanqie',
+        : value.platform === 'zongheng'
+          ? 'zongheng'
+          : 'fanqie',
     board: String(value.board || ''),
     category: String(value.category || ''),
     sampleCount: Number(value.sampleCount || 0),
@@ -363,6 +388,13 @@ async function fetchQimaoJson(path: string, force = false): Promise<AnyRecord> {
   return res.data as AnyRecord
 }
 
+async function fetchZonghengJson(path: string, force = false): Promise<AnyRecord> {
+  const res = await window.characterArc.fetchZonghengTrends(path, force)
+  if (!res.success || res.data == null) throw new Error(res.error || '纵横榜单加载失败')
+  if (res.mirror) srcNote.value = `${res.fromCache ? '缓存 · ' : '镜像 · '}${res.mirror}`
+  return res.data as AnyRecord
+}
+
 async function ensureQimaoBoardCatalog(force = false): Promise<QimaoBoardMeta[]> {
   if (!force && qimaoBoards.value.length) return qimaoBoards.value
   scanCatalogLoading.value = true
@@ -370,6 +402,19 @@ async function ensureQimaoBoardCatalog(force = false): Promise<QimaoBoardMeta[]>
     const catalog = parseQimaoBoardCatalog(await fetchQimaoJson('api/boards.json', force))
     if (!catalog.length) throw new Error('七猫榜单目录为空')
     qimaoBoards.value = catalog
+    return catalog
+  } finally {
+    scanCatalogLoading.value = false
+  }
+}
+
+async function ensureZonghengBoardCatalog(force = false): Promise<ZonghengBoardMeta[]> {
+  if (!force && zonghengBoards.value.length) return zonghengBoards.value
+  scanCatalogLoading.value = true
+  try {
+    const catalog = parseZonghengBoardCatalog(await fetchZonghengJson('api/boards.json', force))
+    if (!catalog.length) throw new Error('纵横榜单目录为空')
+    zonghengBoards.value = catalog
     return catalog
   } finally {
     scanCatalogLoading.value = false
@@ -443,6 +488,24 @@ async function switchBoard(slug: string, force = false): Promise<void> {
       return
     }
 
+    if (platform.value === 'zongheng') {
+      const [boardData, marketBrief] = await Promise.all([
+        fetchZonghengJson(`api/${slug}/latest/all.json`, force),
+        fetchZonghengJson('api/market-brief.json', force).catch(() => ({}))
+      ])
+      if (requestId !== boardRequestId || platform.value !== requestedPlatform) return
+      const adapted = buildZonghengViewData(boardData, marketBrief)
+      summaryData.value = adapted.summaryData
+      allData.value = adapted.allData
+      curPeriod.value = 'all'
+      dataDate.value = '数据日期 ' + (adapted.allData.date || '—')
+      dataPrev.value = adapted.allData.prev_date ? `对比 ${adapted.allData.prev_date}` : ''
+      curCat.value = adapted.allData.categories[0]?.name || null
+      loading.value = false
+      switching.value = false
+      return
+    }
+
     const [summary, all] = await Promise.all([
       fetchJson(`data/${slug}/market_summary.json`, force),
       fetchJson(`api/${slug}/lastest/all.json`, force)
@@ -488,6 +551,25 @@ async function loadAll(force = false): Promise<void> {
       }))
       const firstReady = boardsList.value.find((board) => board.slug === curBoard.value && !board._empty)
         || boardsList.value.find((board) => !board._empty)
+        || boardsList.value[0]
+      if (firstReady) await switchBoard(firstReady.slug, force)
+      else loading.value = false
+      return
+    }
+
+    if (platform.value === 'zongheng') {
+      const catalog = await ensureZonghengBoardCatalog(force)
+      boardsList.value = catalog.map((board) => ({
+        slug: board.slug,
+        name: board.name,
+        channel: board.isAuthor ? '作者榜' : board.metricLabel,
+        has_genres: true,
+        description: board.description,
+        metricLabel: board.metricLabel,
+        isAuthor: board.isAuthor,
+        _empty: false
+      }))
+      const firstReady = boardsList.value.find((board) => board.slug === curBoard.value)
         || boardsList.value[0]
       if (firstReady) await switchBoard(firstReady.slug, force)
       else loading.value = false
@@ -551,17 +633,25 @@ function bookMeta(book: AnyRecord): string {
       book.category || '未分类',
       book.word_display,
       Number(book.heat || book.reads) > 0 ? `热度 ${fmtScore(Number(book.heat || book.reads))}` : ''
+      ].filter(Boolean).join(' · ')
+  }
+  if (platform.value === 'zongheng') {
+    return [
+      book.author || '未知作者',
+      book.category || '未分类',
+      Number(book.metric) > 0 ? `${book.metricLabel || curBoardItem.value?.metricLabel || '指标'} ${fmtScore(Number(book.metric))}` : '',
+      book.updatedToday ? '今日更新' : ''
     ].filter(Boolean).join(' · ')
   }
   return `${book.author || '未知作者'} · ${book.reads || 0} 在读`
 }
 
 function collectRankingScanBooks(limit = scanSampleLimit.value): AnyRecord[] {
-  const qimaoCategory = platform.value === 'qimao' && scanSelectedCategory.value !== '__all__'
+  const selectedCategory = (platform.value === 'qimao' || platform.value === 'zongheng') && scanSelectedCategory.value !== '__all__'
     ? scanSelectedCategory.value
     : ''
-  const sourceCategories = qimaoCategory
-    ? categories.value.filter((category) => category.name === qimaoCategory)
+  const sourceCategories = selectedCategory
+    ? categories.value.filter((category) => category.name === selectedCategory)
     : categories.value.filter((category) => category.name !== '全部' || categories.value.length === 1)
   const groups = sourceCategories.map((category) => ({
     name: category.name,
@@ -585,7 +675,10 @@ function collectRankingScanBooks(limit = scanSampleLimit.value): AnyRecord[] {
         author: book.author || '未知作者',
         category: book.category || group.name || '未分类',
         wordCount: book.word_display || book.word_count || book.reads || '',
-        intro: book.intro || ''
+        intro: book.intro || '',
+        metric: book.metric || book.reads || 0,
+        metricLabel: book.metricLabel || curBoardItem.value?.metricLabel || '',
+        updatedToday: book.updatedToday === true
       })
       if (selected.length >= limit) break
     }
@@ -700,6 +793,17 @@ async function openRankingHistory(record: RankingScanHistoryRecord): Promise<voi
       scanSelectedBoard.value = ''
       scanSelectedCategory.value = '__all__'
     }
+  } else if (record.platform === 'zongheng') {
+    try {
+      await ensureZonghengBoardCatalog()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载纵横榜单目录失败')
+    }
+    const options = scanBoardOptions.value
+    scanSelectedBoard.value = options.find((option) => option.label === record.board || option.value === record.board)?.value
+      || options[0]?.value
+      || ''
+    scanSelectedCategory.value = record.category && record.category !== '全部分类' ? record.category : '__all__'
   } else {
     const options = SCAN_BOARD_CATALOG[record.platform]
     scanSelectedBoard.value = options.find((option) => option.label === record.board || option.value === record.board)?.value
@@ -784,20 +888,22 @@ function openRankingStyleScan(): void {
   scanSelectedPlatform.value = platform.value
   const availableBoards = platform.value === 'qimao'
     ? qimaoBoards.value.map((board) => ({ label: board.name, value: board.slug }))
+    : platform.value === 'zongheng'
+      ? zonghengBoards.value.map((board) => ({ label: board.name, value: board.slug }))
     : SCAN_BOARD_CATALOG[platform.value]
   scanSelectedBoard.value = availableBoards.some((option) => option.value === curBoard.value)
     ? String(curBoard.value)
     : availableBoards[0]?.value || ''
   scanSelectedCategory.value = platform.value === 'qidian'
     ? qidianCategory.value
-    : platform.value === 'qimao' && curCat.value && curCat.value !== '全部'
+    : (platform.value === 'qimao' || platform.value === 'zongheng') && curCat.value && curCat.value !== '全部'
       ? curCat.value
-      : platform.value === 'qimao' ? '__all__' : '-1'
+      : platform.value === 'qimao' || platform.value === 'zongheng' ? '__all__' : '-1'
   createNewRankingScan()
 }
 
 async function updateScanPlatform(value: Platform): Promise<void> {
-  if (value !== 'fanqie' && value !== 'qidian' && value !== 'qimao') return
+  if (value !== 'fanqie' && value !== 'qidian' && value !== 'qimao' && value !== 'zongheng') return
   scanSelectedPlatform.value = value
   if (value === 'qimao') {
     try {
@@ -807,6 +913,18 @@ async function updateScanPlatform(value: Platform): Promise<void> {
       scanSelectedCategory.value = '__all__'
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载七猫榜单目录失败')
+      scanSelectedBoard.value = ''
+    }
+    return
+  }
+  if (value === 'zongheng') {
+    try {
+      const catalog = await ensureZonghengBoardCatalog()
+      if (scanSelectedPlatform.value !== value) return
+      scanSelectedBoard.value = catalog[0]?.slug || ''
+      scanSelectedCategory.value = '__all__'
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载纵横榜单目录失败')
       scanSelectedBoard.value = ''
     }
     return
@@ -825,7 +943,7 @@ function updateScanBoard(value: string): void {
   scanSelectedBoard.value = value
   scanSelectedCategory.value = scanSelectedPlatform.value === 'qidian'
     ? '-1'
-    : scanSelectedPlatform.value === 'qimao' ? '__all__' : '-1'
+    : scanSelectedPlatform.value === 'qimao' || scanSelectedPlatform.value === 'zongheng' ? '__all__' : '-1'
 }
 
 function returnToScanSetup(): void {
@@ -837,7 +955,7 @@ function returnToScanSetup(): void {
 async function prepareSelectedRankingForScan(): Promise<void> {
   const targetPlatform = scanSelectedPlatform.value
   const targetBoard = scanSelectedBoard.value
-  const targetCategory = targetPlatform === 'qidian' || targetPlatform === 'qimao'
+  const targetCategory = targetPlatform === 'qidian' || targetPlatform === 'qimao' || targetPlatform === 'zongheng'
     ? scanSelectedCategory.value
     : '-1'
   if (!targetBoard) throw new Error('请先选择要分析的榜单')
@@ -864,7 +982,7 @@ async function prepareSelectedRankingForScan(): Promise<void> {
   if (curBoard.value !== targetBoard || !allData.value) {
     throw new Error(errorMsg.value || '所选榜单数据加载失败')
   }
-  if (targetPlatform === 'qimao' && targetCategory !== '__all__') {
+  if ((targetPlatform === 'qimao' || targetPlatform === 'zongheng') && targetCategory !== '__all__') {
     const selectedCategory = categories.value.find((category) => category.name === targetCategory)
     if (!selectedCategory) throw new Error(`所选分类“${targetCategory}”在当前榜单中不可用`)
     curCat.value = targetCategory
@@ -873,17 +991,17 @@ async function prepareSelectedRankingForScan(): Promise<void> {
 
 function currentScanCategoryKey(): string {
   if (platform.value === 'qidian') return qidianCategory.value
-  if (platform.value === 'qimao') return scanSelectedCategory.value || '__all__'
+  if (platform.value === 'qimao' || platform.value === 'zongheng') return scanSelectedCategory.value || '__all__'
   return 'all'
 }
 
 function currentPlatformName(): string {
-  return ({ fanqie: '番茄小说', qidian: '起点中文网', qimao: '七猫中文网' })[platform.value]
+  return ({ fanqie: '番茄小说', qidian: '起点中文网', qimao: '七猫中文网', zongheng: '纵横中文网' })[platform.value]
 }
 
 function currentScanBoardName(): string {
   const board = curBoardItem.value?.name || '当前榜单'
-  return `${board}${platform.value === 'qidian' || platform.value === 'qimao' ? ` · ${scanSelectedCategoryLabel.value}` : ''}`
+  return `${board}${platform.value === 'qidian' || platform.value === 'qimao' || platform.value === 'zongheng' ? ` · ${scanSelectedCategoryLabel.value}` : ''}`
 }
 
 async function runRankingStyleScan(force = false): Promise<void> {
@@ -1159,6 +1277,9 @@ const hotThemes = computed<Array<AnyRecord & { _size: number }>>(() => {
 })
 
 const categories = computed<AnyRecord[]>(() => allData.value?.categories || [])
+const zonghengCategoryOptions = computed<string[]>(() => platform.value === 'zongheng'
+  ? categories.value.map((category) => String(category.name || '')).filter((name) => name && name !== '全部')
+  : [])
 
 const curCatData = computed<AnyRecord | null>(() => categories.value.find((c) => c.name === curCat.value) ?? null)
 
@@ -1213,6 +1334,7 @@ onBeforeUnmount(() => {
             <button type="button" class="platform-tab" :class="{ active: platform === 'fanqie' }" :disabled="scanBusy" @click="switchPlatform('fanqie')">番茄小说</button>
             <button type="button" class="platform-tab" :class="{ active: platform === 'qidian' }" :disabled="scanBusy" @click="switchPlatform('qidian')">起点中文网</button>
             <button type="button" class="platform-tab" :class="{ active: platform === 'qimao' }" :disabled="scanBusy" @click="switchPlatform('qimao')">七猫中文网</button>
+            <button type="button" class="platform-tab" :class="{ active: platform === 'zongheng' }" :disabled="scanBusy" @click="switchPlatform('zongheng')">纵横中文网</button>
           </div>
         </div>
         <div class="meta">
@@ -1247,7 +1369,7 @@ onBeforeUnmount(() => {
             class="board-tab"
             :class="{ active: b.slug === curBoard, empty: b._empty }"
             :disabled="scanBusy"
-            :title="b._empty ? '该榜单暂无数据' : ''"
+            :title="b._empty ? '该榜单暂无数据' : (b.description || (b.metricLabel ? `指标：${b.metricLabel}` : ''))"
             @click="switchBoard(b.slug)"
           >
             {{ b.name }}<span class="ch">{{ channelLabel(b) }}</span>
@@ -1293,7 +1415,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="curBoardItem?.has_genres && hotGenres.length" class="section">
-            <h3 class="section-title">热门综合赛道 <span class="hint">按阅读增长加权</span></h3>
+            <h3 class="section-title">热门综合赛道 <span class="hint">{{ platform === 'zongheng' ? '按分类热度指数' : '按阅读增长加权' }}</span></h3>
             <div class="grid">
               <div v-for="(g, i) in hotGenres" :key="g.name" class="genre-card" :class="['rank-' + (i + 1), { top1: i === 0 }]">
                 <div class="rank-badge num">#{{ i + 1 }}</div>
@@ -1307,7 +1429,7 @@ onBeforeUnmount(() => {
                 <div class="score-row">
                   <span class="score-arrow" aria-hidden="true">▲</span>
                   <span class="score num">{{ fmt(g.read_growth_total ?? g.score) }}</span>
-                  <span class="score-unit">在读增长</span>
+                  <span class="score-unit">{{ platform === 'zongheng' ? '热度指数' : '在读增长' }}</span>
                 </div>
                 <div v-if="g.new_count != null || g.dropped_count != null || g.active_days != null" class="metrics">
                   <span v-if="g.new_count != null" class="metric metric-up">
@@ -1481,7 +1603,7 @@ onBeforeUnmount(() => {
               :disabled="scanBusy"
               @click="openRankingHistory(record)"
             >
-              <strong>{{ record.platform === 'qidian' ? '起点' : record.platform === 'qimao' ? '七猫' : '番茄' }} · {{ record.board }}</strong>
+              <strong>{{ record.platform === 'qidian' ? '起点' : record.platform === 'qimao' ? '七猫' : record.platform === 'zongheng' ? '纵横' : '番茄' }} · {{ record.board }}</strong>
               <span>{{ record.category || '全部分类' }} · {{ record.sampleCount || '—' }} 条样本</span>
               <small>
                 <span class="ranking-scan-history__status"><i></i>{{ scanStatusLabel(record.status) }}</span>
@@ -1531,6 +1653,16 @@ onBeforeUnmount(() => {
               >
                 <strong>七猫中文网</strong>
                 <span>男女频 16 榜与动态分类</span>
+              </button>
+              <button
+                type="button"
+                class="ranking-scan-platform"
+                :class="{ active: scanSelectedPlatform === 'zongheng' }"
+                :disabled="scanBusy"
+                @click="updateScanPlatform('zongheng')"
+              >
+                <strong>纵横中文网</strong>
+                <span>10 榜全量追踪与趋势分析</span>
               </button>
             </div>
           </div>
@@ -2300,7 +2432,7 @@ onBeforeUnmount(() => {
 }
 .ranking-scan-choice { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ranking-scan-choice > label { color: var(--arc-text-primary); font-size: 13px; font-weight: 700; }
-.ranking-scan-platforms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ranking-scan-platforms { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .ranking-scan-platform {
   min-height: 68px;
   display: flex;
