@@ -6,6 +6,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
 import Underline from '@tiptap/extension-underline'
 import { ensureEditorHtmlContent } from '@/features/chapters/editorContent'
+import { formatChapterEditorDocument } from '@/features/chapters/chapterFormatting'
 import type { ChapterInsertionRequest, ChapterSelectionState } from '@/types/app'
 import { EditorSearchExtension } from '@/features/chapters/editorSearch'
 
@@ -93,6 +94,18 @@ function discardRecovery(): void {
     // ignore
   }
   emit('recovery-available', null)
+}
+
+function formatDocument(): 'empty' | 'unchanged' | 'formatted' {
+  if (!editor.value) return 'empty'
+  if (!editor.value.getText().trim()) return 'empty'
+
+  const result = formatChapterEditorDocument(editor.value.getJSON())
+  if (!result.changed) return 'unchanged'
+
+  editor.value.commands.setContent(result.document, { emitUpdate: true })
+  editor.value.commands.focus()
+  return 'formatted'
 }
 
 function handleSelectionUpdate(): void {
@@ -223,7 +236,7 @@ onBeforeUnmount(() => {
   editor.value?.destroy()
 })
 
-defineExpose({ editor, restoreRecovery, discardRecovery })
+defineExpose({ editor, restoreRecovery, discardRecovery, formatDocument })
 </script>
 
 <template>
@@ -242,8 +255,12 @@ defineExpose({ editor, restoreRecovery, discardRecovery })
 }
 
 :deep(.simple-editor p) {
-  margin-bottom: 16px;
+  margin: 0 0 1.8em;
   text-indent: 2em;
+}
+
+:deep(.simple-editor p:last-child) {
+  margin-bottom: 0;
 }
 
 :deep(.simple-editor p.is-editor-empty:first-child::before) {
