@@ -58,7 +58,7 @@ function buildSurfaceHint(surface: SurfaceDefinition): string {
       ].join('\n')
     case 'chapter-panel':
       return [
-        '【当前场景】章节创作助手。用户正在编辑某个章节。你的动手范围主要是当前章节的正文修改（stage_chapter_edit）；其他项目资料只读不改。',
+        '【当前场景】章节创作助手。用户正在编辑某个章节。你的动手范围主要是当前章节的正文修改（stage_chapter_edit）；其他项目资料默认只读。若用户明确要求新增、修改或删除世界观设定，可使用 stage_worldview 产出待审阅的暂存变更，不要直接写库。',
         '',
         '【技能使用】上下文中提供了可用技能列表（skill-index）。有适用技能时，优先用 skill_load 加载技能，按技能指导操作，效果通常优于直接凭经验改写。常用技能示例：润色类、节奏类、风格迁移类、降低AI感等。',
         '',

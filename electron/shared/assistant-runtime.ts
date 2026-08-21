@@ -248,7 +248,9 @@ export type PermissionMatrix = Readonly<Record<SurfaceId, readonly ToolMatcher[]
 export const DEFAULT_PERMISSION_MATRIX: PermissionMatrix = {
   'global-page': ['read_*', 'search_*', 'list_*', 'stage_*', 'skill_*', 'knowledge_*'],
   'global-panel': ['read_*', 'search_*', 'list_*', 'stage_*', 'skill_*', 'knowledge_*'],
-  'chapter-panel': ['read_*', 'search_*', 'list_*', 'stage_chapter_edit', 'skill_*', 'knowledge_*'],
+  // 章节助手默认仍只写当前正文，但允许用户明确要求时暂存世界观设定变更。
+  // `stage_worldview` 内部仍要求用户确认后才提交，且不影响章节正文的写作边界。
+  'chapter-panel': ['read_*', 'search_*', 'list_*', 'stage_chapter_edit', 'stage_worldview', 'skill_*', 'knowledge_*'],
   'inline-selection': ['read_chapter', 'stage_chapter_edit']
 } as const
 

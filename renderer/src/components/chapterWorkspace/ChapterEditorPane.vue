@@ -631,6 +631,8 @@ onBeforeUnmount(() => {
   gap: 12px;
   background: var(--arc-bg-surface);
   border-bottom: 1px solid var(--arc-border);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .breadcrumb {
@@ -639,7 +641,9 @@ onBeforeUnmount(() => {
   gap: 6px;
   font-size: 12px;
   color: var(--arc-text-secondary);
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
 }
 
 .breadcrumb svg {
@@ -659,6 +663,17 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.ep-actions::-webkit-scrollbar {
+  display: none;
 }
 
 .save-indicator {
@@ -667,6 +682,8 @@ onBeforeUnmount(() => {
   gap: 6px;
   font-size: 11px;
   color: var(--arc-text-hint);
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .save-indicator .dot {
@@ -689,6 +706,7 @@ onBeforeUnmount(() => {
   height: 18px;
   background: var(--arc-border);
   margin: 0 4px;
+  flex: 0 0 auto;
 }
 
 .font-stepper {
@@ -698,6 +716,7 @@ onBeforeUnmount(() => {
   border-radius: var(--arc-radius-sm);
   padding: 2px;
   gap: 2px;
+  flex: 0 0 auto;
 }
 
 .font-picker-tool {
@@ -750,6 +769,8 @@ onBeforeUnmount(() => {
   color: var(--arc-text-secondary);
   background: transparent;
   transition: 0.15s;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .toolbtn:hover {
