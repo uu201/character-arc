@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Check, ChevronDown, ChevronRight, Folder, FocusIcon, History, Maximize2, Menu, MessageSquareQuote, Minus, Minimize2, Plus, RefreshCw, ShieldAlert, Sparkles, Type, Wand2 } from 'lucide-vue-next'
+import { AlignLeft, Check, ChevronDown, ChevronRight, Folder, FocusIcon, History, Maximize2, Menu, MessageSquareQuote, Minus, Minimize2, Plus, RefreshCw, ShieldAlert, Sparkles, Type, Wand2 } from 'lucide-vue-next'
 import { NAlert, NDropdown, NTag, NTooltip, useMessage } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
 import SimpleChapterEditor from './SimpleChapterEditor.vue'
@@ -323,6 +323,19 @@ function discardRecovery(): void {
   recoverySnapshot.value = null
 }
 
+function formatCurrentChapter(): void {
+  const result = editorRef.value?.formatDocument()
+  if (result === 'empty' || !result) {
+    message.warning('当前章节还没有可排版的正文')
+    return
+  }
+  if (result === 'unchanged') {
+    message.info('当前正文已符合：首行缩进 2 字，段间空 1 行')
+    return
+  }
+  message.success('一键排版完成：首行缩进 2 字，段间空 1 行')
+}
+
 onMounted(() => {
   document.addEventListener('selectionchange', handleSelectionChange)
   document.addEventListener('mousedown', handleMouseDown)
@@ -379,6 +392,16 @@ onBeforeUnmount(() => {
           <span class="level">{{ fontSize }}px</span>
           <button @click="stepFont(1)"><Plus :size="11" /></button>
         </div>
+
+        <button
+          class="toolbtn"
+          :disabled="!currentChapter"
+          title="整理段落：首行缩进 2 字，段间空 1 行"
+          @click="formatCurrentChapter"
+        >
+          <AlignLeft :size="13" />
+          <span>一键排版</span>
+        </button>
 
         <n-tooltip placement="bottom">
           <template #trigger>
@@ -732,6 +755,16 @@ onBeforeUnmount(() => {
 .toolbtn:hover {
   background: var(--arc-bg-surface-hover);
   color: var(--arc-text-primary);
+}
+
+.toolbtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbtn:disabled:hover {
+  background: transparent;
+  color: var(--arc-text-secondary);
 }
 
 .toolbtn.primary {
