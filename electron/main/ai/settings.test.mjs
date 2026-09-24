@@ -18,6 +18,15 @@ test('厂商预设会补齐默认地址并保持模型为空', () => {
   assert.equal(preset?.supportsEmbedding, false)
 })
 
+test('Atlas Cloud 预设使用 OpenAI Chat 兼容入口', () => {
+  const preset = getAiProviderCatalogEntry('atlascloud')
+
+  assert.equal(preset?.baseUrl, 'https://api.atlascloud.ai/v1')
+  assert.equal(preset?.model, '')
+  assert.equal(preset?.protocol, 'openai-chat')
+  assert.equal(preset?.supportsEmbedding, false)
+})
+
 test('OpenCode Go 厂商预设使用官方 Go 地址并保持模型为空', () => {
   const preset = getAiProviderCatalogEntry('opencode-go')
 
