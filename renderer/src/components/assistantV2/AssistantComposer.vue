@@ -196,6 +196,7 @@ watch(
 
 <style scoped>
 .composer-wrap {
+  container-type: inline-size;
   padding: 12px 32px 22px;
   background: linear-gradient(180deg, transparent, var(--arc-bg-body) 30%);
 }
@@ -312,10 +313,14 @@ textarea::placeholder {
 }
 .streaming-hint {
   display: inline-flex;
+  min-width: 0;
   align-items: center;
   gap: 5px;
+  overflow: hidden;
   color: var(--arc-primary);
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .streaming-dot {
   width: 5px;
@@ -330,6 +335,8 @@ textarea::placeholder {
 }
 .actions {
   display: flex;
+  min-width: 0;
+  flex-shrink: 0;
   align-items: center;
   gap: 6px;
 }
@@ -394,5 +401,28 @@ textarea::placeholder {
 }
 .skill-warning {
   color: var(--arc-danger, #d03050);
+}
+
+@container (max-width: 420px) {
+  .foot {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hint {
+    width: 100%;
+    min-height: 18px;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .skill-policy-trigger {
+    max-width: none;
+    flex: 1 1 auto;
+    justify-content: center;
+  }
 }
 </style>

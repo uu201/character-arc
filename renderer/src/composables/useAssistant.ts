@@ -10,6 +10,7 @@
 
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { parseSelectionPrompt } from '@/features/assistant/selectionPrompt'
 import type { ProjectSkillItem } from '@/types/app'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type {
@@ -728,8 +729,9 @@ export function useAssistant(options: UseAssistantOptions) {
 
   /** 从用户首条提问摘要出简短会话标题。 */
   function deriveSessionTitle(text: string): string {
+    const titleSource = parseSelectionPrompt(text)?.instruction ?? text
     // 压平空白，取首句（中英文标点断句），再截断到合理长度
-    const flat = text.replace(/\s+/g, ' ').trim()
+    const flat = titleSource.replace(/\s+/g, ' ').trim()
     const firstSentence = flat.split(/[。！？.!?\n]/)[0]?.trim() || flat
     const base = firstSentence || flat
     const MAX = 18

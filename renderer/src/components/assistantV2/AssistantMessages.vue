@@ -21,6 +21,7 @@ import {
   UserRound
 } from 'lucide-vue-next'
 import type { AssistantMessageView, AssistantToolCallView } from '@/composables/useAssistant'
+import { parseSelectionPrompt } from '@/features/assistant/selectionPrompt'
 import type { StagedChange } from '@shared/assistant-runtime'
 
 const MD_ALLOWED_TAGS = [
@@ -90,6 +91,15 @@ function formatMessageTime(iso: string): string {
   })
 }
 
+const selectionPromptCache = new Map<string, ReturnType<typeof parseSelectionPrompt>>()
+
+function selectionPromptParts(content: string): ReturnType<typeof parseSelectionPrompt> {
+  if (selectionPromptCache.has(content)) return selectionPromptCache.get(content) ?? null
+  const parsed = parseSelectionPrompt(content)
+  selectionPromptCache.set(content, parsed)
+  return parsed
+}
+
 const props = withDefaults(defineProps<{
   messages: AssistantMessageView[]
   isStreaming: boolean
@@ -129,7 +139,10 @@ const BOTTOM_THRESHOLD_PX = 72
 
 watch(
   () => props.messages[0]?.turnId,
-  () => markdownCache.clear()
+  () => {
+    markdownCache.clear()
+    selectionPromptCache.clear()
+  }
 )
 
 watch(
@@ -553,7 +566,20 @@ const hasContent = computed(() => props.messages.length > 0)
         <div class="user-avatar">
           <UserRound :size="14" :stroke-width="1.9" />
         </div>
-        <div class="user-content">{{ msg.userMessage }}</div>
+        <div class="user-content">
+          <template v-if="selectionPromptParts(msg.userMessage)">
+            <div class="user-instruction">{{ selectionPromptParts(msg.userMessage)?.instruction }}</div>
+            <details class="selection-context">
+              <summary>
+                <ChevronRight :size="13" />
+                <span>已携带选中内容</span>
+                <em>{{ selectionPromptParts(msg.userMessage)?.selection.length }} 字</em>
+              </summary>
+              <div class="selection-preview">{{ selectionPromptParts(msg.userMessage)?.selection }}</div>
+            </details>
+          </template>
+          <template v-else>{{ msg.userMessage }}</template>
+        </div>
         <time class="message-time user-time" :datetime="msg.createdAt">{{ formatMessageTime(msg.createdAt) }}</time>
         <div v-if="!props.isStreaming && msg.status !== 'streaming'" class="user-actions">
           <button
@@ -1036,6 +1062,64 @@ const hasContent = computed(() => props.messages.length > 0)
   white-space: pre-wrap;
   font-weight: 500;
 }
+.user-instruction {
+  overflow-wrap: anywhere;
+}
+.selection-context {
+  margin-top: 7px;
+  overflow: hidden;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
+  background: var(--arc-bg-weak);
+  white-space: normal;
+}
+.selection-context summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 500;
+  list-style: none;
+}
+.selection-context summary::-webkit-details-marker { display: none; }
+.selection-context summary::marker { content: ''; }
+.selection-context summary svg {
+  flex: 0 0 auto;
+  transition: transform 0.16s ease;
+}
+.selection-context[open] summary svg {
+  transform: rotate(90deg);
+}
+.selection-context summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.selection-context summary em {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--arc-text-hint);
+  font-family: var(--v2-mono);
+  font-size: 10px;
+  font-style: normal;
+}
+.selection-preview {
+  max-height: 180px;
+  overflow: auto;
+  padding: 9px 10px;
+  border-top: 1px solid var(--arc-border);
+  color: var(--arc-text-secondary);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
 .assistant-block {
   display: flex;
   flex-direction: column;
@@ -1072,6 +1156,7 @@ const hasContent = computed(() => props.messages.length > 0)
   font-weight: 400;
 }
 .section-body {
+  min-width: 0;
   padding: 11px 12px 13px;
   border-top: 1px solid var(--arc-border);
 }
@@ -1180,6 +1265,7 @@ const hasContent = computed(() => props.messages.length > 0)
   background: var(--arc-bg-weak);
   padding: 1px 5px;
   border-radius: 4px;
+  overflow-wrap: anywhere;
 }
 .markdown-body :deep(pre) {
   background: var(--arc-bg-weak);
@@ -1206,6 +1292,10 @@ const hasContent = computed(() => props.messages.length > 0)
   text-decoration: underline;
 }
 .markdown-body :deep(table) {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: 8px 0;
 }
