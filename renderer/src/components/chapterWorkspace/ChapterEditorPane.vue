@@ -10,6 +10,7 @@ import EditorFindBar from './EditorFindBar.vue'
 import EditorContextMenu from './EditorContextMenu.vue'
 import ChapterReferencePanel from './ChapterReferencePanel.vue'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
+import { useChapterVersionAutosave } from '@/features/chapters/useChapterVersionAutosave'
 import { editorFontOptions, getEditorFontOption, isEditorFont } from '@/features/chapters/editorTypography'
 import { formatChapterWordTargetLabel, parseChapterWordTarget } from '@/features/chapters/wordTarget'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
@@ -79,6 +80,27 @@ function stepFont(delta: number): void {
 }
 
 const currentChapter = computed(() => appStore.selectedChapter)
+
+useChapterVersionAutosave({
+  getSnapshot: () => {
+    const chapter = currentChapter.value
+    if (!chapter) return null
+    return {
+      chapterId: chapter.id,
+      signature: JSON.stringify([
+        chapter.title,
+        chapter.summary,
+        chapter.status,
+        chapter.wordTarget,
+        chapter.content
+      ])
+    }
+  },
+  saveVersion: async (chapterId) => {
+    const result = await appStore.saveCurrentChapterVersion(chapterId)
+    if (!result.success) throw new Error(result.error ?? '自动保存历史版本失败')
+  }
+})
 
 const toolbarMoreOptions = computed<DropdownOption[]>(() => [
   {
@@ -332,17 +354,15 @@ function handleGlobalKeydown(e: KeyboardEvent): void {
   }
   if (commandKey && e.key.toLowerCase() === 's') {
     e.preventDefault()
-    if (e.shiftKey) {
-      void appStore.saveCurrentChapterVersion().then((result) => {
-        if (result.success) message.success('已保存当前章节版本')
-        else message.error(result.error ?? '保存版本失败')
-      })
-    } else {
-      void appStore.persistWorkspace().then(() => {
-        if (appStore.persistenceError) message.error(appStore.persistenceError)
-        else message.success('工作区已保存')
-      })
-    }
+    void appStore.saveCurrentChapterVersion().then((result) => {
+      if (!result.success) {
+        message.error(result.error ?? '保存版本失败')
+      } else if (result.created === false) {
+        message.success('工作区已保存，历史版本无变化')
+      } else {
+        message.success('工作区和历史版本已保存')
+      }
+    })
   }
 }
 

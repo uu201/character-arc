@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { GitCompare, RotateCcw } from 'lucide-vue-next'
 import { NButton, NModal, useDialog, useMessage } from 'naive-ui'
 import { getChapterCharacterCount, getPlainTextFromEditorContent } from '@/features/chapters/editorContent'
+import { buildChapterVersionCompareRows } from '@/features/chapters/chapterVersionDiff'
 import { formatChapterWordTargetLabel } from '@/features/chapters/wordTarget'
 import { useAppStore } from '@/stores/app'
 import type { ChapterDraft, ChapterVersion } from '@/types/app'
@@ -29,60 +30,28 @@ const selectedVersion = computed(() =>
   versions.value.find((version) => version.id === selectedVersionId.value) ?? versions.value[0] ?? null
 )
 
-type CompareRow = {
-  id: string
-  before: string
-  after: string
-  state: 'same' | 'removed' | 'added'
-}
-
-function splitParagraphs(content: string): string[] {
-  return getPlainTextFromEditorContent(content)
-    .replace(/\r\n/g, '\n')
-    .split(/\n+/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-}
-
-function buildCompareRows(beforeContent: string, afterContent: string): CompareRow[] {
-  const before = splitParagraphs(beforeContent)
-  const after = splitParagraphs(afterContent)
-  const lcs = Array.from({ length: before.length + 1 }, () => new Array<number>(after.length + 1).fill(0))
-  for (let i = before.length - 1; i >= 0; i--) {
-    for (let j = after.length - 1; j >= 0; j--) {
-      lcs[i][j] = before[i] === after[j]
-        ? lcs[i + 1][j + 1] + 1
-        : Math.max(lcs[i + 1][j], lcs[i][j + 1])
-    }
-  }
-
-  const rows: CompareRow[] = []
-  let i = 0
-  let j = 0
-  while (i < before.length || j < after.length) {
-    if (i < before.length && j < after.length && before[i] === after[j]) {
-      rows.push({ id: `same-${i}-${j}`, before: before[i], after: after[j], state: 'same' })
-      i += 1
-      j += 1
-    } else if (i < before.length && (j >= after.length || lcs[i + 1][j] >= lcs[i][j + 1])) {
-      rows.push({ id: `removed-${i}-${j}`, before: before[i], after: '', state: 'removed' })
-      i += 1
-    } else {
-      rows.push({ id: `added-${i}-${j}`, before: '', after: after[j], state: 'added' })
-      j += 1
-    }
-  }
-  return rows
-}
-
 const compareRows = computed(() => {
   if (!selectedVersion.value || !props.chapter) return []
-  return buildCompareRows(selectedVersion.value.content, props.chapter.content)
+  return buildChapterVersionCompareRows(
+    getPlainTextFromEditorContent(selectedVersion.value.content),
+    getPlainTextFromEditorContent(props.chapter.content)
+  )
 })
 
 const compareStats = computed(() => ({
-  added: compareRows.value.filter((row) => row.state === 'added').length,
-  removed: compareRows.value.filter((row) => row.state === 'removed').length
+  added: compareRows.value.reduce(
+    (total, row) => total + row.afterSegments
+      .filter((segment) => segment.changed)
+      .reduce((count, segment) => count + Array.from(segment.text).length, 0),
+    0
+  ),
+  removed: compareRows.value.reduce(
+    (total, row) => total + row.beforeSegments
+      .filter((segment) => segment.changed)
+      .reduce((count, segment) => count + Array.from(segment.text).length, 0),
+    0
+  ),
+  modified: compareRows.value.filter((row) => row.state === 'modified').length
 }))
 
 const STATUS_LABELS: Record<ChapterDraft['status'], string> = {
@@ -118,7 +87,11 @@ async function saveVersion(): Promise<void> {
     message.error(result.error ?? '保存版本失败')
     return
   }
-  message.success('已生成当前章节的历史版本快照')
+  message.success(
+    result.created === false
+      ? '当前章节与最近历史版本一致'
+      : '已生成当前章节的历史版本快照'
+  )
 }
 
 function restore(version: ChapterVersion): void {
@@ -202,6 +175,7 @@ watch(
           <div class="compare-actions">
             <span class="diff-stat removed">-{{ compareStats.removed }}</span>
             <span class="diff-stat added">+{{ compareStats.added }}</span>
+            <span v-if="compareStats.modified" class="diff-stat modified">~{{ compareStats.modified }} 段</span>
             <n-button size="small" secondary @click="restore(selectedVersion)">
               <template #icon><RotateCcw :size="14" /></template>
               恢复此版本
@@ -217,8 +191,26 @@ watch(
         <div class="compare-scroll arc-scrollbar">
           <div v-if="compareRows.length" class="compare-rows">
             <div v-for="row in compareRows" :key="row.id" class="compare-row" :class="row.state">
-              <p :class="{ empty: !row.before }">{{ row.before || ' ' }}</p>
-              <p :class="{ empty: !row.after }">{{ row.after || ' ' }}</p>
+              <p :class="{ empty: !row.before }">
+                <template v-if="row.beforeSegments.length">
+                  <span
+                    v-for="(segment, index) in row.beforeSegments"
+                    :key="index"
+                    :class="{ 'inline-diff': segment.changed, removed: segment.changed }"
+                  >{{ segment.text }}</span>
+                </template>
+                <template v-else> </template>
+              </p>
+              <p :class="{ empty: !row.after }">
+                <template v-if="row.afterSegments.length">
+                  <span
+                    v-for="(segment, index) in row.afterSegments"
+                    :key="index"
+                    :class="{ 'inline-diff': segment.changed, added: segment.changed }"
+                  >{{ segment.text }}</span>
+                </template>
+                <template v-else> </template>
+              </p>
             </div>
           </div>
           <div v-else class="compare-empty">当前稿与该历史版本没有正文差异。</div>
@@ -367,6 +359,7 @@ watch(
 
 .diff-stat.added { color: var(--arc-success); }
 .diff-stat.removed { color: var(--arc-danger); }
+.diff-stat.modified { color: var(--arc-primary); }
 
 .compare-labels {
   display: grid;
@@ -418,7 +411,26 @@ watch(
 .compare-row p + p { border-left: 1px solid var(--arc-border); }
 .compare-row.removed p:first-child { background: color-mix(in srgb, var(--arc-danger) 8%, var(--arc-bg-surface)); }
 .compare-row.added p:last-child { background: color-mix(in srgb, var(--arc-success) 9%, var(--arc-bg-surface)); }
+.compare-row.modified p:first-child { background: color-mix(in srgb, var(--arc-danger) 3%, var(--arc-bg-surface)); }
+.compare-row.modified p:last-child { background: color-mix(in srgb, var(--arc-success) 3%, var(--arc-bg-surface)); }
 .compare-row p.empty { background: var(--arc-bg-weak); }
+
+.inline-diff {
+  padding: 1px 2px;
+  border-radius: 3px;
+}
+
+.inline-diff.removed {
+  color: var(--arc-danger);
+  background: color-mix(in srgb, var(--arc-danger) 20%, transparent);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.inline-diff.added {
+  color: var(--arc-success);
+  background: color-mix(in srgb, var(--arc-success) 20%, transparent);
+}
 
 .compare-empty {
   display: grid;

@@ -2669,13 +2669,44 @@ export const useAppStore = defineStore('app', () => {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
   }
 
-  /** 保存当前章节的快照版本，立即持久化 */
-  async function saveCurrentChapterVersion(): Promise<{ success: boolean; version?: ChapterVersion; error?: string }> {
-    const chapter = selectedChapter.value
+  /** 保存章节的快照版本，内容未变化时仅持久化工作区，不重复创建版本 */
+  async function saveCurrentChapterVersion(
+    chapterId = selectedChapter.value?.id
+  ): Promise<{ success: boolean; version?: ChapterVersion; created?: boolean; error?: string }> {
+    const chapter = chapterId
+      ? chapters.value.find((item) => item.id === chapterId)
+      : undefined
     if (!chapter) {
       return {
         success: false,
         error: '当前没有可保存的章节。'
+      }
+    }
+
+    const latestVersion = getChapterVersions(chapter.id)[0]
+    const unchanged = Boolean(
+      latestVersion &&
+      latestVersion.title === chapter.title &&
+      latestVersion.summary === chapter.summary &&
+      latestVersion.status === chapter.status &&
+      latestVersion.wordTarget === chapter.wordTarget &&
+      latestVersion.content === chapter.content
+    )
+
+    if (unchanged && latestVersion) {
+      if (hasHydrated.value) {
+        await persistWorkspace()
+        if (persistenceError.value) {
+          return {
+            success: false,
+            error: persistenceError.value
+          }
+        }
+      }
+      return {
+        success: true,
+        version: latestVersion,
+        created: false
       }
     }
 
@@ -2707,7 +2738,8 @@ export const useAppStore = defineStore('app', () => {
 
     return {
       success: true,
-      version
+      version,
+      created: true
     }
   }
 
