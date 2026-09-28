@@ -733,10 +733,12 @@ declare global {
           title: string
         }) => Promise<import('@shared/assistant-runtime').AssistantSession>
         sessionDelete: (payload: { sessionId: string }) => Promise<{ ok: boolean }>
-        sessionLoad: (payload: { sessionId: string; withReplay?: boolean }) => Promise<{
+        sessionDeleteBefore: (payload: { projectId: string; surfaceId?: string; scopeRef?: string; before: string }) => Promise<{ ok: boolean; deleted: number }>
+        sessionLoad: (payload: { sessionId: string; withReplay?: boolean; limit?: number; beforeTurnId?: string }) => Promise<{
           session: import('@shared/assistant-runtime').AssistantSession | null
           turns: import('@shared/assistant-runtime').AssistantTurn[]
           events: import('@shared/assistant-runtime').PersistedTurnEvent[]
+          hasMore?: boolean
         }>
         sessionRename: (payload: { sessionId: string; title: string }) => Promise<{ ok: boolean }>
         turnSend: (payload: import('@shared/assistant-runtime').TurnSendRequest) =>

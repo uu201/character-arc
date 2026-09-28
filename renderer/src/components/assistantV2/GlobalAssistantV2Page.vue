@@ -335,6 +335,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
         @switch="(id) => assistant.switchSession(id)"
         @create="assistant.createSession()"
         @delete="(id) => assistant.deleteSession(id)"
+        @cleanup="(days) => assistant.deleteSessionsBefore(days)"
         @collapse="sessionCollapsed = true"
       />
       <div
@@ -369,6 +370,8 @@ async function handleCommit(ids?: string[]): Promise<void> {
         v-if="assistant.messages.value.length > 0 || assistant.isStreaming.value"
         :messages="assistant.messages.value"
         :is-streaming="assistant.isStreaming.value"
+        :has-more="assistant.hasMoreTurns.value"
+        :is-loading-more="assistant.isLoadingMoreTurns.value"
         :editing-turn-id="assistant.editingTurnId.value"
         :editing-draft="assistant.editingDraft.value"
         :is-mutating="assistant.isTruncating.value"
@@ -381,6 +384,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
         @edit-draft="assistant.updateEditingDraft"
         @resend="handleResendTurn"
         @undo="handleUndoTurn"
+        @load-more="assistant.loadOlderTurns"
       />
 
       <div v-else class="starter">

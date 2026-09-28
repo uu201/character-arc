@@ -33,6 +33,11 @@ export type AiTextGenerationResult = {
   /** 部分兼容模型会把 JSON 放在 reasoning 通道，保留它供结构化任务安全回退。 */
   reasoningText?: string
   usage?: AiRunUsage
+  finishReason?: string
+}
+
+export type AiStreamOptions = {
+  allowTruncated?: boolean
 }
 
 function toAiRunUsage(usage?: LanguageModelUsage): AiRunUsage | undefined {
@@ -197,7 +202,8 @@ export async function aiStreamTextWithUsage(
   prompt: PromptPair,
   handlers: AiStreamHandlers,
   signal: AbortSignal,
-  maxTokens?: number
+  maxTokens?: number,
+  options?: AiStreamOptions
 ): Promise<AiTextGenerationResult> {
   if (isCodexCliProvider(settings.provider)) {
     return runCodexCli(settings, prompt, { signal, handlers })
@@ -262,7 +268,7 @@ export async function aiStreamTextWithUsage(
     }
   }
   const finishReason = await result.finishReason
-  if (finishReason === 'length') {
+  if (finishReason === 'length' && !options?.allowTruncated) {
     throw new Error(
       full.trim()
         ? '模型输出达到上限，章节正文尚未完整生成。请缩短目标字数或改用输出能力更强的模型。'
@@ -274,7 +280,8 @@ export async function aiStreamTextWithUsage(
   }
   return {
     text: stripReasoningMarkup(full),
-    usage: toAiRunUsage(await result.totalUsage)
+    usage: toAiRunUsage(await result.totalUsage),
+    finishReason
   }
 }
 

@@ -65,6 +65,7 @@ const {
   openAsset,
   switchConversation,
   deleteConversation,
+  deleteConversationsBefore,
   handleNewSession,
   sendPrompt,
   stopStreaming,
@@ -111,6 +112,15 @@ const inputHeight = ref(GLOBAL_ASSISTANT_INPUT_DEFAULT_HEIGHT)
 const isDraggingInput = ref(false)
 const showSessions = ref(false)
 const showDiffReview = ref(false)
+const cleanupDays = ref('30')
+
+function formatTimestamp(iso?: string): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  })
+}
 
 const maxInputHeight = computed(() =>
   Math.max(GLOBAL_ASSISTANT_INPUT_MIN_HEIGHT, Math.floor(window.innerHeight * GLOBAL_ASSISTANT_INPUT_MAX_VIEWPORT_RATIO))
@@ -255,6 +265,14 @@ watch(
             </button>
           </template>
           <div class="session-popover">
+            <div class="session-cleanup">
+              <select v-model="cleanupDays" aria-label="清理多久以前的对话">
+                <option value="30">1个月前</option>
+                <option value="90">3个月前</option>
+                <option value="180">6个月前</option>
+              </select>
+              <button type="button" @click="deleteConversationsBefore(Number(cleanupDays))">清理</button>
+            </div>
             <div v-if="sessions.length === 0" class="session-empty">暂无历史会话</div>
             <div
               v-for="session in sessions"
@@ -264,7 +282,10 @@ watch(
               :class="{ active: appStore.activeGlobalAssistantSessionId === session.id }"
               @click="switchConversation(session.id)"
             >
-              <span class="session-item-title">{{ session.title }}</span>
+              <span class="session-item-copy">
+                <span class="session-item-title">{{ session.title }}</span>
+                <time :datetime="session.updatedAt">{{ formatTimestamp(session.updatedAt) }}</time>
+              </span>
               <button class="session-item-delete" title="删除" @click.stop="deleteConversation(session.id)">
                 <Trash2 :size="11" />
               </button>
@@ -393,6 +414,7 @@ watch(
             <div v-if="item.role === 'assistant'" class="global-markdown-body" v-html="renderMarkdown(item.content)" />
             <template v-else>{{ item.content }}</template>
           </div>
+          <time v-if="item.createdAt" class="message-time" :datetime="item.createdAt">{{ formatTimestamp(item.createdAt) }}</time>
         </div>
 
         <div v-if="canSuggestProposal" class="global-suggest">
@@ -795,6 +817,23 @@ watch(
   color: var(--arc-text-hint);
   font-size: 12px;
 }
+.session-cleanup {
+  display: flex;
+  gap: 6px;
+}
+.session-cleanup select,
+.session-cleanup button {
+  height: 28px;
+  min-width: 0;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
+  font: inherit;
+  font-size: 11px;
+}
+.session-cleanup select { flex: 1; }
+.session-cleanup button { padding: 0 9px; cursor: pointer; }
 
 .session-item {
   display: flex;
@@ -824,6 +863,20 @@ watch(
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-item-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.session-item-copy time,
+.message-time {
+  color: var(--arc-text-hint);
+  font-size: 10px;
+  font-weight: 400;
   white-space: nowrap;
 }
 
@@ -1038,6 +1091,8 @@ watch(
 .msg.assistant {
   align-items: flex-start;
 }
+.message-time { align-self: flex-end; }
+.msg.assistant > .message-time { align-self: flex-start; }
 
 .bubble {
   max-width: 92%;

@@ -30,12 +30,7 @@ import type { StateDelta } from '../../story-state-store'
 import { indexChapterSegments } from '../knowledge-retrieval'
 import { runLightCheck } from '../audit/light-check'
 import { formatAiErrorMessage } from '../error-message'
-import {
-  isOpenCodeProvider,
-  isOpenAIChatProtocol,
-  isCodexCliProvider,
-  resolveAiProviderProtocol
-} from '@shared/ai-provider-catalog'
+import { isCodexCliProvider, resolveAiProviderProtocol } from '@shared/ai-provider-catalog'
 import { createHash, randomUUID } from 'node:crypto'
 import { BackgroundTaskCoordinator } from './background-task-coordinator'
 import { generateText } from 'ai'
@@ -293,11 +288,8 @@ export async function streamAiTask(
 
   const input = buildPromptInput(task, skills, knowledgeContext)
   const prompt = taskHandler.buildPrompt(input)
-  const isOpenCodeDraft = task.task === 'chapter-first-draft'
-    && isOpenCodeProvider(settings.provider)
-    && isOpenAIChatProtocol(settings.provider, settings.model)
   const taskMaxTokens = taskHandler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task)
-  const maxTokens = isOpenCodeDraft
+  const maxTokens = task.task === 'chapter-first-draft'
     ? taskMaxTokens
     : shouldOmitMaxTokens(task.task)
       ? undefined
@@ -315,7 +307,9 @@ export async function streamAiTask(
   try {
     let generation = structuredSchema
       ? await aiStreamObjectWithUsage(settings, prompt, handlers, signal, structuredSchema, maxTokens)
-      : await aiStreamTextWithUsage(settings, prompt, handlers, signal, maxTokens)
+      : await aiStreamTextWithUsage(settings, prompt, handlers, signal, maxTokens, {
+          allowTruncated: task.task === 'chapter-first-draft'
+        })
     totalUsage = addAiRunUsage(totalUsage, generation.usage)
     let rawText = resolveStructuredGenerationText(generation, Boolean(structuredSchema))
     logResponse('STREAM', settings, task.task, rawText, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
@@ -323,6 +317,10 @@ export async function streamAiTask(
     let normalizeFailed = false
     try {
       result = taskHandler.normalize(rawText, task.context)
+      if (task.task === 'chapter-first-draft' && generation.finishReason) {
+        const draftResult = result as { finishReason?: string }
+        draftResult.finishReason = generation.finishReason
+      }
     } catch {
       result = {} as AiTaskResult
       normalizeFailed = true

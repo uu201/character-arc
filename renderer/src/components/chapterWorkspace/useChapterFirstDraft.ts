@@ -208,6 +208,20 @@ type StreamTaskResult = {
   result?: unknown
 }
 
+function mergeDraftContinuation(base: string, continuation: string): string {
+  const left = base.trimEnd()
+  const right = continuation.trimStart()
+  if (!left) return right
+  if (!right) return left
+  const maxOverlap = Math.min(500, left.length, right.length)
+  for (let size = maxOverlap; size >= 20; size--) {
+    if (left.slice(-size) === right.slice(0, size)) {
+      return `${left}${right.slice(size)}`
+    }
+  }
+  return `${left}\n\n${right}`
+}
+
 export function useChapterFirstDraft(): {
   isGenerating: Ref<boolean>
   isStopping: Ref<boolean>
@@ -535,6 +549,8 @@ export function useChapterFirstDraft(): {
     startElapsedTimer()
     recompute()
     let finalLabel = '本次 AI 初稿流程已完成'
+    let recoverableDraft = ''
+    let draftPersisted = false
 
     try {
       await appStore.runTrackedAiTask(
@@ -774,7 +790,25 @@ export function useChapterFirstDraft(): {
 
           const draftStream = await streamTask('chapter-first-draft', context)
           clearTimeout(waitHintTimer)
-          const fullText = draftStream.text
+          let fullText = draftStream.text
+          recoverableDraft = fullText
+          const minimumCompleteLength = Math.max(1, Math.round(targetWordCount * 0.8))
+          const draftFinishReason = (draftStream.result as { finishReason?: string } | undefined)?.finishReason
+          let continuationTruncated = false
+          if (draftFinishReason === 'length' || fullText.trim().length < minimumCompleteLength) {
+            executionLabel.value = '初稿篇幅不足，正在自动续写一次...'
+            updateProgress(45, '初稿未达到完整篇幅，正在续写...')
+            const continuation = await streamTask('chapter-first-draft', {
+              ...context,
+              chapterContent: fullText,
+              chapterHasExistingContent: true,
+              continueDraft: true,
+              userPrompt: `续写模式：已有正文共 ${fullText.trim().length} 字，目标总字数 ${targetWordCount} 字。只从已有正文的最后一句继续，只输出新增部分；禁止复述、改写或重新输出已有正文，必须完成本章并自然收尾。`
+            })
+            continuationTruncated = (continuation.result as { finishReason?: string } | undefined)?.finishReason === 'length'
+            fullText = mergeDraftContinuation(fullText, continuation.text)
+            recoverableDraft = fullText
+          }
           if (fullText) {
             updateProgress(50, '初稿生成完成，准备进入后续检查...')
             let finalText = fullText
@@ -887,6 +921,10 @@ export function useChapterFirstDraft(): {
               if (appStore.persistenceError) {
                 throw new Error(`初稿已生成，但保存失败：${appStore.persistenceError}`)
               }
+              draftPersisted = true
+              if (continuationTruncated || finalText.trim().length < minimumCompleteLength) {
+                throw new Error(`模型续写后正文仍明显偏短（${finalText.trim().length}/${targetWordCount} 字），已保存为未完成草稿，请检查后继续生成。`)
+              }
             }
 
             if (steps['session-note'].enabled) {
@@ -943,6 +981,18 @@ export function useChapterFirstDraft(): {
       if (isCanceled) {
         finalLabel = '本次 AI 初稿流程已停止'
         return
+      }
+      const alreadySaved = error instanceof Error && error.message.includes('已保存')
+      const partialSource = recoverableDraft
+        ? mergeDraftContinuation(recoverableDraft, streamingContent.value)
+        : streamingContent.value
+      const partialText = finalCleanGeneratedChapterText(partialSource)
+      if (partialText && !alreadySaved && !draftPersisted) {
+        appStore.updateChapterContent(ensureEditorHtmlContent(partialText), chapter.id)
+        await appStore.persistWorkspace()
+        if (!appStore.persistenceError && error instanceof Error && !error.message.includes('已保存')) {
+          error.message = `${error.message} 已生成内容已保存为未完成草稿。`
+        }
       }
       finalLabel = '本次 AI 初稿流程失败'
       throw error

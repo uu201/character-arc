@@ -295,6 +295,7 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
         @switch="switchSession"
         @create="createSession"
         @delete="(id) => assistant.deleteSession(id)"
+        @cleanup="(days) => assistant.deleteSessionsBefore(days)"
         @collapse="activeTab = 'chat'"
       />
     </div>
@@ -317,6 +318,8 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
         v-if="assistant.messages.value.length > 0 || assistant.isStreaming.value || assistant.isInitializing.value"
         :messages="assistant.messages.value"
         :is-streaming="assistant.isStreaming.value"
+        :has-more="assistant.hasMoreTurns.value"
+        :is-loading-more="assistant.isLoadingMoreTurns.value"
         :is-initializing="assistant.isInitializing.value"
         assistant-name="创作助理"
         :editing-turn-id="assistant.editingTurnId.value"
@@ -330,6 +333,7 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
         @edit-draft="assistant.updateEditingDraft"
         @resend="handleResendTurn"
         @undo="handleUndoTurn"
+        @load-more="assistant.loadOlderTurns"
       />
 
       <div v-else class="starter">

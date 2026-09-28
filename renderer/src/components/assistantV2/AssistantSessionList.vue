@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { PanelLeftClose } from 'lucide-vue-next'
 import type { AssistantSession } from '@shared/assistant-runtime'
 
@@ -13,7 +13,10 @@ const emit = defineEmits<{
   (e: 'create'): void
   (e: 'delete', sessionId: string): void
   (e: 'collapse'): void
+  (e: 'cleanup', days: number): void
 }>()
+
+const cleanupDays = ref('30')
 
 type GroupKey = 'today' | 'yesterday' | 'week' | 'earlier'
 const GROUP_LABEL: Record<GroupKey, string> = {
@@ -37,11 +40,10 @@ function groupOf(iso: string): GroupKey {
 
 function formatTime(iso: string): string {
   const d = new Date(iso)
-  const today = new Date()
-  if (d.toDateString() === today.toDateString()) {
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-  }
-  return `${d.getMonth() + 1}月${d.getDate()}日`
+  return d.toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  })
 }
 
 const grouped = computed(() => {
@@ -75,6 +77,14 @@ const grouped = computed(() => {
       <span class="plus">+</span>
       <span>新建对话</span>
     </button>
+    <div class="cleanup-row">
+      <select v-model="cleanupDays" aria-label="清理多久以前的对话">
+        <option value="30">1个月前</option>
+        <option value="90">3个月前</option>
+        <option value="180">6个月前</option>
+      </select>
+      <button type="button" class="cleanup-btn" @click="emit('cleanup', Number(cleanupDays))">清理</button>
+    </div>
 
     <div class="list">
       <div v-if="props.sessions.length === 0" class="empty">
@@ -187,6 +197,25 @@ const grouped = computed(() => {
   flex-direction: column;
   gap: 1px;
 }
+.cleanup-row {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+.cleanup-row select,
+.cleanup-btn {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
+  background: var(--arc-bg-body);
+  color: var(--arc-text-secondary);
+  font: inherit;
+  font-size: 11px;
+}
+.cleanup-row select { flex: 1; padding: 0 5px; }
+.cleanup-btn { padding: 0 9px; cursor: pointer; }
+.cleanup-btn:hover { color: var(--arc-primary); border-color: var(--arc-primary); }
 .group-label {
   padding: 12px 10px 4px;
   font-size: 10.5px;

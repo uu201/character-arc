@@ -152,6 +152,8 @@ export function useAssistant(options: UseAssistantOptions) {
   const turns = shallowRef<AssistantTurn[]>([])
   // 每个 turn 累积的事件；用于 replay 和消息 view 计算
   const eventsByTurn = shallowRef<Map<string, TurnEvent[]>>(new Map())
+  const hasMoreTurns = ref(false)
+  const isLoadingMoreTurns = ref(false)
 
   // === Streaming 状态 ===
   const streamingTurnId = ref<string | null>(null)
@@ -565,9 +567,11 @@ export function useAssistant(options: UseAssistantOptions) {
     if (!activeSessionId.value) return
     const loaded = await A.sessionLoad({
       sessionId: activeSessionId.value,
-      withReplay: true
+      withReplay: true,
+      limit: 50
     })
     turns.value = loaded.turns
+    hasMoreTurns.value = Boolean(loaded.hasMore)
 
     // 用 replay 事件重建 eventsByTurn（覆盖，保证与后端一致）
     const map = new Map<string, TurnEvent[]>()
@@ -583,6 +587,31 @@ export function useAssistant(options: UseAssistantOptions) {
 
     // 首次加载完成
     isInitializing.value = false
+  }
+
+  async function loadOlderTurns(): Promise<void> {
+    if (!activeSessionId.value || !turns.value[0] || !hasMoreTurns.value || isLoadingMoreTurns.value) return
+    isLoadingMoreTurns.value = true
+    try {
+      const loaded = await A.sessionLoad({
+        sessionId: activeSessionId.value,
+        withReplay: true,
+        limit: 50,
+        beforeTurnId: turns.value[0].id
+      })
+      turns.value = [...loaded.turns, ...turns.value]
+      const map = new Map(eventsByTurn.value)
+      for (const p of loaded.events) {
+        const evt = persistedToEvent(p)
+        const list = map.get(p.turnId) ?? []
+        appendCoalescedEvent(list, evt)
+        map.set(p.turnId, list)
+      }
+      eventsByTurn.value = map
+      hasMoreTurns.value = Boolean(loaded.hasMore)
+    } finally {
+      isLoadingMoreTurns.value = false
+    }
   }
 
   async function reloadStaged(): Promise<void> {
@@ -624,6 +653,7 @@ export function useAssistant(options: UseAssistantOptions) {
     }
     activeSessionId.value = sessionId
     turns.value = []
+    hasMoreTurns.value = false
     eventsByTurn.value = new Map()
     stagedChanges.value = []
     commitResults.value = []
@@ -653,6 +683,35 @@ export function useAssistant(options: UseAssistantOptions) {
         await switchSession(sessions.value[0].id)
       }
     }
+  }
+
+  async function deleteSessionsBefore(days: number): Promise<number> {
+    if (isStreaming.value) {
+      lastError.value = '请先停止当前生成，再清理历史会话。'
+      return 0
+    }
+    const pid = options.projectId()
+    if (!pid) return 0
+    const safeDays = Math.max(1, Math.floor(days))
+    if (!window.confirm(`确定删除 ${safeDays} 天以前的 AI 助理对话吗？此操作不可撤销。`)) return 0
+    const before = new Date(Date.now() - safeDays * 86400_000).toISOString()
+    const result = await A.sessionDeleteBefore({
+      projectId: pid,
+      surfaceId: options.surface.id,
+      scopeRef: options.scopeRef?.(),
+      before
+    })
+    await reloadSessions()
+    if (activeSessionId.value && !sessions.value.some((session) => session.id === activeSessionId.value)) {
+      activeSessionId.value = null
+      turns.value = []
+      hasMoreTurns.value = false
+      eventsByTurn.value = new Map()
+      stagedChanges.value = []
+      await reloadSessions()
+    }
+    window.alert(result.deleted > 0 ? `已删除 ${result.deleted} 个历史会话。` : '没有符合条件的历史会话。')
+    return result.deleted
   }
 
   async function renameSession(sessionId: string, title: string): Promise<void> {
@@ -1062,6 +1121,8 @@ export function useAssistant(options: UseAssistantOptions) {
     isStreaming,
     isCanceling,
     isInitializing,
+    hasMoreTurns,
+    isLoadingMoreTurns,
     streamingCharCount,
     stagedChanges,
     commitResults,
@@ -1079,6 +1140,7 @@ export function useAssistant(options: UseAssistantOptions) {
     createSession,
     switchSession,
     deleteSession,
+    deleteSessionsBefore,
     renameSession,
     send,
     continueWithPrompt,
@@ -1096,6 +1158,7 @@ export function useAssistant(options: UseAssistantOptions) {
     commitAccepted,
     bindTarget,
     reloadSessions,
+    loadOlderTurns,
     reloadStaged
   }
 }

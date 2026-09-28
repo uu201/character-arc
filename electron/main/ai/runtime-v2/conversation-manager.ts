@@ -134,6 +134,13 @@ export interface ListSessionsFilter {
   limit?: number
 }
 
+export interface DeleteSessionsBeforeFilter {
+  projectId: string
+  surfaceId?: SurfaceId
+  scopeRef?: string
+  before: string
+}
+
 export interface CreateTurnInput {
   sessionId: string
   userMessage: string
@@ -238,10 +245,12 @@ export class ConversationManager {
     listSessionsByProject: StatementSync
     listSessionsByProjectSurface: StatementSync
     deleteSession: StatementSync
+    deleteSessionsBefore: StatementSync
     insertTurn: StatementSync
     updateTurnStatus: StatementSync
     getTurn: StatementSync
     listTurnsBySession: StatementSync
+    countTurnsBySession: StatementSync
     listStreamingTurns: StatementSync
     getTurnOrder: StatementSync
     listTurnIdsFrom: StatementSync
@@ -284,6 +293,12 @@ export class ConversationManager {
       deleteSession: db.prepare(
         `DELETE FROM assistant_sessions_v2 WHERE id = ?`
       ),
+      deleteSessionsBefore: db.prepare(
+        `DELETE FROM assistant_sessions_v2
+         WHERE project_id = ? AND updated_at < ?
+           AND (? = '' OR surface_id = ?)
+           AND (? = '' OR scope_ref = ?)`
+      ),
       insertTurn: db.prepare(
         `INSERT INTO assistant_turns
          (id, session_id, user_message, assistant_message, status, created_at)
@@ -299,6 +314,9 @@ export class ConversationManager {
       ),
       listTurnsBySession: db.prepare(
         `SELECT * FROM assistant_turns WHERE session_id = ? ORDER BY rowid ASC`
+      ),
+      countTurnsBySession: db.prepare(
+        `SELECT COUNT(*) AS count FROM assistant_turns WHERE session_id = ?`
       ),
       listStreamingTurns: db.prepare(
         `SELECT * FROM assistant_turns WHERE status = 'streaming' ORDER BY rowid ASC`
@@ -454,9 +472,54 @@ export class ConversationManager {
     return row ? rowToTurn(row) : null
   }
 
-  listTurns(sessionId: string): AssistantTurn[] {
+  listTurns(sessionId: string, limit?: number, beforeTurnId?: string): AssistantTurn[] {
+    if (limit && limit > 0) {
+      const rows = beforeTurnId
+        ? this.db.prepare(
+            `SELECT * FROM (
+               SELECT rowid AS row_no, * FROM assistant_turns
+               WHERE session_id = ?
+                 AND rowid < (SELECT rowid FROM assistant_turns WHERE id = ? AND session_id = ?)
+               ORDER BY rowid DESC LIMIT ?
+             ) ORDER BY row_no ASC`
+          ).all(sessionId, beforeTurnId, sessionId, Math.max(1, Math.floor(limit))) as unknown as TurnRow[]
+        : this.db.prepare(
+            `SELECT * FROM (
+               SELECT rowid AS row_no, * FROM assistant_turns WHERE session_id = ? ORDER BY rowid DESC LIMIT ?
+             ) ORDER BY row_no ASC`
+          ).all(sessionId, Math.max(1, Math.floor(limit))) as unknown as TurnRow[]
+      return rows.map(rowToTurn)
+    }
     const rows = this.stmts.listTurnsBySession.all(sessionId) as unknown as TurnRow[]
     return rows.map(rowToTurn)
+  }
+
+  countTurns(sessionId: string): number {
+    const row = this.stmts.countTurnsBySession.get(sessionId) as { count: number }
+    return Number(row.count)
+  }
+
+  hasTurnsBefore(sessionId: string, turnId: string): boolean {
+    const row = this.db.prepare(
+      `SELECT 1 AS found FROM assistant_turns
+       WHERE session_id = ?
+         AND rowid < (SELECT rowid FROM assistant_turns WHERE id = ? AND session_id = ?)
+       LIMIT 1`
+    ).get(sessionId, turnId, sessionId) as { found: number } | undefined
+    return Boolean(row?.found)
+  }
+
+  deleteSessionsBefore(filter: DeleteSessionsBeforeFilter): number {
+    const result = this.stmts.deleteSessionsBefore.run(
+      filter.projectId,
+      filter.before,
+      filter.surfaceId ?? '',
+      filter.surfaceId ?? '',
+      filter.scopeRef ?? '',
+      filter.scopeRef ?? ''
+    ) as { changes?: number }
+    this.nextSeqByTurn.clear()
+    return Number(result.changes ?? 0)
   }
 
   /** 将仍处于 streaming 的单个 Turn 幂等收口为 canceled。 */

@@ -27,7 +27,8 @@ import {
   type TurnCancelRequest,
   type TurnSendRequest,
   type TurnTruncateRequest,
-  type TurnTruncateResult
+  type TurnTruncateResult,
+  type SessionDeleteBeforeRequest
 } from '@shared/assistant-runtime'
 import type { AiTaskName, AppSettings } from '../shared-types'
 import type { Tool } from '../agent/tools/types'
@@ -239,7 +240,7 @@ interface SessionCreateRequest {
   title: string
 }
 interface SessionDeleteRequest { sessionId: string }
-interface SessionLoadRequest { sessionId: string; withReplay?: boolean }
+interface SessionLoadRequest { sessionId: string; withReplay?: boolean; limit?: number; beforeTurnId?: string }
 interface SessionRenameRequest { sessionId: string; title: string }
 
 function registerSessionHandlers(): void {
@@ -280,17 +281,39 @@ function registerSessionHandlers(): void {
   )
 
   ipcMain.handle(
+    ASSISTANT_IPC_CHANNELS.SESSION_DELETE_BEFORE,
+    async (_event, payload: SessionDeleteBeforeRequest) => {
+      const cm = await getConversation()
+      const deleted = cm.deleteSessionsBefore({
+        projectId: payload.projectId,
+        surfaceId: payload.surfaceId,
+        scopeRef: payload.scopeRef,
+        before: payload.before
+      })
+      stagedChangesStore.reloadFromDatabase()
+      return { ok: true, deleted }
+    }
+  )
+
+  ipcMain.handle(
     ASSISTANT_IPC_CHANNELS.SESSION_LOAD,
     async (_event, payload: SessionLoadRequest) => {
       const cm = await getConversation()
       const session = cm.getSession(payload.sessionId)
       if (!session) return { session: null, turns: [], events: [] }
-      const turns = cm.listTurns(payload.sessionId)
+      const turns = cm.listTurns(payload.sessionId, payload.limit, payload.beforeTurnId)
       // withReplay=true 时把每个 turn 的完整事件流也一起返回，供前端还原状态
       const events = payload.withReplay
         ? turns.flatMap((t) => cm.listEvents(t.id))
         : []
-      return { session, turns, events }
+      return {
+        session,
+        turns,
+        events,
+        hasMore: payload.limit && turns[0]
+          ? cm.hasTurnsBefore(payload.sessionId, turns[0].id)
+          : false
+      }
     }
   )
 

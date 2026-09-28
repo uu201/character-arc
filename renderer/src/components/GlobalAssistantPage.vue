@@ -41,6 +41,7 @@ const railWidth = ref(GA_RAIL_DEFAULT_WIDTH)
 const isDraggingRail = ref(false)
 const collapsedGroups = reactive<Record<string, boolean>>({})
 const showDiffReview = ref(false)
+const cleanupDays = ref('30')
 let stopRailResize: (() => void) | null = null
 
 const hasThread = computed(() => Boolean(a.messages.value.length || a.isSending.value || a.isRunningAudit.value))
@@ -52,6 +53,14 @@ const diffReviewMode = computed<'default' | 'chapter'>(() => {
 
 const modeDotClass = (mode: string): string =>
   mode === 'audit' ? 'audit' : mode === 'ingest' ? 'ingest' : 'correct'
+
+function formatTimestamp(iso?: string): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  })
+}
 
 function scrollToBottom(smooth = true): void {
   if (!conversationRef.value) return
@@ -213,6 +222,14 @@ watch(
             </button>
           </div>
         </div>
+        <div class="ga-rail__cleanup">
+          <select v-model="cleanupDays" aria-label="清理多久以前的对话">
+            <option value="30">1个月前</option>
+            <option value="90">3个月前</option>
+            <option value="180">6个月前</option>
+          </select>
+          <button type="button" @click="a.deleteConversationsBefore(Number(cleanupDays))">清理</button>
+        </div>
         <div class="ga-rail__list arc-scrollbar">
           <p v-if="!a.sessions.value.length" class="ga-rail__empty">暂无历史会话</p>
           <button
@@ -228,7 +245,7 @@ watch(
               <span class="ga-session__text">{{ session.title || '未命名会话' }}</span>
               <span class="ga-session__del" title="删除" @click.stop="a.deleteConversation(session.id)"><Trash2 :size="12" /></span>
             </span>
-            <span class="ga-session__meta">{{ session.messages.length }} 条消息</span>
+            <span class="ga-session__meta">{{ session.messages.length }} 条消息 · {{ formatTimestamp(session.updatedAt) }}</span>
           </button>
         </div>
       </template>
@@ -326,11 +343,14 @@ watch(
           <div class="ga-thread__inner">
             <div v-for="item in a.messages.value" :key="item.id" class="ga-msg" :class="item.role">
               <!-- 用户气泡 -->
-              <div v-if="item.role === 'user'" class="ga-msg__user">{{ item.content }}</div>
+              <div v-if="item.role === 'user'" class="ga-msg__user">
+                {{ item.content }}
+                <time v-if="item.createdAt" :datetime="item.createdAt">{{ formatTimestamp(item.createdAt) }}</time>
+              </div>
 
               <!-- 助手执行流 -->
               <template v-else>
-                <span class="ga-msg__role"><span class="ga-msg__dot"><Sparkles :size="12" /></span>全局助理 · {{ a.currentModeMeta.value.label }}模式</span>
+                <span class="ga-msg__role"><span class="ga-msg__dot"><Sparkles :size="12" /></span>全局助理 · {{ a.currentModeMeta.value.label }}模式 <time v-if="item.createdAt" :datetime="item.createdAt">{{ formatTimestamp(item.createdAt) }}</time></span>
 
                 <div v-if="a.getMessageToolCalls(item).length" class="ga-toollog">
                   <div
@@ -754,6 +774,24 @@ watch(
   overflow-y: auto;
   padding: 4px 10px 16px;
 }
+.ga-rail__cleanup {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 8px;
+}
+.ga-rail__cleanup select,
+.ga-rail__cleanup button {
+  height: 28px;
+  min-width: 0;
+  border: 1px solid var(--arc-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--arc-bg-surface, #ffffff);
+  color: var(--arc-text-secondary, #4b5563);
+  font: inherit;
+  font-size: 11px;
+}
+.ga-rail__cleanup select { flex: 1; }
+.ga-rail__cleanup button { padding: 0 9px; cursor: pointer; }
 .ga-rail__empty {
   color: var(--arc-text-hint, #9ca3af);
   font-size: 12px;
@@ -1129,6 +1167,17 @@ watch(
   white-space: pre-wrap;
   word-break: break-word;
 }
+.ga-msg__user time,
+.ga-msg__role time {
+  display: block;
+  color: var(--arc-text-hint, #9ca3af);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+.ga-msg__user time { margin-top: 4px; text-align: right; }
 .ga-msg__role {
   display: inline-flex;
   align-items: center;

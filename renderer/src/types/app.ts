@@ -592,6 +592,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   /** 消息正文内容 */
   content: string
+  /** 消息创建时间；旧项目中的历史消息可能没有该字段。 */
+  createdAt?: string
   toolCalls?: AssistantToolCall[]
   editEvents?: AssistantEditEvent[]
   turns?: AssistantTurn[]

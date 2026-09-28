@@ -751,6 +751,20 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     message.success('已删除历史会话')
   }
 
+  async function deleteConversationsBefore(days: number): Promise<void> {
+    if (isSending.value || isRunningAudit.value || isProposalLoading.value) {
+      message.warning('请等待当前全局助手请求完成')
+      return
+    }
+    const safeDays = Math.max(1, Math.floor(days))
+    if (!window.confirm(`确定删除 ${safeDays} 天以前的 AI 助理对话吗？此操作不可撤销。`)) return
+    const before = new Date(Date.now() - safeDays * 86400_000).toISOString()
+    const deleted = appStore.deleteAssistantSessionsBefore(before)
+    if (deleted > 0) await appStore.persistWorkspace()
+    resetConversationState()
+    message.success(deleted > 0 ? `已删除 ${deleted} 个历史会话` : '没有符合条件的历史会话')
+  }
+
   function handleNewSession(): void {
     startNewConversation()
   }
@@ -2024,6 +2038,7 @@ export function useGlobalAssistant(options: UseGlobalAssistantOptions = {}) {
     startNewConversation,
     switchConversation,
     deleteConversation,
+    deleteConversationsBefore,
     handleNewSession,
     clearTargetSelections,
     resetConversationState,

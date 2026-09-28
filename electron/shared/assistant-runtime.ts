@@ -318,6 +318,7 @@ export const ASSISTANT_IPC_CHANNELS = {
   SESSION_LIST: 'characterarc:assistant:session:list',
   SESSION_CREATE: 'characterarc:assistant:session:create',
   SESSION_DELETE: 'characterarc:assistant:session:delete',
+  SESSION_DELETE_BEFORE: 'characterarc:assistant:session:delete-before',
   SESSION_LOAD: 'characterarc:assistant:session:load',
   SESSION_RENAME: 'characterarc:assistant:session:rename',
   // Turn（用户发起一次输入）
@@ -381,6 +382,13 @@ export interface TurnTruncateRequest {
   sessionId: string
   /** 从该轮开始（含）删除后续对话。 */
   fromTurnId: string
+}
+
+export interface SessionDeleteBeforeRequest {
+  projectId: string
+  surfaceId?: SurfaceId
+  scopeRef?: string
+  before: string
 }
 
 export interface TurnTruncateResult {

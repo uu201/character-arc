@@ -134,3 +134,66 @@ test('停止生成会幂等收口生成中轮次并保留已有事件', () => {
   assert.equal(conversation.cancelStreamingTurn(turn.id), null)
   assert.equal(conversation.listEvents(turn.id).length, 2)
 })
+
+test('只加载最近指定数量的轮次并保持时间正序', () => {
+  const db = createDatabase()
+  const conversation = new ConversationManager(db)
+  const session = conversation.createSession({
+    projectId: 'project-1',
+    surfaceId: 'global-page',
+    title: '长会话'
+  })
+  const turns = []
+  for (let index = 1; index <= 5; index++) {
+    turns.push(conversation.createTurn({ sessionId: session.id, userMessage: `第 ${index} 轮` }))
+  }
+
+  assert.deepEqual(
+    conversation.listTurns(session.id, 2).map((turn) => turn.userMessage),
+    ['第 4 轮', '第 5 轮']
+  )
+  assert.deepEqual(
+    conversation.listTurns(session.id, 2, turns[3].id).map((turn) => turn.userMessage),
+    ['第 2 轮', '第 3 轮']
+  )
+  assert.equal(conversation.hasTurnsBefore(session.id, turns[1].id), true)
+  assert.equal(conversation.hasTurnsBefore(session.id, turns[0].id), false)
+  assert.equal(conversation.countTurns(session.id), 5)
+})
+
+test('按截止时间清理会话并级联删除轮次和事件', () => {
+  const db = createDatabase()
+  const conversation = new ConversationManager(db)
+  const oldSession = conversation.createSession({
+    projectId: 'project-1',
+    surfaceId: 'global-page',
+    title: '旧会话'
+  })
+  const recentSession = conversation.createSession({
+    projectId: 'project-1',
+    surfaceId: 'global-page',
+    title: '新会话'
+  })
+  const otherSurface = conversation.createSession({
+    projectId: 'project-1',
+    surfaceId: 'chapter-panel',
+    title: '章节会话'
+  })
+  const oldTurn = conversation.createTurn({ sessionId: oldSession.id, userMessage: '旧问题' })
+  conversation.appendEvent(oldTurn.id, { kind: 'chunk', seq: 0, delta: '旧回答' })
+  db.prepare('UPDATE assistant_sessions_v2 SET updated_at = ? WHERE id = ?')
+    .run('2025-01-01T00:00:00.000Z', oldSession.id)
+
+  const deleted = conversation.deleteSessionsBefore({
+    projectId: 'project-1',
+    surfaceId: 'global-page',
+    before: '2025-02-01T00:00:00.000Z'
+  })
+
+  assert.equal(deleted, 1)
+  assert.equal(conversation.getSession(oldSession.id), null)
+  assert.equal(conversation.getTurn(oldTurn.id), null)
+  assert.equal(conversation.listEvents(oldTurn.id).length, 0)
+  assert.ok(conversation.getSession(recentSession.id))
+  assert.ok(conversation.getSession(otherSurface.id))
+})

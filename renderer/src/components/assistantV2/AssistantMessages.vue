@@ -83,10 +83,19 @@ function renderMarkdown(content: string, cacheKey: string): string {
   return sanitized
 }
 
+function formatMessageTime(iso: string): string {
+  return new Date(iso).toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  })
+}
+
 const props = withDefaults(defineProps<{
   messages: AssistantMessageView[]
   isStreaming: boolean
   isInitializing?: boolean
+  hasMore?: boolean
+  isLoadingMore?: boolean
   assistantName?: string
   editingTurnId?: string | null
   editingDraft?: string
@@ -107,6 +116,7 @@ const emit = defineEmits<{
   (e: 'edit-draft', value: string): void
   (e: 'resend'): void
   (e: 'undo', turnId: string): void
+  (e: 'load-more'): void
 }>()
 
 const scrollRef = ref<HTMLDivElement | null>(null)
@@ -114,6 +124,7 @@ const editTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const copiedTurnId = ref<string | null>(null)
 const notification = useMessage()
 const shouldFollowOutput = ref(true)
+const loadMoreAnchor = ref<{ scrollHeight: number; scrollTop: number } | null>(null)
 const BOTTOM_THRESHOLD_PX = 72
 
 watch(
@@ -143,6 +154,12 @@ function handleScroll(): void {
   if (el) shouldFollowOutput.value = isNearBottom(el)
 }
 
+function requestOlderMessages(): void {
+  const el = scrollRef.value
+  if (el) loadMoreAnchor.value = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
+  emit('load-more')
+}
+
 async function scrollToBottom(): Promise<void> {
   await nextTick()
   const el = scrollRef.value
@@ -160,10 +177,22 @@ onActivated(restoreConversationPosition)
 watch(
   () => props.messages.length,
   (length, previousLength) => {
-    if (length > previousLength) {
+    if (length > previousLength && !loadMoreAnchor.value) {
       shouldFollowOutput.value = true
       void scrollToBottom()
     }
+  }
+)
+
+watch(
+  () => props.isLoadingMore,
+  async (loading, wasLoading) => {
+    if (loading || !wasLoading || !loadMoreAnchor.value) return
+    await nextTick()
+    const el = scrollRef.value
+    const anchor = loadMoreAnchor.value
+    if (el) el.scrollTop = anchor.scrollTop + (el.scrollHeight - anchor.scrollHeight)
+    loadMoreAnchor.value = null
   }
 )
 
@@ -453,6 +482,16 @@ const hasContent = computed(() => props.messages.length > 0)
       </div>
     </div>
 
+    <button
+      v-if="hasContent && props.hasMore"
+      type="button"
+      class="load-more"
+      :disabled="props.isLoadingMore"
+      @click="requestOlderMessages"
+    >
+      {{ props.isLoadingMore ? '正在加载...' : '加载更早对话' }}
+    </button>
+
     <article
       v-for="(msg, index) in props.messages"
       :key="msg.turnId"
@@ -515,6 +554,7 @@ const hasContent = computed(() => props.messages.length > 0)
           <UserRound :size="14" :stroke-width="1.9" />
         </div>
         <div class="user-content">{{ msg.userMessage }}</div>
+        <time class="message-time user-time" :datetime="msg.createdAt">{{ formatMessageTime(msg.createdAt) }}</time>
         <div v-if="!props.isStreaming && msg.status !== 'streaming'" class="user-actions">
           <button
             type="button"
@@ -554,6 +594,7 @@ const hasContent = computed(() => props.messages.length > 0)
             <Sparkles :size="12" :stroke-width="2" />
           </span>
           <span class="assistant-name">{{ props.assistantName ?? '全局助手' }}</span>
+          <time class="message-time" :datetime="msg.createdAt">{{ formatMessageTime(msg.createdAt) }}</time>
           <span v-if="msg.status === 'streaming'" class="assistant-state">{{ msg.activityText || '处理中' }}</span>
         </div>
 
@@ -789,6 +830,31 @@ const hasContent = computed(() => props.messages.length > 0)
   display: flex;
   align-items: flex-start;
   gap: 10px;
+}
+.load-more {
+  display: block;
+  margin: 0 auto 18px;
+  padding: 5px 12px;
+  border: 1px solid var(--arc-border);
+  border-radius: 6px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.load-more:hover:not(:disabled) { color: var(--arc-primary); border-color: var(--arc-primary); }
+.load-more:disabled { opacity: 0.6; cursor: wait; }
+.message-time {
+  color: var(--arc-text-hint);
+  font-family: var(--v2-mono);
+  font-size: 10px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.user-time {
+  align-self: flex-end;
+  margin-bottom: 2px;
 }
 .user-actions {
   position: absolute;

@@ -2957,7 +2957,8 @@ export const useAppStore = defineStore('app', () => {
         {
           id: uniqueId('msg'),
           role: 'user',
-          content
+          content,
+          createdAt: now
         }
       ]
 
@@ -2979,7 +2980,8 @@ export const useAppStore = defineStore('app', () => {
         {
           id: uniqueId('msg'),
           role: 'assistant',
-          content
+          content,
+          createdAt: now
         }
       ]
 
@@ -3002,7 +3004,8 @@ export const useAppStore = defineStore('app', () => {
         {
           id: messageId,
           role: 'assistant',
-          content: ''
+          content: '',
+          createdAt: now
         }
       ]
 
@@ -3223,6 +3226,29 @@ export const useAppStore = defineStore('app', () => {
       }
     })
     schedulePersist('fast')
+  }
+
+  function deleteAssistantSessionsBefore(beforeIso: string): number {
+    let deleted = 0
+    updateCurrentWorkspace((workspace) => {
+      const removable = workspace.globalAssistantSessions.filter((session) => session.updatedAt < beforeIso)
+      deleted = removable.length
+      if (deleted === 0) return workspace
+
+      const removedIds = new Set(removable.map((session) => session.id))
+      const nextSessions = workspace.globalAssistantSessions.filter((session) => !removedIds.has(session.id))
+      const fallbackSession = nextSessions.find((session) => session.id === workspace.activeGlobalAssistantSessionId)
+        ?? nextSessions[0]
+        ?? createGlobalAssistantSession([])
+      return {
+        ...workspace,
+        messages: fallbackSession.messages,
+        globalAssistantSessions: nextSessions.length ? nextSessions : [fallbackSession],
+        activeGlobalAssistantSessionId: fallbackSession.id
+      }
+    })
+    if (deleted > 0) schedulePersist('fast')
+    return deleted
   }
 
   // ── 章节正文插入 ──
@@ -3550,6 +3576,7 @@ export const useAppStore = defineStore('app', () => {
     clearAssistantMessages,
     createAssistantSession,
     deleteAssistantSession,
+    deleteAssistantSessionsBefore,
     pushAssistantMessage,
     pushStreamingAssistantMessage,
     pushUserMessage,
