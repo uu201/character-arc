@@ -4,6 +4,37 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.20.0] - 2026-09-28
+
+### Added
+
+- **章节历史自动留档**：写作过程中会自动保存有变化的章节版本，切换章节或离开编辑器时也会补存；相同内容不会重复生成历史版本
+- **助手历史管理**：长对话支持分批加载更早消息，并可一键清理 1 个月、3 个月或 6 个月以前的旧会话
+
+### Changed
+
+- **章节版本对比**：在并排对比段落的基础上，进一步标出段落内具体增加、删除和修改的文字，并显示变更字数和修改段落数
+- **章节初稿生成**：不再主动限制模型输出长度；初稿明显偏短或被模型截断时会自动续写一次，中途失败也会尽量把已有内容保存为未完成草稿
+- **创作助理内容展示**：携带的选中原文改为折叠展示，实际指令保持可见；窄侧栏中的生成状态、技能选择和停止按钮会自动分行，不再被挤成竖排
+- **助手会话标题**：携带选区发起的新会话会优先使用实际指令作为标题，不再显示正文开头
+
+### Fixed
+
+- **助手长历史卡顿**：打开会话时只加载最近消息，需要时再向前加载，减少历史记录较多时的等待和界面卡顿
+- **初稿正文计数**：进度、篇幅检查和最终提示统一按正文有效字符计算，忽略空格、换行、零宽字符、章节标题和 Markdown 标记，显示结果更接近实际正文长度
+- **初稿截断处理**：修复模型达到输出上限后整次生成直接失败、已有正文没有保留的问题
+
+### 下载说明
+
+- **Windows Intel / AMD 电脑**：下载 `CharacterArc-1.20.0-x64-setup.exe`；绝大多数 Windows 电脑选择这一版
+- **Windows ARM 电脑**：下载 `CharacterArc-1.20.0-arm64-setup.exe`，适用于使用 Snapdragon 等 ARM 处理器的 Windows 设备
+- **macOS Apple 芯片**：M1、M2、M3、M4 等机型下载 `CharacterArc-1.20.0-mac-arm64.dmg`
+- **macOS Intel 芯片**：下载 `CharacterArc-1.20.0-mac-x64.dmg`；`.zip` 是对应架构的免安装解压版本
+- **Linux Intel / AMD 电脑**：下载 `CharacterArc-1.20.0-linux-x64.AppImage`；Debian、Ubuntu 等系统也可以选择同名 `.deb`
+- **Linux ARM 设备**：下载 `CharacterArc-1.20.0-linux-arm64.AppImage`；Debian、Ubuntu ARM 系统也可以选择同名 `.deb`
+
+[1.20.0]: https://github.com/zhouyeshan/character-arc/releases/tag/v1.20.0
+
 ## [1.19.3] - 2026-09-20
 
 ### Added
