@@ -3,6 +3,7 @@ import type { Ref } from 'vue'
 import { buildChapterFirstDraftContext, buildOutlineItemContext, type ChapterFirstDraftContextInput } from '@/features/ai/chapterAssistantContext'
 import {
   ensureEditorHtmlContent,
+  getChapterCharacterCount,
   getChapterPreviewText,
   getPlainTextFromEditorContent
 } from '@/features/chapters/editorContent'
@@ -97,6 +98,15 @@ function finalCleanGeneratedChapterText(text: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
   return normalized
+}
+
+function countGeneratedChapterCharacters(text: string): number {
+  const body = finalCleanGeneratedChapterText(text)
+    .replace(/^\s{0,3}#{1,6}\s+[^\n]*(?:\n|$)/, '')
+    .replace(/^\s*第[零一二三四五六七八九十百千万两\d]+章(?:[：:·.\-\s]+[^\n]*)?(?:\n|$)/, '')
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-+*]\s+(?=\S)|\d+[.)]\s+(?=\S))/gm, '')
+    .replace(/[*_`~]/g, '')
+  return getChapterCharacterCount(body)
 }
 
 function formatMemoForRepair(memo: Record<string, unknown>): string {
@@ -251,6 +261,7 @@ export function useChapterFirstDraft(): {
   const modalVisible = ref(false)
   const streamingContent = ref('')
   const streamingCharCount = ref(0)
+  const continuationBaseContent = ref('')
   const reasoningContent = ref('')
   const executionLabel = ref('')
   const previewTitle = ref('')
@@ -298,7 +309,7 @@ export function useChapterFirstDraft(): {
 
   function recompute(): void {
     const target = Math.max(activeTargetWordCount.value || parseChapterWordTarget(appStore.selectedChapter?.wordTarget), 1)
-    const words = streamingCharCount.value || streamingContent.value.trim().length
+    const words = streamingCharCount.value
     if (!isGenerating.value) {
       progressPercent.value = 0
       progressText.value = ''
@@ -427,7 +438,11 @@ export function useChapterFirstDraft(): {
       if (currentStreamTask.value === 'chapter-first-draft') {
         streamingContent.value += payload.delta
         previewContent.value = streamingContent.value
-        if (payload.charCount != null) streamingCharCount.value = payload.charCount
+        streamingCharCount.value = countGeneratedChapterCharacters(
+          continuationBaseContent.value
+            ? mergeDraftContinuation(continuationBaseContent.value, streamingContent.value)
+            : streamingContent.value
+        )
       } else if (shouldRenderStreamPreview(currentStreamTask.value)) {
         previewContent.value += payload.delta
       }
@@ -537,6 +552,7 @@ export function useChapterFirstDraft(): {
     isStopping.value = false
     isStreaming.value = false
     streamingContent.value = ''
+    continuationBaseContent.value = ''
     activeTargetWordCount.value = Math.max(config.targetWordCount || parseChapterWordTarget(chapter.wordTarget), 1)
     progressFloor.value = 0
     progressPercent.value = 0
@@ -793,17 +809,19 @@ export function useChapterFirstDraft(): {
           let fullText = draftStream.text
           recoverableDraft = fullText
           const minimumCompleteLength = Math.max(1, Math.round(targetWordCount * 0.8))
+          const initialDraftCharacterCount = countGeneratedChapterCharacters(fullText)
           const draftFinishReason = (draftStream.result as { finishReason?: string } | undefined)?.finishReason
           let continuationTruncated = false
-          if (draftFinishReason === 'length' || fullText.trim().length < minimumCompleteLength) {
+          if (draftFinishReason === 'length' || initialDraftCharacterCount < minimumCompleteLength) {
             executionLabel.value = '初稿篇幅不足，正在自动续写一次...'
             updateProgress(45, '初稿未达到完整篇幅，正在续写...')
+            continuationBaseContent.value = fullText
             const continuation = await streamTask('chapter-first-draft', {
               ...context,
               chapterContent: fullText,
               chapterHasExistingContent: true,
               continueDraft: true,
-              userPrompt: `续写模式：已有正文共 ${fullText.trim().length} 字，目标总字数 ${targetWordCount} 字。只从已有正文的最后一句继续，只输出新增部分；禁止复述、改写或重新输出已有正文，必须完成本章并自然收尾。`
+              userPrompt: `续写模式：已有正文共 ${initialDraftCharacterCount} 字，目标总字数 ${targetWordCount} 字。只从已有正文的最后一句继续，只输出新增部分；禁止复述、改写或重新输出已有正文，必须完成本章并自然收尾。`
             })
             continuationTruncated = (continuation.result as { finishReason?: string } | undefined)?.finishReason === 'length'
             fullText = mergeDraftContinuation(fullText, continuation.text)
@@ -825,14 +843,14 @@ export function useChapterFirstDraft(): {
                   chapterTitle: chapter.title,
                   targetWordCount,
                   draftText: fullText,
-                  measuredWordCount: fullText.trim().length,
+                  measuredWordCount: countGeneratedChapterCharacters(fullText),
                   chapterMemo,
                   ...auditSkillContext,
                   userPrompt: steps.audit.userPrompt
                 })
                 const auditResp = auditStream.result as { audit?: ChapterAuditPayload } | undefined
                 if (auditResp?.audit) {
-                  const measuredWordCount = fullText.trim().length
+                  const measuredWordCount = countGeneratedChapterCharacters(fullText)
                   const normalizedAudit = normalizeAuditWordCount(auditResp.audit, targetWordCount, measuredWordCount)
                   latestAuditResult = normalizedAudit
 
@@ -863,7 +881,7 @@ export function useChapterFirstDraft(): {
                         userPrompt: steps.repair.userPrompt
                       })
                       repairedText = repairStream.text
-                      if (repairedText && repairedText.length > fullText.length * 0.5) {
+                      if (repairedText && countGeneratedChapterCharacters(repairedText) > countGeneratedChapterCharacters(fullText) * 0.5) {
                         finalText = repairedText
                         executionLabel.value = `已自动修复 ${criticalIssues.length} 个问题`
                         updateProgress(70, `已自动修复 ${criticalIssues.length} 个问题`)
@@ -902,7 +920,7 @@ export function useChapterFirstDraft(): {
                   userPrompt: steps.humanize.userPrompt
                 })
                 const humanizedText = humanizeStream.text
-                if (humanizedText && humanizedText.length > finalText.length * 0.5) {
+                if (humanizedText && countGeneratedChapterCharacters(humanizedText) > countGeneratedChapterCharacters(finalText) * 0.5) {
                   finalText = humanizedText
                   executionLabel.value = '去 AI 味润色完成'
                   updateProgress(90, '去 AI 味润色完成')
@@ -922,8 +940,9 @@ export function useChapterFirstDraft(): {
                 throw new Error(`初稿已生成，但保存失败：${appStore.persistenceError}`)
               }
               draftPersisted = true
-              if (continuationTruncated || finalText.trim().length < minimumCompleteLength) {
-                throw new Error(`模型续写后正文仍明显偏短（${finalText.trim().length}/${targetWordCount} 字），已保存为未完成草稿，请检查后继续生成。`)
+              const finalCharacterCount = countGeneratedChapterCharacters(finalText)
+              if (continuationTruncated || finalCharacterCount < minimumCompleteLength) {
+                throw new Error(`模型续写后正文仍明显偏短（${finalCharacterCount}/${targetWordCount} 字），已保存为未完成草稿，请检查后继续生成。`)
               }
             }
 

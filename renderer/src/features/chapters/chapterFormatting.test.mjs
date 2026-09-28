@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { formatChapterEditorDocument } from './chapterFormatting.ts'
+import { getChapterCharacterCount } from './editorContent.ts'
+
+test('章节字数只统计正文有效字符并忽略空白与零宽字符', () => {
+  assert.equal(
+    getChapterCharacterCount('<p>第一段　 </p><p>第二 段&#39;\u200B</p>'),
+    7
+  )
+  assert.equal(getChapterCharacterCount('A😀 B'), 3)
+})
 
 test('一键排版将段内换行拆为段落并删除空段', () => {
   const result = formatChapterEditorDocument({

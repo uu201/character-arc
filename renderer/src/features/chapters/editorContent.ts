@@ -84,7 +84,9 @@ export function getPlainTextFromEditorContent(content: string): string {
 
 // 获取章节正文的字符数（去除空白后的纯文本长度）
 export function getChapterCharacterCount(content: string): number {
-  return getPlainTextFromEditorContent(content).trim().length
+  return Array.from(
+    getPlainTextFromEditorContent(content).replace(/[\s\u200B-\u200D\u2060\uFEFF]/gu, '')
+  ).length
 }
 
 // 获取章节正文的预览文本：将纯文本中连续空白压缩为单个空格
