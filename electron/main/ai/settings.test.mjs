@@ -9,6 +9,12 @@ import {
   resolveAiProviderProtocol,
   shouldTryStreamingAgent
 } from '../../shared/ai-provider-catalog.ts'
+import { shouldOmitMaxTokens } from '../../shared/ai-output-policy.ts'
+
+test('章节初稿不主动设置输出上限', () => {
+  assert.equal(shouldOmitMaxTokens('chapter-first-draft'), true)
+  assert.equal(shouldOmitMaxTokens('chapter-assistant'), false)
+})
 
 test('厂商预设会补齐默认地址并保持模型为空', () => {
   const preset = getAiProviderCatalogEntry('deepseek')

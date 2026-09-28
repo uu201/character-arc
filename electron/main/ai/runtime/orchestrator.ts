@@ -289,11 +289,9 @@ export async function streamAiTask(
   const input = buildPromptInput(task, skills, knowledgeContext)
   const prompt = taskHandler.buildPrompt(input)
   const taskMaxTokens = taskHandler.resolveMaxTokens?.(input) ?? resolveMaxTokens(task)
-  const maxTokens = task.task === 'chapter-first-draft'
-    ? taskMaxTokens
-    : shouldOmitMaxTokens(task.task)
-      ? undefined
-      : applyReasoningSafeFloor(taskMaxTokens)
+  const maxTokens = shouldOmitMaxTokens(task.task)
+    ? undefined
+    : applyReasoningSafeFloor(taskMaxTokens)
   const structuredSchema = taskHandler.outputType === 'json' ? getStructuredTaskSchema(taskHandler.name) : undefined
 
   if (taskHandler.outputType === 'json' && !structuredSchema) {

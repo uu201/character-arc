@@ -6,6 +6,7 @@ import {
   normalizeAiProviderName,
   isCodexCliProvider
 } from '@shared/ai-provider-catalog'
+export { shouldOmitMaxTokens } from '../../shared/ai-output-policy'
 
 /**
  * 根据供应商名称返回其默认 Base URL 和默认模型（当前保持为空）。
@@ -172,14 +173,6 @@ export function resolveChapterDraftMaxTokens(task: AiTaskPayload): number {
 export function applyReasoningSafeFloor(baseMaxTokens: number | undefined): number {
   const SINGLE_SHOT_MIN_OUTPUT_TOKENS = 26000
   return Math.max(baseMaxTokens ?? SINGLE_SHOT_MIN_OUTPUT_TOKENS, SINGLE_SHOT_MIN_OUTPUT_TOKENS)
-}
-
-/**
- * 长正文任务不主动传 maxOutputTokens，让模型/中转站按自身能力输出。
- * JSON、小卡片、助手回复等任务仍保留预算，避免异常输出失控。
- */
-export function shouldOmitMaxTokens(taskName: AiTaskName): boolean {
-  return taskName === 'chapter-first-draft'
 }
 
 /**
