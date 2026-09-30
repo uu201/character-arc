@@ -25,10 +25,25 @@ import type {
   SurfaceDefinition,
   SkillUsePolicy,
   TurnAttachment,
+  TurnDocumentAttachment,
+  TurnFileAttachment,
+  TurnImageAttachment,
   TurnEvent,
   TurnTruncateResult
 } from '@shared/assistant-runtime'
-import { normalizeSkillUsePolicy } from '@shared/assistant-runtime'
+import {
+  ASSISTANT_DOCUMENT_LIMITS,
+  ASSISTANT_DOCUMENT_MIME_TYPES,
+  ASSISTANT_IMAGE_LIMITS,
+  ASSISTANT_IMAGE_MIME_TYPES,
+  getTurnDocumentAttachments,
+  getTurnFileAttachments,
+  getTurnImageAttachments,
+  normalizeSkillUsePolicy,
+  normalizeTurnAttachments,
+  type AssistantDocumentMimeType,
+  type AssistantImageMimeType
+} from '@shared/assistant-runtime'
 
 // ============================================================================
 // UI 消息模型
@@ -63,6 +78,7 @@ export type AssistantMessageBlock =
 export interface AssistantMessageView {
   turnId: string
   userMessage: string
+  attachments: TurnFileAttachment[]
   assistantMessage: string
   reasoning: string
   toolCalls: AssistantToolCallView[]
@@ -100,6 +116,41 @@ export interface AssistantSendOptions {
 }
 
 const MAX_ERROR_LENGTH = 1200
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error(`无法读取图片：${file.name || '未命名图片'}`))
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.readAsDataURL(file)
+  })
+}
+
+function createAttachmentId(kind: 'image' | 'document'): string {
+  return typeof crypto?.randomUUID === 'function'
+    ? `${kind}:${crypto.randomUUID()}`
+    : `${kind}:${Date.now()}:${Math.random().toString(36).slice(2)}`
+}
+
+function normalizeImageMimeType(value: string): AssistantImageMimeType | null {
+  const normalized = value === 'image/jpg' ? 'image/jpeg' : value
+  return ASSISTANT_IMAGE_MIME_TYPES.includes(normalized as AssistantImageMimeType)
+    ? normalized as AssistantImageMimeType
+    : null
+}
+
+function normalizeDocumentMimeType(file: File): AssistantDocumentMimeType | null {
+  const mimeType = file.type.toLowerCase()
+  if (ASSISTANT_DOCUMENT_MIME_TYPES.includes(mimeType as AssistantDocumentMimeType)) {
+    return mimeType as AssistantDocumentMimeType
+  }
+  const extension = file.name.toLowerCase().match(/\.[^.]+$/)?.[0]
+  if (extension === '.md' || extension === '.markdown') return 'text/markdown'
+  if (extension === '.csv') return 'text/csv'
+  if (extension === '.json') return 'application/json'
+  if (extension === '.txt' || extension === '.log') return 'text/plain'
+  return null
+}
 
 function trimErrorText(value: string): string {
   const normalized = value.replace(/\s+/g, ' ').trim()
@@ -188,6 +239,8 @@ export function useAssistant(options: UseAssistantOptions) {
   const restoredDraftLabel = ref('')
   const isTruncating = ref(false)
   const skillPolicy = ref<SkillUsePolicy>({ mode: 'auto', skillIds: [] })
+  const imageAttachments = ref<TurnImageAttachment[]>([])
+  const documentAttachments = ref<TurnDocumentAttachment[]>([])
   const discoveredSkills = ref<ProjectSkillItem[]>([])
   const availableSkills = computed(() => {
     const project = appStore.projects.find((item) => item.id === options.projectId())
@@ -418,6 +471,7 @@ export function useAssistant(options: UseAssistantOptions) {
       return {
         turnId: turn.id,
         userMessage: turn.userMessage,
+        attachments: turn.attachments ?? [],
         assistantMessage,
         reasoning: folded.reasoning,
         toolCalls: folded.toolCalls,
@@ -477,11 +531,12 @@ export function useAssistant(options: UseAssistantOptions) {
     const knownTurn = turns.value.find((t) => t.id === push.turnId)
     if (!knownTurn) {
       const optimisticIdx = turns.value.findIndex((t) => t.id.startsWith('optimistic-'))
-      const userMessage = optimisticIdx >= 0 ? turns.value[optimisticIdx].userMessage : ''
+      const optimisticTurn = optimisticIdx >= 0 ? turns.value[optimisticIdx] : undefined
       const placeholder: AssistantTurn = {
         id: push.turnId,
         sessionId: push.sessionId,
-        userMessage,
+        userMessage: optimisticTurn?.userMessage ?? '',
+        ...(optimisticTurn?.attachments?.length ? { attachments: optimisticTurn.attachments } : {}),
         assistantMessage: '',
         status: 'streaming',
         createdAt: new Date().toISOString()
@@ -738,12 +793,147 @@ export function useAssistant(options: UseAssistantOptions) {
     return base.length > MAX ? base.slice(0, MAX) + '…' : base
   }
 
+  async function addImageFiles(files: File[]): Promise<void> {
+    if (isStreaming.value || editingTurnId.value) return
+    const candidates = files.filter((file) => file.size > 0)
+    if (candidates.length === 0) return
+    if (imageAttachments.value.length + candidates.length > ASSISTANT_IMAGE_LIMITS.maxCount) {
+      lastError.value = `每次最多上传 ${ASSISTANT_IMAGE_LIMITS.maxCount} 张图片。`
+      return
+    }
+
+    const currentBytes = imageAttachments.value.reduce((sum, item) => sum + item.size, 0)
+    const candidateBytes = candidates.reduce((sum, file) => sum + file.size, 0)
+    if (currentBytes + candidateBytes > ASSISTANT_IMAGE_LIMITS.maxTotalBytes) {
+      lastError.value = '本次上传图片总大小不能超过 12 MB。'
+      return
+    }
+
+    for (const file of candidates) {
+      if (!normalizeImageMimeType(file.type)) {
+        lastError.value = '仅支持 PNG、JPEG、WebP 和 GIF 图片。'
+        return
+      }
+      if (file.size > ASSISTANT_IMAGE_LIMITS.maxBytesPerImage) {
+        lastError.value = `图片“${file.name || '未命名图片'}”超过 5 MB。`
+        return
+      }
+    }
+
+    try {
+      const additions: TurnImageAttachment[] = []
+      for (const [index, file] of candidates.entries()) {
+        const mimeType = normalizeImageMimeType(file.type)!
+        additions.push({
+          kind: 'image',
+          ref: createAttachmentId('image'),
+          label: file.name || `粘贴图片-${imageAttachments.value.length + index + 1}`,
+          mimeType,
+          size: file.size,
+          dataUrl: await readFileAsDataUrl(file)
+        })
+      }
+      imageAttachments.value = getTurnImageAttachments(normalizeTurnAttachments([
+        ...imageAttachments.value,
+        ...additions
+      ]))
+      lastError.value = null
+    } catch (error) {
+      lastError.value = error instanceof Error ? error.message : '图片读取失败。'
+    }
+  }
+
+  function removeImageAttachment(ref: string): void {
+    imageAttachments.value = imageAttachments.value.filter((item) => item.ref !== ref)
+  }
+
+  function clearImageAttachments(): void {
+    imageAttachments.value = []
+  }
+
+  async function addDocumentFiles(files: File[]): Promise<void> {
+    if (isStreaming.value || editingTurnId.value) return
+    const candidates = files.filter((file) => file.size > 0)
+    if (candidates.length === 0) return
+    if (documentAttachments.value.length + candidates.length > ASSISTANT_DOCUMENT_LIMITS.maxCount) {
+      lastError.value = `每次最多上传 ${ASSISTANT_DOCUMENT_LIMITS.maxCount} 个文本文件。`
+      return
+    }
+
+    const currentBytes = documentAttachments.value.reduce((sum, item) => sum + item.size, 0)
+    const candidateBytes = candidates.reduce((sum, file) => sum + file.size, 0)
+    if (currentBytes + candidateBytes > ASSISTANT_DOCUMENT_LIMITS.maxTotalBytes) {
+      lastError.value = '本次上传文本文件总大小不能超过 512 KB。'
+      return
+    }
+
+    for (const file of candidates) {
+      if (!normalizeDocumentMimeType(file)) {
+        lastError.value = '仅支持 TXT、Markdown、CSV、JSON 和 LOG 文本文件。'
+        return
+      }
+      if (file.size > ASSISTANT_DOCUMENT_LIMITS.maxBytesPerDocument) {
+        lastError.value = `文本文件“${file.name || '未命名文件'}”超过 256 KB。`
+        return
+      }
+    }
+
+    try {
+      const additions: TurnDocumentAttachment[] = []
+      for (const [index, file] of candidates.entries()) {
+        const mimeType = normalizeDocumentMimeType(file)!
+        additions.push({
+          kind: 'document',
+          ref: createAttachmentId('document'),
+          label: file.name || `粘贴文本-${documentAttachments.value.length + index + 1}.txt`,
+          mimeType,
+          size: file.size,
+          content: await file.text()
+        })
+      }
+      documentAttachments.value = getTurnDocumentAttachments(normalizeTurnAttachments([
+        ...documentAttachments.value,
+        ...additions
+      ]))
+      lastError.value = null
+    } catch (error) {
+      lastError.value = error instanceof Error ? error.message : '文本文件读取失败。'
+    }
+  }
+
+  function removeDocumentAttachment(ref: string): void {
+    documentAttachments.value = documentAttachments.value.filter((item) => item.ref !== ref)
+  }
+
+  function clearDocumentAttachments(): void {
+    documentAttachments.value = []
+  }
+
+  function clearFileAttachments(): void {
+    clearImageAttachments()
+    clearDocumentAttachments()
+  }
+
   // ==========================================================================
   // Turn 操作
   // ==========================================================================
 
   async function sendText(text: string, sendOptions: AssistantSendOptions = {}): Promise<void> {
-    const trimmedText = text.trim()
+    let outgoingAttachments: TurnAttachment[]
+    try {
+      outgoingAttachments = normalizeTurnAttachments([
+        ...(sendOptions.attachments ?? []),
+        ...imageAttachments.value,
+        ...documentAttachments.value
+      ])
+    } catch (error) {
+      lastError.value = error instanceof Error ? error.message : '附件校验失败。'
+      return
+    }
+    const outgoingFiles = getTurnFileAttachments(outgoingAttachments)
+    const outgoingImages = getTurnImageAttachments(outgoingAttachments)
+    const outgoingDocuments = getTurnDocumentAttachments(outgoingAttachments)
+    const trimmedText = text.trim() || (outgoingFiles.length > 0 ? '请分析这些附件。' : '')
     if (!trimmedText || isStreaming.value) return
     if (skillPolicy.value.mode === 'only' && skillPolicy.value.skillIds.length === 0) {
       lastError.value = '“仅使用”模式需要至少选择一个 Skill。'
@@ -775,6 +965,7 @@ export function useAssistant(options: UseAssistantOptions) {
     if (composerValue.value.trim() === trimmedText) {
       composerValue.value = ''
     }
+    clearFileAttachments()
     restoredDraftLabel.value = ''
     lastError.value = null
 
@@ -786,6 +977,7 @@ export function useAssistant(options: UseAssistantOptions) {
         id: optimisticTurnId,
         sessionId,
         userMessage: trimmedText,
+        ...(outgoingFiles.length > 0 ? { attachments: outgoingFiles } : {}),
         assistantMessage: '',
         status: 'streaming',
         createdAt: new Date().toISOString()
@@ -804,7 +996,7 @@ export function useAssistant(options: UseAssistantOptions) {
         scopeRef: options.scopeRef?.(),
         userMessage: trimmedText,
         intentHint: sendOptions.intentHint,
-        attachments: sendOptions.attachments,
+        attachments: outgoingAttachments,
         skillPolicy: skillPolicy.value
       }))
       // 事件流已经在 handler 里做了乐观 turn 的替换 + 状态更新，
@@ -814,12 +1006,19 @@ export function useAssistant(options: UseAssistantOptions) {
         turns.value = turns.value.filter((t) => t.id !== optimisticTurnId)
         if (streamingTurnId.value === optimisticTurnId) streamingTurnId.value = null
       }
-      if (result.error) lastError.value = result.error
+      if (result.error) {
+        lastError.value = result.error
+        if (!composerValue.value.trim()) composerValue.value = trimmedText
+        if (imageAttachments.value.length === 0) imageAttachments.value = outgoingImages
+        if (documentAttachments.value.length === 0) documentAttachments.value = outgoingDocuments
+      }
     } catch (e) {
       streamingTurnId.value = null
       isCanceling.value = false
       turns.value = turns.value.filter((t) => t.id !== optimisticTurnId)
       if (!composerValue.value.trim()) composerValue.value = trimmedText
+      if (imageAttachments.value.length === 0) imageAttachments.value = outgoingImages
+      if (documentAttachments.value.length === 0) documentAttachments.value = outgoingDocuments
       lastError.value = e instanceof Error ? e.message : String(e)
     }
   }
@@ -945,12 +1144,16 @@ export function useAssistant(options: UseAssistantOptions) {
     const turnId = editingTurnId.value
     const draft = editingDraft.value.trim()
     if (!turnId || !draft) return null
+    const preservedAttachments = turns.value.find((turn) => turn.id === turnId)?.attachments ?? []
 
     const result = await truncateTurn(turnId)
     if (!result) return null
     cancelEditing()
     composerValue.value = draft
-    void sendText(draft, sendOptions)
+    void sendText(draft, {
+      ...sendOptions,
+      attachments: [...preservedAttachments, ...(sendOptions.attachments ?? [])]
+    })
     return result
   }
 
@@ -1088,6 +1291,7 @@ export function useAssistant(options: UseAssistantOptions) {
       restoredDraftLabel.value = ''
       const project = appStore.projects.find((item) => item.id === options.projectId())
       skillPolicy.value = normalizeSkillUsePolicy(project?.skillPolicy)
+      clearFileAttachments()
       void refreshAvailableSkills(options.projectId())
       await reloadSessions()
     },
@@ -1108,6 +1312,7 @@ export function useAssistant(options: UseAssistantOptions) {
           streamingTurnId.value = null
           cancelEditing()
           restoredDraftLabel.value = ''
+          clearFileAttachments()
           await reloadSessions()
         }
       }
@@ -1137,6 +1342,8 @@ export function useAssistant(options: UseAssistantOptions) {
     isTruncating,
     lastError,
     skillPolicy,
+    imageAttachments,
+    documentAttachments,
     availableSkills,
     // actions
     createSession,
@@ -1153,6 +1360,12 @@ export function useAssistant(options: UseAssistantOptions) {
     cancelEditing,
     clearRestoredDraft,
     updateSkillPolicy,
+    addImageFiles,
+    removeImageAttachment,
+    clearImageAttachments,
+    addDocumentFiles,
+    removeDocumentAttachment,
+    clearDocumentAttachments,
     undoTurn,
     resendEditedTurn,
     acceptChanges,

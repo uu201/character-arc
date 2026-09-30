@@ -2,6 +2,7 @@ import type { AiAgentStreamHandlers, AiRunUsage, AppSettings, ToolCallTrace } fr
 import { runCodexCli } from '../codex-cli'
 import { stripReasoningMarkup } from '../reasoning'
 import type { Tool, ToolContext } from './tools/types'
+import type { TurnImageAttachment } from '@shared/assistant-runtime'
 
 type CodexToolCall = {
   name: string
@@ -17,6 +18,7 @@ export type RunCodexToolAgentParams = {
   settings: AppSettings
   systemPrompt: string
   userPrompt: string
+  imageAttachments?: TurnImageAttachment[]
   tools: Tool[]
   ctx: ToolContext
   handlers: AiAgentStreamHandlers
@@ -193,7 +195,7 @@ async function runTextOnly(params: RunCodexToolAgentParams): Promise<CodexToolAg
   const result = await runCodexCli(
     params.settings,
     { system: params.systemPrompt, user: params.userPrompt },
-    { signal: params.ctx.signal, handlers: params.handlers }
+    { signal: params.ctx.signal, handlers: params.handlers, images: params.imageAttachments }
   )
   return {
     finalText: stripReasoningMarkup(result.text),
@@ -242,6 +244,7 @@ export async function runCodexToolAgent(
       },
       {
         signal: params.ctx.signal,
+        images: params.imageAttachments,
         // 协议 JSON 不能作为聊天正文显示；推理过程仍照常转发。
         handlers: {
           onTextDelta: () => {},

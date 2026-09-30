@@ -2,7 +2,7 @@
 import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { useMessage } from 'naive-ui'
+import { NModal, useMessage } from 'naive-ui'
 import {
   Brain,
   CheckCircle2,
@@ -10,19 +10,23 @@ import {
   CircleAlert,
   Copy,
   ClipboardCheck,
+  FileText,
   GitFork,
+  Image as ImageIcon,
   Layers3,
+  Maximize2,
   Pencil,
   SearchCheck,
   Sparkles,
   SquareTerminal,
   TriangleAlert,
   Undo2,
-  UserRound
+  UserRound,
+  X
 } from 'lucide-vue-next'
 import type { AssistantMessageView, AssistantToolCallView } from '@/composables/useAssistant'
 import { parseSelectionPrompt } from '@/features/assistant/selectionPrompt'
-import type { StagedChange } from '@shared/assistant-runtime'
+import type { StagedChange, TurnFileAttachment } from '@shared/assistant-runtime'
 
 const MD_ALLOWED_TAGS = [
   'p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote',
@@ -132,6 +136,7 @@ const emit = defineEmits<{
 const scrollRef = ref<HTMLDivElement | null>(null)
 const editTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const copiedTurnId = ref<string | null>(null)
+const previewAttachment = ref<TurnFileAttachment | null>(null)
 const notification = useMessage()
 const shouldFollowOutput = ref(true)
 const loadMoreAnchor = ref<{ scrollHeight: number; scrollTop: number } | null>(null)
@@ -467,6 +472,20 @@ function handleEditKeydown(event: KeyboardEvent): void {
   }
 }
 
+function formatAttachmentSize(size: number): string {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function openAttachmentPreview(attachment: TurnFileAttachment): void {
+  previewAttachment.value = attachment
+}
+
+function closeAttachmentPreview(): void {
+  previewAttachment.value = null
+}
+
 const hasContent = computed(() => props.messages.length > 0)
 </script>
 
@@ -579,6 +598,36 @@ const hasContent = computed(() => props.messages.length > 0)
             </details>
           </template>
           <template v-else>{{ msg.userMessage }}</template>
+          <div v-if="msg.attachments.length > 0" class="user-attachment-gallery">
+            <button
+              v-for="attachment in msg.attachments"
+              :key="attachment.ref"
+              type="button"
+              class="user-attachment"
+              :class="{ 'is-document': attachment.kind === 'document' }"
+              :aria-label="`查看附件 ${attachment.label}`"
+              :title="`点击查看附件：${attachment.label}`"
+              @click="openAttachmentPreview(attachment)"
+            >
+              <img
+                v-if="attachment.kind === 'image'"
+                :src="attachment.dataUrl"
+                :alt="attachment.label"
+                loading="lazy"
+              />
+              <span v-else class="document-thumbnail">
+                <FileText :size="30" :stroke-width="1.5" />
+                <span>{{ attachment.label.split('.').pop()?.toUpperCase() || 'TXT' }}</span>
+              </span>
+              <span class="attachment-shade" aria-hidden="true">
+                <Maximize2 :size="15" />
+              </span>
+              <span class="attachment-meta">
+                <span class="attachment-name">{{ attachment.label }}</span>
+                <span class="attachment-size">{{ formatAttachmentSize(attachment.size) }}</span>
+              </span>
+            </button>
+          </div>
         </div>
         <time class="message-time user-time" :datetime="msg.createdAt">{{ formatMessageTime(msg.createdAt) }}</time>
         <div v-if="!props.isStreaming && msg.status !== 'streaming'" class="user-actions">
@@ -748,6 +797,41 @@ const hasContent = computed(() => props.messages.length > 0)
       </template>
     </article>
   </div>
+
+  <NModal
+    :show="Boolean(previewAttachment)"
+    preset="card"
+    class="assistant-image-preview"
+    :bordered="false"
+    :closable="false"
+    :mask-closable="true"
+    :style="{ width: 'min(920px, calc(100vw - 32px))' }"
+    @update:show="(show) => { if (!show) closeAttachmentPreview() }"
+  >
+    <template #header>
+      <div class="image-preview-title">
+        <span class="image-preview-icon">
+          <ImageIcon v-if="previewAttachment?.kind === 'image'" :size="16" />
+          <FileText v-else :size="16" />
+        </span>
+        <span>{{ previewAttachment?.label || '附件预览' }}</span>
+      </div>
+    </template>
+    <template #header-extra>
+      <button type="button" class="image-preview-close" aria-label="关闭图片预览" @click="closeAttachmentPreview">
+        <X :size="17" />
+      </button>
+    </template>
+    <div v-if="previewAttachment?.kind === 'image'" class="image-preview-frame">
+      <img :src="previewAttachment.dataUrl" :alt="previewAttachment.label" />
+    </div>
+    <pre v-else-if="previewAttachment" class="document-preview-frame">{{ previewAttachment.content }}</pre>
+    <div v-if="previewAttachment" class="image-preview-foot">
+      <span>{{ previewAttachment.mimeType.split('/').pop()?.toUpperCase() }}</span>
+      <span>{{ formatAttachmentSize(previewAttachment.size) }}</span>
+      <span>点击遮罩或按 Esc 关闭</span>
+    </div>
+  </NModal>
 </template>
 
 <style scoped>
@@ -1061,6 +1145,109 @@ const hasContent = computed(() => props.messages.length > 0)
   min-width: 0;
   white-space: pre-wrap;
   font-weight: 500;
+}
+.user-attachment-gallery {
+  width: min(100%, 560px);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  gap: 9px;
+  margin-top: 10px;
+  white-space: normal;
+}
+.user-attachment {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--arc-border-strong);
+  border-radius: 9px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-primary);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 10%);
+  cursor: zoom-in;
+  text-align: left;
+  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+.user-attachment:hover,
+.user-attachment:focus-visible {
+  border-color: var(--arc-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 16%);
+  outline: none;
+}
+.user-attachment > img {
+  width: 100%;
+  height: 118px;
+  display: block;
+  object-fit: cover;
+  background: var(--arc-bg-weak);
+}
+.document-thumbnail {
+  width: 100%;
+  height: 118px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 7px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--arc-primary) 9%, var(--arc-bg-weak)), var(--arc-bg-weak));
+  color: var(--arc-primary);
+}
+.document-thumbnail > span {
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
+  border-radius: 4px;
+  background: var(--arc-bg-surface);
+  font-family: var(--v2-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.attachment-shade {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 7px;
+  background: rgb(10 12 16 / 72%);
+  color: #fff;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.user-attachment:hover .attachment-shade,
+.user-attachment:focus-visible .attachment-shade {
+  opacity: 1;
+  transform: translateY(0);
+}
+.attachment-meta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  border-top: 1px solid var(--arc-border);
+  font-size: 11px;
+  line-height: 1.3;
+}
+.attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.attachment-size {
+  color: var(--arc-text-hint);
+  font-family: var(--v2-mono);
+  font-size: 9.5px;
+  font-weight: 400;
 }
 .user-instruction {
   overflow-wrap: anywhere;
@@ -1542,6 +1729,110 @@ const hasContent = computed(() => props.messages.length > 0)
   font-style: normal;
 }
 
+:global(.assistant-image-preview.n-card) {
+  overflow: hidden;
+  border: 1px solid var(--arc-border-strong);
+  border-radius: 12px;
+  background: var(--arc-bg-surface);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 48%);
+}
+:global(.assistant-image-preview .n-card-header) {
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--arc-border);
+}
+:global(.assistant-image-preview .n-card__content) {
+  padding: 0;
+}
+.image-preview-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--arc-text-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+.image-preview-title > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-preview-icon {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--arc-primary-soft);
+  color: var(--arc-primary);
+}
+.image-preview-close {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+}
+.image-preview-close:hover {
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-primary);
+}
+.image-preview-frame {
+  min-height: 240px;
+  max-height: calc(100vh - 190px);
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 18px;
+  background:
+    linear-gradient(45deg, rgb(255 255 255 / 2%) 25%, transparent 25%, transparent 75%, rgb(255 255 255 / 2%) 75%),
+    linear-gradient(45deg, rgb(255 255 255 / 2%) 25%, transparent 25%, transparent 75%, rgb(255 255 255 / 2%) 75%),
+    #0c0f14;
+  background-position: 0 0, 12px 12px;
+  background-size: 24px 24px;
+}
+.image-preview-frame img {
+  max-width: 100%;
+  max-height: calc(100vh - 226px);
+  display: block;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 18px 52px rgb(0 0 0 / 44%);
+}
+.document-preview-frame {
+  max-height: calc(100vh - 190px);
+  min-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 20px 22px;
+  background: #0c0f14;
+  color: #d9e2ec;
+  font-family: var(--v2-mono);
+  font-size: 12.5px;
+  line-height: 1.75;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.image-preview-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 15px;
+  border-top: 1px solid var(--arc-border);
+  color: var(--arc-text-hint);
+  font-family: var(--v2-mono);
+  font-size: 10px;
+}
+.image-preview-foot span:last-child {
+  margin-left: auto;
+}
+
 @media (max-width: 720px) {
   .messages {
     padding: 18px 16px 14px;
@@ -1586,6 +1877,27 @@ const hasContent = computed(() => props.messages.length > 0)
   }
   .user-actions button {
     border: 1px solid var(--arc-border);
+  }
+  .user-attachment-gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .user-attachment > img {
+    height: 104px;
+  }
+  .document-thumbnail {
+    height: 104px;
+  }
+  .image-preview-frame {
+    min-height: 180px;
+    padding: 10px;
+  }
+  .image-preview-foot span:last-child {
+    display: none;
+  }
+  .document-preview-frame {
+    min-height: 220px;
+    padding: 14px 15px;
+    font-size: 12px;
   }
   .turn-editor-head em,
   .turn-editor-foot > span {

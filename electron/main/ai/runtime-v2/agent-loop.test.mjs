@@ -5,16 +5,20 @@ import { AgentLoopCore } from './agent-loop-core.ts'
 import { createEvidenceLedger, wrapToolsWithRuntimeBudget } from './evidence-ledger.ts'
 import { createRuntimePlan } from './planner.ts'
 import { StagedChangesStore } from './staged-changes-store.ts'
+import { normalizeTurnAttachments } from '../../../shared/assistant-runtime.ts'
 
 function makeConversation() {
   const persistedEvents = []
   const statusUpdates = []
+  const createdTurns = []
   let status = 'streaming'
   return {
     persistedEvents,
     statusUpdates,
-    createTurn({ sessionId, userMessage }) {
-      return { id: 'turn-1', sessionId, userMessage }
+    createdTurns,
+    createTurn({ sessionId, userMessage, attachments }) {
+      createdTurns.push({ sessionId, userMessage, attachments })
+      return { id: 'turn-1', sessionId, userMessage, attachments }
     },
     appendEvent(turnId, event) {
       const persisted = { ...event, turnId, seq: persistedEvents.length + 1 }
@@ -30,6 +34,72 @@ function makeConversation() {
     }
   }
 }
+
+test('图片附件经过校验后传给 Agent，并随原始消息持久化', async () => {
+  const image = normalizeTurnAttachments([{
+    kind: 'image',
+    ref: 'image:test',
+    label: '人物参考.png',
+    mimeType: 'image/png',
+    size: 3,
+    dataUrl: 'data:image/png;base64,AQID'
+  }])[0]
+  let receivedImages = []
+  const { loop, conversation } = makeLoop(async (params) => {
+    receivedImages = params.imageAttachments
+    return {
+      finalText: '已识别图片。',
+      toolCalls: [],
+      iterations: 1
+    }
+  })
+  const options = makeOptions(new AbortController().signal)
+  options.turnInput.attachments = [image]
+
+  const result = await loop.run(options)
+
+  assert.equal(result.status, 'done')
+  assert.equal(receivedImages.length, 1)
+  assert.equal(receivedImages[0].label, '人物参考.png')
+  assert.equal(conversation.createdTurns[0].userMessage, '测试请求')
+  assert.deepEqual(conversation.createdTurns[0].attachments, [image])
+})
+
+test('图片附件拒绝不支持的格式', () => {
+  assert.throws(() => normalizeTurnAttachments([{
+    kind: 'image',
+    ref: 'image:svg',
+    label: 'unsafe.svg',
+    mimeType: 'image/svg+xml',
+    size: 10,
+    dataUrl: 'data:image/svg+xml;base64,PHN2Zz4='
+  }]), /仅支持 PNG、JPEG、WebP 和 GIF/)
+})
+
+test('文本附件随轮次持久化并加入模型提示', async () => {
+  const document = normalizeTurnAttachments([{
+    kind: 'document',
+    ref: 'document:test',
+    label: '背景.txt',
+    mimeType: 'text/plain',
+    size: 12,
+    content: '故事发生在雨城。'
+  }])[0]
+  let receivedPrompt = ''
+  const { loop, conversation } = makeLoop(async (params) => {
+    receivedPrompt = params.userPrompt
+    return { finalText: '已读取文档。', toolCalls: [], iterations: 1 }
+  })
+  const options = makeOptions(new AbortController().signal)
+  options.turnInput.attachments = [document]
+
+  const result = await loop.run(options)
+
+  assert.equal(result.status, 'done')
+  assert.deepEqual(conversation.createdTurns[0].attachments, [document])
+  assert.match(receivedPrompt, /背景\.txt/)
+  assert.match(receivedPrompt, /故事发生在雨城/)
+})
 
 function makeOptions(signal) {
   return {

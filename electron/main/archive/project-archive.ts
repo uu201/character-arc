@@ -24,9 +24,11 @@ import type {
   StagedChangeKind,
   StagedChangeStatus,
   SurfaceId,
+  TurnFileAttachment,
   TurnEvent,
   TurnStatus
 } from '@shared/assistant-runtime'
+import { getTurnFileAttachments, normalizeTurnAttachments } from '@shared/assistant-runtime'
 
 export type ProjectArchiveModule =
   | 'project'
@@ -95,6 +97,7 @@ interface AssistantV2TurnRow {
   id: string
   session_id: string
   user_message: string
+  attachments_json: string
   assistant_message: string
   status: string
   created_at: string
@@ -290,13 +293,24 @@ function rowToAssistantV2Session(row: AssistantV2SessionRow): AssistantSession {
 }
 
 function rowToAssistantV2Turn(row: AssistantV2TurnRow): AssistantTurn {
+  const attachments = parseAssistantTurnAttachments(row.attachments_json)
   return {
     id: row.id,
     sessionId: row.session_id,
     userMessage: row.user_message,
+    ...(attachments.length > 0 ? { attachments } : {}),
     assistantMessage: row.assistant_message,
     status: row.status as TurnStatus,
     createdAt: row.created_at
+  }
+}
+
+function parseAssistantTurnAttachments(value: unknown): TurnFileAttachment[] {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value || '[]') : value
+    return getTurnFileAttachments(normalizeTurnAttachments(parsed ?? []))
+  } catch {
+    return []
   }
 }
 
@@ -387,8 +401,8 @@ function writeAssistantV2Archive(
   `)
   const insertTurn = db.prepare(`
     INSERT OR REPLACE INTO assistant_turns
-      (id, session_id, user_message, assistant_message, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+      (id, session_id, user_message, attachments_json, assistant_message, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `)
   const insertEvent = db.prepare(`
     INSERT OR REPLACE INTO assistant_events
@@ -421,6 +435,7 @@ function writeAssistantV2Archive(
       turn.id,
       turn.sessionId,
       turn.userMessage,
+      JSON.stringify(parseAssistantTurnAttachments(turn.attachments ?? [])),
       turn.assistantMessage,
       turn.status,
       turn.createdAt

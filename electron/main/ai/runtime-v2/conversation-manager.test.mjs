@@ -161,6 +161,66 @@ test('只加载最近指定数量的轮次并保持时间正序', () => {
   assert.equal(conversation.countTurns(session.id), 5)
 })
 
+test('图片附件随轮次持久化并可在重启后恢复', () => {
+  const db = createDatabase()
+  const conversation = new ConversationManager(db)
+  const session = conversation.createSession({
+    projectId: 'project-1',
+    surfaceId: 'global-page',
+    title: '图片会话'
+  })
+  const image = {
+    kind: 'image',
+    ref: 'image:test',
+    label: '人物参考.png',
+    mimeType: 'image/png',
+    size: 3,
+    dataUrl: 'data:image/png;base64,AQID'
+  }
+
+  const created = conversation.createTurn({
+    sessionId: session.id,
+    userMessage: '分析人物造型',
+    attachments: [image]
+  })
+  const restarted = new ConversationManager(db)
+
+  assert.deepEqual(created.attachments, [image])
+  assert.deepEqual(restarted.getTurn(created.id)?.attachments, [image])
+  assert.deepEqual(restarted.listTurns(session.id)[0]?.attachments, [image])
+})
+
+test('文本附件随轮次持久化并可在重启后恢复', () => {
+  const db = createDatabase()
+  const conversation = new ConversationManager(db)
+  const session = conversation.createSession({
+    projectId: 'project-1',
+    surfaceId: 'global-page',
+    title: '文本附件会话'
+  })
+  const document = {
+    kind: 'document',
+    ref: 'document:test',
+    label: '资料.txt',
+    mimeType: 'text/plain',
+    size: 12,
+    content: '这是一份测试资料。'
+  }
+
+  const created = conversation.createTurn({
+    sessionId: session.id,
+    userMessage: '总结资料',
+    attachments: [document]
+  })
+  const restarted = new ConversationManager(db)
+
+  assert.deepEqual(created.attachments, [{
+    ...document,
+    size: new TextEncoder().encode(document.content).byteLength
+  }])
+  assert.deepEqual(restarted.getTurn(created.id)?.attachments, created.attachments)
+})
+
 test('按截止时间清理会话并级联删除轮次和事件', () => {
   const db = createDatabase()
   const conversation = new ConversationManager(db)

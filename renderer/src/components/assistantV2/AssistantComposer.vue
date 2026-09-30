@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { NButton, NCheckbox, NPopover, NRadio, NRadioGroup } from 'naive-ui'
-import { ChevronDown, Sparkles, Square, Undo2, X } from 'lucide-vue-next'
-import type { SkillUseMode, SkillUsePolicy } from '@shared/assistant-runtime'
+import { ChevronDown, FileText, Paperclip, Sparkles, Square, Undo2, X } from 'lucide-vue-next'
+import type {
+  SkillUseMode,
+  SkillUsePolicy,
+  TurnDocumentAttachment,
+  TurnImageAttachment
+} from '@shared/assistant-runtime'
 import type { ProjectSkillItem } from '@/types/app'
 
 const props = withDefaults(defineProps<{
@@ -15,9 +20,13 @@ const props = withDefaults(defineProps<{
   restoredLabel?: string
   skillPolicy?: SkillUsePolicy
   availableSkills?: ProjectSkillItem[]
+  imageAttachments?: TurnImageAttachment[]
+  documentAttachments?: TurnDocumentAttachment[]
 }>(), {
   skillPolicy: () => ({ mode: 'auto', skillIds: [] }),
-  availableSkills: () => []
+  availableSkills: () => [],
+  imageAttachments: () => [],
+  documentAttachments: () => []
 })
 
 const emit = defineEmits<{
@@ -27,9 +36,15 @@ const emit = defineEmits<{
   (e: 'edit-last'): void
   (e: 'clear-restored'): void
   (e: 'update:skill-policy', value: SkillUsePolicy): void
+  (e: 'add-images', files: File[]): void
+  (e: 'remove-image', ref: string): void
+  (e: 'add-documents', files: File[]): void
+  (e: 'remove-document', ref: string): void
 }>()
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const isDraggingAttachment = ref(false)
 let lastEscapeAt = 0
 
 const skillPolicyLabel = computed(() => {
@@ -40,9 +55,11 @@ const skillPolicyLabel = computed(() => {
 
 const sendDisabled = computed(() => (
   props.isEditing
-  || !props.modelValue.trim()
+  || (!props.modelValue.trim() && props.imageAttachments.length === 0 && props.documentAttachments.length === 0)
   || (props.skillPolicy.mode === 'only' && props.skillPolicy.skillIds.length === 0)
 ))
+
+const inputDisabled = computed(() => props.isStreaming || props.isEditing)
 
 function setSkillMode(mode: SkillUseMode): void {
   emit('update:skill-policy', { ...props.skillPolicy, mode })
@@ -62,6 +79,41 @@ function handleInput(event: Event) {
   const target = event.target as HTMLTextAreaElement
   emit('update:modelValue', target.value)
   autosize(target)
+}
+
+function addFiles(files: FileList | File[]): void {
+  if (inputDisabled.value) return
+  const items = Array.from(files)
+  const images = items.filter((file) => file.type.startsWith('image/'))
+  const documents = items.filter((file) => !file.type.startsWith('image/'))
+  if (images.length > 0) emit('add-images', images)
+  if (documents.length > 0) emit('add-documents', documents)
+}
+
+function openFilePicker(): void {
+  if (!inputDisabled.value) fileInputRef.value?.click()
+}
+
+function handleFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement
+  if (input.files) addFiles(input.files)
+  input.value = ''
+}
+
+function handlePaste(event: ClipboardEvent): void {
+  const files = event.clipboardData?.files
+  if (!files?.length) return
+  event.preventDefault()
+  addFiles(files)
+}
+
+function handleDrop(event: DragEvent): void {
+  isDraggingAttachment.value = false
+  if (event.dataTransfer?.files) addFiles(event.dataTransfer.files)
+}
+
+function formatFileSize(size: number): string {
+  return size < 1024 ? `${size} B` : `${Math.max(1, Math.round(size / 1024))} KB`
 }
 
 function autosize(el: HTMLTextAreaElement) {
@@ -103,13 +155,53 @@ watch(
 
 <template>
   <div class="composer-wrap">
-    <div class="composer" :class="{ streaming: props.isStreaming, editing: props.isEditing }">
+    <div
+      class="composer"
+      :class="{ streaming: props.isStreaming, editing: props.isEditing, 'drop-active': isDraggingAttachment }"
+      @dragenter.prevent="isDraggingAttachment = true"
+      @dragover.prevent="isDraggingAttachment = true"
+      @dragleave.prevent="isDraggingAttachment = false"
+      @drop.prevent="handleDrop"
+    >
       <div v-if="props.restoredLabel" class="restored-draft">
         <Undo2 :size="12" />
         <span>{{ props.restoredLabel }}</span>
         <button type="button" title="清除回填内容" aria-label="清除回填内容" @click="emit('clear-restored')">
           <X :size="11" />
         </button>
+      </div>
+      <div v-if="props.imageAttachments.length" class="image-list">
+        <div v-for="image in props.imageAttachments" :key="image.ref" class="image-chip">
+          <img :src="image.dataUrl" :alt="image.label" />
+          <span :title="image.label">{{ image.label }}</span>
+          <button
+            type="button"
+            :title="`移除 ${image.label}`"
+            :aria-label="`移除 ${image.label}`"
+            :disabled="inputDisabled"
+            @click="emit('remove-image', image.ref)"
+          >
+            <X :size="11" />
+          </button>
+        </div>
+      </div>
+      <div v-if="props.documentAttachments.length" class="document-list">
+        <div v-for="document in props.documentAttachments" :key="document.ref" class="document-chip">
+          <span class="document-icon"><FileText :size="18" /></span>
+          <span class="document-copy">
+            <strong :title="document.label">{{ document.label }}</strong>
+            <small>{{ formatFileSize(document.size) }}</small>
+          </span>
+          <button
+            type="button"
+            :title="`移除 ${document.label}`"
+            :aria-label="`移除 ${document.label}`"
+            :disabled="inputDisabled"
+            @click="emit('remove-document', document.ref)"
+          >
+            <X :size="11" />
+          </button>
+        </div>
       </div>
       <textarea
         ref="textareaRef"
@@ -118,6 +210,7 @@ watch(
         :placeholder="props.isEditing ? '正在编辑历史提问' : '继续追问，或让助理动手。Enter 发送 · Shift+Enter 换行'"
         @input="handleInput"
         @keydown="handleKeydown"
+        @paste="handlePaste"
       />
       <div class="foot">
         <div class="hint">
@@ -129,6 +222,24 @@ watch(
           <span v-else>AI的修改会显示在暂存区，需要你逐条确认。</span>
         </div>
         <div class="actions">
+          <input
+            ref="fileInputRef"
+            class="image-file-input"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.markdown,.csv,.json,.log,text/plain,text/markdown,text/csv,application/json"
+            multiple
+            @change="handleFileChange"
+          />
+          <button
+            type="button"
+            class="attach-trigger"
+            :disabled="inputDisabled"
+            title="上传图片或文本文件（也可粘贴或拖入）"
+            aria-label="上传图片或文本文件"
+            @click="openFilePicker"
+          >
+            <Paperclip :size="14" />
+          </button>
           <NPopover trigger="click" placement="top-end" :show-arrow="false" :disabled="props.isStreaming || props.isEditing">
             <template #trigger>
               <button
@@ -200,6 +311,7 @@ watch(
   padding: 12px 32px 22px;
   background: linear-gradient(180deg, transparent, var(--arc-bg-body) 30%);
 }
+
 .composer {
   max-width: 720px;
   margin: 0 auto;
@@ -219,6 +331,10 @@ watch(
 }
 .composer.editing {
   opacity: 0.56;
+}
+.composer.drop-active {
+  border-color: var(--arc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--arc-primary) 12%, transparent), var(--arc-shadow-md);
 }
 .restored-draft {
   align-self: flex-start;
@@ -274,6 +390,124 @@ textarea:disabled {
 }
 textarea::placeholder {
   color: var(--arc-text-hint);
+}
+.image-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.image-chip {
+  width: 88px;
+  flex: 0 0 auto;
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-body);
+}
+.image-chip img {
+  width: 76px;
+  height: 54px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--arc-bg-surface);
+}
+.image-chip span {
+  overflow: hidden;
+  color: var(--arc-text-secondary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-chip button {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  cursor: pointer;
+}
+.image-chip button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.document-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.document-chip {
+  width: 176px;
+  min-height: 48px;
+  flex: 0 0 auto;
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 28px 7px 8px;
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-body);
+}
+.document-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--arc-primary-soft);
+  color: var(--arc-primary);
+}
+.document-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.document-copy strong {
+  overflow: hidden;
+  color: var(--arc-text-secondary);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.document-copy small {
+  color: var(--arc-text-hint);
+  font-family: var(--v2-mono);
+  font-size: 9px;
+}
+.document-chip button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--arc-text-hint);
+  cursor: pointer;
+}
+.document-chip button:hover {
+  background: var(--arc-border);
+  color: var(--arc-text-primary);
+}
+.document-chip button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 .foot {
   display: flex;
@@ -339,6 +573,29 @@ textarea::placeholder {
   flex-shrink: 0;
   align-items: center;
   gap: 6px;
+}
+.image-file-input {
+  display: none;
+}
+.attach-trigger {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--arc-border);
+  border-radius: 8px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+}
+.attach-trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--arc-primary) 50%, var(--arc-border));
+  color: var(--arc-primary);
+}
+.attach-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .skill-policy-trigger {
   min-width: 0;

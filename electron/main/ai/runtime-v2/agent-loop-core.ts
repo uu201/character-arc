@@ -18,6 +18,11 @@ import type {
   TurnEvent,
   TurnStatus
 } from '@shared/assistant-runtime'
+import {
+  formatTurnPromptWithDocuments,
+  getTurnFileAttachments,
+  getTurnImageAttachments
+} from '@shared/assistant-runtime'
 import type {
   AiAgentStreamHandlers,
   AiRunUsage,
@@ -256,9 +261,12 @@ export class AgentLoopCore {
    *   4. 根据成功/取消/错误更新 Turn 状态、追加终态事件
    */
   async run(options: AgentLoopRunOptions): Promise<AgentLoopRunResult> {
+    const fileAttachments = getTurnFileAttachments(options.turnInput.attachments)
+    const imageAttachments = getTurnImageAttachments(fileAttachments)
     const turn = this.conversation.createTurn({
       sessionId: options.session.id,
-      userMessage: options.turnInput.userMessage
+      userMessage: options.turnInput.userMessage,
+      attachments: fileAttachments
     })
     const turnId = turn.id
     const sessionId = options.session.id
@@ -288,7 +296,8 @@ export class AgentLoopCore {
       const result = await this.runAgentImpl({
         settings: options.settings,
         systemPrompt: options.systemPrompt,
-        userPrompt: options.turnInput.userMessage,
+        userPrompt: formatTurnPromptWithDocuments(options.turnInput.userMessage, fileAttachments),
+        imageAttachments,
         tools,
         ctx: {
           signal: options.signal,

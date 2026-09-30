@@ -322,11 +322,17 @@ async function handleCommit(ids?: string[]): Promise<void> {
         :mode-label="currentMode.label"
         :skill-policy="assistant.skillPolicy.value"
         :available-skills="assistant.availableSkills.value"
+        :image-attachments="assistant.imageAttachments.value"
+        :document-attachments="assistant.documentAttachments.value"
         @send="sendWithMode"
         @cancel="assistant.cancel()"
         @edit-last="assistant.startEditingLastTurn()"
         @clear-restored="assistant.clearRestoredDraft()"
         @update:skill-policy="assistant.updateSkillPolicy"
+        @add-images="assistant.addImageFiles"
+        @remove-image="assistant.removeImageAttachment"
+        @add-documents="assistant.addDocumentFiles"
+        @remove-document="assistant.removeDocumentAttachment"
       />
     </div>
 

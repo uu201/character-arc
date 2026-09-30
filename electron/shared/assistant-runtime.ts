@@ -92,6 +92,8 @@ export interface AssistantTurn {
   sessionId: string
   /** 用户消息（原始纯文本，含 @引用未展开）。 */
   userMessage: string
+  /** 随消息持久化的文件附件，用于历史消息预览与再次发送。 */
+  attachments?: TurnFileAttachment[]
   /** Agent 最终回复。streaming 中为空。 */
   assistantMessage: string
   status: TurnStatus
@@ -367,10 +369,198 @@ export interface TurnSendRequest {
   skillPolicy?: SkillUsePolicy
 }
 
-export interface TurnAttachment {
+export const ASSISTANT_IMAGE_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif'
+] as const
+
+export type AssistantImageMimeType = typeof ASSISTANT_IMAGE_MIME_TYPES[number]
+
+export const ASSISTANT_IMAGE_LIMITS = {
+  maxCount: 4,
+  maxBytesPerImage: 5 * 1024 * 1024,
+  maxTotalBytes: 12 * 1024 * 1024
+} as const
+
+export const ASSISTANT_DOCUMENT_MIME_TYPES = [
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'application/json'
+] as const
+
+export type AssistantDocumentMimeType = typeof ASSISTANT_DOCUMENT_MIME_TYPES[number]
+
+export const ASSISTANT_DOCUMENT_LIMITS = {
+  maxCount: 4,
+  maxBytesPerDocument: 256 * 1024,
+  maxTotalBytes: 512 * 1024
+} as const
+
+export type TurnReferenceAttachment = {
   kind: 'chapter' | 'selection' | 'entity' | 'skill'
   ref: string        // 例如 'chapter:cha_042' / 'skill:polish-v2'
   label?: string
+}
+
+export type TurnImageAttachment = {
+  kind: 'image'
+  /** 前端生成的稳定标识，只用于删除、预览和去重。 */
+  ref: string
+  label: string
+  mimeType: AssistantImageMimeType
+  size: number
+  /** 图片 data URL；经大小限制校验后随 turn 持久化。 */
+  dataUrl: string
+}
+
+export type TurnDocumentAttachment = {
+  kind: 'document'
+  ref: string
+  label: string
+  mimeType: AssistantDocumentMimeType
+  size: number
+  /** UTF-8 文本内容；只支持可直接读取的纯文本类文件。 */
+  content: string
+}
+
+export type TurnFileAttachment = TurnImageAttachment | TurnDocumentAttachment
+export type TurnAttachment = TurnReferenceAttachment | TurnFileAttachment
+
+function estimateBase64Bytes(base64: string): number {
+  const normalized = base64.replace(/\s+/g, '')
+  if (!normalized) return 0
+  const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor(normalized.length * 3 / 4) - padding)
+}
+
+/** 收敛不可信 IPC 输入，阻止超大或伪造文件进入模型请求。 */
+export function normalizeTurnAttachments(value: unknown): TurnAttachment[] {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value)) throw new Error('AI 助理附件格式无效。')
+
+  const result: TurnAttachment[] = []
+  let imageCount = 0
+  let totalImageBytes = 0
+  let documentCount = 0
+  let totalDocumentBytes = 0
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') throw new Error('AI 助理附件格式无效。')
+    const raw = item as Record<string, unknown>
+    const kind = String(raw.kind ?? '')
+    const ref = String(raw.ref ?? '').trim()
+    if (!ref) throw new Error('AI 助理附件缺少有效标识。')
+
+    if (['chapter', 'selection', 'entity', 'skill'].includes(kind)) {
+      result.push({
+        kind: kind as TurnReferenceAttachment['kind'],
+        ref,
+        ...(typeof raw.label === 'string' && raw.label.trim()
+          ? { label: raw.label.trim().slice(0, 160) }
+          : {})
+      })
+      continue
+    }
+
+    if (kind === 'image') {
+      imageCount += 1
+      if (imageCount > ASSISTANT_IMAGE_LIMITS.maxCount) {
+        throw new Error(`每次最多上传 ${ASSISTANT_IMAGE_LIMITS.maxCount} 张图片。`)
+      }
+      const mimeType = String(raw.mimeType ?? '') as AssistantImageMimeType
+      if (!ASSISTANT_IMAGE_MIME_TYPES.includes(mimeType)) {
+        throw new Error('仅支持 PNG、JPEG、WebP 和 GIF 图片。')
+      }
+      const dataUrl = String(raw.dataUrl ?? '')
+      const prefix = `data:${mimeType};base64,`
+      if (!dataUrl.startsWith(prefix)) throw new Error('图片数据格式无效。')
+      const actualBytes = estimateBase64Bytes(dataUrl.slice(prefix.length))
+      if (actualBytes <= 0 || actualBytes > ASSISTANT_IMAGE_LIMITS.maxBytesPerImage) {
+        throw new Error('单张图片不能超过 5 MB。')
+      }
+      totalImageBytes += actualBytes
+      if (totalImageBytes > ASSISTANT_IMAGE_LIMITS.maxTotalBytes) {
+        throw new Error('本次上传图片总大小不能超过 12 MB。')
+      }
+      result.push({
+        kind: 'image',
+        ref,
+        label: String(raw.label ?? '图片').trim().slice(0, 160) || '图片',
+        mimeType,
+        size: actualBytes,
+        dataUrl
+      })
+      continue
+    }
+
+    if (kind === 'document') {
+      documentCount += 1
+      if (documentCount > ASSISTANT_DOCUMENT_LIMITS.maxCount) {
+        throw new Error(`每次最多上传 ${ASSISTANT_DOCUMENT_LIMITS.maxCount} 个文本文件。`)
+      }
+      const mimeType = String(raw.mimeType ?? '') as AssistantDocumentMimeType
+      if (!ASSISTANT_DOCUMENT_MIME_TYPES.includes(mimeType)) {
+        throw new Error('仅支持 TXT、Markdown、CSV、JSON 和 LOG 文本文件。')
+      }
+      const content = String(raw.content ?? '')
+      const actualBytes = new TextEncoder().encode(content).byteLength
+      if (actualBytes <= 0 || actualBytes > ASSISTANT_DOCUMENT_LIMITS.maxBytesPerDocument) {
+        throw new Error('单个文本文件不能超过 256 KB，且内容不能为空。')
+      }
+      totalDocumentBytes += actualBytes
+      if (totalDocumentBytes > ASSISTANT_DOCUMENT_LIMITS.maxTotalBytes) {
+        throw new Error('本次上传文本文件总大小不能超过 512 KB。')
+      }
+      result.push({
+        kind: 'document',
+        ref,
+        label: String(raw.label ?? '文本文件').trim().slice(0, 160) || '文本文件',
+        mimeType,
+        size: actualBytes,
+        content
+      })
+      continue
+    }
+
+    throw new Error(`不支持的 AI 助理附件类型：${kind || 'unknown'}`)
+  }
+
+  return result
+}
+
+export function getTurnImageAttachments(attachments?: TurnAttachment[]): TurnImageAttachment[] {
+  return (attachments ?? []).filter((item): item is TurnImageAttachment => item.kind === 'image')
+}
+
+export function getTurnDocumentAttachments(attachments?: TurnAttachment[]): TurnDocumentAttachment[] {
+  return (attachments ?? []).filter((item): item is TurnDocumentAttachment => item.kind === 'document')
+}
+
+export function getTurnFileAttachments(attachments?: TurnAttachment[]): TurnFileAttachment[] {
+  return (attachments ?? []).filter((item): item is TurnFileAttachment => (
+    item.kind === 'image' || item.kind === 'document'
+  ))
+}
+
+/** 把文本附件正文附加到仅供模型读取的用户提示中。 */
+export function formatTurnPromptWithDocuments(userMessage: string, attachments?: TurnAttachment[]): string {
+  const documents = getTurnDocumentAttachments(attachments)
+  if (documents.length === 0) return userMessage
+  const documentText = documents.map((document, index) => (
+    `--- 文本附件 ${index + 1}：${document.label} ---\n${document.content}\n--- 附件结束 ---`
+  )).join('\n\n')
+  return `${userMessage.trim()}\n\n以下文本文件由用户随本轮消息提供，请结合其内容完成请求：\n\n${documentText}`
+}
+
+/** 兼容旧调用：把图片名称附加到纯文本消息。新 turn 应直接持久化 attachments。 */
+export function formatTurnUserMessage(userMessage: string, attachments?: TurnAttachment[]): string {
+  const images = getTurnImageAttachments(attachments)
+  if (images.length === 0) return userMessage
+  const summary = `【图片附件】${images.map((item) => item.label).join('、')}`
+  return userMessage.trim() ? `${userMessage.trim()}\n\n${summary}` : summary
 }
 
 export interface TurnCancelRequest {

@@ -21,9 +21,11 @@ import type {
   AssistantTurn,
   PersistedTurnEvent,
   SurfaceId,
+  TurnFileAttachment,
   TurnEvent,
   TurnStatus
 } from '@shared/assistant-runtime'
+import { getTurnFileAttachments, normalizeTurnAttachments } from '@shared/assistant-runtime'
 
 /**
  * 初始化 v2 三张表。幂等：若已存在则跳过。
@@ -46,6 +48,7 @@ export function initAssistantRuntimeSchema(db: DatabaseSync): void {
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
       user_message TEXT NOT NULL,
+      attachments_json TEXT NOT NULL DEFAULT '[]',
       assistant_message TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
@@ -114,6 +117,11 @@ export function initAssistantRuntimeSchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_assistant_turn_states_session
       ON assistant_turn_states (session_id, updated_at DESC);
   `)
+
+  const turnColumns = db.prepare('PRAGMA table_info(assistant_turns)').all() as unknown as Array<{ name: string }>
+  if (!turnColumns.some((column) => column.name === 'attachments_json')) {
+    db.exec("ALTER TABLE assistant_turns ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'")
+  }
 }
 
 // ============================================================================
@@ -144,6 +152,7 @@ export interface DeleteSessionsBeforeFilter {
 export interface CreateTurnInput {
   sessionId: string
   userMessage: string
+  attachments?: TurnFileAttachment[]
 }
 
 export interface UpsertTurnStateInput {
@@ -175,6 +184,7 @@ interface TurnRow {
   id: string
   session_id: string
   user_message: string
+  attachments_json: string
   assistant_message: string
   status: string
   created_at: string
@@ -202,13 +212,23 @@ function rowToSession(row: SessionRow): AssistantSession {
 }
 
 function rowToTurn(row: TurnRow): AssistantTurn {
+  const attachments = parseTurnFileAttachments(row.attachments_json)
   return {
     id: row.id,
     sessionId: row.session_id,
     userMessage: row.user_message,
+    ...(attachments.length > 0 ? { attachments } : {}),
     assistantMessage: row.assistant_message,
     status: row.status as TurnStatus,
     createdAt: row.created_at
+  }
+}
+
+function parseTurnFileAttachments(value: string): TurnFileAttachment[] {
+  try {
+    return getTurnFileAttachments(normalizeTurnAttachments(JSON.parse(value || '[]')))
+  } catch {
+    return []
   }
 }
 
@@ -301,8 +321,8 @@ export class ConversationManager {
       ),
       insertTurn: db.prepare(
         `INSERT INTO assistant_turns
-         (id, session_id, user_message, assistant_message, status, created_at)
-         VALUES (?, ?, ?, '', ?, ?)`
+         (id, session_id, user_message, attachments_json, assistant_message, status, created_at)
+         VALUES (?, ?, ?, ?, '', ?, ?)`
       ),
       updateTurnStatus: db.prepare(
         `UPDATE assistant_turns
@@ -436,10 +456,12 @@ export class ConversationManager {
 
   createTurn(input: CreateTurnInput): AssistantTurn {
     const now = new Date().toISOString()
+    const attachments = getTurnFileAttachments(normalizeTurnAttachments(input.attachments ?? []))
     const turn: AssistantTurn = {
       id: randomUUID(),
       sessionId: input.sessionId,
       userMessage: input.userMessage,
+      ...(attachments.length > 0 ? { attachments } : {}),
       assistantMessage: '',
       status: 'streaming',
       createdAt: now
@@ -448,6 +470,7 @@ export class ConversationManager {
       turn.id,
       turn.sessionId,
       turn.userMessage,
+      JSON.stringify(attachments),
       turn.status,
       turn.createdAt
     )

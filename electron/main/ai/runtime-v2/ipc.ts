@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import {
   ASSISTANT_IPC_CHANNELS,
+  normalizeTurnAttachments,
   type AssistantEventPush,
   type AssistantSession,
   type StageAcceptRequest,
@@ -351,12 +352,16 @@ function registerTurnHandlers(): void {
         const session = cm.getSession(payload.sessionId)
         if (!session) throw new Error(`session not found: ${payload.sessionId}`)
         const startedAt = new Date().toISOString()
+        const normalizedPayload: TurnSendRequest = {
+          ...payload,
+          attachments: normalizeTurnAttachments(payload.attachments)
+        }
 
         // 组装执行计划（Phase 2 实现），拿到 systemPrompt + tools + settings
         const plan = await resolvePlan({
           session,
-          surface: payload.surface,
-          request: payload
+          surface: normalizedPayload.surface,
+          request: normalizedPayload
         })
 
         // Emitter：把 TurnEvent 通过 EVENT_STREAM 通道 push 到发起方 window
@@ -373,9 +378,9 @@ function registerTurnHandlers(): void {
           session,
           surface: payload.surface,
           turnInput: {
-            userMessage: payload.userMessage,
-            intentHint: payload.intentHint,
-            attachments: payload.attachments
+            userMessage: normalizedPayload.userMessage,
+            intentHint: normalizedPayload.intentHint,
+            attachments: normalizedPayload.attachments
           },
           systemPrompt: plan.systemPrompt,
           tools: plan.tools,

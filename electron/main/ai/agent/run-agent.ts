@@ -1,4 +1,6 @@
 import { streamText, stepCountIs, dynamicTool, jsonSchema } from 'ai'
+import type { ModelMessage } from 'ai'
+import type { TurnImageAttachment } from '@shared/assistant-runtime'
 import { buildSystemPrompt, createModel } from '../provider'
 import type { AiRunUsage, AppSettings, AiAgentStreamHandlers, ToolCallTrace } from '../shared-types'
 import type { Tool, ToolContext } from './tools/types'
@@ -12,6 +14,7 @@ export type RunAgentParams = {
   settings: AppSettings
   systemPrompt: string
   userPrompt: string
+  imageAttachments?: TurnImageAttachment[]
   tools: Tool[]
   ctx: ToolContext
   handlers: AiAgentStreamHandlers
@@ -40,6 +43,21 @@ type AgentToolCallFinishEvent = AgentToolCallStartEvent & {
   success: boolean
   output?: unknown
   error?: unknown
+}
+
+function buildUserPrompt(userPrompt: string, images: TurnImageAttachment[] = []): string | ModelMessage[] {
+  if (images.length === 0) return userPrompt
+  return [{
+    role: 'user',
+    content: [
+      { type: 'text', text: userPrompt },
+      ...images.map((image) => ({
+        type: 'image' as const,
+        image: new URL(image.dataUrl),
+        mediaType: image.mimeType
+      }))
+    ]
+  }]
 }
 
 function shouldSynthesizeFinalAnswer(input: {
@@ -176,7 +194,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   ) => streamText({
     model: createModel(params.settings),
     system: buildSystemPrompt(params.settings, params.systemPrompt),
-    prompt: params.userPrompt,
+    prompt: buildUserPrompt(params.userPrompt, params.imageAttachments),
     ...resolveSamplingOptions(params.settings),
     ...(params.disableTools ? {} : { tools: sdkTools, stopWhen: stepCountIs(maxSteps) }),
     abortSignal: params.ctx.signal,
@@ -357,12 +375,12 @@ async function synthesizeFinalAnswer(
   const result = streamText({
     model: createModel(params.settings),
     system: buildSystemPrompt(params.settings, params.systemPrompt),
-    prompt: [
+    prompt: buildUserPrompt([
       params.userPrompt,
       '以下是本轮已经收集到的工具结果，仅作为回答依据：',
       observationText,
       '请不要调用任何工具，直接给出完整的最终答案，并严格满足任务要求的输出格式。'
-    ].join('\n\n'),
+    ].join('\n\n'), params.imageAttachments),
     ...resolveSamplingOptions(params.settings),
     abortSignal: params.ctx.signal
   })

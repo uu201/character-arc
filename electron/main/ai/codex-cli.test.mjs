@@ -50,6 +50,21 @@ test('Codex exec 使用只读 JSONL 与 stdin，并传递模型和推理强度',
   assert.deepEqual(args.slice(-3), ['--model', 'gpt-5.6-sol', '-'])
 })
 
+test('Codex exec 将图片路径作为初始提示附件传入', () => {
+  const args = buildCodexExecArgs(codexSettings, [
+    'C:\\Temp\\scene.png',
+    'C:\\Temp\\character.jpg'
+  ])
+
+  assert.deepEqual(args.slice(-5), [
+    '--image',
+    'C:\\Temp\\scene.png',
+    '--image',
+    'C:\\Temp\\character.jpg',
+    '-'
+  ])
+})
+
 test('Codex CLI 路径拒绝混入 shell 环境变量', () => {
   assert.throws(
     () => resolveCodexCommand({

@@ -1,8 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { constants as fsConstants, accessSync, existsSync, statSync } from 'node:fs'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { delimiter, dirname, extname, join } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { createInterface } from 'node:readline'
+import type { TurnImageAttachment } from '@shared/assistant-runtime'
 import type { AiRunUsage, AppSettings, AiStreamHandlers, PromptPair } from './shared-types'
 import { normalizeProxyUrl } from './proxy-fetch'
 
@@ -160,7 +162,7 @@ function buildCodexPrompt(settings: AppSettings, prompt: PromptPair): string {
 }
 
 /** 构建只读、无持久会话的 Codex exec 参数。Prompt 始终通过 stdin 传入。 */
-export function buildCodexExecArgs(settings: AppSettings): string[] {
+export function buildCodexExecArgs(settings: AppSettings, imagePaths: readonly string[] = []): string[] {
   const args = [
     'exec',
     '--json',
@@ -180,8 +182,40 @@ export function buildCodexExecArgs(settings: AppSettings): string[] {
   if (model && model.toLowerCase() !== 'default') {
     args.push('--model', model)
   }
+  for (const imagePath of imagePaths) {
+    args.push('--image', imagePath)
+  }
   args.push('-')
   return args
+}
+
+function imageExtension(mimeType: TurnImageAttachment['mimeType']): string {
+  if (mimeType === 'image/jpeg') return '.jpg'
+  if (mimeType === 'image/webp') return '.webp'
+  if (mimeType === 'image/gif') return '.gif'
+  return '.png'
+}
+
+async function materializeCodexImages(images: TurnImageAttachment[] = []): Promise<{
+  directory?: string
+  paths: string[]
+}> {
+  if (images.length === 0) return { paths: [] }
+  const directory = await mkdtemp(join(tmpdir(), 'characterarc-codex-images-'))
+  const paths: string[] = []
+  try {
+    for (const [index, image] of images.entries()) {
+      const commaIndex = image.dataUrl.indexOf(',')
+      if (commaIndex < 0) throw new Error('Codex 图片数据格式无效。')
+      const path = join(directory, `image-${index + 1}${imageExtension(image.mimeType)}`)
+      await writeFile(path, Buffer.from(image.dataUrl.slice(commaIndex + 1), 'base64'))
+      paths.push(path)
+    }
+    return { directory, paths }
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true })
+    throw error
+  }
 }
 
 function makeAbortError(): Error {
@@ -270,19 +304,21 @@ export function parseCodexJsonLine(
 export async function runCodexCli(
   settings: AppSettings,
   prompt: PromptPair,
-  options: { signal?: AbortSignal; handlers?: AiStreamHandlers } = {}
+  options: { signal?: AbortSignal; handlers?: AiStreamHandlers; images?: TurnImageAttachment[] } = {}
 ): Promise<CodexCliResult> {
   options.signal?.throwIfAborted()
   const command = resolveCodexCommand(settings)
-  const args = [...command.prefixArgs, ...buildCodexExecArgs(settings)]
-  const child = spawn(command.program, args, {
-    cwd: tmpdir(),
-    env: buildCodexEnvironment(settings),
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true
-  }) as ChildProcessWithoutNullStreams
+  const tempImages = await materializeCodexImages(options.images)
+  try {
+    const args = [...command.prefixArgs, ...buildCodexExecArgs(settings, tempImages.paths)]
+    const child = spawn(command.program, args, {
+      cwd: tmpdir(),
+      env: buildCodexEnvironment(settings),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true
+    }) as ChildProcessWithoutNullStreams
 
-  return await new Promise<CodexCliResult>((resolve, reject) => {
+    return await new Promise<CodexCliResult>((resolve, reject) => {
     let fullText = ''
     let stderr = ''
     let usage: AiRunUsage | undefined
@@ -336,7 +372,12 @@ export async function runCodexCli(
 
     child.stdin.on('error', (error) => finishReject(classifyRunError(String(error))))
     child.stdin.end(buildCodexPrompt(settings, prompt))
-  })
+    })
+  } finally {
+    if (tempImages.directory) {
+      await rm(tempImages.directory, { recursive: true, force: true })
+    }
+  }
 }
 
 async function captureCodexCommand(
