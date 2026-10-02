@@ -12,6 +12,7 @@ import type { StoredState } from './storeHelpers'
 
 const SETTINGS_PERSIST_DELAY_MS = 300
 const WORKSPACE_SYNC_DELAY_MS = 500
+const CHAPTER_ORDER_RETRY_DELAY_MS = 1500
 
 export interface WorkspacePersistenceDeps {
   hasHydrated: Ref<boolean>
@@ -32,11 +33,12 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
   let workspaceEntityPersistPromise: Promise<void> | null = null
   let chapterPersistPromise: Promise<void> | null = null
   let chapterOrderPersistPromise: Promise<void> | null = null
+  let chapterOrderRetryTimer: number | null = null
   let activeChapterPersistCount = 0
   let persistRequested = false
   let chapterSaveTimer: number | null = null
   let workspaceEntitySaveTimer: number | null = null
-  let pendingChapterOrder: SaveChapterOrderRequest | null = null
+  const pendingChapterOrders = new Map<string, SaveChapterOrderRequest>()
   const pendingWorkspaceEntities = new Map<string, SaveWorkspaceEntitiesRequest>()
   const pendingChapters = new Map<string, {
     projectWordCount: string
@@ -148,7 +150,7 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
   }
 
   function updateChapterPendingState(): void {
-    hasPendingChapterPersists.value = pendingChapters.size > 0 || pendingChapterOrder !== null
+    hasPendingChapterPersists.value = pendingChapters.size > 0 || pendingChapterOrders.size > 0
   }
 
   function hasPendingChapterPersist(projectId: string, chapterId: string): boolean {
@@ -238,36 +240,63 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
     }
   }
 
-  function persistChapterOrder(payload: SaveChapterOrderRequest): Promise<void> {
-    if (pendingChapterOrder?.projectId === payload.projectId) {
-      const chapters = new Map(pendingChapterOrder.chapters.map((chapter) => [chapter.id, chapter]))
-      for (const chapter of payload.chapters) chapters.set(chapter.id, chapter)
-      pendingChapterOrder = { projectId: payload.projectId, chapters: Array.from(chapters.values()) }
-    } else {
-      pendingChapterOrder = payload
-    }
-    updateChapterPendingState()
+  function mergeChapterOrderBatch(
+    current: SaveChapterOrderRequest | undefined,
+    next: SaveChapterOrderRequest
+  ): SaveChapterOrderRequest {
+    const chapters = new Map(current?.chapters.map((chapter) => [chapter.id, chapter]) ?? [])
+    for (const chapter of next.chapters) chapters.set(chapter.id, chapter)
+    return { projectId: next.projectId, chapters: Array.from(chapters.values()) }
+  }
+
+  function restoreChapterOrderBatch(batch: SaveChapterOrderRequest): void {
+    const newer = pendingChapterOrders.get(batch.projectId)
+    pendingChapterOrders.set(
+      batch.projectId,
+      newer ? mergeChapterOrderBatch(batch, newer) : batch
+    )
+  }
+
+  function scheduleChapterOrderRetry(): void {
+    if (chapterOrderRetryTimer !== null || pendingChapterOrders.size === 0) return
+    chapterOrderRetryTimer = window.setTimeout(() => {
+      chapterOrderRetryTimer = null
+      void flushChapterOrderPersists()
+    }, CHAPTER_ORDER_RETRY_DELAY_MS)
+  }
+
+  function flushChapterOrderPersists(): Promise<void> {
     if (chapterOrderPersistPromise) return chapterOrderPersistPromise
+    if (pendingChapterOrders.size === 0) {
+      updateChapterPendingState()
+      return Promise.resolve()
+    }
 
     chapterOrderPersistPromise = (async () => {
       beginChapterPersist()
+      let currentBatch: SaveChapterOrderRequest | null = null
       try {
-        while (pendingChapterOrder) {
-          const next = pendingChapterOrder
-          pendingChapterOrder = null
+        while (pendingChapterOrders.size > 0) {
+          const nextEntry = pendingChapterOrders.entries().next().value as
+            | [string, SaveChapterOrderRequest]
+            | undefined
+          if (!nextEntry) break
+          const [projectId, next] = nextEntry
+          currentBatch = next
+          pendingChapterOrders.delete(projectId)
           updateChapterPendingState()
+          persistenceError.value = null
           await flushChapterPersists()
-          if (persistenceError.value) {
-            pendingChapterOrder = next
-            updateChapterPendingState()
-            return
-          }
+          if (persistenceError.value) throw new Error(persistenceError.value)
           const result = await window.characterArc.saveChapterOrder(toIpcPayload(next))
           if (!result.success) throw new Error(result.error ?? '章节排序保存失败')
+          currentBatch = null
         }
         persistenceError.value = null
       } catch (error) {
+        if (currentBatch) restoreChapterOrderBatch(currentBatch)
         persistenceError.value = error instanceof Error ? error.message : '章节排序保存失败'
+        scheduleChapterOrderRetry()
       } finally {
         endChapterPersist()
         chapterOrderPersistPromise = null
@@ -275,6 +304,19 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
       }
     })()
     return chapterOrderPersistPromise
+  }
+
+  function persistChapterOrder(payload: SaveChapterOrderRequest): Promise<void> {
+    pendingChapterOrders.set(
+      payload.projectId,
+      mergeChapterOrderBatch(pendingChapterOrders.get(payload.projectId), payload)
+    )
+    updateChapterPendingState()
+    if (chapterOrderRetryTimer !== null) {
+      window.clearTimeout(chapterOrderRetryTimer)
+      chapterOrderRetryTimer = null
+    }
+    return flushChapterOrderPersists()
   }
 
   function scheduleWorkspaceSync(): void {

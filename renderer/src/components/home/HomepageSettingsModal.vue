@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { ArrowDown, ArrowUp, Copy, Cpu, Download, GripVertical, Image, MonitorCog, Moon, Network, Palette, PlugZap, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, Copy, Cpu, DatabaseBackup, Download, GripVertical, Image, MonitorCog, Moon, Network, Palette, PlugZap, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-vue-next'
 import { NButton, NFormItem, NInput, NInputNumber, NModal, NSelect, NSwitch, useMessage } from 'naive-ui'
 import { autoSaveOptions } from '@/features/settings/autoSave'
 import { getProviderPreset, providerOptions, resolveProviderDefaults } from '@/features/settings/providerPresets'
@@ -19,6 +19,7 @@ import { darkModePresets, themePresets } from '@/theme/presets'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { AiProfile, AppSettings, DarkModeStyle, ThemeName } from '@/types/app'
 import { isCodexCliProvider, isOpenAIChatProtocol, resolveAiProviderProtocol } from '@shared/ai-provider-catalog'
+import DatabaseBackupSettings from './DatabaseBackupSettings.vue'
 
 const props = defineProps<{
   show: boolean
@@ -121,13 +122,22 @@ const navItems = [
   { id: 'sec-network', label: '网络代理', icon: Network },
   { id: 'sec-image', label: '图片生成配置', icon: Image },
   { id: 'sec-theme', label: '界面主题', icon: Palette },
-  { id: 'sec-prefs', label: '应用偏好', icon: MonitorCog }
+  { id: 'sec-prefs', label: '应用偏好', icon: MonitorCog },
+  { id: 'sec-database', label: '数据库备份', icon: DatabaseBackup }
 ]
 
 function scrollToSection(id: string): void {
   activeNav.value = id
-  const el = document.getElementById(id)
-  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const container = scrollContainer.value
+  const section = document.getElementById(id)
+  if (!container || !section) return
+
+  const containerRect = container.getBoundingClientRect()
+  const sectionRect = section.getBoundingClientRect()
+  container.scrollTo({
+    top: container.scrollTop + sectionRect.top - containerRect.top - 8,
+    behavior: 'smooth'
+  })
 }
 
 function handleScroll(): void {
@@ -1056,6 +1066,8 @@ async function saveSettings(): Promise<void> {
 <!--            <span>{{ appStore.persistenceError || '当前工作区内容已接入本地 SQLite 持久化。' }}</span>-->
 <!--          </div>-->
         </section>
+
+        <DatabaseBackupSettings />
       </div>
     </div>
 

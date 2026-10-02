@@ -253,6 +253,7 @@ watch(
   },
   { immediate: true }
 )
+
 </script>
 
 <template>
@@ -750,5 +751,6 @@ watch(
     flex-direction: column;
     align-items: flex-start;
   }
+
 }
 </style>

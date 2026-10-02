@@ -11,7 +11,8 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
-  Wrench
+  Wrench,
+  X
 } from 'lucide-vue-next'
 import type { SurfaceDefinition, TurnTruncateResult } from '@shared/assistant-runtime'
 import { useAppStore } from '@/stores/app'
@@ -436,8 +437,11 @@ async function handleCommit(ids?: string[]): Promise<void> {
         </div>
       </div>
 
-      <div v-if="assistant.lastError.value" class="err-banner">
-        {{ assistant.lastError.value }}
+      <div v-if="assistant.lastError.value" class="err-banner" role="alert">
+        <span>{{ assistant.lastError.value }}</span>
+        <button type="button" title="关闭错误提示" aria-label="关闭错误提示" @click="assistant.clearError()">
+          <X :size="14" />
+        </button>
       </div>
 
       <AssistantComposer
@@ -764,6 +768,10 @@ async function handleCommit(ids?: string[]): Promise<void> {
 }
 @keyframes pulse { 50% { opacity: 0.35; } }
 .err-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
   margin: 0 32px 8px;
   padding: 8px 12px;
   border-radius: 8px;
@@ -771,6 +779,27 @@ async function handleCommit(ids?: string[]): Promise<void> {
   border: 1px solid rgba(185, 28, 28, 0.2);
   color: #b91c1c;
   font-size: 12.5px;
+}
+.err-banner span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.err-banner button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: -3px -5px -3px 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.err-banner button:hover {
+  background: rgba(185, 28, 28, 0.1);
 }
 /* 暂存栏（展开态） */
 .stage-col {

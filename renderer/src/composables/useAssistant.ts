@@ -301,6 +301,10 @@ export function useAssistant(options: UseAssistantOptions) {
   // === 错误 ===
   const lastError = ref<string | null>(null)
 
+  function clearError(): void {
+    lastError.value = null
+  }
+
   // ==========================================================================
   // 事件 → 消息 view 转换
   // ==========================================================================
@@ -607,6 +611,7 @@ export function useAssistant(options: UseAssistantOptions) {
     try {
       const list = await A.sessionList({ projectId: pid, surfaceId: options.surface.id, scopeRef })
       sessions.value = list
+      lastError.value = null
       if (!activeSessionId.value && list.length > 0) {
         await switchSession(list[0].id)
       } else {
@@ -1388,6 +1393,7 @@ export function useAssistant(options: UseAssistantOptions) {
     documentAttachments,
     availableSkills,
     // actions
+    clearError,
     createSession,
     switchSession,
     deleteSession,

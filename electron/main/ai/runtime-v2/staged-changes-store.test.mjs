@@ -1,6 +1,33 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { DatabaseSync } from 'node:sqlite'
 import { StagedChangesStore } from './staged-changes-store.ts'
+
+function createDatabase() {
+  const db = new DatabaseSync(':memory:')
+  db.exec(`
+    CREATE TABLE assistant_staged_changes (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      tool_use_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL,
+      action TEXT NOT NULL,
+      entity_id TEXT NOT NULL DEFAULT '',
+      entity_title TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      before_text TEXT NOT NULL,
+      after_text TEXT NOT NULL,
+      chapter_html_json TEXT NOT NULL DEFAULT '',
+      entity_payload_json TEXT NOT NULL DEFAULT '',
+      candidates_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+  `)
+  return db
+}
 
 function makeChange(sessionId, title) {
   return {
@@ -19,6 +46,22 @@ function makeChange(sessionId, title) {
     }
   }
 }
+
+test('数据库连接替换后会丢弃旧 statement 并从新连接重载', () => {
+  const store = new StagedChangesStore()
+  const firstDb = createDatabase()
+  store.configure(firstDb)
+  store.add(makeChange('session-a', '旧连接变更'))
+
+  store.resetDatabase()
+  firstDb.close()
+
+  const secondDb = createDatabase()
+  store.configure(secondDb)
+  assert.deepEqual(store.list(), [])
+  assert.equal(store.add(makeChange('session-b', '新连接变更')).entityTitle, '新连接变更')
+  secondDb.close()
+})
 
 test('暂存状态迁移只在真实变化时返回并发出事件', async () => {
   const store = new StagedChangesStore()

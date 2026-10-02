@@ -15,10 +15,12 @@ import {
 } from './workspace-types'
 import { initStoryStateSchema } from './story-state-store'
 import { initAssistantRuntimeSchema } from './ai/runtime-v2/conversation-manager'
+import { resetRuntimeState } from './ai/runtime-v2/state'
 import { initChapterProcessingSchema } from './ai/runtime/chapter-processing-store'
 import { initStateBackfillSchema } from './ai/state-backfill-store'
 import { migrateKnowledgeDocumentScopes } from './knowledge-document-schema'
 import { countChapterCharacters, ensureChapterContentMetadata } from './chapter-content-metadata'
+import { prepareWorkspaceHierarchyUpserts } from './workspace-snapshot-upserts'
 
 export { readChapterMutationPayload, writeChapterOrder, writeChapterRows } from './chapter-persistence'
 
@@ -55,6 +57,27 @@ let dbInitPromise: Promise<DatabaseSync> | null = null
 
 export function getWorkspaceDbIfInitialized(): DatabaseSync | null {
   return workspaceDb
+}
+
+export function closeWorkspaceDbForRollback(): void {
+  const db = workspaceDb
+  if (!db) {
+    resetRuntimeState()
+    dbInitPromise = null
+    return
+  }
+
+  try {
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+  } finally {
+    try {
+      resetRuntimeState()
+      db.close()
+    } finally {
+      workspaceDb = null
+      dbInitPromise = null
+    }
+  }
 }
 
 async function ensureWorkspaceDir(): Promise<void> {
@@ -1592,10 +1615,11 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
-    const insertOutlineVolume = db.prepare(`
-      INSERT OR REPLACE INTO outline_volumes (id, project_id, title, word_target, summary, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `)
+    const {
+      insertOutlineVolume,
+      insertChapter,
+      insertChapterVersion
+    } = prepareWorkspaceHierarchyUpserts(db)
 
     const insertOutline = db.prepare(`
       INSERT OR REPLACE INTO outline_items (
@@ -1606,20 +1630,12 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
-    const insertChapter = db.prepare(`
-      INSERT OR REPLACE INTO chapters (id, project_id, volume_id, outline_item_id, title, summary, status, word_target, content, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
     const updateChapterMetadata = db.prepare(`
       UPDATE chapters
       SET project_id = ?, volume_id = ?, outline_item_id = ?, title = ?, summary = ?, status = ?, word_target = ?, sort_order = ?
       WHERE id = ?
     `)
 
-    const insertChapterVersion = db.prepare(`
-      INSERT OR REPLACE INTO chapter_versions (id, project_id, chapter_id, title, summary, status, word_target, content, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
     const updateChapterVersionMetadata = db.prepare(`
       UPDATE chapter_versions
       SET project_id = ?, chapter_id = ?, title = ?, summary = ?, status = ?, word_target = ?, created_at = ?

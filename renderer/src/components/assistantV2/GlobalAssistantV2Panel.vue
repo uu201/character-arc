@@ -309,8 +309,11 @@ async function handleCommit(ids?: string[]): Promise<void> {
         </div>
       </div>
 
-      <div v-if="assistant.lastError.value" class="err-banner">
-        {{ assistant.lastError.value }}
+      <div v-if="assistant.lastError.value" class="err-banner" role="alert">
+        <span>{{ assistant.lastError.value }}</span>
+        <button type="button" title="关闭错误提示" aria-label="关闭错误提示" @click="assistant.clearError()">
+          <X :size="14" />
+        </button>
       </div>
 
       <AssistantComposer
@@ -623,6 +626,10 @@ async function handleCommit(ids?: string[]): Promise<void> {
 }
 
 .err-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0 14px 8px;
   border: 1px solid rgba(185, 28, 28, 0.2);
   border-radius: 8px;
@@ -630,6 +637,27 @@ async function handleCommit(ids?: string[]): Promise<void> {
   color: var(--v2-danger);
   font-size: 12px;
   padding: 8px 10px;
+}
+.err-banner span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.err-banner button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: -3px -5px -3px 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.err-banner button:hover {
+  background: rgba(185, 28, 28, 0.1);
 }
 
 .dock-foot {

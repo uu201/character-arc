@@ -260,6 +260,21 @@ declare global {
       saveWorkspaceEntities: (
         payload: import('@shared/ipc-types').SaveWorkspaceEntitiesRequest
       ) => Promise<import('@shared/ipc-types').IpcResult>
+      backupCurrentDatabase: () => Promise<{
+        success: boolean
+        backupPath?: string
+        error?: string
+      }>
+      listDatabaseBackups: () => Promise<{
+        success: boolean
+        backups?: import('@shared/ipc-types').DatabaseBackupSummary[]
+        error?: string
+      }>
+      rollbackDatabase: (payload: { backupId: string }) => Promise<{
+        success: boolean
+        safetyBackupPath?: string
+        error?: string
+      }>
       pickCoverImage: () => Promise<{
         success: boolean
         canceled: boolean

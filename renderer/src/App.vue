@@ -4,6 +4,7 @@ import { Moon, Sun } from 'lucide-vue-next'
 import { createDiscreteApi, NConfigProvider, NDialogProvider, NGlobalStyle, NMessageProvider, NSpin, darkTheme } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { createNaiveThemeOverrides, getDarkModePreset } from '@/theme/presets'
+import { DATABASE_ROLLBACK_RELOAD_FLAG } from '@/features/settings/databaseRollback'
 import ProjectCenter from '@/pages/ProjectCenter.vue'
 import TitlebarModelSwitcher from '@/components/TitlebarModelSwitcher.vue'
 import TitlebarAiTaskCenter from '@/components/TitlebarAiTaskCenter.vue'
@@ -158,6 +159,10 @@ async function handleGlobalKeydown(e: KeyboardEvent) {
 }
 
 function handleBeforeUnload() {
+  if (window.sessionStorage.getItem(DATABASE_ROLLBACK_RELOAD_FLAG) === '1') {
+    window.sessionStorage.removeItem(DATABASE_ROLLBACK_RELOAD_FLAG)
+    return
+  }
   appStore.flushWorkspaceSync()
 }
 

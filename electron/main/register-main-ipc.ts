@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { cp, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
@@ -7,6 +7,7 @@ import type { WorkSheet } from 'xlsx'
 import {
   IPC_CHANNELS,
   type ChapterMutationEvent,
+  type DatabaseBackupSummary,
   type SaveChapterOrderRequest,
   type SaveChaptersRequest,
   type SaveWorkspaceEntitiesRequest
@@ -23,7 +24,13 @@ import { fetchFanqieTrends } from './fanqie-trends'
 import { fetchQidianRank } from './qidian-rank'
 import { fetchQimaoTrends } from './qimao-trends'
 import { fetchZonghengTrends } from './zongheng-trends'
-import { getWorkspaceDirPath } from './workspace-store'
+import { getWorkspaceDirPath, WORKSPACE_SCHEMA_VERSION } from './workspace-store'
+import {
+  createWorkspaceManualBackup,
+  listWorkspaceDatabaseBackups,
+  rollbackWorkspaceDatabase,
+  writeWorkspaceSchemaMarker
+} from './workspace-upgrade-backup'
 import { inspectContinuationNovelFile } from './continuation-import'
 import {
   exportProjectArchive,
@@ -137,6 +144,7 @@ type RegisterMainIpcHandlersDeps = {
   normalizeWorkspacePayload: (payload: unknown) => unknown
   ensureWorkspaceDb: () => Promise<DatabaseSync>
   getWorkspaceDbIfInitialized: () => DatabaseSync | null
+  closeWorkspaceDbForRollback: () => void
   readWorkspaceSnapshot: (db: DatabaseSync) => unknown
   readWorkspaceSnapshotForRenderer: (db: DatabaseSync) => unknown
   writeWorkspaceSnapshot: (db: DatabaseSync, payload: unknown) => void
@@ -200,6 +208,75 @@ async function cleanupOrphanReferenceNovelFiles(payload: unknown): Promise<void>
 }
 
 export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void {
+  ipcMain.handle(IPC_CHANNELS.BACKUP_CURRENT_DATABASE, async () => {
+    try {
+      const database = await deps.ensureWorkspaceDb()
+      const result = await createWorkspaceManualBackup({
+        workspaceDir: getWorkspaceDirPath(),
+        appVersion: app.getVersion(),
+        schemaVersion: WORKSPACE_SCHEMA_VERSION,
+        database
+      })
+      return { success: true, backupPath: result.backupDir }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '备份当前数据库失败'
+      }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.LIST_DATABASE_BACKUPS, async () => {
+    try {
+      const backups: DatabaseBackupSummary[] = await listWorkspaceDatabaseBackups(getWorkspaceDirPath())
+      return { success: true, backups }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '读取数据库备份失败'
+      }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.ROLLBACK_DATABASE, async (_event, payload: unknown) => {
+    const backupId = payload && typeof payload === 'object'
+      ? String((payload as { backupId?: unknown }).backupId ?? '').trim()
+      : ''
+    if (!backupId) {
+      return { success: false, error: '请选择需要回滚的数据库备份' }
+    }
+
+    const availableBackups = await listWorkspaceDatabaseBackups(getWorkspaceDirPath())
+    if (!availableBackups.some((backup) => backup.id === backupId)) {
+      return { success: false, error: '选择的数据库备份不存在或已损坏' }
+    }
+
+    try {
+      deps.closeWorkspaceDbForRollback()
+      const result = await rollbackWorkspaceDatabase({
+        workspaceDir: getWorkspaceDirPath(),
+        backupId,
+        appVersion: app.getVersion(),
+        currentSchemaVersion: WORKSPACE_SCHEMA_VERSION
+      })
+      const database = await deps.ensureWorkspaceDb()
+      await writeWorkspaceSchemaMarker(getWorkspaceDirPath(), {
+        schemaVersion: WORKSPACE_SCHEMA_VERSION,
+        appVersion: app.getVersion(),
+        upgradedAt: new Date().toISOString()
+      })
+      const workspace = deps.readWorkspaceSnapshotForRenderer(database)
+      if (workspace) deps.setLatestWorkspaceSnapshot(workspace)
+      return { success: true, safetyBackupPath: result.safetyBackupDir }
+    } catch (error) {
+      await deps.ensureWorkspaceDb().catch(() => {})
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '数据库回滚失败'
+      }
+    }
+  })
+
   ipcMain.handle('characterarc:export-json', async (_event, payload: unknown) => {
     const window = deps.windowManager.getActiveWindow()
     if (!window) {

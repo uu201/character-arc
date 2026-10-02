@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -60,6 +60,62 @@ test('升级前备份可打开、带校验清单并记录版本标记', async ()
     })
     assert.equal((await readWorkspaceSchemaMarker(workspaceDir))?.schemaVersion, 2)
   } finally {
+    await rm(workspaceDir, { recursive: true, force: true })
+  }
+})
+
+test('恢复升级备份中途失败时原数据库文件会完整还原', async () => {
+  const workspaceDir = await mkdtemp(join(tmpdir(), 'characterarc-upgrade-atomic-'))
+  const RealDate = Date
+  const fixedDate = '2026-10-02T12:34:56.789Z'
+  try {
+    const db = new DatabaseSync(join(workspaceDir, 'workspace.db'))
+    db.exec('CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT NOT NULL);')
+    db.prepare('INSERT INTO sample (value) VALUES (?)').run('升级前数据')
+    db.close()
+
+    const backup = await createWorkspacePreUpgradeBackup({
+      workspaceDir,
+      appVersion: '1.20.0',
+      fromSchemaVersion: 1,
+      toSchemaVersion: 2
+    })
+
+    const upgradedDb = new DatabaseSync(join(workspaceDir, 'workspace.db'))
+    upgradedDb.prepare('UPDATE sample SET value = ?').run('升级后数据')
+    upgradedDb.close()
+    await writeWorkspaceSchemaMarker(workspaceDir, {
+      schemaVersion: 2,
+      appVersion: '1.21.0',
+      upgradedAt: fixedDate
+    })
+    await writeFile(join(workspaceDir, 'workspace.db-shm'), '当前共享内存文件', 'utf8')
+
+    const timestamp = '2026-10-02_12-34-56-789'
+    const failedUpgradeDir = join(workspaceDir, 'backups/failed-upgrade', timestamp)
+    await mkdir(join(failedUpgradeDir, 'workspace.db-shm'), { recursive: true })
+
+    globalThis.Date = class extends RealDate {
+      constructor(...args) {
+        super(...(args.length === 0 ? [fixedDate] : args))
+      }
+
+      static now() {
+        return new RealDate(fixedDate).getTime()
+      }
+    }
+
+    await assert.rejects(
+      restoreWorkspaceUpgradeBackup(workspaceDir, backup.backupDir)
+    )
+
+    const restoredDb = new DatabaseSync(join(workspaceDir, 'workspace.db'))
+    assert.equal(restoredDb.prepare('SELECT value FROM sample').get().value, '升级后数据')
+    restoredDb.close()
+    assert.equal((await readWorkspaceSchemaMarker(workspaceDir))?.schemaVersion, 2)
+    assert.equal(await readFile(join(workspaceDir, 'workspace.db-shm'), 'utf8'), '当前共享内存文件')
+  } finally {
+    globalThis.Date = RealDate
     await rm(workspaceDir, { recursive: true, force: true })
   }
 })

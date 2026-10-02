@@ -172,6 +172,15 @@ export class StagedChangesStore {
     this.reloadFromDatabase()
   }
 
+  /** 数据库连接即将关闭时丢弃旧 statement；下次 configure 会从新连接重建。 */
+  resetDatabase(): void {
+    this.db = null
+    this.stmts = null
+    this.items.clear()
+    this.bySession.clear()
+    this.byToolUse.clear()
+  }
+
   /** 外部直接写入暂存表后，可调用 reload 同步内存索引。 */
   reloadFromDatabase(): void {
     if (!this.stmts) return

@@ -17,6 +17,12 @@ export function configureRuntimeState(ensureDb: () => Promise<DatabaseSync>): vo
   ensureDbFn = ensureDb
 }
 
+/** 数据库连接被替换前清空所有绑定旧 connection 的运行时对象。 */
+export function resetRuntimeState(): void {
+  sharedConversation = null
+  stagedChangesStore.resetDatabase()
+}
+
 /** 惰性拿到 conversation 单例（首次调用会 ensure db）。 */
 export async function getSharedConversation(): Promise<ConversationManager> {
   if (sharedConversation) return sharedConversation

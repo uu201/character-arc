@@ -3,6 +3,7 @@ import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 import { ConversationManager, initAssistantRuntimeSchema } from './conversation-manager.ts'
 import { StagedChangesStore } from './staged-changes-store.ts'
+import { configureRuntimeState, getSharedConversation, resetRuntimeState } from './state.ts'
 
 function createDatabase() {
   const db = new DatabaseSync(':memory:')
@@ -14,6 +15,29 @@ function createDatabase() {
   initAssistantRuntimeSchema(db)
   return db
 }
+
+test('数据库连接替换后会重建共享会话管理器', async () => {
+  let db = createDatabase()
+  configureRuntimeState(async () => db)
+
+  const firstConversation = await getSharedConversation()
+  firstConversation.createSession({
+    projectId: 'project-1',
+    surfaceId: 'global-page',
+    title: '旧连接会话'
+  })
+
+  resetRuntimeState()
+  db.close()
+  db = createDatabase()
+
+  const secondConversation = await getSharedConversation()
+  assert.notEqual(secondConversation, firstConversation)
+  assert.deepEqual(secondConversation.listSessions({ projectId: 'project-1' }), [])
+
+  resetRuntimeState()
+  db.close()
+})
 
 test('从中间轮次截断时级联删除后续事件并统计暂存影响', async () => {
   const db = createDatabase()

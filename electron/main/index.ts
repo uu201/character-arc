@@ -30,6 +30,7 @@ import {
   normalizeWorkspacePayload
 } from './workspace-types'
 import {
+  closeWorkspaceDbForRollback,
   ensureWorkspaceDb,
   getWorkspaceDbIfInitialized,
   readChapterMutationPayload,
@@ -685,6 +686,7 @@ registerMainIpcHandlers({
   normalizeWorkspacePayload: (payload) => normalizeWorkspacePayload(payload as WorkspacePayload | LegacyWorkspacePayload),
   ensureWorkspaceDb,
   getWorkspaceDbIfInitialized,
+  closeWorkspaceDbForRollback,
   readWorkspaceSnapshot,
   readWorkspaceSnapshotForRenderer: (db) => readWorkspaceSnapshot(db, { includeChapterContent: false }),
   writeWorkspaceSnapshot: (db, payload) => writeWorkspaceSnapshot(db, payload as WorkspacePayload),

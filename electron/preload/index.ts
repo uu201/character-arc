@@ -3,6 +3,7 @@ import packageJson from '../../package.json'
 import {
   IPC_CHANNELS,
   type ChapterMutationEvent,
+  type DatabaseBackupSummary,
   type SaveAppSettingsRequest,
   type SaveChapterOrderRequest,
   type SaveChaptersRequest,
@@ -41,6 +42,14 @@ contextBridge.exposeInMainWorld('characterArc', {
   /** 增量保存世界观、角色和灵感集合 */
   saveWorkspaceEntities: (payload: SaveWorkspaceEntitiesRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.SAVE_WORKSPACE_ENTITIES, toIpcPayload(payload)),
+  /** 在线备份当前 SQLite 数据库 */
+  backupCurrentDatabase: () => ipcRenderer.invoke(IPC_CHANNELS.BACKUP_CURRENT_DATABASE),
+  /** 列出可用于整库回滚的自动备份 */
+  listDatabaseBackups: (): Promise<{ success: boolean; backups?: DatabaseBackupSummary[]; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LIST_DATABASE_BACKUPS),
+  /** 回滚到指定数据库备份；主进程会先备份当前数据库 */
+  rollbackDatabase: (payload: { backupId: string }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.ROLLBACK_DATABASE, toIpcPayload(payload)),
 
   // ── 文件操作 ──
   /** 打开系统文件选择对话框，选取项目封面图片 */

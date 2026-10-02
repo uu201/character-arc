@@ -15,6 +15,7 @@ import {
   WORKSPACE_SCHEMA_VERSION,
   type WorkspaceUpgradeProgress
 } from './workspace-store'
+import { recoverMissingChapterContentFromUpgradeBackup } from './workspace-content-recovery'
 
 type UpgradeWindowState = {
   title: string
@@ -42,6 +43,24 @@ export async function prepareWorkspaceForLaunch(): Promise<WorkspaceUpgradeLaunc
   const marker = await readWorkspaceSchemaMarker(workspaceDir)
   const fromSchemaVersion = marker?.schemaVersion ?? 1
   if (fromSchemaVersion === WORKSPACE_SCHEMA_VERSION) {
+    if (marker?.appVersion === '1.21.0' && app.getVersion() !== marker.appVersion) {
+      const recovery = await recoverMissingChapterContentFromUpgradeBackup(workspaceDir)
+      await writeWorkspaceSchemaMarker(workspaceDir, {
+        schemaVersion: WORKSPACE_SCHEMA_VERSION,
+        appVersion: app.getVersion(),
+        upgradedAt: new Date().toISOString()
+      })
+      if (recovery) {
+        const controller = await createUpgradeWindow()
+        controller.complete({
+          title: '章节正文已恢复',
+          message: `已从升级前备份恢复 ${recovery.chaptersRestored} 章正文和 ${recovery.versionsRestored} 条历史版本。`,
+          detail: recovery.backupDir,
+          percent: 100
+        })
+        return { window: controller.window, blocked: false, initializeMarkerAfterLaunch: false }
+      }
+    }
     return { window: null, blocked: false, initializeMarkerAfterLaunch: false }
   }
 
