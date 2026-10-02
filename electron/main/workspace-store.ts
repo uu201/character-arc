@@ -18,9 +18,21 @@ import { initAssistantRuntimeSchema } from './ai/runtime-v2/conversation-manager
 import { initChapterProcessingSchema } from './ai/runtime/chapter-processing-store'
 import { initStateBackfillSchema } from './ai/state-backfill-store'
 import { migrateKnowledgeDocumentScopes } from './knowledge-document-schema'
+import { countChapterCharacters, ensureChapterContentMetadata } from './chapter-content-metadata'
+
+export { readChapterMutationPayload, writeChapterOrder, writeChapterRows } from './chapter-persistence'
 
 const WORKSPACE_DB = 'workspace.db'
 const WORKSPACE_FILE = 'workspace.json'
+export const WORKSPACE_SCHEMA_VERSION = 2
+
+export type WorkspaceUpgradeProgress = {
+  phase: 'schema' | 'chapters' | 'chapter-versions' | 'validation'
+  message: string
+  current: number
+  total: number
+  percent: number
+}
 
 export function getWorkspaceDirPath(): string {
   const override = process.env.CHARACTERARC_WORKSPACE_DIR?.trim()
@@ -49,16 +61,29 @@ async function ensureWorkspaceDir(): Promise<void> {
   await mkdir(getWorkspaceDirPath(), { recursive: true })
 }
 
-export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
+export async function ensureWorkspaceDb(options: {
+  onUpgradeProgress?: (progress: WorkspaceUpgradeProgress) => void
+} = {}): Promise<DatabaseSync> {
   if (workspaceDb) return workspaceDb
   if (dbInitPromise) return dbInitPromise
 
   dbInitPromise = (async () => {
     try {
     await ensureWorkspaceDir()
+    options.onUpgradeProgress?.({
+      phase: 'schema',
+      message: '正在检查数据库结构…',
+      current: 0,
+      total: 1,
+      percent: 5
+    })
     const db = new DatabaseSync(getWorkspaceDbPath())
+    db.function('chapter_character_count', (content) => countChapterCharacters(String(content ?? '')))
     db.exec(`
     PRAGMA foreign_keys = ON;
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA busy_timeout = 5000;
 
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
@@ -190,6 +215,7 @@ export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       status TEXT NOT NULL,
       word_target TEXT NOT NULL,
       content TEXT NOT NULL,
+      content_length INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
       FOREIGN KEY (volume_id) REFERENCES outline_volumes (id) ON DELETE CASCADE
@@ -204,6 +230,7 @@ export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       status TEXT NOT NULL,
       word_target TEXT NOT NULL,
       content TEXT NOT NULL,
+      content_length INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
       FOREIGN KEY (chapter_id) REFERENCES chapters (id) ON DELETE CASCADE
@@ -386,6 +413,13 @@ export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     ) STRICT;
+
+    CREATE INDEX IF NOT EXISTS idx_chapters_project_sort
+      ON chapters (project_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_chapters_project_volume_sort
+      ON chapters (project_id, volume_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_chapter_versions_chapter_created
+      ON chapter_versions (chapter_id, created_at DESC);
   `)
 
   const worldviewColumns = db.prepare(`PRAGMA table_info(worldview_entries)`).all() as Array<{ name: string }>
@@ -408,7 +442,19 @@ export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
 
   ensureAppSettingsColumns(db)
   ensureAiRunColumns(db)
-  ensureChapterColumns(db)
+  ensureChapterColumns(db, (progress) => {
+    const isChapter = progress.phase === 'chapters'
+    const start = isChapter ? 35 : 70
+    const span = isChapter ? 35 : 18
+    const ratio = progress.total > 0 ? progress.current / progress.total : 1
+    options.onUpgradeProgress?.({
+      phase: progress.phase,
+      message: isChapter ? '正在升级章节数据…' : '正在升级章节历史版本…',
+      current: progress.current,
+      total: progress.total,
+      percent: Math.round(start + span * ratio)
+    })
+  })
   ensureProjectColumns(db)
   ensureProjectScopedColumns(db)
   ensureVolumeColumns(db)
@@ -420,7 +466,27 @@ export async function ensureWorkspaceDb(): Promise<DatabaseSync> {
   initChapterProcessingSchema(db)
   initStateBackfillSchema(db)
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workspace_schema_meta (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      schema_version INTEGER NOT NULL,
+      upgraded_at TEXT NOT NULL
+    ) STRICT;
+    INSERT INTO workspace_schema_meta (id, schema_version, upgraded_at)
+    VALUES (1, ${WORKSPACE_SCHEMA_VERSION}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    ON CONFLICT(id) DO UPDATE SET
+      schema_version = excluded.schema_version,
+      upgraded_at = excluded.upgraded_at;
+  `)
+
   await migrateLegacyWorkspaceFile(db)
+  options.onUpgradeProgress?.({
+    phase: 'validation',
+    message: '正在检查升级结果…',
+    current: 1,
+    total: 1,
+    percent: 98
+  })
   workspaceDb = db
   return db
     } catch (err) {
@@ -518,7 +584,10 @@ function ensureAiRunColumns(db: DatabaseSync): void {
   }
 }
 
-function ensureChapterColumns(db: DatabaseSync): void {
+function ensureChapterColumns(
+  db: DatabaseSync,
+  onProgress?: Parameters<typeof ensureChapterContentMetadata>[1]
+): void {
   const columns = db.prepare(`PRAGMA table_info('chapters')`).all() as Array<{ name: string }>
   const columnNames = new Set(columns.map((column) => column.name))
 
@@ -537,6 +606,8 @@ function ensureChapterColumns(db: DatabaseSync): void {
   if (!columnNames.has('word_target')) {
     db.exec(`ALTER TABLE chapters ADD COLUMN word_target TEXT NOT NULL DEFAULT '预估 3000字';`)
   }
+
+  ensureChapterContentMetadata(db, onProgress)
 }
 
 function ensureProjectScopedColumns(db: DatabaseSync): void {
@@ -742,7 +813,11 @@ async function migrateLegacyWorkspaceFile(db: DatabaseSync): Promise<void> {
   }
 }
 
-export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null {
+export function readWorkspaceSnapshot(
+  db: DatabaseSync,
+  options: { includeChapterContent?: boolean } = {}
+): WorkspacePayload | null {
+  const includeChapterContent = options.includeChapterContent !== false
   const projectRows = db.prepare(`
     SELECT id, title, genre, novel_length AS novelLength, word_count AS wordCount, last_edited AS lastEdited, cover,
       target_platform AS targetPlatform,
@@ -1035,17 +1110,61 @@ export function readWorkspaceSnapshot(db: DatabaseSync): WorkspacePayload | null
     sortOrder: row.sortOrder as number
   })) as Array<WorkspacePayload['workspaces'][string]['outlineItems'][number] & { projectId: string }>
 
-  const chapters = db.prepare(`
-    SELECT project_id AS projectId, volume_id AS volumeId, outline_item_id AS outlineItemId, id, title, summary, status, word_target AS wordTarget, content
-    FROM chapters
-    ORDER BY project_id ASC, sort_order ASC
-  `).all() as Array<WorkspacePayload['workspaces'][string]['chapters'][number] & { projectId: string }>
+  const chapters = includeChapterContent
+    ? db.prepare(`
+        SELECT project_id AS projectId, volume_id AS volumeId, outline_item_id AS outlineItemId,
+          id, title, summary, status, word_target AS wordTarget, content, sort_order AS sortOrder
+        FROM chapters
+        ORDER BY project_id ASC, sort_order ASC
+      `).all() as unknown as Array<WorkspacePayload['workspaces'][string]['chapters'][number] & { projectId: string }>
+    : db.prepare(`
+        SELECT project_id AS projectId, volume_id AS volumeId, outline_item_id AS outlineItemId,
+          id, title, summary, status, word_target AS wordTarget,
+          content_length AS contentLength, sort_order AS sortOrder
+        FROM chapters
+        ORDER BY project_id ASC, sort_order ASC
+      `).all().map((row) => ({
+        projectId: String(row.projectId),
+        volumeId: String(row.volumeId),
+        outlineItemId: String(row.outlineItemId),
+        sortOrder: Number(row.sortOrder),
+        id: String(row.id),
+        title: String(row.title),
+        summary: String(row.summary),
+        status: String(row.status) as WorkspacePayload['workspaces'][string]['chapters'][number]['status'],
+        wordTarget: String(row.wordTarget),
+        content: '',
+        contentLoaded: false,
+        contentLength: Number(row.contentLength ?? 0),
+        contentPreview: '',
+        contentEnding: ''
+      })) as Array<WorkspacePayload['workspaces'][string]['chapters'][number] & { projectId: string }>
 
-  const chapterVersions = db.prepare(`
-    SELECT project_id AS projectId, id, chapter_id AS chapterId, title, summary, status, word_target AS wordTarget, content, created_at AS createdAt
-    FROM chapter_versions
-    ORDER BY project_id ASC, created_at DESC, rowid DESC
-  `).all() as Array<WorkspacePayload['workspaces'][string]['chapterVersions'][number] & { projectId: string }>
+  const chapterVersions = includeChapterContent
+    ? db.prepare(`
+        SELECT project_id AS projectId, id, chapter_id AS chapterId, title, summary, status,
+          word_target AS wordTarget, content, created_at AS createdAt
+        FROM chapter_versions
+        ORDER BY project_id ASC, created_at DESC, rowid DESC
+      `).all() as unknown as Array<WorkspacePayload['workspaces'][string]['chapterVersions'][number] & { projectId: string }>
+    : db.prepare(`
+        SELECT project_id AS projectId, id, chapter_id AS chapterId, title, summary, status,
+          word_target AS wordTarget, content_length AS contentLength, created_at AS createdAt
+        FROM chapter_versions
+        ORDER BY project_id ASC, created_at DESC, rowid DESC
+      `).all().map((row) => ({
+        projectId: String(row.projectId),
+        id: String(row.id),
+        chapterId: String(row.chapterId),
+        title: String(row.title),
+        summary: String(row.summary),
+        status: String(row.status) as WorkspacePayload['workspaces'][string]['chapterVersions'][number]['status'],
+        wordTarget: String(row.wordTarget),
+        content: '',
+        contentLoaded: false,
+        contentLength: Number(row.contentLength ?? 0),
+        createdAt: String(row.createdAt)
+      })) as Array<WorkspacePayload['workspaces'][string]['chapterVersions'][number] & { projectId: string }>
 
   const messages = db.prepare(`
     SELECT project_id AS projectId, id, role, content
@@ -1491,10 +1610,20 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
       INSERT OR REPLACE INTO chapters (id, project_id, volume_id, outline_item_id, title, summary, status, word_target, content, sort_order)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
+    const updateChapterMetadata = db.prepare(`
+      UPDATE chapters
+      SET project_id = ?, volume_id = ?, outline_item_id = ?, title = ?, summary = ?, status = ?, word_target = ?, sort_order = ?
+      WHERE id = ?
+    `)
 
     const insertChapterVersion = db.prepare(`
       INSERT OR REPLACE INTO chapter_versions (id, project_id, chapter_id, title, summary, status, word_target, content, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    const updateChapterVersionMetadata = db.prepare(`
+      UPDATE chapter_versions
+      SET project_id = ?, chapter_id = ?, title = ?, summary = ?, status = ?, word_target = ?, created_at = ?
+      WHERE id = ?
     `)
     const insertMessage = db.prepare(`
       INSERT OR REPLACE INTO ai_messages (id, project_id, role, content, sort_order)
@@ -1665,6 +1794,20 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
 
       workspace.chapters.forEach((chapter, index) => {
         allIds.chapters.add(chapter.id)
+        if (chapter.contentLoaded === false) {
+          const result = updateChapterMetadata.run(
+            project.id,
+            chapter.volumeId,
+            chapter.outlineItemId,
+            chapter.title,
+            chapter.summary,
+            chapter.status,
+            chapter.wordTarget,
+            chapter.sortOrder ?? (index + 1) * 1024,
+            chapter.id
+          )
+          if (result.changes > 0) return
+        }
         insertChapter.run(
           chapter.id,
           project.id,
@@ -1675,12 +1818,25 @@ export function writeWorkspaceSnapshot(db: DatabaseSync, payload: WorkspacePaylo
           chapter.status,
           chapter.wordTarget,
           chapter.content,
-          index
+          chapter.sortOrder ?? (index + 1) * 1024
         )
       })
 
       workspace.chapterVersions.forEach((version) => {
         allIds.chapter_versions.add(version.id)
+        if (version.contentLoaded === false) {
+          const result = updateChapterVersionMetadata.run(
+            project.id,
+            version.chapterId,
+            version.title,
+            version.summary,
+            version.status,
+            version.wordTarget,
+            version.createdAt,
+            version.id
+          )
+          if (result.changes > 0) return
+        }
         insertChapterVersion.run(
           version.id,
           project.id,

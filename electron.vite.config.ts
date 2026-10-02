@@ -9,6 +9,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'electron/main/index.ts'),
+          'workspace-upgrade-worker': resolve(__dirname, 'electron/main/workspace-upgrade-worker.ts'),
           'archive/project-archive-import-worker': resolve(__dirname, 'electron/main/archive/project-archive-import-worker.ts')
         },
         external: ['@node-rs/jieba', '@node-rs/jieba/dict.js'],

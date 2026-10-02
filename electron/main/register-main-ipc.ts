@@ -4,6 +4,12 @@ import { cp, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from 'node:
 import { basename, join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import * as XLSX from 'xlsx'
+import {
+  IPC_CHANNELS,
+  type ChapterMutationEvent,
+  type SaveChapterOrderRequest,
+  type SaveChaptersRequest
+} from '@shared/ipc-types'
 
 import type { AiTaskPayload, ReferenceStyleAnalysisResult, ReferenceStyleChunkResult } from './ai/shared-types'
 import { runAiTask } from './ai/runtime'
@@ -125,7 +131,11 @@ type RegisterMainIpcHandlersDeps = {
   ensureWorkspaceDb: () => Promise<DatabaseSync>
   getWorkspaceDbIfInitialized: () => DatabaseSync | null
   readWorkspaceSnapshot: (db: DatabaseSync) => unknown
+  readWorkspaceSnapshotForRenderer: (db: DatabaseSync) => unknown
   writeWorkspaceSnapshot: (db: DatabaseSync, payload: unknown) => void
+  writeChapterRows: (db: DatabaseSync, payload: SaveChaptersRequest) => void
+  writeChapterOrder: (db: DatabaseSync, payload: SaveChapterOrderRequest) => void
+  applyChapterMutation: (payload: ChapterMutationEvent) => void
   writeAppSettingsRow: (
     db: DatabaseSync,
     settings: unknown,
@@ -302,7 +312,7 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
       })
       sendProgress({ phase: 'syncing', message: '正在刷新工作区数据...', percent: 96 })
       const db = await deps.ensureWorkspaceDb()
-      const workspace = deps.readWorkspaceSnapshot(db)
+      const workspace = deps.readWorkspaceSnapshotForRenderer(db)
       if (workspace) {
         deps.setLatestWorkspaceSnapshot(workspace)
         deps.windowManager.broadcastWindowEvent('characterarc:workspace-sync-event', workspace)
@@ -1269,10 +1279,50 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     return { success: true }
   })
 
+  ipcMain.handle(IPC_CHANNELS.SAVE_CHAPTERS, async (event, payload: SaveChaptersRequest) => {
+    try {
+      if (!payload?.projectId || !Array.isArray(payload.chapters)) {
+        throw new Error('章节增量保存参数无效')
+      }
+      const db = await deps.ensureWorkspaceDb()
+      deps.writeChapterRows(db, payload)
+      const mutation: ChapterMutationEvent = { kind: 'upsert', ...payload }
+      deps.applyChapterMutation(mutation)
+      deps.windowManager.broadcastWindowEvent('characterarc:chapter-mutation-event', mutation, event.sender.id)
+      return { success: true }
+    } catch (error) {
+      console.error('[workspace] saveChapters failed:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown chapter save error'
+      }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SAVE_CHAPTER_ORDER, async (event, payload: SaveChapterOrderRequest) => {
+    try {
+      if (!payload?.projectId || !Array.isArray(payload.chapters)) {
+        throw new Error('章节排序保存参数无效')
+      }
+      const db = await deps.ensureWorkspaceDb()
+      deps.writeChapterOrder(db, payload)
+      const mutation: ChapterMutationEvent = { kind: 'reorder', ...payload }
+      deps.applyChapterMutation(mutation)
+      deps.windowManager.broadcastWindowEvent('characterarc:chapter-mutation-event', mutation, event.sender.id)
+      return { success: true }
+    } catch (error) {
+      console.error('[workspace] saveChapterOrder failed:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown chapter order save error'
+      }
+    }
+  })
+
   ipcMain.handle('characterarc:load-workspace', async () => {
     try {
       const db = await deps.ensureWorkspaceDb()
-      const workspace = deps.readWorkspaceSnapshot(db)
+      const workspace = deps.readWorkspaceSnapshotForRenderer(db)
 
       if (!workspace) {
         return { success: false, payload: null }

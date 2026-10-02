@@ -251,6 +251,12 @@ declare global {
       saveAppSettings: (
         payload: import('@shared/ipc-types').SaveAppSettingsRequest
       ) => Promise<import('@shared/ipc-types').IpcResult>
+      saveChapters: (
+        payload: import('@shared/ipc-types').SaveChaptersRequest
+      ) => Promise<import('@shared/ipc-types').IpcResult>
+      saveChapterOrder: (
+        payload: import('@shared/ipc-types').SaveChapterOrderRequest
+      ) => Promise<import('@shared/ipc-types').IpcResult>
       pickCoverImage: () => Promise<{
         success: boolean
         canceled: boolean
@@ -593,6 +599,9 @@ declare global {
         error?: string
       }>
       onWorkspaceSync: (callback: (payload: unknown) => void) => () => void
+      onChapterMutation: (
+        callback: (payload: import('@shared/ipc-types').ChapterMutationEvent) => void
+      ) => () => void
       onReferenceImportProgress: (callback: (payload: CharacterArcReferenceImportProgressPayload) => void) => () => void
       onProjectArchiveImportProgress: (callback: (payload: CharacterArcProjectArchiveImportProgressPayload) => void) => () => void
       checkUpdate: () => Promise<{
@@ -753,6 +762,8 @@ declare global {
           kind?: readonly string[]
           turnId?: string
         }) => Promise<import('@shared/assistant-runtime').StagedChange[]>
+        stageGet: (payload: import('@shared/assistant-runtime').StageGetRequest) =>
+          Promise<import('@shared/assistant-runtime').StagedChange | null>
         stageAccept: (payload: import('@shared/assistant-runtime').StageAcceptRequest) =>
           Promise<import('@shared/assistant-runtime').StagedChange[]>
         stageReject: (payload: import('@shared/assistant-runtime').StageRejectRequest) =>

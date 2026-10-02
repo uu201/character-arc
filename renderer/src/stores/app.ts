@@ -1,9 +1,11 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
+import type { ChapterMutationEvent, PersistedChapterRecord, SaveChapterOrderRequest } from '@shared/ipc-types'
 import { FAST_PERSIST_DELAY_MS, formatAutoSaveIntervalLabel, isLiveAutoSaveInterval, resolveAutoSaveDelayMs } from '@/features/settings/autoSave'
 import { createDefaultWorkflowDocuments } from '@/features/novelWorkflow/documents'
 import { createDefaultNovelWorkflowStages } from '@/features/novelWorkflow/stages'
 import { DEFAULT_CHAPTER_WORD_TARGET, normalizeChapterWordTarget } from '@/features/chapters/wordTarget'
+import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { formatProjectWordCount } from '@/features/projects/wordCount'
 import { createProjectEditedAt } from '@/features/projects/lastEdited'
 import {
@@ -20,6 +22,7 @@ import { getThemePreset } from '@/theme/presets'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import { createEmptyWorkspace, normalizeGlobalAssistantProposal, mergeGlobalAssistantProposals, normalizeOutlineReferenceIds } from '@/features/workspace/projectWorkspace'
 import { createWorkspacePersistence } from '@/features/workspace/persistence'
+import { assignSparseChapterOrder } from '@/features/workspace/chapterOrder'
 import {
   filterKnowledgeDocumentsForProject,
   isProjectKnowledgeSource,
@@ -142,6 +145,7 @@ function toIsoTimestamp(value?: string): string {
 }
 
 let nextIdCounter = 0
+const CHAPTER_CONTENT_CACHE_LIMIT = 8
 /** 生成基于时间戳+自增序号的唯一 ID，保证同毫秒内也不重复 */
 function uniqueId(prefix: string): string {
   return `${prefix}-${Date.now()}-${++nextIdCounter}`
@@ -237,6 +241,11 @@ export const useAppStore = defineStore('app', () => {
   const chapterPostGenerationIssues = ref<Map<string, CharacterArcChapterPostGenerationIssuesPayload>>(new Map())
   /** 当前选中的章节 ID */
   const selectedChapterId = ref(stored.workspaces[stored.selectedProjectId]?.chapters[0]?.id ?? '')
+  const chapterContentLoadingKeys = ref<Set<string>>(new Set())
+  const chapterContentPromises = new Map<string, Promise<ChapterDraft | null>>()
+  const chapterContentAccessOrder = new Map<string, number>()
+  const chapterVersionContentPromises = new Map<string, Promise<ChapterVersion | null>>()
+  let chapterContentAccessCounter = 0
   /** 流程面板当前激活的分卷 ID，空字符串时回退到第一个分卷 */
   const activeWorkflowVolumeId = ref<string>('')
   /** 全局助手最近一次写回后的聚焦目标，仅用于当前界面反馈 */
@@ -245,10 +254,16 @@ export const useAppStore = defineStore('app', () => {
   const {
     scheduledPersistAt,
     isPersisting,
+    isChapterPersisting,
+    hasPendingChapterPersists,
+    hasPendingChapterPersist,
     persistenceError,
     scheduleWorkspaceSync,
     flushWorkspaceSync,
     persistWorkspace,
+    scheduleChapterPersist,
+    flushChapterPersists,
+    persistChapterOrder,
     persistAppSettings,
     schedulePersist,
     scheduleSettingsPersist,
@@ -346,11 +361,22 @@ export const useAppStore = defineStore('app', () => {
   /** 是否为实时自动保存模式 */
   const isLiveAutoSave = computed(() => isLiveAutoSaveInterval(appSettings.value.autoSaveInterval))
   /** 是否有待持久化的更改 */
-  const isPersistencePending = computed(() => scheduledPersistAt.value !== null || isPersisting.value)
+  const isPersistencePending = computed(() =>
+    scheduledPersistAt.value !== null
+    || isPersisting.value
+    || isChapterPersisting.value
+    || hasPendingChapterPersists.value
+  )
   /** 当前选中的章节对象 */
   const selectedChapter = computed(
     () => chapters.value.find((chapter) => chapter.id === selectedChapterId.value) ?? chapters.value[0]
   )
+  const selectedChapterContentLoading = computed(() => {
+    const chapter = selectedChapter.value
+    if (!chapter) return false
+    return chapter.contentLoaded === false
+      || chapterContentLoadingKeys.value.has(`${selectedProjectId.value}:${chapter.id}`)
+  })
   /** 当前选中章节所属的分卷 */
   const selectedChapterVolume = computed(
     () => outlineVolumes.value.find((volume) => volume.id === selectedChapter.value?.volumeId) ?? outlineVolumes.value[0]
@@ -607,6 +633,157 @@ export const useAppStore = defineStore('app', () => {
     selectedChapterId.value = hasCurrentChapter ? selectedChapterId.value : (chapterList[0]?.id ?? '')
   }
 
+  function chapterContentKey(projectId: string, chapterId: string): string {
+    return `${projectId}:${chapterId}`
+  }
+
+  function touchChapterContent(projectId: string, chapterId: string): void {
+    chapterContentAccessCounter += 1
+    chapterContentAccessOrder.set(chapterContentKey(projectId, chapterId), chapterContentAccessCounter)
+  }
+
+  function evictChapterContentCache(): void {
+    const selectedKey = chapterContentKey(selectedProjectId.value, selectedChapterId.value)
+    const candidates = Array.from(chapterContentAccessOrder.entries())
+      .sort((left, right) => left[1] - right[1])
+
+    while (chapterContentAccessOrder.size > CHAPTER_CONTENT_CACHE_LIMIT && candidates.length > 0) {
+      const [key] = candidates.shift() as [string, number]
+      if (key === selectedKey) continue
+      const separator = key.indexOf(':')
+      const projectId = key.slice(0, separator)
+      const chapterId = key.slice(separator + 1)
+      if (!projectId || !chapterId || hasPendingChapterPersist(projectId, chapterId)) continue
+      const workspace = projectWorkspaces.value[projectId]
+      const chapter = workspace?.chapters.find((item) => item.id === chapterId)
+      if (!workspace || !chapter || chapter.contentLoaded === false) {
+        chapterContentAccessOrder.delete(key)
+        continue
+      }
+      projectWorkspaces.value = {
+        ...projectWorkspaces.value,
+        [projectId]: {
+          ...workspace,
+          chapters: workspace.chapters.map((item) => item.id === chapterId
+            ? {
+                ...item,
+                content: '',
+                contentPreview: '',
+                contentEnding: '',
+                contentLoaded: false
+              }
+            : item)
+        }
+      }
+      chapterContentAccessOrder.delete(key)
+    }
+  }
+
+  async function ensureChapterContent(
+    chapterId = selectedChapterId.value,
+    projectId = selectedProjectId.value
+  ): Promise<ChapterDraft | null> {
+    if (!projectId || !chapterId) return null
+    const workspace = projectWorkspaces.value[projectId]
+    const existing = workspace?.chapters.find((chapter) => chapter.id === chapterId)
+    if (!existing) return null
+    if (existing.contentLoaded !== false) {
+      touchChapterContent(projectId, chapterId)
+      evictChapterContentCache()
+      return existing
+    }
+
+    const key = chapterContentKey(projectId, chapterId)
+    const inFlight = chapterContentPromises.get(key)
+    if (inFlight) return inFlight
+
+    chapterContentLoadingKeys.value = new Set(chapterContentLoadingKeys.value).add(key)
+    const promise = (async () => {
+      const response = await window.characterArc.readChapterFromDb(projectId, chapterId)
+      if (!response.success || !response.result) return null
+      const data = response.result
+      let loaded: ChapterDraft | null = null
+      const currentWorkspace = projectWorkspaces.value[projectId]
+      if (!currentWorkspace) return null
+      projectWorkspaces.value = {
+        ...projectWorkspaces.value,
+        [projectId]: {
+          ...currentWorkspace,
+          chapters: currentWorkspace.chapters.map((chapter) => {
+            if (chapter.id !== chapterId) return chapter
+            loaded = normalizeChapterDraft({
+              ...chapter,
+              title: data.title,
+              summary: data.summary,
+              status: data.status as ChapterDraft['status'],
+              wordTarget: data.wordTarget,
+              content: data.content,
+              contentLoaded: true
+            })
+            return loaded
+          })
+        }
+      }
+      touchChapterContent(projectId, chapterId)
+      evictChapterContentCache()
+      return loaded
+    })().finally(() => {
+      chapterContentPromises.delete(key)
+      const loading = new Set(chapterContentLoadingKeys.value)
+      loading.delete(key)
+      chapterContentLoadingKeys.value = loading
+    })
+    chapterContentPromises.set(key, promise)
+    return promise
+  }
+
+  async function ensureChapterVersionContent(
+    versionId: string,
+    projectId = selectedProjectId.value
+  ): Promise<ChapterVersion | null> {
+    if (!projectId || !versionId) return null
+    const existing = projectWorkspaces.value[projectId]?.chapterVersions.find((version) => version.id === versionId)
+    if (!existing) return null
+    if (existing.contentLoaded !== false) return existing
+
+    const key = `${projectId}:${versionId}`
+    const inFlight = chapterVersionContentPromises.get(key)
+    if (inFlight) return inFlight
+    const promise = (async () => {
+      const response = await window.characterArc.readChapterVersionFromDb(projectId, versionId)
+      if (!response.success || !response.result) return null
+      const data = response.result
+      let loaded: ChapterVersion | null = null
+      const workspace = projectWorkspaces.value[projectId]
+      if (!workspace) return null
+      projectWorkspaces.value = {
+        ...projectWorkspaces.value,
+        [projectId]: {
+          ...workspace,
+          chapterVersions: workspace.chapterVersions.map((version) => {
+            if (version.id !== versionId) return version
+            loaded = normalizeChapterVersion({
+              ...version,
+              title: data.title,
+              summary: data.summary,
+              status: data.status as ChapterDraft['status'],
+              wordTarget: data.wordTarget,
+              content: data.content,
+              contentLoaded: true,
+              createdAt: data.createdAt
+            })
+            return loaded
+          })
+        }
+      }
+      return loaded
+    })().finally(() => {
+      chapterVersionContentPromises.delete(key)
+    })
+    chapterVersionContentPromises.set(key, promise)
+    return promise
+  }
+
   /** 确保指定项目的工作区数据存在，不存在时创建空工作区 */
   function ensureProjectWorkspace(projectId: string): void {
     if (projectWorkspaces.value[projectId]) {
@@ -671,6 +848,86 @@ export const useAppStore = defineStore('app', () => {
     )
   }
 
+  function toPersistedChapter(chapter: ChapterDraft): PersistedChapterRecord {
+    return {
+      id: chapter.id,
+      outlineItemId: chapter.outlineItemId,
+      volumeId: chapter.volumeId,
+      sortOrder: chapter.sortOrder,
+      title: chapter.title,
+      summary: chapter.summary,
+      status: chapter.status,
+      wordTarget: chapter.wordTarget,
+      content: chapter.content,
+      contentLoaded: chapter.contentLoaded,
+      contentLength: chapter.contentLength,
+      contentPreview: chapter.contentPreview,
+      contentEnding: chapter.contentEnding
+    }
+  }
+
+  function buildChapterOrderRequest(
+    projectId: string,
+    chapters: SaveChapterOrderRequest['chapters']
+  ): SaveChapterOrderRequest {
+    return {
+      projectId,
+      chapters
+    }
+  }
+
+  function handleRemoteChapterMutation(payload: ChapterMutationEvent): void {
+    const workspace = projectWorkspaces.value[payload.projectId]
+    if (!workspace) return
+
+    if (payload.kind === 'upsert') {
+      const updates = new Map(payload.chapters.map((chapter) => [chapter.id, chapter]))
+      const maxSortOrder = workspace.chapters.reduce(
+        (maximum, chapter) => Math.max(maximum, chapter.sortOrder ?? 0),
+        0
+      )
+      updateProjectWorkspace(payload.projectId, (current) => ({
+        ...current,
+        chapters: [
+          ...current.chapters.map((chapter) => {
+            const update = updates.get(chapter.id)
+            return update
+              ? { ...chapter, ...update, sortOrder: update.sortOrder ?? chapter.sortOrder }
+              : chapter
+          }),
+          ...payload.chapters
+            .filter((chapter) => !current.chapters.some((item) => item.id === chapter.id))
+            .map((chapter, index) => ({
+              ...chapter,
+              sortOrder: chapter.sortOrder ?? maxSortOrder + (index + 1) * 1024
+            }))
+        ].sort((left, right) => Number(left.sortOrder) - Number(right.sortOrder))
+      }))
+      projects.value = projects.value.map((project) =>
+        project.id === payload.projectId
+          ? { ...project, wordCount: payload.projectWordCount }
+          : project
+      )
+    } else {
+      const order = new Map(payload.chapters.map((chapter) => [chapter.id, chapter]))
+      updateProjectWorkspace(payload.projectId, (current) => ({
+        ...current,
+          chapters: current.chapters
+            .map((chapter) => {
+              const item = order.get(chapter.id)
+              return item
+                ? { ...chapter, volumeId: item.volumeId, sortOrder: item.sortOrder }
+                : chapter
+            })
+            .sort((left, right) =>
+              (left.sortOrder ?? Number.MAX_SAFE_INTEGER)
+              - (right.sortOrder ?? Number.MAX_SAFE_INTEGER)
+          )
+      }))
+    }
+    if (payload.projectId === selectedProjectId.value) syncSelectedChapter()
+  }
+
   /** 从持久化载荷恢复全局状态（主题、项目列表、工作区、设置），兼容旧版格式 */
   function applyWorkspaceState(payload?: Partial<StoredState> | LegacyStoredState | null): void {
     if (!payload) {
@@ -724,6 +981,7 @@ export const useAppStore = defineStore('app', () => {
       ])
     )
     syncSelectedChapter()
+    void ensureChapterContent(selectedChapterId.value, selectedProjectId.value)
   }
 
   /** 将当前全局状态序列化为可持久化的 StoredState 对象 */
@@ -749,6 +1007,7 @@ export const useAppStore = defineStore('app', () => {
     const result = await window.characterArc.loadWorkspace()
     if (result.success && result.payload) {
       applyWorkspaceState(result.payload as Partial<StoredState>)
+      await ensureChapterContent(selectedChapterId.value, selectedProjectId.value)
       persistenceError.value = null
     } else {
       const err = result.error ?? null
@@ -2135,9 +2394,13 @@ export const useAppStore = defineStore('app', () => {
       }
       nextChapterId = nextChapter.id
 
+      const chapters = assignSparseChapterOrder(
+        insertIntoVolumeSection(workspace.chapters, nextChapter),
+        [nextChapter.id]
+      ).items
       return {
         ...workspace,
-        chapters: insertIntoVolumeSection(workspace.chapters, nextChapter)
+        chapters
       }
     })
 
@@ -2165,9 +2428,13 @@ export const useAppStore = defineStore('app', () => {
       }
       nextChapterId = nextChapter.id
 
+      const chapters = assignSparseChapterOrder(
+        insertIntoVolumeSection(workspace.chapters, nextChapter),
+        [nextChapter.id]
+      ).items
       return {
         ...workspace,
-        chapters: insertIntoVolumeSection(workspace.chapters, nextChapter)
+        chapters
       }
     })
 
@@ -2185,44 +2452,54 @@ export const useAppStore = defineStore('app', () => {
     targetChapterId: string,
     position: OutlineDropPosition = 'before'
   ): void {
+    let orderRequest: SaveChapterOrderRequest | null = null
     updateCurrentWorkspace((workspace) => {
-      const nextChapters = moveOutlineItemsAroundTarget(
+      const reordered = moveOutlineItemsAroundTarget(
         workspace.chapters,
         [chapterId],
         targetChapterId,
         position
       )
-      if (nextChapters === workspace.chapters) {
+      if (reordered === workspace.chapters) {
         return workspace
       }
+      const ordered = assignSparseChapterOrder(reordered, [chapterId])
+      orderRequest = buildChapterOrderRequest(selectedProjectId.value, ordered.chapters)
 
       return {
         ...workspace,
-        chapters: nextChapters
+        chapters: ordered.items
       }
-    })
-    schedulePersist('fast')
+    }, { syncWorkspace: false })
+    if (orderRequest) {
+      void persistChapterOrder(orderRequest)
+    }
   }
 
   /** 将章节拖到指定分卷末尾 */
   function moveChaptersToVolumeEnd(chapterIds: string[], volumeId: string): void {
+    let orderRequest: SaveChapterOrderRequest | null = null
     updateCurrentWorkspace((workspace) => {
-      const nextChapters = reorderOutlineItemsToVolumeEnd(
+      const reordered = reorderOutlineItemsToVolumeEnd(
         workspace.chapters,
         chapterIds,
         volumeId,
         workspace.outlineVolumes.map((volume) => volume.id)
       )
-      if (nextChapters === workspace.chapters) {
+      if (reordered === workspace.chapters) {
         return workspace
       }
+      const ordered = assignSparseChapterOrder(reordered, chapterIds)
+      orderRequest = buildChapterOrderRequest(selectedProjectId.value, ordered.chapters)
 
       return {
         ...workspace,
-        chapters: nextChapters
+        chapters: ordered.items
       }
-    })
-    schedulePersist('fast')
+    }, { syncWorkspace: false })
+    if (orderRequest) {
+      void persistChapterOrder(orderRequest)
+    }
   }
 
   // ── 大纲节点 CRUD ──
@@ -2588,8 +2865,7 @@ export const useAppStore = defineStore('app', () => {
     updateChapter(chapter.id, {
       title: value,
       outlineItemId: resolvedOutlineItemId || chapter.outlineItemId
-    })
-    schedulePersist('autosave')
+    }, { persistMode: 'autosave' })
   }
 
   function updateChapterContent(value: string, chapterId = selectedChapter.value?.id ?? ''): void {
@@ -2597,8 +2873,7 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
-    updateChapter(chapterId, { content: value })
-    schedulePersist('autosave')
+    updateChapter(chapterId, { content: value }, { persistMode: 'autosave' })
   }
 
   async function reloadChapterFromDb(chapterId: string): Promise<void> {
@@ -2613,7 +2888,7 @@ export const useAppStore = defineStore('app', () => {
       status: data.status as ChapterDraft['status'],
       wordTarget: data.wordTarget,
       content: data.content
-    })
+    }, { persist: false })
   }
 
   function updateChapterSummary(value: string): void {
@@ -2622,11 +2897,14 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
-    updateChapter(chapter.id, { summary: value })
-    schedulePersist('autosave')
+    updateChapter(chapter.id, { summary: value }, { persistMode: 'autosave' })
   }
 
-  function updateChapter(chapterId: string, payload: Partial<ChapterDraft>): void {
+  function updateChapter(
+    chapterId: string,
+    payload: Partial<ChapterDraft>,
+    options: { persist?: boolean; persistMode?: 'fast' | 'autosave' } = {}
+  ): void {
     updateCurrentWorkspace((workspace) => ({
       ...workspace,
       chapters: workspace.chapters.map((chapter) =>
@@ -2640,24 +2918,55 @@ export const useAppStore = defineStore('app', () => {
               status: payload.status ?? chapter.status,
               wordTarget:
                 payload.wordTarget !== undefined ? normalizeChapterWordTarget(payload.wordTarget) : chapter.wordTarget,
-              content: payload.content !== undefined ? payload.content : chapter.content
+              content: payload.content !== undefined ? payload.content : chapter.content,
+              contentLoaded: payload.content !== undefined ? true : chapter.contentLoaded,
+              contentLength: payload.content !== undefined
+                ? getChapterCharacterCount(payload.content)
+                : chapter.contentLength,
+              contentPreview: payload.content !== undefined
+                ? payload.content.slice(0, 1600)
+                : chapter.contentPreview,
+              contentEnding: payload.content !== undefined
+                ? payload.content.slice(-1000)
+                : chapter.contentEnding
             })
           : chapter
       )
-    }))
+    }), { syncWorkspace: false })
+
+    if (options.persist === false) return
+    const chapter = projectWorkspaces.value[selectedProjectId.value]?.chapters.find((item) => item.id === chapterId)
+    const project = projects.value.find((item) => item.id === selectedProjectId.value)
+    if (chapter && project) {
+      scheduleChapterPersist(
+        selectedProjectId.value,
+        project.wordCount,
+        toPersistedChapter(chapter),
+        options.persistMode ?? 'fast'
+      )
+    }
   }
 
   function updateChapterStatuses(chapterIds: string[], status: ChapterDraft['status']): number {
     const selectedIds = new Set(chapterIds)
     let changed = 0
-    updateCurrentWorkspace((workspace) => ({
-      ...workspace,
-      chapters: workspace.chapters.map((chapter) => {
+    let changedChapters: ChapterDraft[] = []
+    updateCurrentWorkspace((workspace) => {
+      const nextChapters = workspace.chapters.map((chapter) => {
         if (!selectedIds.has(chapter.id) || chapter.status === status) return chapter
         changed += 1
-        return normalizeChapterDraft({ ...chapter, status })
+        const next = normalizeChapterDraft({ ...chapter, status })
+        changedChapters.push(next)
+        return next
       })
-    }))
+      return { ...workspace, chapters: nextChapters }
+    }, { syncWorkspace: false })
+    const project = projects.value.find((item) => item.id === selectedProjectId.value)
+    if (project) {
+      for (const chapter of changedChapters) {
+        scheduleChapterPersist(selectedProjectId.value, project.wordCount, toPersistedChapter(chapter), 'fast')
+      }
+    }
     return changed
   }
 
@@ -2683,7 +2992,11 @@ export const useAppStore = defineStore('app', () => {
       }
     }
 
-    const latestVersion = getChapterVersions(chapter.id)[0]
+    let latestVersion = getChapterVersions(chapter.id)[0]
+    if (latestVersion?.contentLoaded === false) {
+      await ensureChapterVersionContent(latestVersion.id)
+      latestVersion = getChapterVersions(chapter.id)[0]
+    }
     const unchanged = Boolean(
       latestVersion &&
       latestVersion.title === chapter.title &&
@@ -2747,7 +3060,9 @@ export const useAppStore = defineStore('app', () => {
   async function restoreChapterVersion(versionId: string): Promise<{ success: boolean; error?: string }> {
     let version = chapterVersions.value.find((item) => item.id === versionId)
 
-    if (!version) {
+    if (version?.contentLoaded === false) {
+      version = await ensureChapterVersionContent(versionId) ?? undefined
+    } else if (!version) {
       const projectId = currentProject.value?.id
       if (projectId) {
         const res = await window.characterArc.readChapterVersionFromDb(projectId, versionId)
@@ -3463,6 +3778,7 @@ export const useAppStore = defineStore('app', () => {
 
   // ── 事件监听注册 ──
   window.characterArc.onWorkspaceSync(handleRemoteWorkspaceSync)
+  window.characterArc.onChapterMutation(handleRemoteChapterMutation)
   window.characterArc.onAiRunEvent(handleAiRunEvent)
   window.characterArc.onChapterStateWarnings(handleChapterStateWarnings)
   window.characterArc.onChapterPostGenerationIssues(handleChapterPostGenerationIssues)
@@ -3472,9 +3788,10 @@ export const useAppStore = defineStore('app', () => {
   // ── 响应式监听器 ──
   // 切换章节时清空选中文本
   watch(
-    () => selectedChapterId.value,
-    () => {
+    [() => selectedProjectId.value, () => selectedChapterId.value],
+    ([projectId, chapterId]) => {
       currentChapterSelection.value = null
+      void ensureChapterContent(chapterId, projectId)
     }
   )
 
@@ -3584,6 +3901,7 @@ export const useAppStore = defineStore('app', () => {
     saveCurrentChapterVersion,
     selectChapter,
     selectedChapter,
+    selectedChapterContentLoading,
     selectedChapterId,
     selectedChapterVolume,
     selectedProjectId,
@@ -3627,6 +3945,9 @@ export const useAppStore = defineStore('app', () => {
     workflowDocuments,
     flushWorkspaceSync,
     persistWorkspace,
+    flushChapterPersists,
+    ensureChapterContent,
+    ensureChapterVersionContent,
     updateChapter,
     updateChapterStatuses,
     updateChapterContent,

@@ -74,7 +74,7 @@ test('初稿只建立索引，世界状态统一在章节定稿后同步', () =>
   assert.match(firstDraftFlowSource, /chapterIndex: Math\.max\(currentChapterIndex, 0\)/)
   assert.match(orchestratorSource, /context\.deferStoryStateUntilFinal === true/)
   assert.match(chapterMetaDialogSource, /form\.status === 'final'/)
-  assert.match(chapterMetaDialogSource, /await appStore\.persistWorkspace\(\)/)
+  assert.match(chapterMetaDialogSource, /await appStore\.flushChapterPersists\(\)/)
   assert.match(chapterMetaDialogSource, /startChapterStateSync\(\[chapterId\]\)/)
   assert.match(chapterMetaDialogSource, /:loading="isSubmitting"/)
   assert.doesNotMatch(chapterMetaDialogSource, /title="同步世界状态"/)

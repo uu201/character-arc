@@ -271,11 +271,16 @@ export type WorkspacePayload = {
         id: string
         outlineItemId: string
         volumeId: string
+        sortOrder: number
         title: string
         summary: string
         status: 'draft' | 'review' | 'polish' | 'final'
         wordTarget: string
         content: string
+        contentLoaded?: boolean
+        contentLength?: number
+        contentPreview?: string
+        contentEnding?: string
       }>
       chapterVersions: Array<{
         id: string
@@ -285,6 +290,8 @@ export type WorkspacePayload = {
         status: 'draft' | 'review' | 'polish' | 'final'
         wordTarget: string
         content: string
+        contentLoaded?: boolean
+        contentLength?: number
         createdAt: string
       }>
       messages: Array<{
@@ -452,6 +459,7 @@ export type LegacyWorkspacePayload = Omit<WorkspacePayload, 'workspaces' | 'aiRu
     id: string
     outlineItemId?: string
     volumeId?: string
+    sortOrder?: number
     title: string
     summary: string
     status: 'draft' | 'review' | 'polish' | 'final'
@@ -698,7 +706,16 @@ export function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWork
       workspaces: Object.fromEntries(
         Object.entries(payload.workspaces).map(([projectId, workspace]) => [
           projectId,
-          { ...workspace, aiRuns: [] }
+          {
+            ...workspace,
+            chapters: workspace.chapters.map((chapter, index) => ({
+              ...chapter,
+              sortOrder: Number.isSafeInteger(chapter.sortOrder)
+                ? chapter.sortOrder
+                : (index + 1) * 1024
+            })),
+            aiRuns: []
+          }
         ])
       ),
       projects: payload.projects.map((project) => normalizeProjectRecord(project)),
@@ -788,10 +805,11 @@ export function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWork
             : [],
         chapters:
           project.id === selectedProjectId
-            ? (legacyPayload.chapters ?? []).map((chapter) => ({
+            ? (legacyPayload.chapters ?? []).map((chapter, index) => ({
                 ...chapter,
                 outlineItemId: chapter.outlineItemId || '',
-                volumeId: chapter.volumeId || legacyPayload.outlineVolumes?.[0]?.id || 'volume-legacy-default'
+                volumeId: chapter.volumeId || legacyPayload.outlineVolumes?.[0]?.id || 'volume-legacy-default',
+                sortOrder: chapter.sortOrder ?? (index + 1) * 1024
               }))
             : [],
         chapterVersions: project.id === selectedProjectId ? legacyPayload.chapterVersions ?? [] : [],

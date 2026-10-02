@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import type { ChapterMutationEvent } from '@shared/ipc-types'
 
 import type {
   ChapterPostGenerationIssuesPayload,
@@ -13,9 +14,13 @@ import type {
 import { registerAiIpcHandlers } from './ai/ipc'
 import { type ReferenceNovelLocalContext } from './referenceAnalysis'
 import { registerMainIpcHandlers } from './register-main-ipc'
-import { bootstrapAssistantRuntime } from './ai/runtime-v2/bootstrap'
+import {
+  bootstrapAssistantRuntime,
+  type CommittedStageChange
+} from './ai/runtime-v2/bootstrap'
 import { initRegistry as initSkillRegistry } from './ai/skills'
 import { createWindowManager } from './window-manager'
+import { markFreshWorkspaceInitialized, prepareWorkspaceForLaunch } from './workspace-upgrade'
 import {
   type LegacyWorkspacePayload,
   type WorkspaceAiRunRecord,
@@ -24,7 +29,16 @@ import {
   mergeAppSettingsIntoWorkspaceSnapshot,
   normalizeWorkspacePayload
 } from './workspace-types'
-import { ensureWorkspaceDb, getWorkspaceDbIfInitialized, readWorkspaceSnapshot, writeAppSettingsRow, writeWorkspaceSnapshot } from './workspace-store'
+import {
+  ensureWorkspaceDb,
+  getWorkspaceDbIfInitialized,
+  readChapterMutationPayload,
+  readWorkspaceSnapshot,
+  writeAppSettingsRow,
+  writeChapterOrder,
+  writeChapterRows,
+  writeWorkspaceSnapshot
+} from './workspace-store'
 
 const APP_DATA_DIR_NAME = 'CharacterArc'
 
@@ -81,6 +95,94 @@ function updateLatestAppSettings(
     settings,
     metadata
   )
+}
+
+function applyChapterMutationToLatestSnapshot(payload: ChapterMutationEvent): void {
+  if (!latestWorkspaceSnapshot) return
+  const workspace = latestWorkspaceSnapshot.workspaces[payload.projectId]
+  if (!workspace) return
+
+  if (payload.kind === 'upsert') {
+    const updates = new Map(payload.chapters.map((chapter) => [chapter.id, chapter]))
+    const existingIds = new Set(workspace.chapters.map((chapter) => chapter.id))
+    const maxSortOrder = workspace.chapters.reduce(
+      (maximum, chapter) => Math.max(maximum, chapter.sortOrder),
+      0
+    )
+    workspace.chapters = [
+      ...workspace.chapters.map((chapter) => {
+        const update = updates.get(chapter.id)
+        return update
+          ? { ...chapter, ...update, sortOrder: update.sortOrder ?? chapter.sortOrder }
+          : chapter
+      }),
+      ...payload.chapters
+        .filter((chapter) => !existingIds.has(chapter.id))
+        .map((chapter, index) => ({
+          ...chapter,
+          sortOrder: chapter.sortOrder ?? maxSortOrder + (index + 1) * 1024
+        }))
+    ]
+    latestWorkspaceSnapshot.projects = latestWorkspaceSnapshot.projects.map((project) =>
+      project.id === payload.projectId
+        ? { ...project, wordCount: payload.projectWordCount }
+        : project
+    )
+    return
+  }
+
+  const order = new Map(payload.chapters.map((chapter) => [chapter.id, chapter]))
+  workspace.chapters = workspace.chapters
+    .map((chapter) => {
+      const item = order.get(chapter.id)
+      return item
+        ? { ...chapter, volumeId: item.volumeId, sortOrder: item.sortOrder }
+        : chapter
+    })
+    .sort((left, right) =>
+      left.sortOrder - right.sortOrder
+    )
+}
+
+async function refreshWorkspaceSnapshot(): Promise<void> {
+  const db = await ensureWorkspaceDb()
+  const snapshot = readWorkspaceSnapshot(db, { includeChapterContent: false })
+  if (!snapshot) return
+  updateLatestWorkspaceSnapshot(snapshot)
+  windowManager.broadcastWindowEvent('characterarc:workspace-sync-event', snapshot)
+}
+
+async function syncCommittedStageChanges(changes: CommittedStageChange[]): Promise<void> {
+  if (
+    changes.length === 0 ||
+    changes.some(({ change }) => change.kind !== 'chapter' || change.action === 'delete' || !change.entityId)
+  ) {
+    await refreshWorkspaceSnapshot()
+    return
+  }
+
+  const chapterIdsByProject = new Map<string, string[]>()
+  for (const { change, projectId } of changes) {
+    const chapterIds = chapterIdsByProject.get(projectId) ?? []
+    chapterIds.push(change.entityId as string)
+    chapterIdsByProject.set(projectId, chapterIds)
+  }
+
+  const db = await ensureWorkspaceDb()
+  const mutations: ChapterMutationEvent[] = []
+  for (const [projectId, chapterIds] of chapterIdsByProject) {
+    const payload = readChapterMutationPayload(db, projectId, chapterIds)
+    if (!payload) {
+      await refreshWorkspaceSnapshot()
+      return
+    }
+    mutations.push({ kind: 'upsert', ...payload })
+  }
+
+  for (const mutation of mutations) {
+    applyChapterMutationToLatestSnapshot(mutation)
+    windowManager.broadcastWindowEvent('characterarc:chapter-mutation-event', mutation)
+  }
 }
 
 function appendAiRunToLatestSnapshot(payload: WorkspaceAiRunEventPayload): void {
@@ -583,7 +685,11 @@ registerMainIpcHandlers({
   ensureWorkspaceDb,
   getWorkspaceDbIfInitialized,
   readWorkspaceSnapshot,
+  readWorkspaceSnapshotForRenderer: (db) => readWorkspaceSnapshot(db, { includeChapterContent: false }),
   writeWorkspaceSnapshot: (db, payload) => writeWorkspaceSnapshot(db, payload as WorkspacePayload),
+  writeChapterRows,
+  writeChapterOrder,
+  applyChapterMutation: applyChapterMutationToLatestSnapshot,
   writeAppSettingsRow: (db, settings, metadata) =>
     writeAppSettingsRow(db, settings as Partial<WorkspacePayload['appSettings']>, metadata),
   validateImportedPayload,
@@ -611,20 +717,29 @@ bootstrapAssistantRuntime({
   ensureDb: ensureWorkspaceDb,
   getSnapshot: () => latestWorkspaceSnapshot,
   emitAiRunEvent: emitAiRunEvent as (payload: { projectId: string; meta: Record<string, unknown> }) => void,
-  refreshSnapshot: async () => {
-    const db = await ensureWorkspaceDb()
-    const snapshot = readWorkspaceSnapshot(db)
-    if (!snapshot) return
-    updateLatestWorkspaceSnapshot(snapshot)
-    windowManager.broadcastWindowEvent('characterarc:workspace-sync-event', snapshot)
-  }
+  refreshSnapshot: refreshWorkspaceSnapshot,
+  afterCommit: syncCommittedStageChanges
 })
 
 // ── 应用生命周期 ──
 // macOS 上关闭所有窗口后点击 dock 图标时重新创建主窗口
 app.whenReady().then(async () => {
+  const upgrade = await prepareWorkspaceForLaunch()
+  if (upgrade.blocked) return
+
   await initSkillRegistry().catch(() => {})
-  windowManager.createMainWindow()
+  const mainWindow = windowManager.createMainWindow()
+  const upgradeWindow = upgrade.window
+  if (upgradeWindow && !upgradeWindow.isDestroyed()) {
+    mainWindow.once('ready-to-show', () => {
+      if (!upgradeWindow.isDestroyed()) upgradeWindow.close()
+    })
+  }
+  if (upgrade.initializeMarkerAfterLaunch) {
+    void ensureWorkspaceDb()
+      .then(() => markFreshWorkspaceInitialized())
+      .catch((error) => console.error('[workspace] initialize schema marker failed:', error))
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

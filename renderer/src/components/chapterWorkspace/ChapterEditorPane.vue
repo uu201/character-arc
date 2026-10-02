@@ -142,7 +142,13 @@ const volumeLabel = computed(() =>
     : '未分卷'
 )
 
-const wordCount = computed(() => getChapterCharacterCount(currentChapter.value?.content ?? ''))
+const wordCount = computed(() => {
+  const chapter = currentChapter.value
+  if (!chapter) return 0
+  return chapter.contentLoaded === false
+    ? Math.max(0, Number(chapter.contentLength ?? 0))
+    : getChapterCharacterCount(chapter.content ?? '')
+})
 const targetWords = computed(() => parseChapterWordTarget(currentChapter.value?.wordTarget))
 const progressPercent = computed(() => {
   if (!targetWords.value) return 0
@@ -547,7 +553,11 @@ onBeforeUnmount(() => {
             <button type="button" class="primary" @click="restoreRecovery">恢复草稿</button>
           </div>
 
+          <div v-if="appStore.selectedChapterContentLoading" class="ep-empty">
+            正在加载章节正文…
+          </div>
           <SimpleChapterEditor
+            v-else
             ref="editorRef"
             class="ep-editor"
             :style="{ fontFamily: currentEditorFont.fontFamily }"

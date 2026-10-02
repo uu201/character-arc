@@ -112,7 +112,7 @@ async function submit(): Promise<void> {
       wordTarget: normalizeChapterWordTarget(form.wordTarget)
     })
 
-    await appStore.persistWorkspace()
+    await appStore.flushChapterPersists()
     if (appStore.persistenceError) {
       message.error(`章节信息保存失败：${appStore.persistenceError}`)
       return

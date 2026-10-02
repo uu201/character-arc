@@ -197,6 +197,8 @@ export interface StagedChange {
   status: StagedChangeStatus
   createdAt: string
   updatedAt: string
+  /** false 表示列表摘要；展开审阅前需通过 stage:get 加载完整差异。 */
+  detailLoaded?: boolean
 }
 
 export interface StagedChangeCandidate {
@@ -331,6 +333,7 @@ export const ASSISTANT_IPC_CHANNELS = {
   EVENT_STREAM: 'characterarc:assistant:event:stream',
   // Staged Changes
   STAGE_LIST: 'characterarc:assistant:stage:list',
+  STAGE_GET: 'characterarc:assistant:stage:get',
   STAGE_ACCEPT: 'characterarc:assistant:stage:accept',
   STAGE_REJECT: 'characterarc:assistant:stage:reject',
   STAGE_COMMIT: 'characterarc:assistant:stage:commit',
@@ -593,6 +596,11 @@ export interface TurnTruncateResult {
 
 export interface StageAcceptRequest {
   changeIds: string[]
+}
+
+export interface StageGetRequest {
+  changeId: string
+  detail?: boolean
 }
 
 export interface StageRejectRequest {

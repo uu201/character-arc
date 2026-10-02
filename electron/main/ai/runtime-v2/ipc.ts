@@ -20,7 +20,9 @@ import {
   type StageAcceptRequest,
   type StageBindTargetRequest,
   type StageCommitRequest,
+  type StageGetRequest,
   type StageRejectRequest,
+  type StagedChange,
   type SkillExecutionReceiptItem,
   type SkillUseMode,
   type SurfaceDefinition,
@@ -41,6 +43,7 @@ import { configureRuntimeState, getSharedConversation } from './state'
 import { finalizeCommitBatch } from './commit-result'
 import type { EvidenceLedger } from './evidence-ledger'
 import type { AssistantRuntimePlan } from './planner'
+import { toStageResponse } from './stage-response'
 
 /** Phase 2 才注入的执行计划解析器：把 Surface + user request → prompt + tools。 */
 export type ResolveTurnExecutionPlan = (params: {
@@ -69,8 +72,8 @@ export interface AssistantIpcDeps {
   resolveTurnExecutionPlan?: ResolveTurnExecutionPlan
   /** Phase 2 注入。缺省时 stage:commit 通道拒绝服务。 */
   commitChange?: StagedChangeCommitter
-  /** 至少一项写回成功后刷新工作区快照；刷新失败不改变写库结果。 */
-  afterCommit?: () => Promise<void> | void
+  /** 至少一项写回成功后同步工作区快照；同步失败不改变写库结果。 */
+  afterCommit?: (changes: StagedChange[]) => Promise<void> | void
   /** 可选：把 v2 turn 记录到既有 AI 运行日志。 */
   emitAiRunEvent?: (payload: { projectId: string; meta: Record<string, unknown> }) => void
 }
@@ -510,7 +513,15 @@ function registerStageHandlers(): void {
           turnId: payload.turnId
         },
         payload.sessionId
-      )
+      ).map((change) => toStageResponse(change))
+    }
+  )
+
+  ipcMain.handle(
+    ASSISTANT_IPC_CHANNELS.STAGE_GET,
+    async (_event, payload: StageGetRequest) => {
+      await getConversation()
+      return toStageResponse(stagedChangesStore.get(payload.changeId), payload.detail === true)
     }
   )
 
@@ -518,7 +529,7 @@ function registerStageHandlers(): void {
     ASSISTANT_IPC_CHANNELS.STAGE_ACCEPT,
     async (_event, payload: StageAcceptRequest) => {
       await getConversation()
-      return stagedChangesStore.accept(payload.changeIds)
+      return stagedChangesStore.accept(payload.changeIds).map((change) => toStageResponse(change))
     }
   )
 
@@ -526,7 +537,7 @@ function registerStageHandlers(): void {
     ASSISTANT_IPC_CHANNELS.STAGE_REJECT,
     async (_event, payload: StageRejectRequest) => {
       await getConversation()
-      return stagedChangesStore.reject(payload.changeIds)
+      return stagedChangesStore.reject(payload.changeIds).map((change) => toStageResponse(change))
     }
   )
 
@@ -535,7 +546,7 @@ function registerStageHandlers(): void {
     async (_event, payload: StageBindTargetRequest) => {
       await getConversation()
       const updated = stagedChangesStore.bindTarget(payload.changeId, payload.entityId)
-      return updated ?? null
+      return toStageResponse(updated)
     }
   )
 
@@ -551,7 +562,17 @@ function registerStageHandlers(): void {
         sessionId: payload.sessionId,
         changeIds: payload.changeIds
       })
-      return finalizeCommitBatch(results, deps?.afterCommit)
+      const successfulCount = results.filter((result) => result.ok).length
+      const successfulChanges = results.flatMap((result) => {
+        if (!result.ok) return []
+        const change = stagedChangesStore.get(result.changeId)
+        return change ? [change] : []
+      })
+      const changes = successfulChanges.length === successfulCount ? successfulChanges : []
+      return finalizeCommitBatch(
+        results,
+        deps?.afterCommit ? () => deps?.afterCommit?.(changes) : undefined
+      )
     }
   )
 }

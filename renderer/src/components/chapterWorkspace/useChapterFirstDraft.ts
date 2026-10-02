@@ -597,7 +597,14 @@ export function useChapterFirstDraft(): {
               throw error instanceof Error ? error : new Error(`${steps[stepId].id} 执行失败`)
             }
           }
-          const currentChapterIndex = appStore.chapters.findIndex((item) => item.id === chapter.id)
+          let currentChapterIndex = appStore.chapters.findIndex((item) => item.id === chapter.id)
+          const recentPrecedingIds = appStore.chapters
+            .slice(Math.max(0, currentChapterIndex - 4), currentChapterIndex)
+            .map((item) => item.id)
+          await Promise.all(recentPrecedingIds.map((chapterId) =>
+            appStore.ensureChapterContent(chapterId, project.id)
+          ))
+          currentChapterIndex = appStore.chapters.findIndex((item) => item.id === chapter.id)
           const precedingChapters = appStore.chapters.slice(0, currentChapterIndex)
           const relatedChapters = precedingChapters
             .slice(-4)
@@ -623,7 +630,7 @@ export function useChapterFirstDraft(): {
           const previousChapterHandoff = handoffChapter
             ? {
                 title: handoffChapter.title,
-                endingText: getPlainTextFromEditorContent(handoffChapter.content ?? '').trim().slice(-800)
+                endingText: getPlainTextFromEditorContent(handoffChapter.content).trim().slice(-800)
               }
             : undefined
 

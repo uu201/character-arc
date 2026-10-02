@@ -4,6 +4,7 @@ import { createDefaultWorkflowDocuments, normalizeWorkflowDocuments } from '@/fe
 import { createDefaultNovelWorkflowStages, normalizeNovelWorkflowStages } from '@/features/novelWorkflow/stages'
 import { DEFAULT_CHAPTER_WORD_TARGET, normalizeChapterWordTarget } from '@/features/chapters/wordTarget'
 import { DEFAULT_EDITOR_FONT, isEditorFont } from '@/features/chapters/editorTypography'
+import { getChapterCharacterCount } from '@/features/chapters/editorContent'
 import { createOutlineVolume as createWorkspaceVolume } from '@/features/workspace/outlineVolumes'
 import { createDemoWorkspace, normalizeWorkspace } from '@/features/workspace/projectWorkspace'
 import type {
@@ -457,8 +458,18 @@ export function loadStoredState(): StoredState {
 
 // 标准化章节草稿：确保摘要、状态和目标字数都有合理的默认值
 export function normalizeChapterDraft(chapter: ChapterDraft): ChapterDraft {
+  const content = chapter.content ?? ''
+  const contentLoaded = chapter.contentLoaded !== false
   return {
     ...chapter,
+    content,
+    contentLoaded,
+    sortOrder: Number.isSafeInteger(chapter.sortOrder) ? chapter.sortOrder : undefined,
+    contentLength: contentLoaded
+      ? getChapterCharacterCount(content)
+      : Math.max(0, Number(chapter.contentLength ?? content.length)),
+    contentPreview: contentLoaded ? content.slice(0, 1600) : (chapter.contentPreview ?? content),
+    contentEnding: contentLoaded ? content.slice(-1000) : (chapter.contentEnding ?? content),
     outlineItemId: chapter.outlineItemId ?? '',
     summary: chapter.summary?.trim() || '待补充章节摘要',
     status: chapter.status ?? 'draft',
@@ -468,8 +479,15 @@ export function normalizeChapterDraft(chapter: ChapterDraft): ChapterDraft {
 
 // 标准化章节版本：除基本字段外还确保创建时间合法
 export function normalizeChapterVersion(version: ChapterVersion): ChapterVersion {
+  const content = version.content ?? ''
+  const contentLoaded = version.contentLoaded !== false
   return {
     ...version,
+    content,
+    contentLoaded,
+    contentLength: contentLoaded
+      ? getChapterCharacterCount(content)
+      : Math.max(0, Number(version.contentLength ?? content.length)),
     summary: version.summary?.trim() || '待补充章节摘要',
     status: version.status ?? 'draft',
     wordTarget: normalizeChapterWordTarget(version.wordTarget),
@@ -491,7 +509,12 @@ export function normalizeProjectWorkspaceData(
     inspirationEntries: normalized.inspirationEntries,
     outlineVolumes: normalized.outlineVolumes,
     outlineItems: normalized.outlineItems,
-    chapters: normalized.chapters.map(normalizeChapterDraft),
+    chapters: normalized.chapters
+      .map((chapter, index) => normalizeChapterDraft({
+        ...chapter,
+        sortOrder: Number.isSafeInteger(chapter.sortOrder) ? chapter.sortOrder : (index + 1) * 1024
+      }))
+      .sort((left, right) => Number(left.sortOrder) - Number(right.sortOrder)),
     chapterVersions: normalized.chapterVersions.map(normalizeChapterVersion),
     messages: normalized.messages,
     globalAssistantSessions: normalized.globalAssistantSessions,
@@ -512,7 +535,11 @@ export function buildStarterChapter(volumeId: string, title = '第1章：开篇'
     summary: '待补充章节摘要',
     status: 'draft',
     wordTarget: DEFAULT_CHAPTER_WORD_TARGET,
-    content: ''
+    content: '',
+    contentLoaded: true,
+    contentLength: 0,
+    contentPreview: '',
+    contentEnding: ''
   }
 }
 

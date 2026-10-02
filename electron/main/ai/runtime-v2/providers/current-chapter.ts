@@ -9,6 +9,7 @@ import type {
   SurfaceDefinition
 } from '@shared/assistant-runtime'
 import type { ContextProvider } from '../context-builder'
+import { readChapterFromDb } from '../../agent/tools/chapter-data-access'
 import {
   getProjectView,
   makeSlice,
@@ -46,10 +47,9 @@ export function makeCurrentChapterProvider(
       const chapterId = parseChapterScopeRef(request.scopeRef)
       if (!chapterId) return null
 
-      const view = getProjectView(accessor.getSnapshot(), request.projectId)
-      if (!view) return null
-
-      const chapter = view.workspace.chapters.find((c) => c.id === chapterId)
+      const chapter = await readChapterFromDb(request.projectId, chapterId)
+        ?? getProjectView(accessor.getSnapshot(), request.projectId)
+          ?.workspace.chapters.find((item) => item.id === chapterId)
       if (!chapter) return null
 
       const plain = stripHtml(chapter.content)

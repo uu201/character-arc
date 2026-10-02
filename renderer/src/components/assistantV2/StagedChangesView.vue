@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: 'reject', ids: string[]): void
   (e: 'commit', ids?: string[]): void
   (e: 'bind-target', changeId: string, entityId: string): void
+  (e: 'request-detail', changeId: string): void
 }>()
 
 const activeFilter = ref<'all' | 'chapter' | 'setting' | 'pending'>('all')
@@ -57,7 +58,10 @@ const reviewingChange = computed(() =>
 function toggleExpand(id: string): void {
   const next = new Set(expandedIds.value)
   if (next.has(id)) next.delete(id)
-  else next.add(id)
+  else {
+    next.add(id)
+    emit('request-detail', id)
+  }
   expandedIds.value = next
 }
 
@@ -154,6 +158,7 @@ function computeDiff(before: string, after: string): { added: string[]; removed:
 }
 
 function reviewChange(id: string): void {
+  emit('request-detail', id)
   reviewingId.value = id
 }
 

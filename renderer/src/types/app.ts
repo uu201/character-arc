@@ -770,6 +770,8 @@ export interface ChapterDraft {
   outlineItemId: string
   /** 所属分卷 ID */
   volumeId: string
+  /** 数据库中的稀疏排序值。 */
+  sortOrder?: number
   /** 章节标题 */
   title: string
   /** 章节摘要 */
@@ -780,6 +782,14 @@ export interface ChapterDraft {
   wordTarget: string
   /** 章节正文 HTML 内容 */
   content: string
+  /** 正文是否已完整加载；false 时 content 仅为短预览。 */
+  contentLoaded?: boolean
+  /** 未加载时用于列表字数和批量操作判断。 */
+  contentLength?: number
+  /** 正文开头的短预览。 */
+  contentPreview?: string
+  /** 正文结尾的短预览。 */
+  contentEnding?: string
 }
 
 /** 章节历史版本快照，用于版本回溯 */
@@ -798,6 +808,10 @@ export interface ChapterVersion {
   wordTarget: string
   /** 快照时的章节正文内容 */
   content: string
+  /** 历史正文是否已完整加载。 */
+  contentLoaded?: boolean
+  /** 历史正文长度。 */
+  contentLength?: number
   /** 版本创建时间 */
   createdAt: string
 }

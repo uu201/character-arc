@@ -42,10 +42,49 @@ export interface SaveAppSettingsRequest {
   appSettings: AppSettingsPayload
 }
 
+export interface PersistedChapterRecord {
+  id: string
+  outlineItemId: string
+  volumeId: string
+  sortOrder?: number
+  title: string
+  summary: string
+  status: 'draft' | 'review' | 'polish' | 'final'
+  wordTarget: string
+  content: string
+  contentLoaded?: boolean
+  contentLength?: number
+  contentPreview?: string
+  contentEnding?: string
+}
+
+export interface SaveChaptersRequest {
+  projectId: string
+  projectWordCount: string
+  chapters: PersistedChapterRecord[]
+}
+
+export interface ChapterOrderRecord {
+  id: string
+  volumeId: string
+  sortOrder: number
+}
+
+export interface SaveChapterOrderRequest {
+  projectId: string
+  chapters: ChapterOrderRecord[]
+}
+
+export type ChapterMutationEvent =
+  | ({ kind: 'upsert' } & SaveChaptersRequest)
+  | ({ kind: 'reorder' } & SaveChapterOrderRequest)
+
 export const IPC_CHANNELS = {
   LOAD_WORKSPACE: 'characterarc:load-workspace',
   SAVE_WORKSPACE: 'characterarc:save-workspace',
-  SAVE_APP_SETTINGS: 'characterarc:save-app-settings'
+  SAVE_APP_SETTINGS: 'characterarc:save-app-settings',
+  SAVE_CHAPTERS: 'characterarc:save-chapters',
+  SAVE_CHAPTER_ORDER: 'characterarc:save-chapter-order'
 } as const
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]

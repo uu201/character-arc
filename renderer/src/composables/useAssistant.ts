@@ -568,9 +568,9 @@ export function useAssistant(options: UseAssistantOptions) {
       streamingTurnId.value = push.turnId
     }
 
-    // 暂存变更相关：任一 staged_change 事件都重拉一次 stageList，保持简单可靠
+    // 暂存变更相关：只刷新发生变化的单条记录，避免长会话反复传输整个暂存列表。
     if (push.event.kind === 'staged_change' || push.event.kind === 'staged_change_updated') {
-      void reloadStaged()
+      void reloadStagedChange(push.event.changeId)
     }
   })
 
@@ -678,6 +678,40 @@ export function useAssistant(options: UseAssistantOptions) {
     } catch (e) {
       lastError.value = e instanceof Error ? e.message : String(e)
     }
+  }
+
+  function mergeStagedChanges(changes: StagedChange[]): void {
+    if (changes.length === 0) return
+    const next = new Map(stagedChanges.value.map((change) => [change.id, change]))
+    for (const change of changes) {
+      const current = next.get(change.id)
+      next.set(change.id, current?.detailLoaded && change.detailLoaded === false
+        ? {
+            ...change,
+            before: current.before,
+            after: current.after,
+            chapterHtml: current.chapterHtml,
+            entityPayload: current.entityPayload,
+            detailLoaded: true
+          }
+        : change)
+    }
+    stagedChanges.value = Array.from(next.values())
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  }
+
+  async function reloadStagedChange(changeId: string, detail = false): Promise<void> {
+    try {
+      const change = await A.stageGet({ changeId, detail })
+      if (change) mergeStagedChanges([change])
+    } catch (e) {
+      lastError.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  async function loadStagedChangeDetail(changeId: string): Promise<void> {
+    if (stagedChanges.value.find((change) => change.id === changeId)?.detailLoaded) return
+    await reloadStagedChange(changeId, true)
   }
 
   // ==========================================================================
@@ -1166,14 +1200,14 @@ export function useAssistant(options: UseAssistantOptions) {
       stagedChanges.value.some((change) => change.id === id && change.status !== 'accepted')
     )
     commitResults.value = commitResults.value.filter((result) => !changedIds.includes(result.changeId))
-    await A.stageAccept({ changeIds: ids })
-    await reloadStaged()
+    const changed = await A.stageAccept({ changeIds: ids })
+    mergeStagedChanges(changed)
   }
 
   async function rejectChanges(ids: string[]): Promise<void> {
     commitResults.value = commitResults.value.filter((result) => !ids.includes(result.changeId))
-    await A.stageReject({ changeIds: ids })
-    await reloadStaged()
+    const changed = await A.stageReject({ changeIds: ids })
+    mergeStagedChanges(changed)
   }
 
   async function commitAccepted(ids?: string[]): Promise<{ committed: number; failed: number; warnings: number }> {
@@ -1206,7 +1240,7 @@ export function useAssistant(options: UseAssistantOptions) {
     }))
 
     try {
-      await appStore.persistWorkspace()
+      await appStore.flushChapterPersists()
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       const failures = failAll(
@@ -1263,14 +1297,22 @@ export function useAssistant(options: UseAssistantOptions) {
     } else {
       lastError.value = null
     }
-    await reloadStaged()
+    const committedById = new Map(results.filter((result) => result.ok).map((result) => [result.changeId, result]))
+    if (committedById.size > 0) {
+      stagedChanges.value = stagedChanges.value.map((change) => {
+        const result = committedById.get(change.id)
+        return result
+          ? { ...change, status: 'committed', entityId: result.entityId ?? change.entityId }
+          : change
+      })
+    }
     return { committed: results.length - errors.length, failed: errors.length, warnings: warnings.length }
   }
 
   async function bindTarget(changeId: string, entityId: string): Promise<void> {
     commitResults.value = commitResults.value.filter((result) => result.changeId !== changeId)
-    await A.stageBindTarget({ changeId, entityId })
-    await reloadStaged()
+    const changed = await A.stageBindTarget({ changeId, entityId })
+    if (changed) mergeStagedChanges([changed])
   }
 
   // ==========================================================================
@@ -1372,6 +1414,7 @@ export function useAssistant(options: UseAssistantOptions) {
     rejectChanges,
     commitAccepted,
     bindTarget,
+    loadStagedChangeDetail,
     reloadSessions,
     loadOlderTurns,
     reloadStaged

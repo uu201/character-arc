@@ -88,7 +88,11 @@ const totalVisible = computed(() =>
 )
 
 const totalWords = computed(() =>
-  appStore.chapters.reduce((n, c) => n + getChapterCharacterCount(c.content), 0)
+  appStore.chapters.reduce((n, chapter) => n + (
+    chapter.contentLoaded === false
+      ? Math.max(0, Number(chapter.contentLength ?? 0))
+      : getChapterCharacterCount(chapter.content)
+  ), 0)
 )
 
 const batchSelectedSet = computed(() => new Set(batchSelectedIds.value))
@@ -97,7 +101,11 @@ const batchSelectedChapters = computed(() =>
 )
 const batchSyncEligibleIds = computed(() =>
   batchSelectedChapters.value
-    .filter((chapter) => getPlainTextFromEditorContent(chapter.content).trim().length >= 50)
+    .filter((chapter) => (
+      chapter.contentLoaded === false
+        ? Math.max(0, Number(chapter.contentLength ?? 0))
+        : getPlainTextFromEditorContent(chapter.content).trim().length
+    ) >= 50)
     .map((chapter) => chapter.id)
 )
 
@@ -353,7 +361,7 @@ async function submitBatchStatus(): Promise<void> {
   batchSubmitting.value = true
   try {
     const changed = appStore.updateChapterStatuses(batchSelectedIds.value, batchStatus.value)
-    await appStore.persistWorkspace()
+    await appStore.flushChapterPersists()
     if (appStore.persistenceError) {
       for (const status of ['draft', 'review', 'polish', 'final'] as const) {
         const ids = [...previousStatuses.entries()].filter(([, previous]) => previous === status).map(([id]) => id)
@@ -752,10 +760,15 @@ function buildChapterExportFileName(chapter: ChapterDraft): string {
 }
 
 async function handleExportChapterTxt(chapter: ChapterDraft): Promise<void> {
+  const loadedChapter = await appStore.ensureChapterContent(chapter.id)
+  if (!loadedChapter) {
+    message.error('章节正文加载失败，暂时无法导出')
+    return
+  }
   const result = await window.characterArc.exportChapterTxt(toIpcPayload({
-    title: chapter.title,
-    content: getPlainTextFromEditorContent(chapter.content ?? ''),
-    defaultFileName: buildChapterExportFileName(chapter)
+    title: loadedChapter.title,
+    content: getPlainTextFromEditorContent(loadedChapter.content ?? ''),
+    defaultFileName: buildChapterExportFileName(loadedChapter)
   }))
 
   if (result.success) {

@@ -11,6 +11,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite'
+import type { StagedChange } from '@shared/assistant-runtime'
 import type { WorkspacePayload } from '../../workspace-types'
 import { contextBuilder } from './context-builder'
 import { registerAssistantIpcHandlers } from './ipc'
@@ -28,11 +29,23 @@ export interface BootstrapAssistantRuntimeDeps {
   emitAiRunEvent?: (payload: { projectId: string; meta: Record<string, unknown> }) => void
   /** 写库成功后刷新主进程快照并通知渲染进程。 */
   refreshSnapshot?: () => Promise<void>
+  /** 暂存变更写库成功后的定向同步。 */
+  afterCommit?: (changes: CommittedStageChange[]) => Promise<void>
+}
+
+export interface CommittedStageChange {
+  change: StagedChange
+  projectId: string
 }
 
 export function bootstrapAssistantRuntime(deps: BootstrapAssistantRuntimeDeps): void {
   const snapshotAccessor = {
     getSnapshot: deps.getSnapshot
+  }
+  const resolveProjectId = (sessionId: string): string | null => {
+    const cm = peekSharedConversation()
+    if (!cm) return null
+    return cm.getSession(sessionId)?.projectId ?? null
   }
 
   // 1. 注册 Context Provider
@@ -51,12 +64,7 @@ export function bootstrapAssistantRuntime(deps: BootstrapAssistantRuntimeDeps): 
   // 3. 构造 committer。resolveProjectId 走同步 peek——
   //    committer 只在有变更被 accept 后触发，那时 conversation 单例必然已 ready。
   const commitChange = createCommitter({
-    resolveProjectId: (sessionId) => {
-      const cm = peekSharedConversation()
-      if (!cm) return null
-      const session = cm.getSession(sessionId)
-      return session?.projectId ?? null
-    }
+    resolveProjectId
   })
 
   // 4. 注册 IPC（内部会 configureRuntimeState）
@@ -64,7 +72,21 @@ export function bootstrapAssistantRuntime(deps: BootstrapAssistantRuntimeDeps): 
     ensureDb: deps.ensureDb,
     resolveTurnExecutionPlan,
     commitChange,
-    afterCommit: deps.refreshSnapshot,
+    afterCommit: deps.afterCommit
+      ? async (changes) => {
+          const committed = changes.flatMap((change) => {
+            const projectId = resolveProjectId(change.sessionId)
+            return projectId ? [{ change, projectId }] : []
+          })
+          if (committed.length !== changes.length) {
+            await deps.refreshSnapshot?.()
+            return
+          }
+          await deps.afterCommit?.(committed)
+        }
+      : deps.refreshSnapshot
+        ? async () => deps.refreshSnapshot?.()
+        : undefined,
     emitAiRunEvent: deps.emitAiRunEvent
   })
 }

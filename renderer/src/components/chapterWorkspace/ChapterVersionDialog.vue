@@ -21,6 +21,8 @@ const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
 const selectedVersionId = ref('')
+const versionContentLoading = ref(false)
+let versionLoadRequestId = 0
 
 const versions = computed<ChapterVersion[]>(() =>
   props.chapter ? appStore.getChapterVersions(props.chapter.id) : []
@@ -31,7 +33,7 @@ const selectedVersion = computed(() =>
 )
 
 const compareRows = computed(() => {
-  if (!selectedVersion.value || !props.chapter) return []
+  if (!selectedVersion.value || !props.chapter || selectedVersion.value.contentLoaded === false) return []
   return buildChapterVersionCompareRows(
     getPlainTextFromEditorContent(selectedVersion.value.content),
     getPlainTextFromEditorContent(props.chapter.content)
@@ -124,6 +126,31 @@ watch(
   },
   { immediate: true }
 )
+
+watch(
+  [() => props.show, selectedVersionId, versions],
+  async ([show, versionId, list]) => {
+    const requestId = ++versionLoadRequestId
+    if (!show || !versionId) {
+      versionContentLoading.value = false
+      return
+    }
+    const version = list.find((item) => item.id === versionId)
+    if (!version || version.contentLoaded !== false) {
+      versionContentLoading.value = false
+      return
+    }
+    versionContentLoading.value = true
+    try {
+      await appStore.ensureChapterVersionContent(versionId)
+    } finally {
+      if (requestId === versionLoadRequestId) {
+        versionContentLoading.value = false
+      }
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -151,7 +178,11 @@ watch(
         >
           <div class="version-item-head">
             <strong>{{ formatTime(version.createdAt) }}</strong>
-            <span>{{ getChapterCharacterCount(version.content).toLocaleString() }} 字</span>
+            <span>{{ (
+              version.contentLoaded === false
+                ? Number(version.contentLength ?? 0)
+                : getChapterCharacterCount(version.content)
+            ).toLocaleString() }} 字</span>
           </div>
           <span class="version-title">{{ version.title }}</span>
           <div class="meta">
@@ -189,7 +220,8 @@ watch(
         </div>
 
         <div class="compare-scroll arc-scrollbar">
-          <div v-if="compareRows.length" class="compare-rows">
+          <div v-if="versionContentLoading" class="compare-empty">正在加载历史版本正文…</div>
+          <div v-else-if="compareRows.length" class="compare-rows">
             <div v-for="row in compareRows" :key="row.id" class="compare-row" :class="row.state">
               <p :class="{ empty: !row.before }">
                 <template v-if="row.beforeSegments.length">

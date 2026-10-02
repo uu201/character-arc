@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import packageJson from '../../package.json'
-import { IPC_CHANNELS, type SaveAppSettingsRequest } from '@shared/ipc-types'
+import {
+  IPC_CHANNELS,
+  type ChapterMutationEvent,
+  type SaveAppSettingsRequest,
+  type SaveChapterOrderRequest,
+  type SaveChaptersRequest
+} from '@shared/ipc-types'
 
 function toIpcPayload<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
@@ -25,6 +31,12 @@ contextBridge.exposeInMainWorld('characterArc', {
   /** 仅更新 app_settings 行，避免全量序列化工作区 */
   saveAppSettings: (payload: SaveAppSettingsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.SAVE_APP_SETTINGS, toIpcPayload(payload)),
+  /** 增量保存已修改章节，避免重写完整工作区 */
+  saveChapters: (payload: SaveChaptersRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_CHAPTERS, toIpcPayload(payload)),
+  /** 仅更新章节所属分卷与排序号 */
+  saveChapterOrder: (payload: SaveChapterOrderRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_CHAPTER_ORDER, toIpcPayload(payload)),
 
   // ── 文件操作 ──
   /** 打开系统文件选择对话框，选取项目封面图片 */
@@ -192,6 +204,14 @@ contextBridge.exposeInMainWorld('characterArc', {
       ipcRenderer.removeListener('characterarc:workspace-sync-event', listener)
     }
   },
+  /** 监听其他窗口产生的章节增量变更 */
+  onChapterMutation: (callback: (payload: ChapterMutationEvent) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: ChapterMutationEvent) => callback(payload)
+    ipcRenderer.on('characterarc:chapter-mutation-event', listener)
+    return () => {
+      ipcRenderer.removeListener('characterarc:chapter-mutation-event', listener)
+    }
+  },
   /** 监听参考小说拆书分析进度 */
   onReferenceImportProgress: (callback: (payload: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
@@ -283,6 +303,8 @@ contextBridge.exposeInMainWorld('characterArc', {
     // Stage
     stageList: (payload: unknown) =>
       ipcRenderer.invoke('characterarc:assistant:stage:list', toIpcPayload(payload)),
+    stageGet: (payload: unknown) =>
+      ipcRenderer.invoke('characterarc:assistant:stage:get', toIpcPayload(payload)),
     stageAccept: (payload: unknown) =>
       ipcRenderer.invoke('characterarc:assistant:stage:accept', toIpcPayload(payload)),
     stageReject: (payload: unknown) =>
