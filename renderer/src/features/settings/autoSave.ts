@@ -1,5 +1,5 @@
-// 快速持久化延迟（毫秒），用于节流高频操作如输入事件
-export const FAST_PERSIST_DELAY_MS = 300
+// 快速持久化延迟（毫秒），避免短时间内连续触发完整工作区写入
+export const FAST_PERSIST_DELAY_MS = 800
 // 实时自动保存的防抖延迟（毫秒），平衡响应速度与性能开销
 const LIVE_AUTO_SAVE_DELAY_MS = 800
 

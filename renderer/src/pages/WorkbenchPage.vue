@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from 'vue'
 import {
   BookMarked,
   BookOpenText,
@@ -26,21 +26,22 @@ import {
 } from '@/features/workspace/workbenchMenu'
 import { resolveNovelLengthLabel } from '@/features/wizard/projectGenres'
 import { useAppStore } from '@/stores/app'
-import NovelWorkflowPanel from '@/components/NovelWorkflowPanel.vue'
 import OverviewPanel from '@/components/OverviewPanel.vue'
-import GlobalAssistantPage from '@/components/GlobalAssistantPage.vue'
-import GlobalAssistantV2Panel from '@/components/assistantV2/GlobalAssistantV2Panel.vue'
-import GlobalAssistantV2Page from '@/components/assistantV2/GlobalAssistantV2Page.vue'
-import ProjectKnowledgePanel from '@/components/ProjectKnowledgePanel.vue'
-import WorldviewPanel from '@/components/WorldviewPanel.vue'
-import CharactersPanel from '@/components/CharactersPanel.vue'
-import RelationsPanel from '@/components/RelationsPanel.vue'
-import InspirationPanel from '@/components/InspirationPanel.vue'
-import OutlinePanel from '@/components/OutlinePanel.vue'
-import PlotThreadsPanel from '@/components/PlotThreadsPanel.vue'
-import SettingsPanel from '@/components/SettingsPanel.vue'
 import SearchResultsPanel from '@/components/SearchResultsPanel.vue'
 import type { PanelName } from '@/types/app'
+
+const NovelWorkflowPanel = defineAsyncComponent(() => import('@/components/NovelWorkflowPanel.vue'))
+const GlobalAssistantPage = defineAsyncComponent(() => import('@/components/GlobalAssistantPage.vue'))
+const GlobalAssistantV2Panel = defineAsyncComponent(() => import('@/components/assistantV2/GlobalAssistantV2Panel.vue'))
+const GlobalAssistantV2Page = defineAsyncComponent(() => import('@/components/assistantV2/GlobalAssistantV2Page.vue'))
+const ProjectKnowledgePanel = defineAsyncComponent(() => import('@/components/ProjectKnowledgePanel.vue'))
+const WorldviewPanel = defineAsyncComponent(() => import('@/components/WorldviewPanel.vue'))
+const CharactersPanel = defineAsyncComponent(() => import('@/components/CharactersPanel.vue'))
+const RelationsPanel = defineAsyncComponent(() => import('@/components/RelationsPanel.vue'))
+const InspirationPanel = defineAsyncComponent(() => import('@/components/InspirationPanel.vue'))
+const OutlinePanel = defineAsyncComponent(() => import('@/components/OutlinePanel.vue'))
+const PlotThreadsPanel = defineAsyncComponent(() => import('@/components/PlotThreadsPanel.vue'))
+const SettingsPanel = defineAsyncComponent(() => import('@/components/SettingsPanel.vue'))
 
 const appStore = useAppStore()
 

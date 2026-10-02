@@ -1,20 +1,21 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, watch } from 'vue'
 import { Moon, Sun } from 'lucide-vue-next'
 import { createDiscreteApi, NConfigProvider, NDialogProvider, NGlobalStyle, NMessageProvider, NSpin, darkTheme } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { createNaiveThemeOverrides, getDarkModePreset } from '@/theme/presets'
 import ProjectCenter from '@/pages/ProjectCenter.vue'
-import ProjectWizardPage from '@/pages/ProjectWizardPage.vue'
-import ContinuationImportPage from '@/pages/ContinuationImportPage.vue'
-import WorkbenchPage from '@/pages/WorkbenchPage.vue'
-import ChapterStudioPage from '@/pages/ChapterStudioPage.vue'
-import DeconstructionLibraryPage from '@/pages/DeconstructionLibraryPage.vue'
-import SkillsPage from '@/pages/SkillsPage.vue'
-import CoverWorkbenchPage from '@/pages/CoverWorkbenchPage.vue'
-import FanqieTrendsPage from '@/pages/FanqieTrendsPage.vue'
 import TitlebarModelSwitcher from '@/components/TitlebarModelSwitcher.vue'
 import TitlebarAiTaskCenter from '@/components/TitlebarAiTaskCenter.vue'
+
+const ProjectWizardPage = defineAsyncComponent(() => import('@/pages/ProjectWizardPage.vue'))
+const ContinuationImportPage = defineAsyncComponent(() => import('@/pages/ContinuationImportPage.vue'))
+const WorkbenchPage = defineAsyncComponent(() => import('@/pages/WorkbenchPage.vue'))
+const ChapterStudioPage = defineAsyncComponent(() => import('@/pages/ChapterStudioPage.vue'))
+const DeconstructionLibraryPage = defineAsyncComponent(() => import('@/pages/DeconstructionLibraryPage.vue'))
+const SkillsPage = defineAsyncComponent(() => import('@/pages/SkillsPage.vue'))
+const CoverWorkbenchPage = defineAsyncComponent(() => import('@/pages/CoverWorkbenchPage.vue'))
+const FanqieTrendsPage = defineAsyncComponent(() => import('@/pages/FanqieTrendsPage.vue'))
 
 // 全局应用状态
 const appStore = useAppStore()

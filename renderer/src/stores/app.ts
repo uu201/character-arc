@@ -254,13 +254,16 @@ export const useAppStore = defineStore('app', () => {
   const {
     scheduledPersistAt,
     isPersisting,
+    isWorkspaceEntityPersisting,
     isChapterPersisting,
+    hasPendingWorkspaceEntityPersists,
     hasPendingChapterPersists,
     hasPendingChapterPersist,
     persistenceError,
     scheduleWorkspaceSync,
     flushWorkspaceSync,
     persistWorkspace,
+    scheduleWorkspaceEntitiesPersist,
     scheduleChapterPersist,
     flushChapterPersists,
     persistChapterOrder,
@@ -364,7 +367,9 @@ export const useAppStore = defineStore('app', () => {
   const isPersistencePending = computed(() =>
     scheduledPersistAt.value !== null
     || isPersisting.value
+    || isWorkspaceEntityPersisting.value
     || isChapterPersisting.value
+    || hasPendingWorkspaceEntityPersists.value
     || hasPendingChapterPersists.value
   )
   /** 当前选中的章节对象 */
@@ -1001,13 +1006,12 @@ export const useAppStore = defineStore('app', () => {
 
   /**
    * Store 初始化入口：从 SQLite 加载工作区 → 标记水合完成。
-   * 必须在 Vue 挂载前调用。
+   * Vue 可先挂载加载界面；章节正文继续在后台按需加载。
    */
   async function initialize(): Promise<void> {
     const result = await window.characterArc.loadWorkspace()
     if (result.success && result.payload) {
       applyWorkspaceState(result.payload as Partial<StoredState>)
-      await ensureChapterContent(selectedChapterId.value, selectedProjectId.value)
       persistenceError.value = null
     } else {
       const err = result.error ?? null
@@ -1788,6 +1792,30 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // ── 世界观 CRUD ──
+  function persistWorldviewEntriesIncrementally(): void {
+    if (!selectedProjectId.value) return
+    scheduleWorkspaceEntitiesPersist({
+      projectId: selectedProjectId.value,
+      worldviewEntries: toSerializable(worldviewEntries.value)
+    })
+  }
+
+  function persistCharactersIncrementally(): void {
+    if (!selectedProjectId.value) return
+    scheduleWorkspaceEntitiesPersist({
+      projectId: selectedProjectId.value,
+      characters: toSerializable(characters.value)
+    })
+  }
+
+  function persistInspirationEntriesIncrementally(): void {
+    if (!selectedProjectId.value) return
+    scheduleWorkspaceEntitiesPersist({
+      projectId: selectedProjectId.value,
+      inspirationEntries: toSerializable(inspirationEntries.value)
+    })
+  }
+
   /** 创建世界观设定条目，插入到列表头部 */
   function createWorldviewEntry(payload?: Partial<WorldviewEntry>): string {
     const entryId = uniqueId('world')
@@ -1811,7 +1839,7 @@ export const useAppStore = defineStore('app', () => {
         ...workspace.worldviewEntries
       ])
     }))
-    schedulePersist('fast')
+    persistWorldviewEntriesIncrementally()
     return entryId
   }
 
@@ -1832,7 +1860,7 @@ export const useAppStore = defineStore('app', () => {
         )
       )
     }))
-    schedulePersist('fast')
+    persistWorldviewEntriesIncrementally()
   }
 
   function deleteWorldviewEntry(entryId: string): void {
@@ -1840,7 +1868,7 @@ export const useAppStore = defineStore('app', () => {
       ...workspace,
       worldviewEntries: reindexWorldviewEntries(workspace.worldviewEntries.filter((entry) => entry.id !== entryId))
     }))
-    schedulePersist('fast')
+    persistWorldviewEntriesIncrementally()
   }
 
   // ── 角色 CRUD ──
@@ -1869,7 +1897,7 @@ export const useAppStore = defineStore('app', () => {
         ]
       }
     })
-    schedulePersist('fast')
+    persistCharactersIncrementally()
     return characterId
   }
 
@@ -1889,7 +1917,7 @@ export const useAppStore = defineStore('app', () => {
           : character
       )
     }))
-    schedulePersist('fast')
+    persistCharactersIncrementally()
   }
 
   /** 删除角色，同时清理其所有关系和组织归属 */
@@ -1905,7 +1933,7 @@ export const useAppStore = defineStore('app', () => {
         (membership) => membership.characterId !== characterId
       )
     }))
-    schedulePersist('fast')
+    persistCharactersIncrementally()
   }
 
   // ── 组织 CRUD ──
@@ -2129,7 +2157,7 @@ export const useAppStore = defineStore('app', () => {
         ...workspace.inspirationEntries
       ])
     }))
-    schedulePersist('fast')
+    persistInspirationEntriesIncrementally()
   }
 
   function updateInspirationEntry(entryId: string, payload: Partial<InspirationEntry>): void {
@@ -2154,7 +2182,7 @@ export const useAppStore = defineStore('app', () => {
         )
       )
     }))
-    schedulePersist('fast')
+    persistInspirationEntriesIncrementally()
   }
 
   function deleteInspirationEntry(entryId: string): void {
@@ -2164,7 +2192,7 @@ export const useAppStore = defineStore('app', () => {
         workspace.inspirationEntries.filter((entry) => entry.id !== entryId)
       )
     }))
-    schedulePersist('fast')
+    persistInspirationEntriesIncrementally()
   }
 
   // ── 剧情线索 CRUD ──

@@ -75,6 +75,47 @@ export interface SaveChapterOrderRequest {
   chapters: ChapterOrderRecord[]
 }
 
+export interface PersistedWorldviewEntryRecord {
+  id: string
+  type: string
+  title: string
+  content: string
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PersistedCharacterRecord {
+  id: string
+  name: string
+  role: string
+  description: string
+  avatar: string
+  tags: Array<{
+    label: string
+    tone?: 'default' | 'danger' | 'success' | 'warning'
+  }>
+}
+
+export interface PersistedInspirationEntryRecord {
+  id: string
+  type: string
+  title: string
+  content: string
+  tags: string[]
+  source: 'ai' | 'manual'
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SaveWorkspaceEntitiesRequest {
+  projectId: string
+  worldviewEntries?: PersistedWorldviewEntryRecord[]
+  characters?: PersistedCharacterRecord[]
+  inspirationEntries?: PersistedInspirationEntryRecord[]
+}
+
 export type ChapterMutationEvent =
   | ({ kind: 'upsert' } & SaveChaptersRequest)
   | ({ kind: 'reorder' } & SaveChapterOrderRequest)
@@ -84,7 +125,8 @@ export const IPC_CHANNELS = {
   SAVE_WORKSPACE: 'characterarc:save-workspace',
   SAVE_APP_SETTINGS: 'characterarc:save-app-settings',
   SAVE_CHAPTERS: 'characterarc:save-chapters',
-  SAVE_CHAPTER_ORDER: 'characterarc:save-chapter-order'
+  SAVE_CHAPTER_ORDER: 'characterarc:save-chapter-order',
+  SAVE_WORKSPACE_ENTITIES: 'characterarc:save-workspace-entities'
 } as const
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]

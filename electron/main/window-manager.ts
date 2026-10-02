@@ -50,7 +50,9 @@ export function createWindowManager() {
   function loadRendererWindow(window: BrowserWindow): void {
     if (process.env.ELECTRON_RENDERER_URL) {
       void window.loadURL(process.env.ELECTRON_RENDERER_URL)
-      window.webContents.openDevTools({ mode: 'detach' })
+      if (process.env.CHARACTERARC_OPEN_DEVTOOLS === '1') {
+        window.webContents.openDevTools({ mode: 'detach' })
+      }
       return
     }
 

@@ -3,12 +3,13 @@ import { existsSync } from 'node:fs'
 import { cp, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import * as XLSX from 'xlsx'
+import type { WorkSheet } from 'xlsx'
 import {
   IPC_CHANNELS,
   type ChapterMutationEvent,
   type SaveChapterOrderRequest,
-  type SaveChaptersRequest
+  type SaveChaptersRequest,
+  type SaveWorkspaceEntitiesRequest
 } from '@shared/ipc-types'
 
 import type { AiTaskPayload, ReferenceStyleAnalysisResult, ReferenceStyleChunkResult } from './ai/shared-types'
@@ -69,8 +70,14 @@ type ReferenceImportProgressPayload = {
 }
 
 let activeBatchBookControllers: Map<string, AbortController> | null = null
+let xlsxModulePromise: Promise<typeof import('xlsx')> | null = null
 
 const OUTLINE_SPREADSHEET_HEADERS = ['分卷名称', '分卷目标字数', '分卷摘要', '章节序号', '章节标题', '目标字数', '核心冲突', '剧情摘要', '状态']
+
+function loadXlsx(): Promise<typeof import('xlsx')> {
+  xlsxModulePromise ??= import('xlsx')
+  return xlsxModulePromise
+}
 
 function normalizeOutlineHeader(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, '').trim()
@@ -84,7 +91,7 @@ function scoreOutlineSheet(rows: string[][]): number {
   return headerScore + dataScore
 }
 
-function readOutlineSheetRows(sheet: XLSX.WorkSheet): string[][] {
+function readOutlineSheetRows(XLSX: typeof import('xlsx'), sheet: WorkSheet): string[][] {
   const rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
     defval: '',
@@ -135,6 +142,7 @@ type RegisterMainIpcHandlersDeps = {
   writeWorkspaceSnapshot: (db: DatabaseSync, payload: unknown) => void
   writeChapterRows: (db: DatabaseSync, payload: SaveChaptersRequest) => void
   writeChapterOrder: (db: DatabaseSync, payload: SaveChapterOrderRequest) => void
+  writeWorkspaceEntities: (db: DatabaseSync, payload: SaveWorkspaceEntitiesRequest) => void
   applyChapterMutation: (payload: ChapterMutationEvent) => void
   writeAppSettingsRow: (
     db: DatabaseSync,
@@ -532,10 +540,11 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
 
     try {
       const filePath = result.filePaths[0]
+      const XLSX = await loadXlsx()
       const workbook = XLSX.read(await readFile(filePath), { type: 'buffer' })
       const candidates = workbook.SheetNames
         .map((name) => {
-          const rows = workbook.Sheets[name] ? readOutlineSheetRows(workbook.Sheets[name]) : []
+          const rows = workbook.Sheets[name] ? readOutlineSheetRows(XLSX, workbook.Sheets[name]) : []
           return {
             sheetName: name,
             rows,
@@ -567,6 +576,7 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     })
     if (result.canceled || !result.filePath) return { success: false, canceled: true }
 
+    const XLSX = await loadXlsx()
     const headers = OUTLINE_SPREADSHEET_HEADERS
     const workbook = XLSX.utils.book_new()
     const templateSheet = XLSX.utils.aoa_to_sheet([headers, ['', '', '', '', '', '', '', '', '']])
@@ -615,6 +625,7 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     })
     if (result.canceled || !result.filePath) return { success: false, canceled: true }
 
+    const XLSX = await loadXlsx()
     const volumes = request.volumes ?? []
     const volumeMap = new Map(volumes.map((volume) => [volume.id ?? '', volume]))
     const volumeOrderMap = new Map(volumes.map((volume, index) => [volume.id ?? '', index]))
@@ -1315,6 +1326,30 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown chapter order save error'
+      }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SAVE_WORKSPACE_ENTITIES, async (_event, payload: SaveWorkspaceEntitiesRequest) => {
+    try {
+      if (
+        !payload?.projectId
+        || (
+          !Array.isArray(payload.worldviewEntries)
+          && !Array.isArray(payload.characters)
+          && !Array.isArray(payload.inspirationEntries)
+        )
+      ) {
+        throw new Error('工作区实体保存参数无效')
+      }
+      const db = await deps.ensureWorkspaceDb()
+      deps.writeWorkspaceEntities(db, payload)
+      return { success: true }
+    } catch (error) {
+      console.error('[workspace] saveWorkspaceEntities failed:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown workspace entity save error'
       }
     }
   })

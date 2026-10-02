@@ -257,6 +257,9 @@ declare global {
       saveChapterOrder: (
         payload: import('@shared/ipc-types').SaveChapterOrderRequest
       ) => Promise<import('@shared/ipc-types').IpcResult>
+      saveWorkspaceEntities: (
+        payload: import('@shared/ipc-types').SaveWorkspaceEntitiesRequest
+      ) => Promise<import('@shared/ipc-types').IpcResult>
       pickCoverImage: () => Promise<{
         success: boolean
         canceled: boolean

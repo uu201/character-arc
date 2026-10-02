@@ -5,12 +5,13 @@ import type { AppSettings, ThemeName } from '@/types/app'
 import type {
   PersistedChapterRecord,
   SaveChapterOrderRequest,
-  SaveChaptersRequest
+  SaveChaptersRequest,
+  SaveWorkspaceEntitiesRequest
 } from '@shared/ipc-types'
 import type { StoredState } from './storeHelpers'
 
 const SETTINGS_PERSIST_DELAY_MS = 300
-const WORKSPACE_SYNC_DELAY_MS = 120
+const WORKSPACE_SYNC_DELAY_MS = 500
 
 export interface WorkspacePersistenceDeps {
   hasHydrated: Ref<boolean>
@@ -28,12 +29,15 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
   let settingsSaveTimer: number | null = null
   let workspaceSyncTimer: number | null = null
   let persistPromise: Promise<void> | null = null
+  let workspaceEntityPersistPromise: Promise<void> | null = null
   let chapterPersistPromise: Promise<void> | null = null
   let chapterOrderPersistPromise: Promise<void> | null = null
   let activeChapterPersistCount = 0
   let persistRequested = false
   let chapterSaveTimer: number | null = null
+  let workspaceEntitySaveTimer: number | null = null
   let pendingChapterOrder: SaveChapterOrderRequest | null = null
+  const pendingWorkspaceEntities = new Map<string, SaveWorkspaceEntitiesRequest>()
   const pendingChapters = new Map<string, {
     projectWordCount: string
     chapters: Map<string, PersistedChapterRecord>
@@ -41,13 +45,101 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
   let isApplyingRemoteWorkspaceSync = false
   const scheduledPersistAt = ref<number | null>(null)
   const isPersisting = ref(false)
+  const isWorkspaceEntityPersisting = ref(false)
   const isChapterPersisting = ref(false)
+  const hasPendingWorkspaceEntityPersists = ref(false)
   const hasPendingChapterPersists = ref(false)
   const persistenceError = ref<string | null>(null)
 
   function beginChapterPersist(): void {
     activeChapterPersistCount += 1
     isChapterPersisting.value = true
+  }
+
+  function updateWorkspaceEntityPendingState(): void {
+    hasPendingWorkspaceEntityPersists.value = pendingWorkspaceEntities.size > 0
+  }
+
+  function mergeWorkspaceEntityBatch(
+    current: SaveWorkspaceEntitiesRequest | undefined,
+    next: SaveWorkspaceEntitiesRequest
+  ): SaveWorkspaceEntitiesRequest {
+    return {
+      projectId: next.projectId,
+      worldviewEntries: next.worldviewEntries ?? current?.worldviewEntries,
+      characters: next.characters ?? current?.characters,
+      inspirationEntries: next.inspirationEntries ?? current?.inspirationEntries
+    }
+  }
+
+  function restoreWorkspaceEntityBatch(batch: SaveWorkspaceEntitiesRequest): void {
+    const current = pendingWorkspaceEntities.get(batch.projectId)
+    pendingWorkspaceEntities.set(batch.projectId, {
+      projectId: batch.projectId,
+      worldviewEntries: current?.worldviewEntries ?? batch.worldviewEntries,
+      characters: current?.characters ?? batch.characters,
+      inspirationEntries: current?.inspirationEntries ?? batch.inspirationEntries
+    })
+  }
+
+  function scheduleWorkspaceEntitiesPersist(payload: SaveWorkspaceEntitiesRequest): void {
+    if (!deps.hasHydrated.value || !payload.projectId) return
+    pendingWorkspaceEntities.set(
+      payload.projectId,
+      mergeWorkspaceEntityBatch(pendingWorkspaceEntities.get(payload.projectId), payload)
+    )
+    updateWorkspaceEntityPendingState()
+    if (workspaceEntitySaveTimer) window.clearTimeout(workspaceEntitySaveTimer)
+    workspaceEntitySaveTimer = window.setTimeout(() => {
+      workspaceEntitySaveTimer = null
+      void flushWorkspaceEntityPersists()
+    }, FAST_PERSIST_DELAY_MS)
+  }
+
+  async function flushWorkspaceEntityPersists(): Promise<void> {
+    if (workspaceEntitySaveTimer) {
+      window.clearTimeout(workspaceEntitySaveTimer)
+      workspaceEntitySaveTimer = null
+    }
+    if (workspaceEntityPersistPromise) {
+      await workspaceEntityPersistPromise.catch(() => {})
+      if (pendingWorkspaceEntities.size > 0) await flushWorkspaceEntityPersists()
+      return
+    }
+    if (pendingWorkspaceEntities.size === 0) {
+      updateWorkspaceEntityPendingState()
+      return
+    }
+
+    const batches = Array.from(pendingWorkspaceEntities.values())
+    pendingWorkspaceEntities.clear()
+    updateWorkspaceEntityPendingState()
+    let failedIndex = batches.length
+    workspaceEntityPersistPromise = (async () => {
+      isWorkspaceEntityPersisting.value = true
+      for (let index = 0; index < batches.length; index += 1) {
+        failedIndex = index
+        const result = await window.characterArc.saveWorkspaceEntities(toIpcPayload(batches[index]))
+        if (!result.success) throw new Error(result.error ?? '工作区实体保存失败')
+        failedIndex = index + 1
+      }
+      persistenceError.value = null
+    })()
+
+    try {
+      await workspaceEntityPersistPromise
+    } catch (error) {
+      persistenceError.value = error instanceof Error ? error.message : '工作区实体保存失败'
+      for (const batch of batches.slice(failedIndex)) restoreWorkspaceEntityBatch(batch)
+    } finally {
+      isWorkspaceEntityPersisting.value = false
+      workspaceEntityPersistPromise = null
+      updateWorkspaceEntityPendingState()
+    }
+
+    if (!persistenceError.value && pendingWorkspaceEntities.size > 0) {
+      await flushWorkspaceEntityPersists()
+    }
   }
 
   function endChapterPersist(): void {
@@ -193,6 +285,7 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
       window.clearTimeout(workspaceSyncTimer)
     }
     workspaceSyncTimer = window.setTimeout(() => {
+      workspaceSyncTimer = null
       void window.characterArc.publishWorkspaceSync(toIpcPayload(deps.serializeWorkspaceState()))
     }, WORKSPACE_SYNC_DELAY_MS)
   }
@@ -209,6 +302,12 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
       window.clearTimeout(workspaceSyncTimer)
       workspaceSyncTimer = null
     }
+    if (workspaceEntitySaveTimer) {
+      window.clearTimeout(workspaceEntitySaveTimer)
+      workspaceEntitySaveTimer = null
+    }
+    pendingWorkspaceEntities.clear()
+    updateWorkspaceEntityPendingState()
     const result = window.characterArc.saveWorkspaceSync(toIpcPayload(deps.serializeWorkspaceState()))
     persistenceError.value = result.success ? null : result.error ?? '保存失败'
     if (result.success) {
@@ -231,6 +330,7 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
     persistPromise = (async () => {
       isPersisting.value = true
       try {
+        await flushWorkspaceEntityPersists()
         await flushChapterPersists()
         while (persistRequested) {
           persistRequested = false
@@ -333,13 +433,17 @@ export function createWorkspacePersistence(deps: WorkspacePersistenceDeps) {
   return {
     scheduledPersistAt,
     isPersisting,
+    isWorkspaceEntityPersisting,
     isChapterPersisting,
+    hasPendingWorkspaceEntityPersists,
     hasPendingChapterPersists,
     hasPendingChapterPersist,
     persistenceError,
     scheduleWorkspaceSync,
     flushWorkspaceSync,
     persistWorkspace,
+    scheduleWorkspaceEntitiesPersist,
+    flushWorkspaceEntityPersists,
     scheduleChapterPersist,
     flushChapterPersists,
     persistChapterOrder,

@@ -39,6 +39,7 @@ import {
   writeChapterRows,
   writeWorkspaceSnapshot
 } from './workspace-store'
+import { writeWorkspaceEntities } from './workspace-entity-persistence'
 
 const APP_DATA_DIR_NAME = 'CharacterArc'
 
@@ -689,6 +690,7 @@ registerMainIpcHandlers({
   writeWorkspaceSnapshot: (db, payload) => writeWorkspaceSnapshot(db, payload as WorkspacePayload),
   writeChapterRows,
   writeChapterOrder,
+  writeWorkspaceEntities,
   applyChapterMutation: applyChapterMutationToLatestSnapshot,
   writeAppSettingsRow: (db, settings, metadata) =>
     writeAppSettingsRow(db, settings as Partial<WorkspacePayload['appSettings']>, metadata),
@@ -727,8 +729,14 @@ app.whenReady().then(async () => {
   const upgrade = await prepareWorkspaceForLaunch()
   if (upgrade.blocked) return
 
-  await initSkillRegistry().catch(() => {})
   const mainWindow = windowManager.createMainWindow()
+  mainWindow.webContents.once('did-finish-load', () => {
+    setImmediate(() => {
+      void initSkillRegistry().catch((error) => {
+        console.error('[skills] background registry initialization failed:', error)
+      })
+    })
+  })
   const upgradeWindow = upgrade.window
   if (upgradeWindow && !upgradeWindow.isDestroyed()) {
     mainWindow.once('ready-to-show', () => {

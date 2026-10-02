@@ -5,7 +5,8 @@ import {
   type ChapterMutationEvent,
   type SaveAppSettingsRequest,
   type SaveChapterOrderRequest,
-  type SaveChaptersRequest
+  type SaveChaptersRequest,
+  type SaveWorkspaceEntitiesRequest
 } from '@shared/ipc-types'
 
 function toIpcPayload<T>(value: T): T {
@@ -37,6 +38,9 @@ contextBridge.exposeInMainWorld('characterArc', {
   /** 仅更新章节所属分卷与排序号 */
   saveChapterOrder: (payload: SaveChapterOrderRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.SAVE_CHAPTER_ORDER, toIpcPayload(payload)),
+  /** 增量保存世界观、角色和灵感集合 */
+  saveWorkspaceEntities: (payload: SaveWorkspaceEntitiesRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_WORKSPACE_ENTITIES, toIpcPayload(payload)),
 
   // ── 文件操作 ──
   /** 打开系统文件选择对话框，选取项目封面图片 */
