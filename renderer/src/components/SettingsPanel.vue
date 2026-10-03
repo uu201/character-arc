@@ -8,6 +8,7 @@ import { buildProjectWritingStyleContext, writingStylePresets } from '@/features
 import ProjectArchiveImportModal from '@/components/ProjectArchiveImportModal.vue'
 import ProjectSkillsPanel from '@/components/ProjectSkillsPanel.vue'
 import { useAppStore } from '@/stores/app'
+import { loadAllChapterContent } from '@/features/chapters/chapterExport'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type {
   CharacterArcExportEnvelope,
@@ -92,6 +93,7 @@ async function handleExportProjectArchive(): Promise<void> {
 
   isExportingArchive.value = true
   try {
+    await flushChapterChangesForExport()
     const result = await window.characterArc.exportProjectArchive({
       projectId: project.id,
       projectTitle: project.title
@@ -101,6 +103,8 @@ async function handleExportProjectArchive(): Promise<void> {
     } else if (!result.canceled) {
       message.error(result.error ?? '导出项目归档失败')
     }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '导出项目归档失败')
   } finally {
     isExportingArchive.value = false
   }
@@ -108,29 +112,42 @@ async function handleExportProjectArchive(): Promise<void> {
 
 // 导出章节正文为 TXT 文件（仅包含纯文本内容）
 async function handleExportText(): Promise<void> {
-  const payload = {
-    project: appStore.currentProject,
-    outlineVolumes: appStore.outlineVolumes,
-    chapters: appStore.chapters.map((chapter) => ({
-      volumeId: chapter.volumeId,
-      title: chapter.title,
-      content: getPlainTextFromEditorContent(chapter.content)
-    })),
-    exportedAt: new Date().toISOString()
-  }
+  try {
+    await flushChapterChangesForExport()
+    const chapters = await loadAllChapterContent(appStore.chapters, (id) => appStore.ensureChapterContent(id))
+    const payload = {
+      project: appStore.currentProject,
+      outlineVolumes: appStore.outlineVolumes,
+      chapters: chapters.map((chapter) => ({
+        volumeId: chapter.volumeId,
+        title: chapter.title,
+        content: getPlainTextFromEditorContent(chapter.content ?? '')
+      })),
+      exportedAt: new Date().toISOString()
+    }
 
-  const result = await window.characterArc.exportText(toIpcPayload({
-    data: payload,
-    title: '导出章节正文 TXT',
-    defaultPath: `${buildExportStem('chapters')}.txt`
-  }))
-  if (result.success) {
-    message.success('章节内容已导出')
-    return
-  }
+    const result = await window.characterArc.exportText(toIpcPayload({
+      data: payload,
+      title: '导出章节正文 TXT',
+      defaultPath: `${buildExportStem('chapters')}.txt`
+    }))
+    if (result.success) {
+      message.success('章节内容已导出')
+      return
+    }
 
-  if (!result.canceled) {
-    message.error('导出 TXT 失败，请稍后重试')
+    if (!result.canceled) {
+      message.error('导出 TXT 失败，请稍后重试')
+    }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '章节正文加载失败，无法导出 TXT')
+  }
+}
+
+async function flushChapterChangesForExport(): Promise<void> {
+  await appStore.flushChapterPersists()
+  if (appStore.hasPendingChapterPersists) {
+    throw new Error(appStore.persistenceError || '章节数据尚未保存完成，请稍后重试导出。')
   }
 }
 
@@ -224,24 +241,34 @@ async function handleExportRelations(): Promise<void> {
 
 // 导出章节数据（含正文和元信息）为 JSON 文件
 async function handleExportChaptersJson(): Promise<void> {
-  const result = await window.characterArc.exportJson(toIpcPayload({
-    data: buildExportEnvelope('chapters', {
-      project: appStore.currentProject,
-      outlineVolumes: appStore.outlineVolumes,
-      chapters: appStore.chapters,
-      chapterVersions: appStore.chapterVersions
-    }),
-    title: '导出章节数据 JSON',
-    defaultPath: `${buildExportStem('chapters')}.json`
-  }))
+  try {
+    await flushChapterChangesForExport()
+    const chapters = await loadAllChapterContent(appStore.chapters, (id) => appStore.ensureChapterContent(id))
+    const chapterVersions = await loadAllChapterContent(
+      appStore.chapterVersions,
+      (id) => appStore.ensureChapterVersionContent(id)
+    )
+    const result = await window.characterArc.exportJson(toIpcPayload({
+      data: buildExportEnvelope('chapters', {
+        project: appStore.currentProject,
+        outlineVolumes: appStore.outlineVolumes,
+        chapters,
+        chapterVersions
+      }),
+      title: '导出章节数据 JSON',
+      defaultPath: `${buildExportStem('chapters')}.json`
+    }))
 
-  if (result.success) {
-    message.success('章节数据已导出')
-    return
-  }
+    if (result.success) {
+      message.success('章节数据已导出')
+      return
+    }
 
-  if (!result.canceled) {
-    message.error('导出章节数据失败，请稍后重试')
+    if (!result.canceled) {
+      message.error('导出章节数据失败，请稍后重试')
+    }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '章节正文加载失败，无法导出')
   }
 }
 

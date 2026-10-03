@@ -3974,6 +3974,7 @@ export const useAppStore = defineStore('app', () => {
     flushWorkspaceSync,
     persistWorkspace,
     flushChapterPersists,
+    hasPendingChapterPersists,
     ensureChapterContent,
     ensureChapterVersionContent,
     updateChapter,
