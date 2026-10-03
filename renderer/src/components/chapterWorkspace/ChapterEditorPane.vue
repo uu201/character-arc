@@ -525,7 +525,13 @@ onBeforeUnmount(() => {
 <template>
   <main class="editor-pane">
     <header v-if="!focusMode" class="ep-header">
-      <button v-if="showSidebarToggle" class="toolbtn sidebar-toggle" @click="emit('toggleSidebar')">
+      <button
+        v-if="showSidebarToggle"
+        class="toolbtn sidebar-toggle"
+        title="展开章节目录"
+        aria-label="展开章节目录"
+        @click="emit('toggleSidebar')"
+      >
         <Menu :size="14" />
       </button>
       <div class="breadcrumb">
@@ -554,7 +560,11 @@ onBeforeUnmount(() => {
           :options="editorFontMenuOptions"
           @select="selectEditorFont"
         >
-          <button class="toolbtn font-picker-tool" :title="`正文字体：${currentEditorFont.label}`">
+          <button
+            class="toolbtn font-picker-tool"
+            :title="`正文字体：${currentEditorFont.label}`"
+            :aria-label="`选择正文字体，当前为${currentEditorFont.label}`"
+          >
             <Type :size="13" />
             <span class="font-picker-label">{{ currentEditorFont.shortLabel }}</span>
             <ChevronDown :size="11" />
@@ -562,14 +572,20 @@ onBeforeUnmount(() => {
         </n-dropdown>
 
         <div class="font-stepper">
-          <button @click="stepFont(-1)"><Minus :size="11" /></button>
+          <button title="缩小正文字号" aria-label="缩小正文字号" @click="stepFont(-1)"><Minus :size="11" /></button>
           <span class="level">{{ fontSize }}px</span>
-          <button @click="stepFont(1)"><Plus :size="11" /></button>
+          <button title="放大正文字号" aria-label="放大正文字号" @click="stepFont(1)"><Plus :size="11" /></button>
         </div>
 
-        <button class="toolbtn draft-action" :disabled="!currentChapter" @click="emit('generateDraft')">
+        <button
+          class="toolbtn draft-action"
+          :disabled="!currentChapter"
+          title="生成章节初稿"
+          aria-label="生成章节初稿"
+          @click="emit('generateDraft')"
+        >
           <Wand2 :size="13" />
-          <span>生成初稿</span>
+          <span class="toolbtn-label">生成初稿</span>
         </button>
 
         <button
@@ -577,10 +593,12 @@ onBeforeUnmount(() => {
           :class="{ active: referenceOpen }"
           :disabled="!currentChapter"
           title="查看本章关联的世界观、人物和组织设定"
+          aria-label="查看本章关联的世界观、人物和组织设定"
+          :aria-pressed="referenceOpen"
           @click="emit('toggleReference')"
         >
           <BookOpen :size="13" />
-          <span>设定参考</span>
+          <span class="toolbtn-label">设定参考</span>
         </button>
 
         <n-dropdown
@@ -589,15 +607,22 @@ onBeforeUnmount(() => {
           :options="toolbarMoreOptions"
           @select="selectToolbarMoreAction"
         >
-          <button class="toolbtn more-tool" title="更多章节工具">
+          <button class="toolbtn more-tool" title="更多章节工具" aria-label="更多章节工具">
             <MoreHorizontal :size="15" />
-            <span>更多</span>
+            <span class="toolbtn-label">更多</span>
           </button>
         </n-dropdown>
 
-        <button class="toolbtn ai-action" :class="{ primary: !aiOpen, active: aiOpen }" @click="emit('toggleAi')">
+        <button
+          class="toolbtn ai-action"
+          :class="{ primary: !aiOpen, active: aiOpen }"
+          :title="aiOpen ? '关闭 AI 助理' : '打开 AI 助理'"
+          :aria-label="aiOpen ? '关闭 AI 助理' : '打开 AI 助理'"
+          :aria-pressed="aiOpen"
+          @click="emit('toggleAi')"
+        >
           <Sparkles :size="13" />
-          <span>AI 助理</span>
+          <span class="toolbtn-label">AI 助理</span>
         </button>
       </div>
     </header>
@@ -817,6 +842,8 @@ onBeforeUnmount(() => {
   background: var(--arc-bg-body);
   overflow: hidden;
   position: relative;
+  container-type: inline-size;
+  container-name: chapter-editor-pane;
 }
 
 .recovery-banner {
@@ -1064,7 +1091,7 @@ onBeforeUnmount(() => {
   color: white;
 }
 
-@media (max-width: 900px) {
+@container chapter-editor-pane (max-width: 820px) {
   .ep-header {
     gap: 6px;
     padding: 0 10px;
@@ -1078,15 +1105,51 @@ onBeforeUnmount(() => {
   .ep-actions {
     gap: 2px;
   }
+}
 
-  .font-picker-tool {
-    min-width: 34px;
-    padding-right: 7px;
-    padding-left: 7px;
+@container chapter-editor-pane (max-width: 660px) {
+  .ep-actions {
+    flex: 0 0 auto;
+    min-width: 210px;
   }
 
-  .font-picker-label {
+  .ep-actions .toolbtn {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .font-picker-tool {
+    min-width: 30px;
+  }
+
+  .font-picker-label,
+  .toolbtn-label,
+  .font-stepper .level {
     display: none;
+  }
+
+  .font-stepper {
+    min-width: 50px;
+    justify-content: center;
+  }
+
+  .more-tool,
+  .ai-action {
+    min-width: 30px;
+  }
+}
+
+@container chapter-editor-pane (max-width: 420px) {
+  .breadcrumb {
+    display: none;
+  }
+
+  .ep-actions {
+    margin-left: auto;
   }
 }
 
