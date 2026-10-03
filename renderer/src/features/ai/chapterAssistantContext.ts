@@ -472,14 +472,15 @@ export function buildChapterAssistantContext(input: ChapterAssistantContextInput
       title: entry.title,
       content: entry.content
     })),
-    // 精简角色字段，只保留名称、角色和描述
+    // 精简角色字段，保留会直接影响剧情和行为逻辑的关键标签
     characters: relevantReferenceData.characters.map((character) => ({
       // 透传 id：主进程 extractCharacterIds 依赖它把 story-state 收敛到本章相关角色，
       // 不带 id 会退化为注入全项目所有角色状态。id 不会被 formatCharacters 渲染进 prompt。
       id: character.id,
       name: character.name,
       role: character.role,
-      description: character.description
+      description: character.description,
+      tags: character.tags.map((tag) => tag.label)
     })),
     // 精简组织字段，保留核心标识信息
     organizations: relevantReferenceData.organizations.map((organization) => ({
@@ -596,7 +597,8 @@ export function buildChapterFirstDraftContext(input: ChapterFirstDraftContextInp
       id: character.id,
       name: character.name,
       role: character.role,
-      description: character.description
+      description: character.description,
+      tags: character.tags.map((tag) => tag.label)
     })),
     organizations: relevantReferenceData.organizations.map((organization) => ({
       id: organization.id,

@@ -696,7 +696,12 @@ export function useChapterFirstDraft(): {
               .filter((t) => t.status === 'open')
               .map((t) => ({ title: t.title, description: t.description, status: t.status })),
             worldviewEntries: appStore.worldviewEntries.map((e) => ({ title: e.title, content: e.content })),
-            characters: appStore.characters.map((c) => ({ name: c.name, role: c.role, description: c.description })),
+            characters: appStore.characters.map((c) => ({
+              name: c.name,
+              role: c.role,
+              description: c.description,
+              tags: c.tags.map((tag) => tag.label)
+            })),
             characterRelationships: appStore.characterRelationships.map((r) => ({
               fromCharacterId: r.fromCharacterId,
               toCharacterId: r.toCharacterId,

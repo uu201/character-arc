@@ -106,7 +106,18 @@ export function formatCharacters(source: unknown): string {
   return Array.isArray(source)
     ? source
         .slice(0, 8)
-        .map((character) => `${String((character as Record<string, unknown>).name ?? '')} / ${String((character as Record<string, unknown>).role ?? '')}：${String((character as Record<string, unknown>).description ?? '')}`)
+        .map((character) => {
+          const record = character as Record<string, unknown>
+          const tags = Array.isArray(record.tags)
+            ? record.tags
+                .map((tag) => typeof tag === 'string'
+                  ? tag
+                  : String((tag as Record<string, unknown>)?.label ?? ''))
+                .filter(Boolean)
+                .join('、')
+            : ''
+          return `${String(record.name ?? '')} / ${String(record.role ?? '')}：${String(record.description ?? '')}${tags ? `（关键标签，必须遵守：${tags}）` : ''}`
+        })
         .join('\n')
     : ''
 }
