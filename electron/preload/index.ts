@@ -45,8 +45,16 @@ contextBridge.exposeInMainWorld('characterArc', {
   /** 在线备份当前 SQLite 数据库 */
   backupCurrentDatabase: () => ipcRenderer.invoke(IPC_CHANNELS.BACKUP_CURRENT_DATABASE),
   /** 列出可用于整库回滚的自动备份 */
-  listDatabaseBackups: (): Promise<{ success: boolean; backups?: DatabaseBackupSummary[]; error?: string }> =>
+  listDatabaseBackups: (): Promise<{
+    success: boolean
+    backups?: DatabaseBackupSummary[]
+    backupDirectory?: string
+    error?: string
+  }> =>
     ipcRenderer.invoke(IPC_CHANNELS.LIST_DATABASE_BACKUPS),
+  /** 删除指定的数据库备份 */
+  deleteDatabaseBackup: (payload: { backupId: string }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DELETE_DATABASE_BACKUP, toIpcPayload(payload)),
   /** 回滚到指定数据库备份；主进程会先备份当前数据库 */
   rollbackDatabase: (payload: { backupId: string }) =>
     ipcRenderer.invoke(IPC_CHANNELS.ROLLBACK_DATABASE, toIpcPayload(payload)),

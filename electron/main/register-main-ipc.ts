@@ -27,6 +27,7 @@ import { fetchZonghengTrends } from './zongheng-trends'
 import { getWorkspaceDirPath, WORKSPACE_SCHEMA_VERSION } from './workspace-store'
 import {
   createWorkspaceManualBackup,
+  deleteWorkspaceDatabaseBackup,
   listWorkspaceDatabaseBackups,
   rollbackWorkspaceDatabase,
   writeWorkspaceSchemaMarker
@@ -228,12 +229,30 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
 
   ipcMain.handle(IPC_CHANNELS.LIST_DATABASE_BACKUPS, async () => {
     try {
-      const backups: DatabaseBackupSummary[] = await listWorkspaceDatabaseBackups(getWorkspaceDirPath())
-      return { success: true, backups }
+      const workspaceDir = getWorkspaceDirPath()
+      const backups: DatabaseBackupSummary[] = await listWorkspaceDatabaseBackups(workspaceDir)
+      return { success: true, backups, backupDirectory: join(workspaceDir, 'backups') }
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : '读取数据库备份失败'
+      }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.DELETE_DATABASE_BACKUP, async (_event, payload: unknown) => {
+    const backupId = payload && typeof payload === 'object'
+      ? String((payload as { backupId?: unknown }).backupId ?? '').trim()
+      : ''
+    if (!backupId) return { success: false, error: '请选择要删除的数据库备份' }
+
+    try {
+      await deleteWorkspaceDatabaseBackup(getWorkspaceDirPath(), backupId)
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '删除数据库备份失败'
       }
     }
   })

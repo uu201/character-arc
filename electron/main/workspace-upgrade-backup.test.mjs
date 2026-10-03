@@ -1,16 +1,47 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 
 import {
   createWorkspacePreUpgradeBackup,
+  deleteWorkspaceDatabaseBackup,
+  listWorkspaceDatabaseBackups,
   readWorkspaceSchemaMarker,
   restoreWorkspaceUpgradeBackup,
   writeWorkspaceSchemaMarker
 } from './workspace-upgrade-backup.ts'
+
+test('可删除指定备份，且拒绝无效备份 ID', async () => {
+  const workspaceDir = await mkdtemp(join(tmpdir(), 'characterarc-backup-delete-'))
+  try {
+    const db = new DatabaseSync(join(workspaceDir, 'workspace.db'))
+    db.exec('CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT NOT NULL);')
+    db.prepare('INSERT INTO sample (value) VALUES (?)').run('保留中的当前数据')
+    db.close()
+
+    const backup = await createWorkspacePreUpgradeBackup({
+      workspaceDir,
+      appVersion: '1.20.0',
+      fromSchemaVersion: 1,
+      toSchemaVersion: 2
+    })
+    const backupId = `pre-upgrade/${basename(backup.backupDir)}`
+
+    await deleteWorkspaceDatabaseBackup(workspaceDir, backupId)
+    assert.equal((await listWorkspaceDatabaseBackups(workspaceDir)).length, 0)
+    await assert.rejects(readFile(join(backup.backupDir, 'workspace.db')))
+    await assert.rejects(deleteWorkspaceDatabaseBackup(workspaceDir, 'manual/../../workspace.db'))
+
+    const currentDb = new DatabaseSync(join(workspaceDir, 'workspace.db'))
+    assert.equal(currentDb.prepare('SELECT value FROM sample').get().value, '保留中的当前数据')
+    currentDb.close()
+  } finally {
+    await rm(workspaceDir, { recursive: true, force: true })
+  }
+})
 
 test('升级前备份可打开、带校验清单并记录版本标记', async () => {
   const workspaceDir = await mkdtemp(join(tmpdir(), 'characterarc-upgrade-'))

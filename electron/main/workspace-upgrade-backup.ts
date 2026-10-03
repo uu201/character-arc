@@ -4,6 +4,7 @@ import { createReadStream, createWriteStream } from 'node:fs'
 import {
   mkdir,
   copyFile,
+  lstat,
   readFile,
   readdir,
   rename,
@@ -265,6 +266,31 @@ export async function listWorkspaceDatabaseBackups(
     }
   }
   return backups.sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+}
+
+export async function deleteWorkspaceDatabaseBackup(workspaceDir: string, backupId: string): Promise<void> {
+  const backup = (await listWorkspaceDatabaseBackups(workspaceDir)).find((item) => item.id === backupId)
+  if (!backup) {
+    throw new Error('选择的数据库备份不存在或已损坏')
+  }
+
+  const [, directoryName] = backup.id.split('/')
+  if (!directoryName || directoryName.includes('\\') || directoryName.includes('/')) {
+    throw new Error('数据库备份标识无效')
+  }
+
+  const backupRoot = backup.type === 'pre-upgrade'
+    ? PRE_UPGRADE_BACKUP_ROOT
+    : backup.type === 'pre-rollback'
+      ? PRE_ROLLBACK_BACKUP_ROOT
+      : MANUAL_BACKUP_ROOT
+  const backupDir = join(workspaceDir, backupRoot, directoryName)
+  const info = await lstat(backupDir)
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new Error('数据库备份目录无效')
+  }
+
+  await rm(backupDir, { recursive: true })
 }
 
 export async function rollbackWorkspaceDatabase(options: {

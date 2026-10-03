@@ -138,6 +138,7 @@ export const IPC_CHANNELS = {
   SAVE_WORKSPACE_ENTITIES: 'characterarc:save-workspace-entities',
   BACKUP_CURRENT_DATABASE: 'characterarc:backup-current-database',
   LIST_DATABASE_BACKUPS: 'characterarc:list-database-backups',
+  DELETE_DATABASE_BACKUP: 'characterarc:delete-database-backup',
   ROLLBACK_DATABASE: 'characterarc:rollback-database'
 } as const
 

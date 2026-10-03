@@ -268,6 +268,11 @@ declare global {
       listDatabaseBackups: () => Promise<{
         success: boolean
         backups?: import('@shared/ipc-types').DatabaseBackupSummary[]
+        backupDirectory?: string
+        error?: string
+      }>
+      deleteDatabaseBackup: (payload: { backupId: string }) => Promise<{
+        success: boolean
         error?: string
       }>
       rollbackDatabase: (payload: { backupId: string }) => Promise<{

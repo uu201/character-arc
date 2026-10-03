@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { DatabaseBackup, RefreshCw, RotateCcw, Save } from 'lucide-vue-next'
-import { NButton, NSelect, useDialog, useMessage } from 'naive-ui'
+import { onMounted, ref } from 'vue'
+import { DatabaseBackup, FolderOpen, RefreshCw, RotateCcw, Save, Trash2 } from 'lucide-vue-next'
+import { NButton, useDialog, useMessage } from 'naive-ui'
 import type { DatabaseBackupSummary } from '@shared/ipc-types'
 import { DATABASE_ROLLBACK_RELOAD_FLAG } from '@/features/settings/databaseRollback'
 import { useAppStore } from '@/stores/app'
@@ -10,25 +10,12 @@ const appStore = useAppStore()
 const dialog = useDialog()
 const message = useMessage()
 const backups = ref<DatabaseBackupSummary[]>([])
-const selectedBackupId = ref<string | null>(null)
+const backupDirectory = ref('')
 const isLoading = ref(false)
 const isBackingUp = ref(false)
 const isRollingBack = ref(false)
-const backupMenuProps = {
-  class: 'database-backup-menu',
-  style: {
-    '--n-height': 'min(320px, calc(100vh - 180px))'
-  }
-}
-
-const backupOptions = computed(() => backups.value.map((backup) => ({
-  label: `${formatDate(backup.createdAt)} · ${formatType(backup.type)} · v${backup.appVersion || '未知'} / Schema ${backup.schemaVersion} · ${formatSize(backup.size)}`,
-  value: backup.id
-})))
-
-const selectedBackup = computed(() =>
-  backups.value.find((backup) => backup.id === selectedBackupId.value) ?? null
-)
+const rollingBackBackupId = ref('')
+const deletingBackupId = ref('')
 
 function formatDate(value: string): string {
   const date = new Date(value)
@@ -67,9 +54,7 @@ async function loadBackups(): Promise<void> {
     const result = await window.characterArc.listDatabaseBackups()
     if (!result.success) throw new Error(result.error ?? '读取数据库备份失败')
     backups.value = result.backups ?? []
-    if (!backups.value.some((backup) => backup.id === selectedBackupId.value)) {
-      selectedBackupId.value = backups.value[0]?.id ?? null
-    }
+    backupDirectory.value = result.backupDirectory ?? ''
   } catch (error) {
     message.error(error instanceof Error ? error.message : '读取数据库备份失败')
   } finally {
@@ -78,7 +63,7 @@ async function loadBackups(): Promise<void> {
 }
 
 async function backupCurrentDatabase(): Promise<void> {
-  if (isBackingUp.value || isRollingBack.value) return
+  if (isBackingUp.value || isRollingBack.value || deletingBackupId.value) return
   isBackingUp.value = true
   try {
     await persistCurrentWorkspace('备份')
@@ -93,9 +78,8 @@ async function backupCurrentDatabase(): Promise<void> {
   }
 }
 
-function rollbackDatabase(): void {
-  const backup = selectedBackup.value
-  if (!backup || isBackingUp.value || isRollingBack.value) return
+function rollbackDatabase(backup: DatabaseBackupSummary): void {
+  if (isBackingUp.value || isRollingBack.value || deletingBackupId.value) return
 
   dialog.warning({
     title: '确认回滚数据库',
@@ -106,6 +90,7 @@ function rollbackDatabase(): void {
     closable: false,
     onPositiveClick: async () => {
       isRollingBack.value = true
+      rollingBackBackupId.value = backup.id
       try {
         await persistCurrentWorkspace('回滚')
         window.sessionStorage.setItem(DATABASE_ROLLBACK_RELOAD_FLAG, '1')
@@ -116,8 +101,36 @@ function rollbackDatabase(): void {
       } catch (error) {
         window.sessionStorage.removeItem(DATABASE_ROLLBACK_RELOAD_FLAG)
         isRollingBack.value = false
+        rollingBackBackupId.value = ''
         message.error(error instanceof Error ? error.message : '数据库回滚失败')
         return false
+      }
+    }
+  })
+}
+
+function deleteDatabaseBackup(backup: DatabaseBackupSummary): void {
+  if (isBackingUp.value || isRollingBack.value || deletingBackupId.value) return
+
+  dialog.warning({
+    title: '删除数据库备份',
+    content: `确定删除 ${formatDate(backup.createdAt)} 的${formatType(backup.type)}吗？删除后无法再从这份备份回滚。`,
+    positiveText: '删除备份',
+    negativeText: '取消',
+    type: 'error',
+    autoFocus: false,
+    closable: false,
+    onPositiveClick: async () => {
+      deletingBackupId.value = backup.id
+      try {
+        const result = await window.characterArc.deleteDatabaseBackup({ backupId: backup.id })
+        if (!result.success) throw new Error(result.error ?? '删除数据库备份失败')
+        message.success('数据库备份已删除')
+        await loadBackups()
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '删除数据库备份失败')
+      } finally {
+        deletingBackupId.value = ''
       }
     }
   })
@@ -135,6 +148,11 @@ onMounted(() => {
       <div>
         <strong>数据库备份与回滚</strong>
         <p>备份或恢复整套应用数据，包括全部项目、章节正文、历史版本和设置。</p>
+        <div class="database-location">
+          <FolderOpen :size="14" />
+          <span>备份保存位置</span>
+          <code>{{ backupDirectory || '读取中…' }}</code>
+        </div>
       </div>
     </div>
 
@@ -147,7 +165,7 @@ onMounted(() => {
         strong
         secondary
         :loading="isBackingUp"
-        :disabled="isRollingBack"
+        :disabled="isRollingBack || Boolean(deletingBackupId)"
         @click="backupCurrentDatabase"
       >
         <template #icon><Save :size="16" /></template>
@@ -155,42 +173,60 @@ onMounted(() => {
       </n-button>
     </div>
 
-    <div class="database-rollback-card">
-      <div class="database-rollback-head">
+    <div class="database-list-card">
+      <div class="database-list-head">
         <div class="database-action-copy">
-          <strong>回滚数据库</strong>
-          <span>选择已有备份恢复；执行前仍会自动备份一次当前数据库。</span>
+          <strong>备份列表</strong>
+          <span>每份备份都可以单独回滚或删除。</span>
         </div>
         <n-button quaternary circle :loading="isLoading" title="刷新备份列表" @click="loadBackups">
           <template #icon><RefreshCw :size="16" /></template>
         </n-button>
       </div>
       <div class="database-warning">
-        回滚会替换当前全部数据并重新载入页面，请确认备份时间无误。
+        回滚会替换当前全部数据并重新载入页面；删除备份后无法再从该备份恢复。
       </div>
-      <div class="database-rollback-actions">
-        <n-select
-          v-model:value="selectedBackupId"
-          class="database-backup-select"
-          :options="backupOptions"
-          :loading="isLoading"
-          :disabled="isRollingBack || isBackingUp"
-          to="body"
-          placement="top-start"
-          :virtual-scroll="false"
-          :menu-props="backupMenuProps"
-          :placeholder="backups.length ? '选择数据库备份' : '暂无可用数据库备份'"
-        />
-        <n-button
-          type="error"
-          strong
-          :disabled="!selectedBackupId || isLoading || isBackingUp"
-          :loading="isRollingBack"
-          @click="rollbackDatabase"
-        >
-          <template #icon><RotateCcw :size="16" /></template>
-          回滚数据库
-        </n-button>
+      <div v-if="backups.length" class="backup-list" :aria-busy="isLoading">
+        <article v-for="backup in backups" :key="backup.id" class="backup-list-row">
+          <div class="backup-list-details">
+            <div class="backup-list-title">
+              <strong>{{ formatType(backup.type) }}</strong>
+              <span>v{{ backup.appVersion || '未知' }} · Schema {{ backup.schemaVersion }}</span>
+            </div>
+            <div class="backup-list-meta">
+              <time :datetime="backup.createdAt">{{ formatDate(backup.createdAt) }}</time>
+              <span>{{ formatSize(backup.size) }}</span>
+            </div>
+          </div>
+          <div class="backup-list-actions">
+            <n-button
+              size="small"
+              secondary
+              :disabled="isBackingUp || isRollingBack || Boolean(deletingBackupId) || isLoading"
+              :loading="rollingBackBackupId === backup.id"
+              @click="rollbackDatabase(backup)"
+            >
+              <template #icon><RotateCcw :size="14" /></template>
+              回滚
+            </n-button>
+            <n-button
+              size="small"
+              quaternary
+              circle
+              type="error"
+              :title="`删除${formatType(backup.type)}`"
+              :aria-label="`删除${formatType(backup.type)} ${formatDate(backup.createdAt)}`"
+              :disabled="isBackingUp || isRollingBack || Boolean(deletingBackupId) || isLoading"
+              :loading="deletingBackupId === backup.id"
+              @click="deleteDatabaseBackup(backup)"
+            >
+              <template #icon><Trash2 :size="15" /></template>
+            </n-button>
+          </div>
+        </article>
+      </div>
+      <div v-else class="backup-empty-state">
+        {{ isLoading ? '正在读取备份…' : '暂无可用数据库备份' }}
       </div>
     </div>
   </section>
@@ -235,8 +271,31 @@ onMounted(() => {
   font-size: 12.5px;
 }
 
+.database-location {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--arc-text-hint);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.database-location :deep(svg) {
+  flex: none;
+  margin-top: 2px;
+}
+
+.database-location code {
+  min-width: 0;
+  color: var(--arc-text-secondary);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .database-actions-card,
-.database-rollback-card {
+.database-list-card {
   border: 1px solid var(--arc-border);
   border-radius: 8px;
   background: var(--arc-bg-surface);
@@ -244,15 +303,14 @@ onMounted(() => {
 }
 
 .database-actions-card,
-.database-rollback-head,
-.database-rollback-actions {
+.database-list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
 }
 
-.database-rollback-card {
+.database-list-card {
   margin-top: 14px;
 }
 
@@ -283,24 +341,71 @@ onMounted(() => {
   padding: 11px 13px;
 }
 
-.database-rollback-actions {
-  margin-top: 14px;
+.backup-list {
+  margin-top: 12px;
 }
 
-.database-backup-select {
+.backup-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--arc-border);
+}
+
+.backup-list-details {
   min-width: 0;
-  flex: 1;
 }
 
-:global(.database-backup-menu) {
-  max-height: min(320px, calc(100vh - 180px));
+.backup-list-title,
+.backup-list-meta,
+.backup-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.backup-list-title {
+  flex-wrap: wrap;
+  color: var(--arc-text-primary);
+  font-size: 12.5px;
+}
+
+.backup-list-title span,
+.backup-list-meta {
+  color: var(--arc-text-hint);
+  font-size: 11.5px;
+}
+
+.backup-list-meta {
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin-top: 5px;
+}
+
+.backup-list-actions {
+  flex: none;
+}
+
+.backup-empty-state {
+  border-top: 1px solid var(--arc-border);
+  margin-top: 12px;
+  padding: 20px 8px 6px;
+  color: var(--arc-text-hint);
+  font-size: 12px;
+  text-align: center;
 }
 
 @media (max-width: 720px) {
   .database-actions-card,
-  .database-rollback-actions {
+  .backup-list-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .backup-list-actions {
+    justify-content: flex-end;
   }
 }
 </style>
