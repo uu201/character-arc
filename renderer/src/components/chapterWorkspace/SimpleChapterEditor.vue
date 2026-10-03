@@ -9,6 +9,11 @@ import { ensureEditorHtmlContent } from '@/features/chapters/editorContent'
 import { formatChapterEditorDocument } from '@/features/chapters/chapterFormatting'
 import type { ChapterInsertionRequest, ChapterSelectionState } from '@/types/app'
 import { EditorSearchExtension } from '@/features/chapters/editorSearch'
+import {
+  ChapterRevisionMark,
+  revisionAttrsFromElement,
+  type ChapterRevisionAttrs
+} from '@/features/chapters/revisionMark'
 
 export type ChapterRecoverySnapshot = {
   chapterId: string
@@ -27,6 +32,7 @@ const emit = defineEmits<{
   'consume-insertion': [requestId: string]
   'selection-change': [selection: ChapterSelectionState | null]
   'recovery-available': [snapshot: ChapterRecoverySnapshot | null]
+  'revision-click': [revision: ChapterRevisionAttrs, x: number, y: number]
 }>()
 
 const RECOVERY_DEBOUNCE_MS = 1_000
@@ -108,6 +114,38 @@ function formatDocument(): 'empty' | 'unchanged' | 'formatted' {
   return 'formatted'
 }
 
+function applyManualRevision(color: string): void {
+  if (!editor.value) return
+  const { from, to } = editor.value.state.selection
+  if (from === to) return
+  editor.value.chain().focus().setMark('chapterRevision', {
+    id: crypto.randomUUID(),
+    source: 'manual',
+    color,
+    turnId: '',
+    reason: '人工标注',
+    createdAt: new Date().toISOString()
+  }).run()
+}
+
+function clearSelectedRevision(): void {
+  if (!editor.value) return
+  editor.value.chain().focus().unsetMark('chapterRevision').run()
+}
+
+function clearRevision(revisionId: string): void {
+  if (!editor.value || !revisionId) return
+  const markType = editor.value.schema.marks.chapterRevision
+  if (!markType) return
+  const tr = editor.value.state.tr
+  editor.value.state.doc.descendants((node, pos) => {
+    if (!node.isText) return
+    const matches = node.marks.some((mark) => mark.type === markType && mark.attrs.id === revisionId)
+    if (matches) tr.removeMark(pos, pos + node.nodeSize, markType)
+  })
+  if (tr.docChanged) editor.value.view.dispatch(tr)
+}
+
 function handleSelectionUpdate(): void {
   if (!editor.value) return
   const { from, to } = editor.value.state.selection
@@ -134,6 +172,7 @@ const editor = useEditor({
     }),
     CharacterCount,
     Underline,
+    ChapterRevisionMark,
     EditorSearchExtension,
   ],
   content: ensureEditorHtmlContent(props.modelValue),
@@ -142,6 +181,15 @@ const editor = useEditor({
       class: 'simple-editor',
       spellcheck: 'false',
     },
+    handleClick: (_view, _pos, event) => {
+      const target = event.target as HTMLElement | null
+      const mark = target?.closest<HTMLElement>('mark[data-arc-revision-id]')
+      if (!mark) return false
+      const revision = revisionAttrsFromElement(mark)
+      if (!revision) return false
+      emit('revision-click', revision, event.clientX, event.clientY)
+      return false
+    }
   },
   onUpdate: ({ editor: e }) => {
     const html = e.getHTML()
@@ -236,7 +284,15 @@ onBeforeUnmount(() => {
   editor.value?.destroy()
 })
 
-defineExpose({ editor, restoreRecovery, discardRecovery, formatDocument })
+defineExpose({
+  editor,
+  restoreRecovery,
+  discardRecovery,
+  formatDocument,
+  applyManualRevision,
+  clearSelectedRevision,
+  clearRevision
+})
 </script>
 
 <template>
@@ -286,5 +342,19 @@ defineExpose({ editor, restoreRecovery, discardRecovery, formatDocument })
 
 :deep(.search-hl-cur) {
   background: rgba(255, 140, 0, 0.6);
+}
+
+:deep(.simple-editor mark[data-arc-revision-id]) {
+  color: #1D1D1F;
+  border-radius: 3px;
+  box-decoration-break: clone;
+  cursor: pointer;
+  padding: 0 1px;
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
+}
+
+:deep(.simple-editor mark[data-arc-revision-id]:hover) {
+  filter: saturate(1.12);
+  box-shadow: 0 0 0 1px rgba(29, 29, 31, 0.18);
 }
 </style>

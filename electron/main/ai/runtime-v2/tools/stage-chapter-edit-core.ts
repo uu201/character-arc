@@ -1,6 +1,17 @@
+import { randomUUID } from 'node:crypto'
 import type { Tool } from '../../agent/tools/types'
 import type { ChapterEdit } from '../../agent/tools/chapter-data-access'
 import type { StagedChangesStore } from '../staged-changes-store'
+
+const REVISION_COLORS = ['#FFE58F', '#BAE7FF', '#B7EB8F', '#D3ADF7', '#FFD591', '#87E8DE'] as const
+
+function revisionColorForTurn(turnId: string): string {
+  let hash = 0
+  for (let i = 0; i < turnId.length; i += 1) {
+    hash = ((hash << 5) - hash + turnId.charCodeAt(i)) | 0
+  }
+  return REVISION_COLORS[Math.abs(hash) % REVISION_COLORS.length]
+}
 
 export interface StageChapterSummaryItem {
   id: string
@@ -101,7 +112,7 @@ function formatResolveError(ref: string, chapters: StageChapterSummaryItem[]): s
 
 function isRecoverableLocateError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
-  return /^Could not find (target|anchor) text:/.test(message)
+  return /^(Could not find|Ambiguous) (target|anchor) text:/.test(message)
 }
 
 export function makeStageChapterEditToolCore(deps: StageChapterEditToolDeps): Tool {
@@ -175,15 +186,30 @@ export function makeStageChapterEditToolCore(deps: StageChapterEditToolDeps): To
       }
 
       try {
+        const changeId = randomUUID()
         const computed = await deps.dataAccess.computeChapterEdit(
           deps.projectId,
           chapterId,
-          { operation, search, content, position },
+          {
+            operation,
+            search,
+            content,
+            position,
+            revision: {
+              id: changeId,
+              source: 'ai',
+              color: revisionColorForTurn(deps.turnId),
+              turnId: deps.turnId,
+              reason,
+              createdAt: new Date().toISOString()
+            }
+          },
           buffer.get(chapterId)
         )
         buffer.set(chapterId, computed.newContent)
 
         const change = deps.stagedStore.add({
+          id: changeId,
           sessionId: deps.sessionId,
           turnId: deps.turnId,
           kind: 'chapter',
@@ -206,10 +232,13 @@ export function makeStageChapterEditToolCore(deps: StageChapterEditToolDeps): To
       } catch (e) {
         if (isRecoverableLocateError(e)) {
           const detail = e instanceof Error ? e.message : String(e)
+          const suggestion = detail.startsWith('Ambiguous')
+            ? '目标原文在章节中出现多次。请重新读取章节，并提供包含前后文、能够唯一定位的更长 search 片段。'
+            : '请先重新读取目标章节，然后用更短、连续、逐字来自正文的 search 片段重试；如果只是加内容，改用 append 或 insert 的 start/end。'
           return {
             content: [
               `未能定位要修改的原文片段，本次没有暂存章节修改：${detail}`,
-              '请先重新读取目标章节，然后用更短、连续、逐字来自正文的 search 片段重试；如果只是加内容，改用 append 或 insert 的 start/end。'
+              suggestion
             ].join('\n')
           }
         }

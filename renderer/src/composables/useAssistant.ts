@@ -1201,17 +1201,16 @@ export function useAssistant(options: UseAssistantOptions) {
   // ==========================================================================
 
   async function acceptChanges(ids: string[]): Promise<void> {
-    const changedIds = ids.filter((id) =>
-      stagedChanges.value.some((change) => change.id === id && change.status !== 'accepted')
-    )
-    commitResults.value = commitResults.value.filter((result) => !changedIds.includes(result.changeId))
     const changed = await A.stageAccept({ changeIds: ids })
+    const changedIds = new Set([...ids, ...changed.map((change) => change.id)])
+    commitResults.value = commitResults.value.filter((result) => !changedIds.has(result.changeId))
     mergeStagedChanges(changed)
   }
 
   async function rejectChanges(ids: string[]): Promise<void> {
-    commitResults.value = commitResults.value.filter((result) => !ids.includes(result.changeId))
     const changed = await A.stageReject({ changeIds: ids })
+    const changedIds = new Set([...ids, ...changed.map((change) => change.id)])
+    commitResults.value = commitResults.value.filter((result) => !changedIds.has(result.changeId))
     mergeStagedChanges(changed)
   }
 

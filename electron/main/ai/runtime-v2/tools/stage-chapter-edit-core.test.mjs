@@ -55,7 +55,7 @@ async function runTool(tool, input) {
 }
 
 test('按章节序号定位目标并写入暂存变更', async () => {
-  const { tool, stagedStore } = makeTool()
+  const { tool, stagedStore, calls } = makeTool()
 
   const result = await runTool(tool, {
     chapter_id: '第二章',
@@ -70,6 +70,10 @@ test('按章节序号定位目标并写入暂存变更', async () => {
   assert.equal(changes[0].entityId, 'chapter-2')
   assert.equal(changes[0].entityTitle, '第二章 入城')
   assert.equal(changes[0].reason, '补足入城氛围')
+  assert.equal(calls[0].edit.revision.id, changes[0].id)
+  assert.equal(calls[0].edit.revision.turnId, 'turn-1')
+  assert.equal(calls[0].edit.revision.reason, '补足入城氛围')
+  assert.match(calls[0].edit.revision.color, /^#[0-9A-F]{6}$/)
 })
 
 test('章节面板禁止暂存当前章节之外的修改', async () => {

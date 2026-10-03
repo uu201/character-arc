@@ -28,6 +28,31 @@ const assistant = useAssistant({
   scopeRef: () => selectedChapter.value ? `chapter:${selectedChapter.value.id}` : undefined
 })
 
+const revisionContext = computed(() => {
+  const result: Record<string, {
+    turnIndex: number
+    prompt: string
+    changeIndex: number
+    changeTotal: number
+  }> = {}
+  const messages = assistant.messages.value
+  for (let turnIndex = 0; turnIndex < messages.length; turnIndex += 1) {
+    const message = messages[turnIndex]
+    const changes = assistant.stagedChanges.value
+      .filter((change) => change.kind === 'chapter' && change.turnId === message.turnId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    changes.forEach((change, changeIndex) => {
+      result[change.id] = {
+        turnIndex: turnIndex + 1,
+        prompt: message.userMessage,
+        changeIndex: changeIndex + 1,
+        changeTotal: changes.length
+      }
+    })
+  }
+  return result
+})
+
 const COMPACT_BREAKPOINT = 1180
 const COMPACT_BREAKPOINT_AI_OPEN = 1440
 const DEFAULT_AI_WIDTH = 380
@@ -190,6 +215,7 @@ onBeforeUnmount(() => {
       :focus-mode="focusMode"
       :reference-open="referenceOpen"
       :show-sidebar-toggle="!focusMode && isCompact"
+      :revision-context="revisionContext"
       @toggle-ai="toggleAi"
       @toggle-focus="toggleFocus"
       @toggle-reference="toggleReference"

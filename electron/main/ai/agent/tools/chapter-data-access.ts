@@ -9,6 +9,7 @@ import {
   stripHtmlTags,
   textToHtmlParagraphs
 } from './chapter-html-edit'
+import type { ChapterRevisionMetadata } from './chapter-html-edit'
 
 export { textToHtmlParagraphs } from './chapter-html-edit'
 
@@ -37,6 +38,7 @@ export type ChapterEdit = {
   search?: string
   content: string
   position?: 'before' | 'after' | 'start' | 'end'
+  revision?: ChapterRevisionMetadata
 }
 
 export type SearchResult = {
@@ -214,7 +216,7 @@ export async function applyChapterEdit(
   let preview: string
 
   if (edit.operation === 'append') {
-    const htmlToAppend = textToHtmlParagraphs(edit.content)
+    const htmlToAppend = textToHtmlParagraphs(edit.content, edit.revision)
     newContent = joinChapterBlocks(oldContent, htmlToAppend, 'end')
     preview = `Appended ${edit.content.length} chars`
   } else if (edit.operation === 'replace') {
@@ -225,21 +227,21 @@ export async function applyChapterEdit(
     if (!searchText) {
       throw new Error('replace requires search')
     }
-    newContent = replaceInHtml(oldContent, searchText, edit.content)
+    newContent = replaceInHtml(oldContent, searchText, edit.content, edit.revision)
     preview = `Replaced "${searchText.slice(0, 30)}..." -> "${edit.content.slice(0, 30)}..."`
   } else if (edit.operation === 'replace_all') {
-    newContent = replaceAllInHtml(oldContent, edit.content)
+    newContent = replaceAllInHtml(oldContent, edit.content, edit.revision)
     preview = `Replaced entire chapter with ${edit.content.length} chars`
   } else if (edit.operation === 'insert') {
     if (!edit.search && edit.position !== 'start' && edit.position !== 'end') {
       throw new Error('insert requires search or start/end position')
     }
     if (edit.position === 'start') {
-      newContent = joinChapterBlocks(oldContent, textToHtmlParagraphs(edit.content), 'start')
+      newContent = joinChapterBlocks(oldContent, textToHtmlParagraphs(edit.content, edit.revision), 'start')
     } else if (edit.position === 'end' || !edit.search) {
-      newContent = joinChapterBlocks(oldContent, textToHtmlParagraphs(edit.content), 'end')
+      newContent = joinChapterBlocks(oldContent, textToHtmlParagraphs(edit.content, edit.revision), 'end')
     } else {
-      newContent = insertInHtml(oldContent, edit.search.trim(), edit.content, edit.position ?? 'after')
+      newContent = insertInHtml(oldContent, edit.search.trim(), edit.content, edit.position ?? 'after', edit.revision)
     }
     preview = `Inserted ${edit.content.length} chars`
   } else {
@@ -275,7 +277,7 @@ export async function computeChapterEdit(
   let preview: string
 
   if (edit.operation === 'append') {
-    const htmlToAppend = textToHtmlParagraphs(edit.content)
+    const htmlToAppend = textToHtmlParagraphs(edit.content, edit.revision)
     newContent = joinChapterBlocks(oldContent, htmlToAppend, 'end')
     preview = `Appended ${edit.content.length} chars`
   } else if (edit.operation === 'replace') {
@@ -286,21 +288,21 @@ export async function computeChapterEdit(
     if (!searchText) {
       throw new Error('replace requires search')
     }
-    newContent = replaceInHtml(oldContent, searchText, edit.content)
+    newContent = replaceInHtml(oldContent, searchText, edit.content, edit.revision)
     preview = `Replaced "${searchText.slice(0, 30)}..." -> "${edit.content.slice(0, 30)}..."`
   } else if (edit.operation === 'replace_all') {
-    newContent = replaceAllInHtml(oldContent, edit.content)
+    newContent = replaceAllInHtml(oldContent, edit.content, edit.revision)
     preview = `Replaced entire chapter with ${edit.content.length} chars`
   } else if (edit.operation === 'insert') {
     if (!edit.search && edit.position !== 'start' && edit.position !== 'end') {
       throw new Error('insert requires search or start/end position')
     }
     if (edit.position === 'start') {
-      newContent = joinChapterBlocks(oldContent, textToHtmlParagraphs(edit.content), 'start')
+      newContent = joinChapterBlocks(oldContent, textToHtmlParagraphs(edit.content, edit.revision), 'start')
     } else if (edit.position === 'end' || !edit.search) {
-      newContent = joinChapterBlocks(oldContent, textToHtmlParagraphs(edit.content), 'end')
+      newContent = joinChapterBlocks(oldContent, textToHtmlParagraphs(edit.content, edit.revision), 'end')
     } else {
-      newContent = insertInHtml(oldContent, edit.search.trim(), edit.content, edit.position ?? 'after')
+      newContent = insertInHtml(oldContent, edit.search.trim(), edit.content, edit.position ?? 'after', edit.revision)
     }
     preview = `Inserted ${edit.content.length} chars`
   } else {

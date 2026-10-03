@@ -47,6 +47,21 @@ function makeChange(sessionId, title) {
   }
 }
 
+function makeChapterChange(sessionId, title, oldContent, newContent) {
+  return {
+    sessionId,
+    turnId: `turn-${sessionId}`,
+    kind: 'chapter',
+    action: 'update',
+    entityId: 'chapter-1',
+    entityTitle: title,
+    reason: '测试章节修改',
+    before: oldContent,
+    after: newContent,
+    chapterHtml: { old: oldContent, new: newContent }
+  }
+}
+
 test('数据库连接替换后会丢弃旧 statement 并从新连接重载', () => {
   const store = new StagedChangesStore()
   const firstDb = createDatabase()
@@ -209,4 +224,45 @@ test('同一暂存项并发提交时只执行一次写库', async () => {
   assert.equal(commitCount, 1)
   assert.deepEqual(firstResult, secondResult)
   assert.equal(store.get(change.id)?.status, 'committed')
+})
+
+test('确认后续章节修改时自动确认它依赖的前序修改', () => {
+  const store = new StagedChangesStore()
+  const first = store.add(makeChapterChange('session-a', '第一次修改', '<p>原文</p>', '<p>第一次</p>'))
+  const second = store.add(makeChapterChange('session-a', '第二次修改', '<p>第一次</p>', '<p>第二次</p>'))
+
+  assert.deepEqual(store.accept([second.id]).map((item) => item.id), [first.id, second.id])
+  assert.equal(store.get(first.id)?.status, 'accepted')
+  assert.equal(store.get(second.id)?.status, 'accepted')
+})
+
+test('忽略前序章节修改时同步忽略依赖它的后续修改', () => {
+  const store = new StagedChangesStore()
+  const first = store.add(makeChapterChange('session-a', '第一次修改', '<p>原文</p>', '<p>第一次</p>'))
+  const second = store.add(makeChapterChange('session-a', '第二次修改', '<p>第一次</p>', '<p>第二次</p>'))
+  store.accept([second.id])
+
+  assert.deepEqual(store.reject([first.id]).map((item) => item.id), [second.id, first.id])
+  assert.equal(store.get(first.id)?.status, 'rejected')
+  assert.equal(store.get(second.id)?.status, 'rejected')
+})
+
+test('只提交后续章节修改时按依赖顺序一并提交前序修改', async () => {
+  const store = new StagedChangesStore()
+  const first = store.add(makeChapterChange('session-a', '第一次修改', '<p>原文</p>', '<p>第一次</p>'))
+  const second = store.add(makeChapterChange('session-a', '第二次修改', '<p>第一次</p>', '<p>第二次</p>'))
+  store.accept([second.id])
+  const committedIds = []
+
+  await store.commit(
+    async (item) => {
+      committedIds.push(item.id)
+      return { changeId: item.id, ok: true }
+    },
+    { changeIds: [second.id] }
+  )
+
+  assert.deepEqual(committedIds, [first.id, second.id])
+  assert.equal(store.get(first.id)?.status, 'committed')
+  assert.equal(store.get(second.id)?.status, 'committed')
 })

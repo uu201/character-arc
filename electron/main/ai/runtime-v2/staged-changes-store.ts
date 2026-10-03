@@ -21,8 +21,9 @@ import type {
   StagedChangeStatus
 } from '@shared/assistant-runtime'
 
-/** add 时的入参，不含状态/时间戳/id。 */
+/** add 时的入参，不含状态/时间戳；id 缺省时自动生成。 */
 export interface StageChangeInput {
+  id?: string
   sessionId: string
   turnId: string
   toolUseId?: string
@@ -238,7 +239,7 @@ export class StagedChangesStore {
   add(input: StageChangeInput): StagedChange {
     const now = new Date().toISOString()
     const change: StagedChange = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       sessionId: input.sessionId,
       turnId: input.turnId,
       toolUseId: input.toolUseId,
@@ -311,10 +312,50 @@ export class StagedChangesStore {
     })
   }
 
-  /** 批量接受。pending/rejected 均可转 accepted（rejected→accepted 即"恢复"）。 */
+  /** 同一章节的后续正文以某条变更结果为 old 时，视为依赖该变更。 */
+  private chapterDependency(change: StagedChange): StagedChange | null {
+    if (!change.entityId || !change.chapterHtml) return null
+    let dependency: StagedChange | null = null
+    for (const candidate of this.items.values()) {
+      if (candidate.id === change.id) break
+      if (
+        candidate.sessionId === change.sessionId &&
+        candidate.entityId === change.entityId &&
+        candidate.chapterHtml?.new === change.chapterHtml.old
+      ) {
+        dependency = candidate
+      }
+    }
+    return dependency
+  }
+
+  private chapterDependents(change: StagedChange): StagedChange[] {
+    if (!change.entityId || !change.chapterHtml) return []
+    const dependents: StagedChange[] = []
+    for (const candidate of this.items.values()) {
+      if (
+        candidate.id !== change.id &&
+        candidate.sessionId === change.sessionId &&
+        candidate.entityId === change.entityId &&
+        this.chapterDependency(candidate)?.id === change.id
+      ) {
+        dependents.push(candidate)
+      }
+    }
+    return dependents
+  }
+
+  /** 批量接受。章节后续修改会先恢复其依赖的前序修改。 */
   accept(ids: readonly string[]): StagedChange[] {
     const changed: StagedChange[] = []
-    for (const id of ids) {
+    const visited = new Set<string>()
+    const acceptOne = (id: string): void => {
+      if (visited.has(id)) return
+      visited.add(id)
+      const current = this.items.get(id)
+      if (!current) return
+      const dependency = this.chapterDependency(current)
+      if (dependency && dependency.status !== 'committed') acceptOne(dependency.id)
       const c = this.transition(id, (c) => {
         if (c.status !== 'pending' && c.status !== 'rejected') return false
         c.status = 'accepted'
@@ -322,13 +363,20 @@ export class StagedChangesStore {
       })
       if (c) changed.push(c)
     }
+    for (const id of ids) acceptOne(id)
     return changed
   }
 
-  /** 批量拒绝。pending/accepted 都可转 rejected。 */
+  /** 批量拒绝。忽略前序章节修改时同步忽略依赖它的后续修改。 */
   reject(ids: readonly string[]): StagedChange[] {
     const changed: StagedChange[] = []
-    for (const id of ids) {
+    const visited = new Set<string>()
+    const rejectOne = (id: string): void => {
+      if (visited.has(id)) return
+      visited.add(id)
+      const current = this.items.get(id)
+      if (!current) return
+      for (const dependent of this.chapterDependents(current)) rejectOne(dependent.id)
       const c = this.transition(id, (c) => {
         if (c.status !== 'pending' && c.status !== 'accepted') return false
         c.status = 'rejected'
@@ -336,6 +384,7 @@ export class StagedChangesStore {
       })
       if (c) changed.push(c)
     }
+    for (const id of ids) rejectOne(id)
     return changed
   }
 
@@ -397,9 +446,18 @@ export class StagedChangesStore {
   }): StagedChange[] {
     if (opts.changeIds && opts.changeIds.length > 0) {
       const out: StagedChange[] = []
+      const included = new Set<string>()
+      const collect = (change: StagedChange): void => {
+        const dependency = this.chapterDependency(change)
+        if (dependency && dependency.status === 'accepted') collect(dependency)
+        if (!included.has(change.id) && change.status === 'accepted') {
+          included.add(change.id)
+          out.push(change)
+        }
+      }
       for (const id of opts.changeIds) {
         const c = this.items.get(id)
-        if (c && c.status === 'accepted') out.push(c)
+        if (c) collect(c)
       }
       return out
     }

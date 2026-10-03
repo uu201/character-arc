@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
-import { AlignLeft, BookOpen, Check, ChevronDown, ChevronRight, Folder, FocusIcon, History, Maximize2, Menu, MessageSquareQuote, Minus, Minimize2, MoreHorizontal, Plus, RefreshCw, ShieldAlert, Sparkles, Type, Wand2 } from 'lucide-vue-next'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { AlignLeft, BookOpen, Check, ChevronDown, ChevronRight, Eraser, Folder, FocusIcon, History, Maximize2, Menu, MessageSquareQuote, Minus, Minimize2, MoreHorizontal, Plus, RefreshCw, ShieldAlert, Sparkles, Type, Wand2, X } from 'lucide-vue-next'
 import { NAlert, NDropdown, NTag, useMessage } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
 import SimpleChapterEditor from './SimpleChapterEditor.vue'
@@ -15,12 +15,19 @@ import { editorFontOptions, getEditorFontOption, isEditorFont } from '@/features
 import { formatChapterWordTargetLabel, parseChapterWordTarget } from '@/features/chapters/wordTarget'
 import { formatVolumeLabel } from '@/features/workspace/outlineVolumes'
 import { useAppStore } from '@/stores/app'
+import type { ChapterRevisionAttrs } from '@/features/chapters/revisionMark'
 
-defineProps<{
+const { aiOpen, focusMode, referenceOpen, showSidebarToggle, revisionContext = {} } = defineProps<{
   aiOpen: boolean
   focusMode: boolean
   referenceOpen: boolean
   showSidebarToggle?: boolean
+  revisionContext?: Record<string, {
+    turnIndex: number
+    prompt: string
+    changeIndex: number
+    changeTotal: number
+  }>
 }>()
 
 const emit = defineEmits<{
@@ -196,8 +203,96 @@ const findBarRef = ref<InstanceType<typeof EditorFindBar> | null>(null)
 const findBarVisible = ref(false)
 const findInitialTerm = ref('')
 const recoverySnapshot = ref<ChapterRecoverySnapshot | null>(null)
+const revisionPopup = ref<{
+  revision: ChapterRevisionAttrs
+  x: number
+  y: number
+} | null>(null)
+const revisionCardRef = ref<HTMLElement | null>(null)
+const REVISION_COLORS = ['#FFE58F', '#BAE7FF', '#B7EB8F', '#D3ADF7', '#FFD591', '#87E8DE']
+let stopRevisionDrag: (() => void) | null = null
 // editorRef.value.editor 通过模板 ref 自动 unwrap 为 Editor | undefined
 const tiptapEditor = computed(() => (editorRef.value as any)?.editor ?? null)
+const activeRevisionContext = computed(() => {
+  const revisionId = revisionPopup.value?.revision.id
+  return revisionId ? revisionContext[revisionId] : undefined
+})
+
+function applyManualRevision(color: string): void {
+  editorRef.value?.applyManualRevision(color)
+  selToolbarVisible.value = false
+}
+
+function clearSelectedRevision(): void {
+  editorRef.value?.clearSelectedRevision()
+  selToolbarVisible.value = false
+}
+
+function clampRevisionPopupToViewport(): void {
+  if (!revisionPopup.value) return
+  const margin = 8
+  const rect = revisionCardRef.value?.getBoundingClientRect()
+  const width = rect?.width ?? Math.min(340, window.innerWidth - margin * 2)
+  const height = rect?.height ?? Math.min(260, window.innerHeight - margin * 2)
+  revisionPopup.value = {
+    ...revisionPopup.value,
+    x: Math.max(margin, Math.min(revisionPopup.value.x, window.innerWidth - width - margin)),
+    y: Math.max(margin, Math.min(revisionPopup.value.y, window.innerHeight - height - margin))
+  }
+}
+
+function handleRevisionClick(revision: ChapterRevisionAttrs, x: number, y: number): void {
+  revisionPopup.value = {
+    revision,
+    x: x + 10,
+    y: y + 10
+  }
+  nextTick(clampRevisionPopupToViewport)
+}
+
+function startRevisionDrag(event: PointerEvent): void {
+  if (!revisionPopup.value || (event.target as HTMLElement | null)?.closest('button')) return
+  event.preventDefault()
+  stopRevisionDrag?.()
+  const startX = event.clientX
+  const startY = event.clientY
+  const originX = revisionPopup.value.x
+  const originY = revisionPopup.value.y
+
+  const move = (moveEvent: PointerEvent): void => {
+    if (!revisionPopup.value) return
+    revisionPopup.value = {
+      ...revisionPopup.value,
+      x: originX + moveEvent.clientX - startX,
+      y: originY + moveEvent.clientY - startY
+    }
+    clampRevisionPopupToViewport()
+  }
+  const stop = (): void => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', stop)
+    window.removeEventListener('pointercancel', stop)
+    if (stopRevisionDrag === stop) stopRevisionDrag = null
+  }
+  stopRevisionDrag = stop
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', stop)
+  window.addEventListener('pointercancel', stop)
+}
+
+function resolveRevision(): void {
+  const id = revisionPopup.value?.revision.id
+  if (!id) return
+  editorRef.value?.clearRevision(id)
+  revisionPopup.value = null
+  message.success('已完成精修并清除颜色标注')
+}
+
+function formatRevisionTime(value: string): string {
+  if (!value) return '时间未知'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString('zh-CN')
+}
 
 function openFindBar(): void {
   const editor = tiptapEditor.value
@@ -313,7 +408,7 @@ function handleSelectionChange(): void {
   const gap = 6
   let top = rect.top - toolbarH - gap
   if (top < scrollRect.top) top = rect.bottom + gap
-  const toolbarW = 360
+  const toolbarW = Math.max(120, Math.min(530, scrollRect.width - 8, window.innerWidth - 16))
   let left = rect.left + rect.width / 2
   const minLeft = scrollRect.left + toolbarW / 2 + 4
   const maxLeft = scrollRect.right - toolbarW / 2 - 4
@@ -337,10 +432,17 @@ function handleSelAction(action: string): void {
 function handleMouseDown(e: MouseEvent): void {
   const toolbar = document.querySelector('.arc-sel-toolbar')
   if (toolbar?.contains(e.target as Node)) return
+  const revisionCard = document.querySelector('.arc-revision-card')
+  if (revisionCard?.contains(e.target as Node)) return
   selToolbarVisible.value = false
+  revisionPopup.value = null
 }
 
 function handleGlobalKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && revisionPopup.value) {
+    revisionPopup.value = null
+    return
+  }
   const commandKey = e.ctrlKey || e.metaKey
   if (commandKey && e.key.toLowerCase() === 'f') {
     const scrollEl = scrollRef.value
@@ -396,15 +498,27 @@ function formatCurrentChapter(): void {
   message.success('一键排版完成：首行缩进 2 字，段间空 1 行')
 }
 
+watch(
+  () => currentChapter.value?.id,
+  () => {
+    stopRevisionDrag?.()
+    revisionPopup.value = null
+    selToolbarVisible.value = false
+  }
+)
+
 onMounted(() => {
   document.addEventListener('selectionchange', handleSelectionChange)
   document.addEventListener('mousedown', handleMouseDown)
   document.addEventListener('keydown', handleGlobalKeydown)
+  window.addEventListener('resize', clampRevisionPopupToViewport)
 })
 onBeforeUnmount(() => {
+  stopRevisionDrag?.()
   document.removeEventListener('selectionchange', handleSelectionChange)
   document.removeEventListener('mousedown', handleMouseDown)
   document.removeEventListener('keydown', handleGlobalKeydown)
+  window.removeEventListener('resize', clampRevisionPopupToViewport)
 })
 </script>
 
@@ -568,6 +682,7 @@ onBeforeUnmount(() => {
             @consume-insertion="appStore.consumeChapterInsertion"
             @selection-change="appStore.updateChapterSelection"
             @recovery-available="recoverySnapshot = $event"
+            @revision-click="handleRevisionClick"
           />
         </template>
       </div>
@@ -616,8 +731,60 @@ onBeforeUnmount(() => {
           <button class="arc-sel-btn" @click="handleSelAction('问AI')">
             <MessageSquareQuote :size="12" /> 问 AI
           </button>
+          <span class="arc-sel-divider" />
+          <span class="arc-revision-palette" title="标注待精修内容">
+            <button
+              v-for="color in REVISION_COLORS"
+              :key="color"
+              type="button"
+              class="arc-revision-color"
+              :style="{ backgroundColor: color }"
+              :aria-label="`使用 ${color} 标注`"
+              @mousedown.prevent
+              @click="applyManualRevision(color)"
+            />
+          </span>
+          <button class="arc-sel-btn arc-sel-btn--icon" title="清除选中内容的标注" @mousedown.prevent @click="clearSelectedRevision">
+            <Eraser :size="13" />
+          </button>
         </div>
       </Transition>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="revisionPopup"
+        ref="revisionCardRef"
+        class="arc-revision-card"
+        :style="{ left: revisionPopup.x + 'px', top: revisionPopup.y + 'px' }"
+      >
+        <div class="arc-revision-card__head" @pointerdown="startRevisionDrag">
+          <span class="arc-revision-swatch" :style="{ backgroundColor: revisionPopup.revision.color }" />
+          <strong>
+            {{ revisionPopup.revision.source === 'ai'
+              ? activeRevisionContext
+                ? `AI 修订 #${activeRevisionContext.turnIndex}`
+                : `AI 修订 · ${revisionPopup.revision.turnId?.slice(0, 8) || '来源未知'}`
+              : '人工标注' }}
+          </strong>
+          <button type="button" @click="revisionPopup = null"><X :size="14" /></button>
+        </div>
+        <div v-if="activeRevisionContext" class="arc-revision-card__change-index">
+          本轮修改 {{ activeRevisionContext.changeIndex }} / {{ activeRevisionContext.changeTotal }}
+        </div>
+        <div v-if="activeRevisionContext?.prompt" class="arc-revision-card__prompt">
+          {{ activeRevisionContext.prompt }}
+        </div>
+        <div v-if="revisionPopup.revision.reason" class="arc-revision-card__reason">
+          {{ revisionPopup.revision.reason }}
+        </div>
+        <div class="arc-revision-card__meta">
+          {{ formatRevisionTime(revisionPopup.revision.createdAt) }} · {{ revisionPopup.revision.id.slice(0, 8) }}
+        </div>
+        <button type="button" class="arc-revision-resolve" @click="resolveRevision">
+          <Check :size="13" /> 完成精修并清除标注
+        </button>
+      </div>
     </Teleport>
 
     <footer v-if="!focusMode && currentChapter" class="ep-status">
@@ -1091,6 +1258,8 @@ onBeforeUnmount(() => {
   z-index: 9999;
   transform: translateX(-50%);
   pointer-events: auto;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
 }
 
 .arc-sel-btn {
@@ -1112,6 +1281,32 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.15);
 }
 
+.arc-sel-btn--icon {
+  padding-inline: 7px;
+}
+
+.arc-revision-palette {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.arc-revision-color {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.arc-revision-color:hover {
+  transform: scale(1.18);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
 .arc-sel-divider {
   width: 1px;
   height: 16px;
@@ -1129,5 +1324,114 @@ onBeforeUnmount(() => {
 .arc-sel-fade-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(4px);
+}
+
+.arc-revision-card {
+  position: fixed;
+  z-index: 10000;
+  width: min(340px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--arc-border);
+  border-radius: 10px;
+  background: var(--arc-bg-surface);
+  color: var(--arc-text-primary);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.2);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.arc-revision-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.arc-revision-card__head:active {
+  cursor: grabbing;
+}
+
+.arc-revision-card__head strong {
+  flex: 1;
+  font-size: 13px;
+}
+
+.arc-revision-card__head button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--arc-text-secondary);
+  cursor: pointer;
+}
+
+.arc-revision-card__head button:hover {
+  background: var(--arc-bg-surface-hover);
+}
+
+.arc-revision-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(29, 29, 31, 0.18);
+  border-radius: 4px;
+}
+
+.arc-revision-card__prompt,
+.arc-revision-card__reason {
+  padding: 8px 9px;
+  border-radius: 6px;
+  background: var(--arc-bg-weak);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.arc-revision-card__prompt {
+  max-height: min(38vh, 260px);
+  overflow: auto;
+}
+
+.arc-revision-card__change-index {
+  margin-bottom: 6px;
+  color: var(--arc-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.arc-revision-card__reason {
+  margin-top: 6px;
+  color: var(--arc-text-secondary);
+}
+
+.arc-revision-card__meta {
+  margin: 8px 0;
+  color: var(--arc-text-hint);
+  font-size: 11px;
+}
+
+.arc-revision-resolve {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--arc-primary);
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
 }
 </style>
