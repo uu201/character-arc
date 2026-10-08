@@ -208,6 +208,8 @@ contextBridge.exposeInMainWorld('characterArc', {
   setZoomFactor: (factor: number) => ipcRenderer.invoke('characterarc:set-zoom-factor', factor),
   /** 获取当前渲染进程页面缩放比例 */
   getZoomFactor: () => ipcRenderer.invoke('characterarc:get-zoom-factor'),
+  toggleBossKey: () => ipcRenderer.invoke('characterarc:toggle-boss-key'),
+  getBossKeyStatus: () => ipcRenderer.invoke('characterarc:boss-key-status'),
   /** 动态更新 Windows 原生标题栏 Overlay 颜色（随深色/浅色模式切换） */
   setTitleBarOverlay: (options: { color: string; symbolColor: string }) =>
     ipcRenderer.invoke('characterarc:set-titlebar-overlay', options),

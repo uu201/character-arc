@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeTheme, screen, shell } from 'electron'
+import { app, BrowserWindow, globalShortcut, nativeTheme, screen, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -12,9 +12,23 @@ const APP_DEFAULT_WIDTH = 1480
 const APP_DEFAULT_HEIGHT = 920
 const APP_MIN_WIDTH = 1120
 const APP_MIN_HEIGHT = 720
+const BOSS_KEY_ACCELERATOR = 'CommandOrControl+Shift+H'
 
 export function createWindowManager() {
   let mainWindow: BrowserWindow | null = null
+  let bossKeyRegistered = false
+
+  function registerBossKey(): void {
+    if (bossKeyRegistered) return
+    bossKeyRegistered = globalShortcut.register(BOSS_KEY_ACCELERATOR, () => { toggleBossKey() })
+    if (!bossKeyRegistered) {
+      console.warn('[window] boss key shortcut unavailable; using focused-window fallback')
+    }
+  }
+
+  app.on('will-quit', () => {
+    if (bossKeyRegistered) globalShortcut.unregister(BOSS_KEY_ACCELERATOR)
+  })
 
   function getMainWindowMetrics() {
     const { workAreaSize } = screen.getPrimaryDisplay()
@@ -119,6 +133,15 @@ export function createWindowManager() {
       return { action: 'deny' }
     })
 
+    window.webContents.on('before-input-event', (event, input) => {
+      const primaryModifier = process.platform === 'darwin' ? input.meta : input.control
+      if (!bossKeyRegistered && input.type === 'keyDown' && !input.isAutoRepeat
+        && primaryModifier && input.shift && !input.alt && input.key.toLowerCase() === 'h') {
+        event.preventDefault()
+        toggleBossKey()
+      }
+    })
+
     window.on('closed', () => {
       if (mainWindow === window) {
         mainWindow = null
@@ -132,6 +155,21 @@ export function createWindowManager() {
 
   function getActiveWindow(): BrowserWindow | null {
     return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
+  }
+
+  function toggleBossKey(): { success: boolean; visible?: boolean; error?: string } {
+    const window = mainWindow
+    if (!window || window.isDestroyed()) return { success: false, error: '主窗口不可用' }
+
+    if (window.isMinimized() || !window.isVisible()) {
+      if (window.isMinimized()) window.restore()
+      window.show()
+      window.focus()
+      return { success: true, visible: true }
+    }
+
+    window.minimize()
+    return { success: true, visible: false }
   }
 
   function updateTitleBarOverlayColors(colors?: TitleBarOverlayColors): void {
@@ -153,6 +191,9 @@ export function createWindowManager() {
     createMainWindow,
     getMainWindow: () => mainWindow,
     getActiveWindow,
+    toggleBossKey,
+    registerBossKey,
+    isBossKeyRegistered: () => bossKeyRegistered,
     sendWindowEvent,
     broadcastWindowEvent,
     updateTitleBarOverlayColors

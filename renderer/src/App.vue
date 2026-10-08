@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, watch } from 'vue'
-import { Moon, Sun } from 'lucide-vue-next'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { EyeOff, Moon, Sun } from 'lucide-vue-next'
 import { createDiscreteApi, NConfigProvider, NDialogProvider, NGlobalStyle, NMessageProvider, NSpin, darkTheme } from 'naive-ui'
 import { useAppStore } from '@/stores/app'
 import { createNaiveThemeOverrides, getDarkModePreset } from '@/theme/presets'
@@ -24,6 +24,13 @@ const appStore = useAppStore()
 const platform = window.characterArc?.platform ?? 'unknown'
 const appName = '弧光'
 const appVersion = window.characterArc?.version ?? ''
+const bossKeyRegistered = ref(true)
+const bossKeyTitle = computed(() => {
+  const shortcut = platform === 'darwin' ? 'Command+Shift+H' : 'Ctrl+Shift+H'
+  return bossKeyRegistered.value
+    ? `老板键（${shortcut}）`
+    : `老板键（${shortcut} 被占用，仅应用内可用）`
+})
 const { message } = createDiscreteApi(['message'])
 let themeTransitionFrame: number | null = null
 
@@ -126,6 +133,15 @@ function shouldShowManualSaveToast(): boolean {
   return appStore.currentView === 'chapter-studio' || appStore.activePanel === 'chapters'
 }
 
+async function toggleBossKey(): Promise<void> {
+  try {
+    const result = await window.characterArc.toggleBossKey()
+    if (!result.success) message.error(result.error || '窗口隐藏失败')
+  } catch {
+    message.error('窗口隐藏失败，请重试')
+  }
+}
+
 function toggleDarkMode(): void {
   const root = document.documentElement
   root.classList.add('theme-switching')
@@ -167,6 +183,11 @@ function handleBeforeUnload() {
 }
 
 onMounted(() => {
+  void window.characterArc.getBossKeyStatus().then((status) => {
+    bossKeyRegistered.value = status.registered
+  }).catch(() => {
+    bossKeyRegistered.value = false
+  })
   window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
@@ -196,6 +217,15 @@ onBeforeUnmount(() => {
             <div class="app-titlebar__tools">
               <TitlebarModelSwitcher />
               <TitlebarAiTaskCenter />
+              <button
+                type="button"
+                class="app-titlebar__theme-toggle"
+                :title="bossKeyTitle"
+                aria-label="老板键，快速隐藏窗口"
+                @click="toggleBossKey"
+              >
+                <EyeOff :size="15" />
+              </button>
               <button
                 type="button"
                 class="app-titlebar__theme-toggle"

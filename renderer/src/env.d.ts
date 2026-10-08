@@ -532,6 +532,8 @@ declare global {
         factor?: number
         error?: string
       }>
+      toggleBossKey: () => Promise<{ success: boolean; visible?: boolean; error?: string }>
+      getBossKeyStatus: () => Promise<{ registered: boolean }>
       setTitleBarOverlay: (options: { color: string; symbolColor: string }) => Promise<void>
       importJson: () => Promise<{
         success: boolean

@@ -1510,6 +1510,12 @@ export function registerMainIpcHandlers(deps: RegisterMainIpcHandlersDeps): void
     }
   })
 
+  ipcMain.handle('characterarc:toggle-boss-key', () => deps.windowManager.toggleBossKey())
+
+  ipcMain.handle('characterarc:boss-key-status', () => ({
+    registered: deps.windowManager.isBossKeyRegistered()
+  }))
+
   ipcMain.handle('characterarc:set-titlebar-overlay', (_event, options: unknown) => {
     const value = options as { color?: unknown; symbolColor?: unknown } | null
     const colors = value && typeof value.color === 'string' && typeof value.symbolColor === 'string'

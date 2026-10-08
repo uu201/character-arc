@@ -732,6 +732,7 @@ app.whenReady().then(async () => {
   if (upgrade.blocked) return
 
   const mainWindow = windowManager.createMainWindow()
+  windowManager.registerBossKey()
   mainWindow.webContents.once('did-finish-load', () => {
     setImmediate(() => {
       void initSkillRegistry().catch((error) => {
