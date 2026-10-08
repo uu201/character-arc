@@ -487,6 +487,38 @@ function handleChapterDragLeave(chapterId: string, event: DragEvent): void {
   }
 }
 
+function moveChapterWithVolumeCheck(
+  chapterId: string,
+  targetVolumeId: string,
+  move: () => void
+): void {
+  const chapter = appStore.chapters.find((item) => item.id === chapterId)
+  if (!chapter || !targetVolumeId || chapter.volumeId === targetVolumeId) {
+    move()
+    return
+  }
+
+  const linkedOutline = chapter.outlineItemId
+    ? appStore.outlineItems.find((item) => item.id === chapter.outlineItemId)
+    : undefined
+  const targetVolume = appStore.outlineVolumes.find((volume) => volume.id === targetVolumeId)
+  const outlineMessage = linkedOutline
+    ? `关联大纲节点“${linkedOutline.title}”也会同步迁移到${targetVolume?.title || '目标分卷'}。`
+    : '这章没有绑定大纲节点，只会移动章节本身。'
+
+  dialog.warning({
+    title: '跨分卷移动章节',
+    content: `确定将《${chapter.title}》移动到${targetVolume?.title || '目标分卷'}吗？${outlineMessage}`,
+    positiveText: '确认移动',
+    negativeText: '取消',
+    autoFocus: false,
+    onPositiveClick: () => {
+      move()
+      message.success(linkedOutline ? '章节及关联大纲节点已同步迁移' : '章节已移动')
+    }
+  })
+}
+
 function handleChapterDrop(chapterId: string, event: DragEvent): void {
   event.preventDefault()
   const draggedChapterId = readDraggedChapterId(event)
@@ -499,7 +531,12 @@ function handleChapterDrop(chapterId: string, event: DragEvent): void {
   const position = dragTargetChapterId.value === chapterId && dragTargetPosition.value
     ? dragTargetPosition.value
     : resolveDropPosition(event)
-  appStore.moveChapter(draggedChapterId, chapterId, position)
+  const targetChapter = appStore.chapters.find((chapter) => chapter.id === chapterId)
+  moveChapterWithVolumeCheck(
+    draggedChapterId,
+    targetChapter?.volumeId || '',
+    () => appStore.moveChapter(draggedChapterId, chapterId, position)
+  )
   resetChapterDragState()
 }
 
@@ -574,7 +611,11 @@ function handleDropOnVolume(volumeId: string, event: DragEvent): void {
     return
   }
 
-  appStore.moveChaptersToVolumeEnd([draggedChapterId], volumeId)
+  moveChapterWithVolumeCheck(
+    draggedChapterId,
+    volumeId,
+    () => appStore.moveChaptersToVolumeEnd([draggedChapterId], volumeId)
+  )
   resetChapterDragState()
 }
 

@@ -100,6 +100,19 @@ async function submit(): Promise<void> {
   if (!form.wordTarget.trim()) {
     form.wordTarget = DEFAULT_CHAPTER_WORD_TARGET
   }
+  const movingAcrossVolumes = props.chapter.volumeId !== form.volumeId
+  const linkedOutline = props.chapter.outlineItemId
+    ? appStore.outlineItems.find((item) => item.id === props.chapter?.outlineItemId)
+    : undefined
+  if (movingAcrossVolumes) {
+    const targetVolume = appStore.outlineVolumes.find((volume) => volume.id === form.volumeId)
+    const detail = linkedOutline
+      ? `关联大纲节点“${linkedOutline.title}”也会同步迁移到${targetVolume?.title || '目标分卷'}。`
+      : '这章没有绑定大纲节点，只会移动章节本身。'
+    if (!window.confirm(`确定将《${props.chapter.title}》移动到${targetVolume?.title || '目标分卷'}吗？\n\n${detail}`)) {
+      return
+    }
+  }
   isSubmitting.value = true
   try {
     const chapterId = props.chapter.id

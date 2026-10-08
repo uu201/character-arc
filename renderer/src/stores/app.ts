@@ -173,6 +173,32 @@ function reindexOutlineItems(items: OutlineItem[]): OutlineItem[] {
   }))
 }
 
+/** 按章节顺序同步同卷内已绑定的大纲节点，未绑定节点保持原位置。 */
+function syncLinkedOutlineOrder(outlineItems: OutlineItem[], chapters: ChapterDraft[]): OutlineItem[] {
+  const chapterIndexByOutlineId = new Map<string, number>()
+  chapters.forEach((chapter, index) => {
+    if (chapter.outlineItemId && !chapterIndexByOutlineId.has(chapter.outlineItemId)) {
+      chapterIndexByOutlineId.set(chapter.outlineItemId, index)
+    }
+  })
+
+  const volumeIds = [...new Set(outlineItems.map((item) => item.volumeId))]
+  const result: OutlineItem[] = []
+  for (const volumeId of volumeIds) {
+    const volumeItems = outlineItems.filter((item) => item.volumeId === volumeId)
+    const linked = volumeItems
+      .filter((item) => chapterIndexByOutlineId.has(item.id))
+      .sort((left, right) => (chapterIndexByOutlineId.get(left.id) ?? 0) - (chapterIndexByOutlineId.get(right.id) ?? 0))
+    let linkedIndex = 0
+    result.push(...volumeItems.map((item) =>
+      chapterIndexByOutlineId.has(item.id) ? linked[linkedIndex++] : item
+    ))
+  }
+
+  const ungrouped = outlineItems.filter((item) => !volumeIds.includes(item.volumeId))
+  return reindexOutlineItems([...result, ...ungrouped])
+}
+
 /** 重新编排灵感条目的 sortOrder */
 function reindexInspirationEntries(entries: InspirationEntry[]): InspirationEntry[] {
   return entries.map((entry, index) => ({
@@ -2315,6 +2341,51 @@ export const useAppStore = defineStore('app', () => {
     schedulePersist('fast')
   }
 
+  /** 一次性提交大纲编排窗口中的卷顺序、节点顺序和节点归属。 */
+  function applyOutlineArrangement(volumeIds: string[], itemIdsByVolume: Record<string, string[]>): void {
+    updateCurrentWorkspace((workspace) => {
+      const volumeMap = new Map(workspace.outlineVolumes.map((volume) => [volume.id, volume]))
+      const itemMap = new Map(workspace.outlineItems.map((item) => [item.id, item]))
+      const nextVolumes = volumeIds
+        .map((id) => volumeMap.get(id))
+        .filter((volume): volume is OutlineVolume => Boolean(volume))
+      const assigned = new Set<string>()
+      const nextItems: OutlineItem[] = []
+
+      for (const volumeId of volumeIds) {
+        for (const itemId of itemIdsByVolume[volumeId] ?? []) {
+          const item = itemMap.get(itemId)
+          if (!item || assigned.has(itemId)) continue
+          assigned.add(itemId)
+          nextItems.push({ ...item, volumeId })
+        }
+      }
+      for (const item of workspace.outlineItems) {
+        if (!assigned.has(item.id)) nextItems.push(item)
+      }
+
+      const nextVolumeIds = nextVolumes.map((volume) => volume.id)
+      const nextVolumeByOutlineId = new Map(nextItems.map((item) => [item.id, item.volumeId]))
+      const nextChapters = sortByVolumeOrder(
+        workspace.chapters.map((chapter) => {
+          const nextVolumeId = chapter.outlineItemId
+            ? nextVolumeByOutlineId.get(chapter.outlineItemId)
+            : undefined
+          return nextVolumeId ? { ...chapter, volumeId: nextVolumeId } : chapter
+        }),
+        nextVolumeIds
+      )
+
+      return {
+        ...workspace,
+        outlineVolumes: nextVolumes.length === workspace.outlineVolumes.length ? nextVolumes : workspace.outlineVolumes,
+        outlineItems: reindexOutlineItems(nextItems),
+        chapters: nextChapters
+      }
+    })
+    schedulePersist('fast')
+  }
+
   function deleteOutlineVolume(volumeId: string): void {
     const volumeIndex = outlineVolumes.value.findIndex((volume) => volume.id === volumeId)
     if (volumeIndex === -1 || outlineVolumes.value.length <= 1) {
@@ -2481,6 +2552,7 @@ export const useAppStore = defineStore('app', () => {
     position: OutlineDropPosition = 'before'
   ): void {
     let orderRequest: SaveChapterOrderRequest | null = null
+    let outlineBindingChanged = false
     updateCurrentWorkspace((workspace) => {
       const reordered = moveOutlineItemsAroundTarget(
         workspace.chapters,
@@ -2493,20 +2565,40 @@ export const useAppStore = defineStore('app', () => {
       }
       const ordered = assignSparseChapterOrder(reordered, [chapterId])
       orderRequest = buildChapterOrderRequest(selectedProjectId.value, ordered.chapters)
+      const movedChapter = ordered.items.find((chapter) => chapter.id === chapterId)
+      const previousChapter = workspace.chapters.find((chapter) => chapter.id === chapterId)
+      const linkedOutlineId = movedChapter?.outlineItemId || previousChapter?.outlineItemId
+      const outlineBinding = linkedOutlineId
+        ? workspace.outlineItems.find((item) => item.id === linkedOutlineId)
+        : undefined
+      if (movedChapter && outlineBinding) {
+        outlineBindingChanged = true
+      }
 
       return {
         ...workspace,
-        chapters: ordered.items
+        chapters: ordered.items,
+        outlineItems: outlineBindingChanged
+          ? syncLinkedOutlineOrder(reindexOutlineItems(workspace.outlineItems.map((item) =>
+              item.id === linkedOutlineId && movedChapter
+                ? { ...item, volumeId: movedChapter.volumeId }
+                : item
+            )), ordered.items)
+          : workspace.outlineItems
       }
     }, { syncWorkspace: false })
     if (orderRequest) {
       void persistChapterOrder(orderRequest)
+    }
+    if (outlineBindingChanged) {
+      schedulePersist('fast')
     }
   }
 
   /** 将章节拖到指定分卷末尾 */
   function moveChaptersToVolumeEnd(chapterIds: string[], volumeId: string): void {
     let orderRequest: SaveChapterOrderRequest | null = null
+    let outlineBindingChanged = false
     updateCurrentWorkspace((workspace) => {
       const reordered = reorderOutlineItemsToVolumeEnd(
         workspace.chapters,
@@ -2519,14 +2611,29 @@ export const useAppStore = defineStore('app', () => {
       }
       const ordered = assignSparseChapterOrder(reordered, chapterIds)
       orderRequest = buildChapterOrderRequest(selectedProjectId.value, ordered.chapters)
+      const movedIds = new Set(chapterIds)
+      const movedOutlineIds = new Set(
+        workspace.chapters
+          .filter((chapter) => movedIds.has(chapter.id) && chapter.outlineItemId)
+          .map((chapter) => chapter.outlineItemId)
+      )
+      outlineBindingChanged = movedOutlineIds.size > 0
 
       return {
         ...workspace,
-        chapters: ordered.items
+        chapters: ordered.items,
+        outlineItems: outlineBindingChanged
+          ? syncLinkedOutlineOrder(reindexOutlineItems(workspace.outlineItems.map((item) =>
+              movedOutlineIds.has(item.id) ? { ...item, volumeId } : item
+            )), ordered.items)
+          : workspace.outlineItems
       }
     }, { syncWorkspace: false })
     if (orderRequest) {
       void persistChapterOrder(orderRequest)
+    }
+    if (outlineBindingChanged) {
+      schedulePersist('fast')
     }
   }
 
@@ -3902,6 +4009,7 @@ export const useAppStore = defineStore('app', () => {
     moveOutlineItems,
     moveOutlineItemsToVolumeEnd,
     moveOutlineVolume,
+    applyOutlineArrangement,
     openChapterStudio,
     openDeconstructionLibrary,
     openFanqieTrends,

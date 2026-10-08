@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, nextTick, reactive, ref, watch } from 'vue'
-import { CheckSquare, ChevronDown, ChevronsDownUp, Download, FileDown, FileSpreadsheet, FilePlus2, Files, FolderTree, GripVertical, ListChecks, MoreVertical, Plus, Rows3, Sparkles, Trash2, Upload } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, CheckSquare, ChevronDown, ChevronsDownUp, Download, FileDown, FileSpreadsheet, FilePlus2, Files, FolderTree, GripVertical, ListChecks, MoreVertical, Plus, Rows3, Sparkles, Trash2, Upload } from 'lucide-vue-next'
 import { NButton, NCheckbox, NDropdown, NForm, NFormItem, NInput, NModal, NSelect, useDialog, useMessage } from 'naive-ui'
 import { useEventListener } from '@vueuse/core'
 import { getChapterCharacterCount } from '@/features/chapters/editorContent'
@@ -57,7 +57,125 @@ const focusedOutlineId = ref<string>('')
 // 多选状态
 const selectedOutlineIds = ref<Set<string>>(new Set())
 const isMultiSelectMode = computed(() => selectedOutlineIds.value.size > 1)
-const isSelectionModeActive = ref(false) // 选择模式开关
+const isSelectionModeActive = ref(false) // 保留页面内多选快捷操作
+const arrangementVisible = ref(false)
+const arrangementVolumes = ref<OutlineVolume[]>([])
+const arrangementItemsByVolume = ref<Record<string, string[]>>({})
+const arrangementDragging = ref<{ kind: 'volume' | 'item'; id: string; volumeId?: string } | null>(null)
+
+const arrangementGroups = computed(() => arrangementVolumes.value.map((volume) => ({
+  volume,
+  items: (arrangementItemsByVolume.value[volume.id] ?? [])
+    .map((id) => appStore.outlineItems.find((item) => item.id === id))
+    .filter((item): item is OutlineItem => Boolean(item))
+})))
+
+function openArrangement(): void {
+  arrangementVolumes.value = appStore.outlineVolumes.map((volume) => ({ ...volume }))
+  const itemMap: Record<string, string[]> = {}
+  for (const volume of arrangementVolumes.value) {
+    itemMap[volume.id] = appStore.outlineItems
+      .filter((item) => item.volumeId === volume.id)
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+      .map((item) => item.id)
+  }
+  arrangementItemsByVolume.value = itemMap
+  arrangementVisible.value = true
+}
+
+function closeArrangement(): void {
+  arrangementVisible.value = false
+  arrangementDragging.value = null
+}
+
+function moveArrangementVolume(volumeId: string, offset: -1 | 1): void {
+  const index = arrangementVolumes.value.findIndex((volume) => volume.id === volumeId)
+  const target = index + offset
+  if (index < 0 || target < 0 || target >= arrangementVolumes.value.length) return
+  const next = [...arrangementVolumes.value]
+  const [moved] = next.splice(index, 1)
+  next.splice(target, 0, moved)
+  arrangementVolumes.value = next
+}
+
+function moveArrangementItem(volumeId: string, itemId: string, offset: -1 | 1): void {
+  const ids = [...(arrangementItemsByVolume.value[volumeId] ?? [])]
+  const index = ids.indexOf(itemId)
+  const target = index + offset
+  if (index < 0 || target < 0 || target >= ids.length) return
+  ids.splice(target, 0, ids.splice(index, 1)[0])
+  arrangementItemsByVolume.value = { ...arrangementItemsByVolume.value, [volumeId]: ids }
+}
+
+function handleArrangementDragStart(kind: 'volume' | 'item', id: string, volumeId?: string): void {
+  arrangementDragging.value = { kind, id, volumeId }
+}
+
+function handleArrangementDrop(kind: 'volume' | 'item', targetId: string, targetVolumeId?: string): void {
+  const source = arrangementDragging.value
+  arrangementDragging.value = null
+  if (!source || source.kind !== kind || source.id === targetId) return
+  if (kind === 'volume') {
+    const from = arrangementVolumes.value.findIndex((volume) => volume.id === source.id)
+    const to = arrangementVolumes.value.findIndex((volume) => volume.id === targetId)
+    if (from < 0 || to < 0) return
+    const next = [...arrangementVolumes.value]
+    next.splice(to, 0, next.splice(from, 1)[0])
+    arrangementVolumes.value = next
+    return
+  }
+  if (!source.volumeId || !targetVolumeId) return
+  const sourceIds = [...(arrangementItemsByVolume.value[source.volumeId] ?? [])]
+  const sourceIndex = sourceIds.indexOf(source.id)
+  if (sourceIndex < 0) return
+  sourceIds.splice(sourceIndex, 1)
+  const targetIds = source.volumeId === targetVolumeId
+    ? sourceIds
+    : [...(arrangementItemsByVolume.value[targetVolumeId] ?? [])]
+  const targetIndex = targetIds.indexOf(targetId)
+  targetIds.splice(targetIndex < 0 ? targetIds.length : targetIndex, 0, source.id)
+  arrangementItemsByVolume.value = {
+    ...arrangementItemsByVolume.value,
+    [source.volumeId]: sourceIds,
+    [targetVolumeId]: targetIds
+  }
+}
+
+function handleArrangementVolumeDrop(volumeId: string): void {
+  const source = arrangementDragging.value
+  if (!source) return
+  if (source.kind === 'volume') {
+    handleArrangementDrop('volume', volumeId)
+    return
+  }
+  const sourceVolumeId = source.volumeId
+  if (!sourceVolumeId || sourceVolumeId === volumeId) {
+    arrangementDragging.value = null
+    return
+  }
+  const sourceIds = [...(arrangementItemsByVolume.value[sourceVolumeId] ?? [])]
+  const sourceIndex = sourceIds.indexOf(source.id)
+  if (sourceIndex < 0) {
+    arrangementDragging.value = null
+    return
+  }
+  sourceIds.splice(sourceIndex, 1)
+  arrangementItemsByVolume.value = {
+    ...arrangementItemsByVolume.value,
+    [sourceVolumeId]: sourceIds,
+    [volumeId]: [...(arrangementItemsByVolume.value[volumeId] ?? []), source.id]
+  }
+  arrangementDragging.value = null
+}
+
+function saveArrangement(): void {
+  const itemIdsByVolume = Object.fromEntries(
+    arrangementVolumes.value.map((volume) => [volume.id, arrangementItemsByVolume.value[volume.id] ?? []])
+  )
+  appStore.applyOutlineArrangement(arrangementVolumes.value.map((volume) => volume.id), itemIdsByVolume)
+  arrangementVisible.value = false
+  message.success('大纲顺序已保存')
+}
 // 大纲节点编辑表单
 const form = reactive({
   volumeId: '',
@@ -261,7 +379,7 @@ useEventListener('keydown', (e: KeyboardEvent) => {
   }
 })
 
-// 切换选择模式
+// 切换节点调整顺序模式
 function toggleSelectionMode(): void {
   isSelectionModeActive.value = !isSelectionModeActive.value
   if (!isSelectionModeActive.value) {
@@ -1894,13 +2012,17 @@ watch(
           <Files :size="16" />
           <span>一键生成章节{{ unboundOutlineItems.length ? ` (${unboundOutlineItems.length})` : '' }}</span>
         </button>
+        <button class="soft-button neutral" @click="openArrangement">
+          <Rows3 :size="16" />
+          <span>调整顺序</span>
+        </button>
         <button
           class="soft-button neutral"
           :class="{ active: isSelectionModeActive }"
           @click="toggleSelectionMode"
         >
           <CheckSquare :size="16" />
-          <span>{{ isSelectionModeActive ? '✓ 选择模式' : '选择模式' }}</span>
+          <span>{{ isSelectionModeActive ? '✓ 批量选择' : '批量选择' }}</span>
         </button>
         <button class="soft-button" @click="openVolumeEditor()">
           <Rows3 :size="16" />
@@ -1915,7 +2037,7 @@ watch(
 
     <!-- 快捷键提示 -->
     <div v-if="isSelectionModeActive && selectedOutlineIds.size === 0" class="selection-hint">
-      💡 提示：点击节点进行选择，按住 Ctrl 多选，按住 Shift 范围选择，ESC 退出
+      💡 提示：点击节点选择后可批量移动，按住 Ctrl 多选，按住 Shift 范围选择，ESC 退出
     </div>
 
     <!-- 时间线主体 -->
@@ -2027,6 +2149,77 @@ watch(
     </div>
 
     <div v-else class="arc-empty-state">没有匹配"{{ props.searchQuery }}"的大纲节点。</div>
+
+    <n-modal
+      :show="arrangementVisible"
+      preset="card"
+      class="outline-arrangement-modal"
+      title="调整顺序"
+      :bordered="false"
+      :mask-closable="false"
+      @close="closeArrangement"
+    >
+      <div class="arrangement-description">
+        在这里整理卷和大纲节点。所有调整会在点击“保存顺序”后生效。
+      </div>
+      <div class="arrangement-list">
+        <section
+          v-for="(group, volumeIndex) in arrangementGroups"
+          :key="group.volume.id"
+          class="arrangement-volume"
+          :class="{ dragging: arrangementDragging?.kind === 'volume' && arrangementDragging.id === group.volume.id }"
+          @dragover.prevent
+          @drop="handleArrangementVolumeDrop(group.volume.id)"
+        >
+          <header class="arrangement-volume-header">
+            <span
+              class="arrangement-drag-handle"
+              draggable="true"
+              title="拖动分卷"
+              @dragstart="handleArrangementDragStart('volume', group.volume.id)"
+            ><GripVertical :size="15" /></span>
+            <strong>{{ formatVolumeLabel(group.volume, volumeIndex, 'formal') }}</strong>
+            <span class="arrangement-count">{{ group.items.length }} 个节点</span>
+            <span class="arrangement-spacer" />
+            <n-button quaternary circle size="small" :disabled="volumeIndex === 0" title="分卷上移" @click="moveArrangementVolume(group.volume.id, -1)">
+              <template #icon><ArrowUp :size="15" /></template>
+            </n-button>
+            <n-button quaternary circle size="small" :disabled="volumeIndex === arrangementGroups.length - 1" title="分卷下移" @click="moveArrangementVolume(group.volume.id, 1)">
+              <template #icon><ArrowDown :size="15" /></template>
+            </n-button>
+          </header>
+          <div class="arrangement-items">
+            <div
+              v-for="(item, itemIndex) in group.items"
+              :key="item.id"
+              class="arrangement-item"
+              :class="{ dragging: arrangementDragging?.kind === 'item' && arrangementDragging.id === item.id }"
+              draggable="true"
+              @dragstart="handleArrangementDragStart('item', item.id, group.volume.id)"
+              @dragover.prevent
+              @drop.stop="handleArrangementDrop('item', item.id, group.volume.id)"
+            >
+              <span class="arrangement-drag-handle" title="拖动节点"><GripVertical :size="14" /></span>
+              <span class="arrangement-item-title">{{ item.title }}</span>
+              <span class="arrangement-spacer" />
+              <n-button quaternary circle size="tiny" :disabled="itemIndex === 0" title="节点上移" @click="moveArrangementItem(group.volume.id, item.id, -1)">
+                <template #icon><ArrowUp :size="13" /></template>
+              </n-button>
+              <n-button quaternary circle size="tiny" :disabled="itemIndex === group.items.length - 1" title="节点下移" @click="moveArrangementItem(group.volume.id, item.id, 1)">
+                <template #icon><ArrowDown :size="13" /></template>
+              </n-button>
+            </div>
+            <div v-if="group.items.length === 0" class="arrangement-empty">拖动节点到此卷</div>
+          </div>
+        </section>
+      </div>
+      <template #footer>
+        <div class="arrangement-footer">
+          <n-button @click="closeArrangement">取消</n-button>
+          <n-button type="primary" @click="saveArrangement">保存顺序</n-button>
+        </div>
+      </template>
+    </n-modal>
 
     <n-modal
       :show="expansionDialogVisible"
@@ -3321,6 +3514,100 @@ watch(
   color: var(--arc-text-secondary);
   font-size: 13px;
   animation: fadeIn 0.3s ease;
+}
+
+.outline-arrangement-modal {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.arrangement-description {
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  color: var(--arc-text-secondary);
+  background: color-mix(in srgb, var(--arc-info) 7%, var(--arc-bg-surface));
+  border: 1px solid color-mix(in srgb, var(--arc-info) 16%, var(--arc-border));
+  border-radius: var(--arc-radius-md);
+  font-size: 13px;
+}
+
+.arrangement-list {
+  max-height: min(62vh, 620px);
+  overflow: auto;
+  padding: 2px;
+}
+
+.arrangement-volume {
+  border: 1px solid var(--arc-border);
+  border-radius: var(--arc-radius-md);
+  margin-bottom: 10px;
+  background: var(--arc-bg-surface);
+}
+
+.arrangement-volume.dragging,
+.arrangement-item.dragging {
+  opacity: 0.55;
+}
+
+.arrangement-volume-header,
+.arrangement-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.arrangement-volume-header {
+  min-height: 42px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-surface));
+  border-bottom: 1px solid var(--arc-border);
+}
+
+.arrangement-item {
+  min-height: 36px;
+  padding: 0 10px 0 22px;
+  border-bottom: 1px solid color-mix(in srgb, var(--arc-border) 70%, transparent);
+  cursor: grab;
+}
+
+.arrangement-item:last-child {
+  border-bottom: 0;
+}
+
+.arrangement-item:active,
+.arrangement-drag-handle:active {
+  cursor: grabbing;
+}
+
+.arrangement-drag-handle {
+  display: inline-flex;
+  color: var(--arc-text-hint);
+  cursor: grab;
+}
+
+.arrangement-count,
+.arrangement-empty {
+  color: var(--arc-text-hint);
+  font-size: 12px;
+}
+
+.arrangement-empty {
+  padding: 10px 22px;
+}
+
+.arrangement-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arrangement-spacer {
+  flex: 1;
+}
+
+.arrangement-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 @keyframes fadeIn {
