@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { NButton, NInput, useMessage } from 'naive-ui'
 import { BookCopy, ChevronRight, Clock3, FileText, GitMerge, Lightbulb, Network, PenLine, Users } from 'lucide-vue-next'
 import { getChapterPreviewText } from '@/features/chapters/editorContent'
 import { formatProjectEditedAt } from '@/features/projects/lastEdited'
+import { resolveProjectPremise } from '@/features/projects/premise'
 import { resolveNovelLengthLabel } from '@/features/wizard/projectGenres'
 import { useAppStore } from '@/stores/app'
 import type { PanelName } from '@/types/app'
@@ -12,9 +14,42 @@ const props = defineProps<{
 }>()
 
 const appStore = useAppStore()
+const message = useMessage()
 
 const normalizedQuery = computed(() => props.searchQuery?.trim().toLowerCase() ?? '')
 const currentProject = computed(() => appStore.currentProject)
+const projectPremise = computed(() => resolveProjectPremise(currentProject.value, appStore.outlineVolumes) ?? '')
+const isEditingPremise = ref(false)
+const isSavingPremise = ref(false)
+const premiseDraft = ref('')
+
+watch(() => currentProject.value?.id, () => {
+  isEditingPremise.value = false
+  premiseDraft.value = ''
+})
+
+function editPremise(): void {
+  premiseDraft.value = projectPremise.value
+  isEditingPremise.value = true
+}
+
+async function savePremise(): Promise<void> {
+  const projectId = currentProject.value?.id
+  if (!projectId || isSavingPremise.value) return
+
+  isSavingPremise.value = true
+  try {
+    appStore.updateProject(projectId, { premise: premiseDraft.value })
+    await appStore.persistWorkspace()
+    if (appStore.persistenceError) throw new Error(appStore.persistenceError)
+    if (currentProject.value?.id === projectId) isEditingPremise.value = false
+    message.success('小说简介已保存')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '小说简介保存失败，请重试')
+  } finally {
+    isSavingPremise.value = false
+  }
+}
 const projectMeta = computed(() =>
   [currentProject.value?.genre?.trim(), resolveNovelLengthLabel(currentProject.value?.novelLength)]
     .filter(Boolean)
@@ -193,6 +228,41 @@ function openEntry(type: string, title: string): void {
       </button>
     </header>
 
+    <section class="premise-section" aria-labelledby="overview-premise-title">
+      <div class="subsection-head">
+        <h3 id="overview-premise-title">小说简介</h3>
+        <NButton
+          v-if="!isEditingPremise"
+          size="small"
+          quaternary
+          :disabled="!currentProject || isSavingPremise"
+          @click="editPremise"
+        >
+          <template #icon><PenLine :size="14" /></template>
+          {{ projectPremise ? '编辑简介' : '添加简介' }}
+        </NButton>
+      </div>
+      <form v-if="isEditingPremise" class="premise-editor" @submit.prevent="savePremise">
+        <NInput
+          v-model:value="premiseDraft"
+          type="textarea"
+          :autosize="{ minRows: 5, maxRows: 14 }"
+          :disabled="isSavingPremise"
+          placeholder="写下主角、核心冲突与故事目标，作为作品的小说简介。"
+          aria-label="小说简介"
+        />
+        <div class="premise-editor-footer">
+          <span>{{ premiseDraft.length }} 字</span>
+          <div class="premise-editor-actions">
+            <NButton size="small" :disabled="isSavingPremise" @click="isEditingPremise = false">取消</NButton>
+            <NButton size="small" type="primary" attr-type="submit" :loading="isSavingPremise">保存简介</NButton>
+          </div>
+        </div>
+      </form>
+      <p v-else-if="projectPremise" class="premise-content">{{ projectPremise }}</p>
+      <p v-else class="premise-empty">暂无小说简介，点击“添加简介”补充作品介绍。</p>
+    </section>
+
     <div class="current-focus">
       <span>当前章节</span>
       <button type="button" @click="appStore.setPanel('chapters')">
@@ -349,6 +419,42 @@ function openEntry(type: string, title: string): void {
   align-items: center;
   gap: 18px;
   border-bottom: 1px solid var(--arc-border);
+}
+
+.premise-section {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--arc-border);
+}
+
+.premise-content {
+  margin: 0;
+  color: var(--arc-text-secondary);
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.premise-empty {
+  margin: 0;
+  color: var(--arc-text-hint);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.premise-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--arc-text-hint);
+  font-size: 12px;
+}
+
+.premise-editor-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .current-focus > span {

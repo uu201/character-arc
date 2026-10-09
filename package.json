@@ -13,6 +13,7 @@
     "test:chapter-persistence": "set ELECTRON_RUN_AS_NODE=1&& electron --test electron/main/chapter-content-metadata.test.mjs electron/main/workspace-chapter-persistence.test.mjs electron/main/workspace-content-recovery.test.mjs electron/main/workspace-database-rollback.test.mjs electron/main/workspace-full-snapshot.test.mjs electron/main/workspace-upgrade-backup.test.mjs renderer/src/features/workspace/chapterOrder.test.mjs renderer/src/features/workspace/persistence.test.mjs renderer/src/features/chapters/chapterExport.test.mjs",
     "test:workspace-entities": "set ELECTRON_RUN_AS_NODE=1&& electron --test electron/main/workspace-entity-persistence.test.mjs",
     "test:conversation-scroll": "node --test renderer/src/features/assistant/conversationScrollLifecycle.test.mjs",
+    "test:project-premise": "set ELECTRON_RUN_AS_NODE=1&& electron --test renderer/src/features/projects/premise.test.mjs electron/main/archive/project-archive.test.mjs",
     "test:skill-policy": "node --test electron/main/ai/skills/policy.test.mjs electron/main/ai/skills/registry-merge.test.mjs electron/main/ai/skills/selection-priority.test.mjs renderer/src/features/assistant/assistantIpcPayload.test.mjs",
     "test:ranking": "set ELECTRON_RUN_AS_NODE=1&& electron --test electron/main/ai/tasks/ranking-analysis.test.mjs",
     "typecheck": "vue-tsc --noEmit",

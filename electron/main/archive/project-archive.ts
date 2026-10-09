@@ -1022,6 +1022,7 @@ export async function importProjectArchive(options: ImportProjectArchiveOptions)
         ...(modules.has('project')
           ? {
               title: incoming.project.title,
+              premise: incoming.project.premise,
               genre: incoming.project.genre,
               novelLength: incoming.project.novelLength,
               cover: incoming.project.cover,

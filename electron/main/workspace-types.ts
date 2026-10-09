@@ -134,6 +134,8 @@ export type WorkspacePayload = {
   projects: Array<{
     id: string
     title: string
+    /** 作品简介；null / 缺失表示旧项目尚未迁移独立字段 */
+    premise?: string | null
     genre: string
     novelLength: 'short' | 'long'
     wordCount: string
@@ -636,6 +638,7 @@ export function normalizeProjectRecord(
   return {
     id: project.id,
     title: project.title || '未命名作品',
+    premise: typeof project.premise === 'string' ? project.premise.trim() : undefined,
     genre: project.genre || '未分类',
     novelLength: project.novelLength === 'short' ? 'short' : 'long',
     wordCount: project.wordCount || '待统计',

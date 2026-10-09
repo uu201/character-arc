@@ -313,6 +313,8 @@ export interface ProjectSummary {
   id: string
   /** 作品标题 */
   title: string
+  /** 小说简介；旧项目未存独立字段时兼容读取首卷摘要 */
+  premise?: string
   /** 题材分类，如"科幻"、"仙侠" */
   genre: string
   /** 小说长度分类：长篇 / 短篇 */
