@@ -33,11 +33,18 @@ function setup(shortcutAvailable = true, platform = 'win32') {
     isVisible() { return this.visible }
     minimize() { this.minimized = true; this.focused = false }
     restore() { this.minimized = false }
+    hide() { this.visible = false; this.focused = false }
     show() { this.visible = true }
     focus() { this.focused = true }
   }
+  class Tray extends EventEmitter {
+    setToolTip() {}
+    setContextMenu() {}
+    destroy() {}
+  }
   const electron = {
-    app, BrowserWindow,
+    app, BrowserWindow, Tray,
+    Menu: { buildFromTemplate: (template) => ({ template }) },
     nativeTheme: new EventEmitter(),
     screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) },
     shell: {},
@@ -61,13 +68,13 @@ function setup(shortcutAvailable = true, platform = 'win32') {
   return { manager, window, app, shortcuts }
 }
 
-test('boss key minimizes and restores the same window without closing it', () => {
+test('boss key hides and restores the same window without closing it', () => {
   const { manager, window } = setup()
   assert.equal(manager.toggleBossKey().visible, false)
-  assert.equal(window.minimized, true)
+  assert.equal(window.visible, false)
   assert.equal(window.destroyed, false)
   assert.equal(manager.toggleBossKey().visible, true)
-  assert.equal(window.minimized, false)
+  assert.equal(window.visible, true)
   assert.equal(window.focused, true)
 })
 
@@ -80,9 +87,9 @@ test('global shortcut toggles the main window and is released on quit', () => {
   })
   assert.equal(window.minimized, false)
   shortcuts.get('CommandOrControl+Shift+H')()
-  assert.equal(window.minimized, true)
+  assert.equal(window.visible, false)
   shortcuts.get('CommandOrControl+Shift+H')()
-  assert.equal(window.minimized, false)
+  assert.equal(window.visible, true)
   app.emit('will-quit')
   assert.equal(shortcuts.size, 0)
 })
@@ -95,7 +102,7 @@ test('macOS fallback uses Command rather than Control', () => {
   window.webContents.emit('before-input-event', event, input)
   assert.equal(window.minimized, false)
   window.webContents.emit('before-input-event', event, { ...input, control: false, meta: true })
-  assert.equal(window.minimized, true)
+  assert.equal(window.visible, false)
 })
 
 test('shortcut conflict falls back to focused-window input and ignores key repeats', () => {
@@ -106,9 +113,9 @@ test('shortcut conflict falls back to focused-window input and ignores key repea
   const input = { type: 'keyDown', key: 'H', control: true, shift: true, alt: false, isAutoRepeat: false }
   window.webContents.emit('before-input-event', { preventDefault() { prevented = true } }, input)
   assert.equal(prevented, true)
-  assert.equal(window.minimized, true)
+  assert.equal(window.visible, false)
   window.webContents.emit('before-input-event', { preventDefault() {} }, { ...input, isAutoRepeat: true })
-  assert.equal(window.minimized, true)
+  assert.equal(window.visible, false)
 })
 
 test('closed main window reports failure instead of restoring a destroyed window', () => {

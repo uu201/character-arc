@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, nativeTheme, screen, shell } from 'electron'
+import { app, BrowserWindow, globalShortcut, Menu, nativeTheme, screen, shell, Tray } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -17,6 +17,7 @@ const BOSS_KEY_ACCELERATOR = 'CommandOrControl+Shift+H'
 export function createWindowManager() {
   let mainWindow: BrowserWindow | null = null
   let bossKeyRegistered = false
+  let tray: Tray | null = null
 
   function registerBossKey(): void {
     if (bossKeyRegistered) return
@@ -28,6 +29,8 @@ export function createWindowManager() {
 
   app.on('will-quit', () => {
     if (bossKeyRegistered) globalShortcut.unregister(BOSS_KEY_ACCELERATOR)
+    tray?.destroy()
+    tray = null
   })
 
   function getMainWindowMetrics() {
@@ -61,6 +64,22 @@ export function createWindowManager() {
     return undefined
   }
 
+  function resolveTrayIconPath(): string | undefined {
+    const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+    const candidates = [
+      join(process.resourcesPath, iconName),
+      join(process.resourcesPath, 'resources', iconName),
+      join(process.cwd(), 'resources', iconName)
+    ]
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        return candidate
+      }
+    }
+
+    return resolveWindowIconPath()
+  }
+
   function loadRendererWindow(window: BrowserWindow): void {
     if (process.env.ELECTRON_RENDERER_URL) {
       void window.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -81,6 +100,40 @@ export function createWindowManager() {
     }
 
     window.webContents.send(channel, payload)
+  }
+
+  function showMainWindow(): void {
+    const window = mainWindow
+    if (!window || window.isDestroyed()) return
+
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+  }
+
+  function initializeTray(): void {
+    if (tray || process.platform === 'darwin') return
+
+    const iconPath = resolveTrayIconPath()
+    if (!iconPath) {
+      console.warn('[window] tray icon unavailable; system tray integration disabled')
+      return
+    }
+
+    tray = new Tray(iconPath)
+    tray.setToolTip('弧光')
+    tray.setContextMenu(Menu.buildFromTemplate([
+      {
+        label: '显示弧光',
+        click: () => showMainWindow()
+      },
+      { type: 'separator' },
+      {
+        label: '退出弧光',
+        click: () => app.quit()
+      }
+    ]))
+    tray.on('click', () => showMainWindow())
   }
 
   function broadcastWindowEvent(channel: string, payload: unknown, exceptWebContentsId?: number): void {
@@ -128,6 +181,8 @@ export function createWindowManager() {
       window.show()
     })
 
+    initializeTray()
+
     window.webContents.setWindowOpenHandler(({ url }) => {
       void shell.openExternal(url)
       return { action: 'deny' }
@@ -162,13 +217,11 @@ export function createWindowManager() {
     if (!window || window.isDestroyed()) return { success: false, error: '主窗口不可用' }
 
     if (window.isMinimized() || !window.isVisible()) {
-      if (window.isMinimized()) window.restore()
-      window.show()
-      window.focus()
+      showMainWindow()
       return { success: true, visible: true }
     }
 
-    window.minimize()
+    window.hide()
     return { success: true, visible: false }
   }
 
