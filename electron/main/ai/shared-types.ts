@@ -8,6 +8,7 @@ import type { SpiralSeedResult, SpiralExpandResult, SpiralValidateResult } from 
 /** AI 供应商标识。支持预设值或自定义字符串。 */
 export type ProviderName =
   | 'openai'
+  | 'atlascloud'
   | 'deepseek'
   | 'anthropic'
   | 'ollama'
