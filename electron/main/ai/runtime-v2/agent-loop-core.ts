@@ -34,6 +34,7 @@ import type { RunAgentParams, RunAgentResult } from '../agent/run-agent'
 import type { ConversationManager } from './conversation-manager'
 import type { StagedChangesStore } from './staged-changes-store'
 import { formatUnknownError } from '../error-message'
+import { claimsStagedChanges, STAGING_RECOVERY_INSTRUCTION } from './staging-outcome'
 
 export interface AgentLoopRunOptions {
   session: AssistantSession
@@ -274,13 +275,25 @@ export class AgentLoopCore {
     const unsubscribe = this.subscribeStaged(sessionId, turnId, options.signal)
 
     // 工厂形态在此展开为具体 tools，让 stage_* 闭包捕获 turnId/sessionId。
-    const tools: Tool[] = typeof options.tools === 'function'
+    const availableTools: Tool[] = typeof options.tools === 'function'
       ? options.tools({
           turnId,
           sessionId,
           projectId: options.session.projectId
         })
       : options.tools
+
+    // 补生成沿用本轮工具和权限，并携带实际工具结果，避免丢失刚读到的目标信息。
+    const observations: string[] = []
+    const tools = availableTools.map((tool): Tool => ({
+      ...tool,
+      handler: async (args, ctx) => {
+        const result = await tool.handler(args, ctx)
+        observations.push(JSON.stringify({ tool: tool.definition.name, args, ...result }).slice(0, 12000))
+        if (observations.length > 20) observations.shift()
+        return result
+      }
+    }))
 
     let finalText = ''
     let usage: AiRunUsage | undefined
@@ -293,7 +306,7 @@ export class AgentLoopCore {
 
     try {
       if (options.signal.aborted) throw new Error('aborted')
-      const result = await this.runAgentImpl({
+      const params: RunAgentParams = {
         settings: options.settings,
         systemPrompt: options.systemPrompt,
         userPrompt: formatTurnPromptWithDocuments(options.turnInput.userMessage, fileAttachments),
@@ -306,13 +319,48 @@ export class AgentLoopCore {
         handlers: stream.handlers,
         maxTokens: options.maxOutputTokens,
         maxSteps: options.maxSteps ?? options.surface.maxSteps
-      })
+      }
+      let result = await this.runAgentImpl(params)
       if (options.signal.aborted) throw new Error('aborted')
       finalText = result.finalText
       usage = result.usage
       agentIterations = result.iterations
       if (toolCalls.length === 0 && result.toolCalls.length > 0) {
         toolCalls.push(...result.toolCalls)
+      }
+
+      // 不凭模型文字判断暂存成功。没有本轮记录且声称已暂存时，最多自动补生成一次。
+      // 已拒绝/已写回的记录也算实际产出，避免用户处理后被自动重新创建。
+      if (this.staged.list({ turnId }, sessionId).length === 0
+        && claimsStagedChanges(finalText)) {
+        if (!tools.some((tool) => tool.definition.name.startsWith('stage_'))) {
+          throw new Error('当前场景没有可用的暂存工具，本轮没有实际生成暂存变更。')
+        }
+        stream.handlers.onAgentStatus('未检测到实际暂存内容，正在自动补生成…', 1, params.maxSteps ?? 8)
+        const notice = '\n\n【暂存核验】刚才的回复没有对应暂存记录，正在自动补生成。\n\n'
+        stream.handlers.onTextDelta(notice)
+        const traceCount = toolCalls.length
+        const recovery = await this.runAgentImpl({
+          ...params,
+          systemPrompt: `${params.systemPrompt}\n\n${STAGING_RECOVERY_INSTRUCTION}`,
+          userPrompt: `${params.userPrompt}\n\n【上一轮答复（尚未实际暂存）】\n${finalText}\n\n【本轮实际工具结果（可能截断，可重新读取）】\n${observations.join('\n').slice(-24000)}\n\n${STAGING_RECOVERY_INSTRUCTION}`
+        })
+        if (options.signal.aborted) throw new Error('aborted')
+        finalText += notice + recovery.finalText
+        agentIterations += recovery.iterations
+        if (toolCalls.length === traceCount) toolCalls.push(...recovery.toolCalls)
+        if (recovery.usage) {
+          const total = { ...usage }
+          for (const key of Object.keys(recovery.usage) as Array<keyof AiRunUsage>) {
+            if (recovery.usage[key] !== undefined) total[key] = (total[key] ?? 0) + recovery.usage[key]!
+          }
+          usage = total
+        }
+        result = recovery
+        if (!recovery.finalText.trim()) throw new Error('自动补生成未返回可见回复，请检查暂存列表后重试。')
+        if (this.staged.list({ turnId }, sessionId).length === 0 && claimsStagedChanges(recovery.finalText)) {
+          throw new Error('本轮未生成任何暂存变更。自动补生成后模型仍声称已暂存，但系统未找到实际记录，请重试；本轮没有内容可供写回。')
+        }
       }
       // 若模型未产出任何可见文本，拒绝静默 done——转成 error 并附带诊断信息，
       // 便于定位到 provider/model 层的兼容问题（如中转站不吐流式正文、

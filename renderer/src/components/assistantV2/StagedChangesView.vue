@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NButton } from 'naive-ui'
 import { AlertTriangle, RotateCcw } from 'lucide-vue-next'
 import type { StagedChange, StagedChangeCommitResult } from '@shared/assistant-runtime'
+import { visibleStagedChanges, type StagedChangeFilter } from '@/features/assistant/stagedChangeList'
 
 const props = defineProps<{
   changes: StagedChange[]
@@ -19,21 +20,10 @@ const emit = defineEmits<{
   (e: 'request-detail', changeId: string): void
 }>()
 
-const activeFilter = ref<'all' | 'chapter' | 'setting' | 'pending'>('all')
+const activeFilter = ref<StagedChangeFilter>('all')
 
-const filtered = computed(() => {
-  const list = props.changes.filter((c) => c.status !== 'committed')
-  switch (activeFilter.value) {
-    case 'chapter':
-      return list.filter((c) => c.kind === 'chapter')
-    case 'setting':
-      return list.filter((c) => c.kind !== 'chapter')
-    case 'pending':
-      return list.filter((c) => c.status === 'pending' || c.status === 'streaming')
-    default:
-      return list
-  }
-})
+const filtered = computed(() => visibleStagedChanges(props.changes, activeFilter.value))
+const deletedCount = computed(() => props.changes.filter((c) => c.status === 'rejected').length)
 
 const pendingCount = computed(() =>
   props.changes.filter((c) => c.status === 'pending').length
@@ -53,8 +43,11 @@ const visiblePendingIds = computed(() =>
 const expandedIds = ref<Set<string>>(new Set())
 const reviewingId = ref<string | null>(null)
 const reviewingChange = computed(() =>
-  props.changes.find((c) => c.id === reviewingId.value) ?? null
+  filtered.value.find((c) => c.id === reviewingId.value) ?? null
 )
+watch(reviewingChange, (change) => {
+  if (!change) reviewingId.value = null
+})
 function toggleExpand(id: string): void {
   const next = new Set(expandedIds.value)
   if (next.has(id)) next.delete(id)
@@ -91,7 +84,7 @@ function statusLabel(status: string): string {
     case 'streaming': return '生成中'
     case 'pending': return '待审阅'
     case 'accepted': return '已确认'
-    case 'rejected': return '已忽略'
+    case 'rejected': return '已删除'
     case 'committed': return '已写回'
     case 'stale': return '需重解析'
     default: return status
@@ -292,17 +285,18 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
         <NButton
           size="small"
           :type="reviewingChange.status === 'accepted' ? 'primary' : 'default'"
-          :disabled="reviewingChange.status === 'committed'"
+          :disabled="props.isBusy || props.isCommitting || reviewingChange.status === 'streaming' || reviewingChange.status === 'committed'"
           @click="emit('accept', [reviewingChange.id])"
         >
           {{ reviewingChange.status === 'accepted' ? '已确认' : reviewingChange.status === 'rejected' ? '恢复这项' : '确认这项' }}
         </NButton>
         <NButton
           size="small"
-          :disabled="reviewingChange.status === 'rejected' || reviewingChange.status === 'committed'"
+          :disabled="props.isBusy || props.isCommitting || reviewingChange.status === 'streaming' || reviewingChange.status === 'rejected' || reviewingChange.status === 'committed'"
+          title="移除暂存提案，不删除项目内容；可在已删除列表中恢复"
           @click="emit('reject', [reviewingChange.id])"
         >
-          忽略这项
+          删除暂存
         </NButton>
         <NButton size="small" quaternary @click="reviewNext">
           下一项
@@ -329,13 +323,14 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
         <button :class="{ active: activeFilter === 'chapter' }" @click="activeFilter = 'chapter'">章节</button>
         <button :class="{ active: activeFilter === 'setting' }" @click="activeFilter = 'setting'">设定</button>
         <button :class="{ active: activeFilter === 'pending' }" @click="activeFilter = 'pending'">待审阅</button>
+        <button v-if="deletedCount > 0 || activeFilter === 'deleted'" :class="{ active: activeFilter === 'deleted' }" @click="activeFilter = 'deleted'">已删除 {{ deletedCount }}</button>
       </div>
     </div>
 
     <div class="list">
       <div v-if="filtered.length === 0" class="empty">
-        <div class="empty-title">暂无变更</div>
-        <div class="empty-hint">让 AI 帮你改点什么，暂存的变更会显示在这里。</div>
+        <div class="empty-title">{{ activeFilter === 'deleted' ? '暂无已删除的暂存项' : '暂无待处理变更' }}</div>
+        <div class="empty-hint">{{ activeFilter === 'deleted' ? '删除的暂存提案会收纳在这里，需要时可以恢复。' : '新生成的暂存变更会显示在最上方。' }}</div>
       </div>
 
       <div
@@ -414,17 +409,18 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
           <NButton
             size="tiny"
             :type="c.status === 'accepted' ? 'primary' : 'default'"
-            :disabled="c.status === 'committed'"
+            :disabled="props.isBusy || props.isCommitting || c.status === 'streaming' || c.status === 'committed'"
             @click="emit('accept', [c.id])"
           >
             {{ c.status === 'accepted' ? '✓ 已确认' : c.status === 'rejected' ? '恢复' : '确认' }}
           </NButton>
           <NButton
             size="tiny"
-            :disabled="c.status === 'rejected' || c.status === 'committed'"
+            :disabled="props.isBusy || props.isCommitting || c.status === 'streaming' || c.status === 'rejected' || c.status === 'committed'"
+            title="移除暂存提案，不删除项目内容；可在已删除列表中恢复"
             @click="emit('reject', [c.id])"
           >
-            忽略
+            {{ c.status === 'rejected' ? '已删除' : '删除暂存' }}
           </NButton>
           <NButton size="tiny" quaternary @click="toggleExpand(c.id)">
             {{ expandedIds.has(c.id) ? '收起' : '展开全文' }}
@@ -440,17 +436,17 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
       <div class="foot-actions">
         <NButton
           size="small"
-          :disabled="visiblePendingIds.length === 0 || props.isBusy"
+          :disabled="visiblePendingIds.length === 0 || props.isBusy || props.isCommitting"
           @click="emit('accept', visiblePendingIds)"
         >
           全部确认
         </NButton>
         <NButton
           size="small"
-          :disabled="visiblePendingIds.length === 0 || props.isBusy"
+          :disabled="visiblePendingIds.length === 0 || props.isBusy || props.isCommitting"
           @click="emit('reject', visiblePendingIds)"
         >
-          全部忽略
+          删除待审阅项
         </NButton>
       </div>
       <NButton
@@ -739,6 +735,7 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
 }
 .filter {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 3px;
   background: var(--arc-bg-weak);
@@ -747,6 +744,7 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
 }
 .filter button {
   flex: 1;
+  white-space: nowrap;
   background: transparent;
   border: none;
   padding: 5px 8px;

@@ -1,7 +1,22 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import { registerHooks } from 'node:module'
 import test from 'node:test'
 
-import { AgentLoopCore } from './agent-loop-core.ts'
+// 与打包器一致地解析运行时代码中的别名和省略扩展名的导入。
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith('@shared/')) {
+      return nextResolve(new URL(`../../../shared/${specifier.slice(8)}.ts`, import.meta.url).href, context)
+    }
+    if (specifier.startsWith('.') && context.parentURL && !/\.[cm]?[jt]s$/.test(specifier)) {
+      const candidate = new URL(`${specifier}.ts`, context.parentURL)
+      if (existsSync(candidate)) return nextResolve(candidate.href, context)
+    }
+    return nextResolve(specifier, context)
+  }
+})
+const { AgentLoopCore } = await import('./agent-loop-core.ts')
 import { createEvidenceLedger, wrapToolsWithRuntimeBudget } from './evidence-ledger.ts'
 import { createRuntimePlan } from './planner.ts'
 import { StagedChangesStore } from './staged-changes-store.ts'
@@ -121,15 +136,180 @@ function makeOptions(signal) {
 function makeLoop(runAgentImpl) {
   const conversation = makeConversation()
   const pushedEvents = []
+  const staged = new StagedChangesStore()
   const loop = new AgentLoopCore(
     conversation,
-    new StagedChangesStore(),
+    staged,
     (event) => pushedEvents.push(event),
     runAgentImpl,
     () => false
   )
-  return { loop, conversation, pushedEvents }
+  return { loop, conversation, pushedEvents, staged }
 }
+
+function stagedDraft(turnId = 'turn-1') {
+  return {
+    sessionId: 'session-1', turnId, kind: 'worldview', action: 'create',
+    entityTitle: '雨城', reason: '按用户要求录入设定', before: '', after: '终年多雨。'
+  }
+}
+
+function withStageTool(options, staged) {
+  options.tools = [{
+    definition: { name: 'stage_worldview', description: '暂存设定', inputSchema: { type: 'object', properties: {} } },
+    handler: async () => {
+      const change = staged.add(stagedDraft())
+      return { content: `change_id=${change.id}` }
+    }
+  }]
+  return options
+}
+
+test('声称已暂存但无实际记录时，同一轮自动补生成并核验真实暂存', async () => {
+  let calls = 0
+  const { loop, staged, conversation, pushedEvents } = makeLoop(async (params) => {
+    calls++
+    if (calls === 1) return { finalText: '已生成待审阅的世界观变更。', toolCalls: [], iterations: 2, usage: { totalTokens: 20 } }
+    assert.match(params.systemPrompt, /本轮实际没有任何暂存记录/)
+    assert.match(params.userPrompt, /上一轮答复/)
+    await params.tools[0].handler({}, params.ctx)
+    return { finalText: '已暂存雨城设定，供你审阅。', toolCalls: [], iterations: 1, usage: { totalTokens: 10 } }
+  })
+  // 旧轮次的记录不能冒充本轮产出。
+  staged.add(stagedDraft('old-turn'))
+  const result = await loop.run(withStageTool(makeOptions(new AbortController().signal), staged))
+  assert.equal(result.status, 'done')
+  assert.equal(calls, 2)
+  assert.equal(conversation.createdTurns.length, 1)
+  assert.equal(staged.list({ turnId: 'turn-1' }, 'session-1').length, 1)
+  assert.equal(result.usage.totalTokens, 30)
+  assert.equal(result.agentIterations, 3)
+  assert.match(result.finalText, /暂存核验/)
+  assert.ok(pushedEvents.some(({ event }) => event.kind === 'staged_change'))
+})
+
+test('补生成仍虚报成功时最多重试一次，并以错误结束', async () => {
+  let calls = 0
+  const { loop, staged, pushedEvents } = makeLoop(async () => {
+    calls++
+    return { finalText: '已生成暂存变更。', toolCalls: [], iterations: 1 }
+  })
+  const result = await loop.run(withStageTool(makeOptions(new AbortController().signal), staged))
+  assert.equal(calls, 2)
+  assert.equal(result.status, 'error')
+  assert.match(result.error, /未生成任何暂存变更/)
+  assert.equal(pushedEvents.at(-1).event.kind, 'error')
+  assert.ok(!pushedEvents.some(({ event }) => event.kind === 'done'))
+})
+
+test('已经实际产出暂存或用户刚删除的提案不会重复生成', async () => {
+  for (const rejected of [false, true]) {
+    let calls = 0
+    const { loop, staged } = makeLoop(async (params) => {
+      calls++
+      await params.tools[0].handler({}, params.ctx)
+      if (rejected) staged.reject(staged.list({}, 'session-1').map((change) => change.id))
+      return { finalText: '已生成暂存变更。', toolCalls: [], iterations: 1 }
+    })
+    const result = await loop.run(withStageTool(makeOptions(new AbortController().signal), staged))
+    assert.equal(result.status, 'done')
+    assert.equal(calls, 1)
+    assert.equal(staged.list().length, 1)
+  }
+})
+
+test('讨论、待澄清和明确说明未暂存的回复不会触发自动写操作', async () => {
+  for (const finalText of ['建议增强人物的动机，你希望怎么调整？', '我会生成暂存变更，请先明确方向。', '尚未生成暂存变更，目标章节不存在。']) {
+    let calls = 0
+    const { loop, staged } = makeLoop(async () => {
+      calls++
+      return { finalText, toolCalls: [], iterations: 1 }
+    })
+    const result = await loop.run(withStageTool(makeOptions(new AbortController().signal), staged))
+    assert.equal(result.status, 'done')
+    assert.equal(calls, 1)
+    assert.equal(staged.list().length, 0)
+  }
+})
+
+test('补生成可纠正成功声明并如实说明受阻，无需强制生成内容', async () => {
+  let calls = 0
+  const { loop, staged } = makeLoop(async () => ({
+    finalText: ++calls === 1 ? '已生成待审阅的修改。' : '尚未生成暂存内容，找不到目标章节，请指定章节。',
+    toolCalls: [], iterations: 1
+  }))
+  const result = await loop.run(withStageTool(makeOptions(new AbortController().signal), staged))
+  assert.equal(calls, 2)
+  assert.equal(result.status, 'done')
+  assert.match(result.finalText, /尚未生成暂存内容/)
+  assert.equal(staged.list().length, 0)
+})
+
+test('取消自动补生成后不继续重试，也不发送完成事件', async () => {
+  const controller = new AbortController()
+  let calls = 0
+  const { loop, staged, pushedEvents } = makeLoop(async () => {
+    calls++
+    if (calls === 2) controller.abort()
+    return { finalText: '已生成暂存变更。', toolCalls: [], iterations: 1 }
+  })
+  const result = await loop.run(withStageTool(makeOptions(controller.signal), staged))
+  assert.equal(calls, 2)
+  assert.equal(result.status, 'canceled')
+  assert.ok(!pushedEvents.some(({ event }) => event.kind === 'done'))
+})
+
+test('没有暂存工具的场景不会放行虚假的暂存成功声明', async () => {
+  const { loop } = makeLoop(async () => ({ finalText: '已生成暂存变更。', toolCalls: [], iterations: 1 }))
+  const result = await loop.run(makeOptions(new AbortController().signal))
+  assert.equal(result.status, 'error')
+  assert.match(result.error, /没有可用的暂存工具/)
+})
+
+test('补生成保留实际读取证据、用户附件和两次工具调用记录', async () => {
+  let calls = 0
+  const { loop, staged } = makeLoop(async (params) => {
+    calls++
+    assert.match(params.userPrompt, /原始创作要求/)
+    assert.equal(params.imageAttachments.length, 1)
+    const tool = params.tools[calls === 1 ? 1 : 0]
+    const toolUseId = `tool-${calls}`
+    if (calls === 2) assert.match(params.userPrompt, /verified-chapter-id/)
+    params.handlers.onToolUseStart(toolUseId, tool.definition.name, {})
+    const output = await tool.handler({}, params.ctx)
+    params.handlers.onToolResult(toolUseId, tool.definition.name, output.content, false, 3)
+    return {
+      finalText: '已生成暂存变更。',
+      // runAgent 同时返回汇总，不能与 handlers 记录重复。
+      toolCalls: [{ tool: tool.definition.name, args: {}, durationMs: 3, status: 'ok' }],
+      iterations: 1
+    }
+  })
+  const options = withStageTool(makeOptions(new AbortController().signal), staged)
+  options.turnInput.userMessage = '原始创作要求'
+  options.turnInput.attachments = normalizeTurnAttachments([{
+    kind: 'image', ref: 'image:test', label: '参考图.png', mimeType: 'image/png', size: 3,
+    dataUrl: 'data:image/png;base64,AQID'
+  }])
+  options.tools.push({
+    definition: { name: 'read_chapter', description: '读章节', inputSchema: { type: 'object', properties: {} } },
+    handler: async () => ({ content: 'chapter_id=verified-chapter-id，正文：雨落在城门前。' })
+  })
+  const result = await loop.run(options)
+  assert.equal(result.status, 'done')
+  assert.deepEqual(result.toolCalls.map((call) => call.tool), ['read_chapter', 'stage_worldview'])
+})
+
+test('补生成返回空回复时不会被上一段成功声明掩盖', async () => {
+  let calls = 0
+  const { loop, staged } = makeLoop(async () => ({
+    finalText: ++calls === 1 ? '已生成暂存变更。' : '', toolCalls: [], iterations: 1
+  }))
+  const result = await loop.run(withStageTool(makeOptions(new AbortController().signal), staged))
+  assert.equal(calls, 2)
+  assert.equal(result.status, 'error')
+  assert.match(result.error, /补生成未返回可见回复/)
+})
 
 test('项目级全局助手不设置工具次数预算或自动续批', async () => {
   const surface = {
