@@ -1,5 +1,6 @@
 import type { ReferenceStyleMetric } from './referenceAnalysis'
 import type { SkillUsePolicy } from '../shared/assistant-runtime'
+import { normalizeChapterOrder } from '../shared/chapter-order'
 
 export type KnowledgeDocumentSourceType =
   | 'reference-summary'
@@ -711,12 +712,7 @@ export function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWork
           projectId,
           {
             ...workspace,
-            chapters: workspace.chapters.map((chapter, index) => ({
-              ...chapter,
-              sortOrder: Number.isSafeInteger(chapter.sortOrder)
-                ? chapter.sortOrder
-                : (index + 1) * 1024
-            })),
+            chapters: normalizeChapterOrder(workspace.chapters ?? [], (workspace.outlineVolumes ?? []).map((volume) => volume.id)),
             aiRuns: []
           }
         ])
@@ -808,12 +804,12 @@ export function normalizeWorkspacePayload(payload: WorkspacePayload | LegacyWork
             : [],
         chapters:
           project.id === selectedProjectId
-            ? (legacyPayload.chapters ?? []).map((chapter, index) => ({
+            ? normalizeChapterOrder((legacyPayload.chapters ?? []).map((chapter, index) => ({
                 ...chapter,
                 outlineItemId: chapter.outlineItemId || '',
                 volumeId: chapter.volumeId || legacyPayload.outlineVolumes?.[0]?.id || 'volume-legacy-default',
                 sortOrder: chapter.sortOrder ?? (index + 1) * 1024
-              }))
+              })), (legacyPayload.outlineVolumes ?? [createFallbackVolume()]).map((volume) => volume.id))
             : [],
         chapterVersions: project.id === selectedProjectId ? legacyPayload.chapterVersions ?? [] : [],
         messages: project.id === selectedProjectId ? legacyPayload.messages ?? [] : [],

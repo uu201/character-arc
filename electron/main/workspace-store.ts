@@ -21,6 +21,7 @@ import { initStateBackfillSchema } from './ai/state-backfill-store'
 import { migrateKnowledgeDocumentScopes } from './knowledge-document-schema'
 import { countChapterCharacters, ensureChapterContentMetadata } from './chapter-content-metadata'
 import { prepareWorkspaceHierarchyUpserts } from './workspace-snapshot-upserts'
+import { repairChapterOrder } from './chapter-order'
 
 export { readChapterMutationPayload, writeChapterOrder, writeChapterRows } from './chapter-persistence'
 
@@ -504,6 +505,7 @@ export async function ensureWorkspaceDb(options: {
   `)
 
   await migrateLegacyWorkspaceFile(db)
+  repairChapterOrder(db)
   options.onUpgradeProgress?.({
     phase: 'validation',
     message: '正在检查升级结果…',

@@ -58,6 +58,7 @@ function setup() {
   })
   const { createCommitter } = loadModule('../committer.ts', {
     '../../workspace-store': { ensureWorkspaceDb: async () => db },
+    '../../chapter-order': { insertChapterAtVolumeEnd: () => { throw new Error('不应新增章节') } },
     '../../story-state-management': management,
     '../agent/tools/chapter-data-access': { commitChapterEdit: () => { throw new Error('不应修改章节') } }
   })

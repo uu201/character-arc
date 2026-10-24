@@ -1,7 +1,50 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import { registerHooks } from 'node:module'
 import test from 'node:test'
 
-import { mergeAppSettingsIntoWorkspaceSnapshot, normalizeAppSettings, normalizeWorkspacePayload } from './workspace-types.ts'
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith('.') && context.parentURL) {
+      const candidate = new URL(`${specifier}.ts`, context.parentURL)
+      if (existsSync(candidate)) return nextResolve(candidate.href, context)
+    }
+    return nextResolve(specifier, context)
+  }
+})
+
+const { mergeAppSettingsIntoWorkspaceSnapshot, normalizeAppSettings, normalizeWorkspacePayload } = await import('./workspace-types.ts')
+
+test('导入旧归档的跨卷错序章节时同步修复数组顺序和排序值', () => {
+  const chapters = [
+    { id: 'new-61', volumeId: 'v3', sortOrder: 0, title: '第61章', content: '新正文' },
+    { id: 'old-b', volumeId: 'v1', sortOrder: 1024, title: '第2章', content: '旧正文二' },
+    { id: 'old-a', volumeId: 'v1', sortOrder: 2048, title: '第1章', content: '旧正文一' }
+  ]
+  const payload = {
+    projects: [{ id: 'p', title: '旧工程' }],
+    workspaces: { p: { chapters, outlineVolumes: [{ id: 'v1' }, { id: 'v3' }] } }
+  }
+  const result = normalizeWorkspacePayload(payload).workspaces.p.chapters
+  assert.deepEqual(result.map(item => item.id), ['old-b', 'old-a', 'new-61'])
+  assert.deepEqual(result.map(item => item.sortOrder), [1024, 2048, 3072])
+  assert.equal(result[2].title, '第61章')
+  assert.equal(result[2].content, '新正文')
+  assert.deepEqual(chapters.map(item => item.id), ['new-61', 'old-b', 'old-a'])
+})
+
+test('旧扁平工程迁移时同样恢复分卷顺序', () => {
+  const result = normalizeWorkspacePayload({
+    selectedProjectId: 'p', projects: [{ id: 'p', title: '旧工程' }],
+    outlineVolumes: [{ id: 'v1' }, { id: 'v2' }],
+    chapters: [
+      { id: 'new', volumeId: 'v2', sortOrder: 0, content: '新增正文' },
+      { id: 'old', volumeId: 'v1', sortOrder: 1024, content: '旧正文' }
+    ]
+  }).workspaces.p.chapters
+  assert.deepEqual(result.map(item => item.id), ['old', 'new'])
+  assert.ok(result[1].sortOrder > result[0].sortOrder)
+})
 
 test('采样惩罚参数按 -2 到 2 规范化，缺失值保持为空', () => {
   const normalized = normalizeAppSettings({

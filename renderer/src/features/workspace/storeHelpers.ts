@@ -1,5 +1,6 @@
 import { toRaw } from 'vue'
 import { normalizeSkillUsePolicy } from '@shared/assistant-runtime'
+import { normalizeChapterOrder } from '@shared/chapter-order'
 import { createDefaultWorkflowDocuments, normalizeWorkflowDocuments } from '@/features/novelWorkflow/documents'
 import { createDefaultNovelWorkflowStages, normalizeNovelWorkflowStages } from '@/features/novelWorkflow/stages'
 import { DEFAULT_CHAPTER_WORD_TARGET, normalizeChapterWordTarget } from '@/features/chapters/wordTarget'
@@ -510,12 +511,10 @@ export function normalizeProjectWorkspaceData(
     inspirationEntries: normalized.inspirationEntries,
     outlineVolumes: normalized.outlineVolumes,
     outlineItems: normalized.outlineItems,
-    chapters: normalized.chapters
-      .map((chapter, index) => normalizeChapterDraft({
-        ...chapter,
-        sortOrder: Number.isSafeInteger(chapter.sortOrder) ? chapter.sortOrder : (index + 1) * 1024
-      }))
-      .sort((left, right) => Number(left.sortOrder) - Number(right.sortOrder)),
+    chapters: normalizeChapterOrder(
+      normalized.chapters.map(normalizeChapterDraft),
+      normalized.outlineVolumes.map((volume) => volume.id)
+    ),
     chapterVersions: normalized.chapterVersions.map(normalizeChapterVersion),
     messages: normalized.messages,
     globalAssistantSessions: normalized.globalAssistantSessions,

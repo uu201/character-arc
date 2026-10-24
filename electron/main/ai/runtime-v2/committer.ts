@@ -11,6 +11,7 @@ import type {
   StagedChangeCommitResult
 } from '@shared/assistant-runtime'
 import { ensureWorkspaceDb } from '../../workspace-store'
+import { insertChapterAtVolumeEnd } from '../../chapter-order'
 import type { WorkflowDocumentKey } from '../../workspace-types'
 import { commitChapterEdit } from '../agent/tools/chapter-data-access'
 import type { StagedChangeCommitter } from './staged-changes-store'
@@ -920,12 +921,10 @@ async function commitChapterCreate(
   )
 
   const id = `chapter-${randomUUID()}`
-  const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS value FROM chapters WHERE project_id = ? AND volume_id = ?')
-    .get(projectId, volumeId) as { value: number } | undefined
-  db.prepare(`
-    INSERT INTO chapters (id, project_id, volume_id, outline_item_id, title, summary, status, word_target, content, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, projectId, volumeId, outlineItem?.id || '', title, summary, 'draft', wordTarget, content, Number(maxOrder?.value ?? -1) + 1)
+  insertChapterAtVolumeEnd(db, projectId, {
+    id, volumeId, outlineItemId: outlineItem?.id || '', title, summary,
+    status: 'draft', wordTarget, content
+  })
   return { changeId: change.id, ok: true, entityId: id }
 }
 
