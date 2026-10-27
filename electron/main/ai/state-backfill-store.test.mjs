@@ -68,6 +68,26 @@ test('旧版成功运行记录会迁移为已扫描状态', () => {
   assert.equal(status.attemptCount, 1)
 })
 
+test('稀疏排序值只参与排序，补录章号按全书位置计算并包含空白章节', () => {
+  const db = makeDb()
+  const insert = db.prepare('INSERT INTO chapters VALUES (?, ?, ?, ?, ?)')
+  const content = '已有小说正文'.repeat(15)
+  insert.run('c3', 'p1', '', content, 52224)
+  insert.run('c1', 'p1', '第一章', content, 1024)
+  insert.run('empty', 'p1', '第二章', '', 15360)
+  insert.run('other', 'p2', '其他项目', content, 512)
+
+  const statuses = readBackfillChapterStatuses(db, 'p1')
+  assert.deepEqual(statuses.map(({ chapterId, chapterIndex, chapterNumber, chapterTitle }) => ({
+    chapterId, chapterIndex, chapterNumber, chapterTitle
+  })), [
+    { chapterId: 'c1', chapterIndex: 0, chapterNumber: 1, chapterTitle: '第一章' },
+    { chapterId: 'c3', chapterIndex: 2, chapterNumber: 3, chapterTitle: '第 3 章' }
+  ])
+  assert.equal(selectBackfillChapterStatuses(statuses, { mode: 'custom', chapterIds: ['c3'] })[0].chapterIndex, 2)
+  db.close()
+})
+
 test('默认、失败和自定义范围都不会重复选择已完成章节', () => {
   const statuses = [
     { chapterId: 'c1', status: 'success' },

@@ -64,9 +64,9 @@ function resolveCharacterName(id: string): string {
   return characterNameMap.value.get(id) || id || '未知角色'
 }
 
-function formatChapterRef(index: number | null | undefined): string {
+function formatChapterRef(index: number | null | undefined, planned = false): string {
   if (index === null || index === undefined || index < 0) return '—'
-  return index === 0 ? '起始' : `第 ${index} 章`
+  return planned && index === 0 ? '起始' : `第 ${planned ? index : index + 1} 章`
 }
 
 const foreshadowingStatusMeta: Record<string, { label: string; type: 'success' | 'warning' | 'info' | 'error' | 'default' }> = {
@@ -149,7 +149,7 @@ async function loadBackfillStatuses(): Promise<void> {
       throw new Error(response.error ?? '读取补录状态失败')
     }
     backfillStatuses.value = response.result
-    rangeEnd.value = Math.max(rangeStart.value, response.result.length || 1)
+    rangeEnd.value = Math.max(rangeStart.value, response.result.at(-1)?.chapterNumber ?? 1)
   } catch (error) {
     if (appStore.currentProject?.id !== projectId) return
     backfillStatuses.value = []
@@ -785,7 +785,7 @@ watch(
                   <span v-if="fs.type">类型：{{ fs.type }}</span>
                   <span>埋设：{{ formatChapterRef(fs.plantedChapter) }}</span>
                   <span v-if="fs.plantedMethod">手法：{{ fs.plantedMethod }}</span>
-                  <span v-if="fs.payoffChapter !== null">预期回收：{{ formatChapterRef(fs.payoffChapter) }}</span>
+                  <span v-if="fs.payoffChapter !== null">预期回收：{{ formatChapterRef(fs.payoffChapter, true) }}</span>
                   <span v-if="fs.resolvedChapter !== null">实际回收：{{ formatChapterRef(fs.resolvedChapter) }}</span>
                 </div>
                 <div v-if="fs.clues.length" class="pk-state-tags">
@@ -869,7 +869,7 @@ watch(
                   <n-tag size="tiny" :bordered="false" type="warning">{{ ck.urgency || ck.status }}</n-tag>
                 </div>
                 <div class="pk-state-fields">
-                  <span v-if="ck.deadlineChapter !== null">截止：{{ formatChapterRef(ck.deadlineChapter) }}</span>
+                  <span v-if="ck.deadlineChapter !== null">截止：{{ formatChapterRef(ck.deadlineChapter, true) }}</span>
                 </div>
               </div>
             </div>

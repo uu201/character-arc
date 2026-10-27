@@ -99,17 +99,17 @@ export async function backfillProjectStateFromChapters(
   const db = await ensureWorkspaceDb()
 
   const chapterRows = db.prepare(`
-    SELECT id, title, content, sort_order AS sortOrder
+    SELECT id, title, content
     FROM chapters
     WHERE project_id = ? AND content IS NOT NULL AND LENGTH(content) >= 50
     ORDER BY sort_order ASC, rowid ASC
-  `).all(projectId) as Array<{ id: string; title: string; content: string; sortOrder: number }>
+  `).all(projectId) as Array<{ id: string; title: string; content: string }>
   const chapterById = new Map(chapterRows.map((chapter) => [chapter.id, chapter]))
   const statuses = readBackfillChapterStatuses(db, projectId)
   const selectedStatuses = selectBackfillChapterStatuses(statuses, options.selection)
   const chapters = selectedStatuses.flatMap((status) => {
     const chapter = chapterById.get(status.chapterId)
-    return chapter ? [{ ...chapter, contentHash: status.contentHash }] : []
+    return chapter ? [{ ...chapter, chapterIndex: status.chapterIndex, contentHash: status.contentHash }] : []
   })
 
   let processed = 0
@@ -119,7 +119,7 @@ export async function backfillProjectStateFromChapters(
 
   for (let i = 0; i < chapters.length; i++) {
     const ch = chapters[i]
-    const chapterTitle = ch.title || `第 ${i + 1} 章`
+    const chapterTitle = ch.title || `第 ${ch.chapterIndex + 1} 章`
     await options.waitIfPaused?.({
       projectId,
       current: i + 1,
@@ -132,7 +132,7 @@ export async function backfillProjectStateFromChapters(
       projectId,
       chapterId: ch.id,
       chapterTitle,
-      chapterIndex: ch.sortOrder,
+      chapterIndex: ch.chapterIndex,
       contentHash: ch.contentHash
     })
 
@@ -152,7 +152,7 @@ export async function backfillProjectStateFromChapters(
           throw new Error('章节正文在扫描期间发生变化，本次结果未写入，请重新扫描该章。')
         }
         onProgress({ projectId, current: i + 1, total: chapters.length, chapterTitle, phase: 'applying' })
-        applyStateDelta(db, projectId, ch.sortOrder, delta)
+        applyStateDelta(db, projectId, ch.chapterIndex, delta)
         finishBackfillChapter(db, {
           projectId,
           chapterId: ch.id,

@@ -790,7 +790,7 @@ export function formatStoryStateForPrompt(ctx: StoryStateContext): string {
     const lines = ctx.activeForeshadowing.slice(0, 15).map((f) => {
       const clueCount = f.clues.length
       const payoff = f.payoffChapter ? `预定第${f.payoffChapter}章揭示` : '揭示时间待定'
-      return `- ${f.foreshadowingId}[${f.status}]: ${f.description} (第${f.plantedChapter}章埋设, 已释放${clueCount}条线索, ${payoff})`
+      return `- ${f.foreshadowingId}[${f.status}]: ${f.description} (第${f.plantedChapter + 1}章埋设, 已释放${clueCount}条线索, ${payoff})`
     })
     sections.push(`### 活跃伏笔 (${ctx.activeForeshadowing.length}条)\n${lines.join('\n')}`)
   }
@@ -806,13 +806,13 @@ export function formatStoryStateForPrompt(ctx: StoryStateContext): string {
   if (ctx.recentTimeline.length) {
     const lines = ctx.recentTimeline.map((t) => {
       const date = t.storyDate ? `[${t.storyDate}]` : ''
-      return `- 第${t.chapterIndex}章${date}: ${t.events.join('; ')}`
+      return `- 第${t.chapterIndex + 1}章${date}: ${t.events.join('; ')}`
     })
     sections.push(`### 近期时间线\n${lines.join('\n')}`)
   }
 
   if (ctx.worldRules.length) {
-    const lines = ctx.worldRules.map((r) => `- ${r.ruleContent} (第${r.establishedChapter}章确立)`)
+    const lines = ctx.worldRules.map((r) => `- ${r.ruleContent} (第${r.establishedChapter + 1}章确立)`)
     sections.push(`### 世界规则\n${lines.join('\n')}`)
   }
 

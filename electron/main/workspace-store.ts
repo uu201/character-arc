@@ -14,6 +14,7 @@ import {
   normalizeWorkspacePayload
 } from './workspace-types'
 import { initStoryStateSchema } from './story-state-store'
+import { repairStoryStateChapterIndexes } from './story-state-chapter-index'
 import { initAssistantRuntimeSchema } from './ai/runtime-v2/conversation-manager'
 import { resetRuntimeState } from './ai/runtime-v2/state'
 import { initChapterProcessingSchema } from './ai/runtime/chapter-processing-store'
@@ -505,6 +506,7 @@ export async function ensureWorkspaceDb(options: {
   `)
 
   await migrateLegacyWorkspaceFile(db)
+  repairStoryStateChapterIndexes(db)
   repairChapterOrder(db)
   options.onUpgradeProgress?.({
     phase: 'validation',

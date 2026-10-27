@@ -55,7 +55,7 @@ type ChapterRow = {
   id: string
   title: string
   content: string
-  sortOrder: number
+  chapterIndex: number
 }
 
 export function buildBackfillContentHash(content: string): string {
@@ -85,10 +85,15 @@ export function initStateBackfillSchema(db: DatabaseSync): void {
 
 function readChapters(db: DatabaseSync, projectId: string): ChapterRow[] {
   return db.prepare(`
-    SELECT id, title, content, sort_order AS sortOrder
-    FROM chapters
-    WHERE project_id = ? AND content IS NOT NULL AND LENGTH(content) >= 50
-    ORDER BY sort_order ASC, rowid ASC
+    SELECT id, title, content, chapterIndex
+    FROM (
+      SELECT id, title, content,
+             ROW_NUMBER() OVER (ORDER BY sort_order ASC, rowid ASC) - 1 AS chapterIndex
+      FROM chapters
+      WHERE project_id = ?
+    )
+    WHERE content IS NOT NULL AND LENGTH(content) >= 50
+    ORDER BY chapterIndex ASC
   `).all(projectId) as ChapterRow[]
 }
 
@@ -133,7 +138,7 @@ export function migrateLegacyBackfillRuns(db: DatabaseSync, projectId: string): 
     insert.run(
       projectId,
       chapter.id,
-      chapter.sortOrder,
+      chapter.chapterIndex,
       chapter.title,
       buildBackfillContentHash(chapter.content),
       legacy.status === 'success' ? 'success' : 'failed',
@@ -147,7 +152,7 @@ export function readBackfillChapterStatuses(db: DatabaseSync, projectId: string)
   initStateBackfillSchema(db)
   migrateLegacyBackfillRuns(db, projectId)
   const records = readRecords(db, projectId)
-  return readChapters(db, projectId).map((chapter, index) => {
+  return readChapters(db, projectId).map((chapter) => {
     const contentHash = buildBackfillContentHash(chapter.content)
     const record = records.get(chapter.id)
     const status: BackfillChapterDisplayStatus = !record
@@ -157,9 +162,9 @@ export function readBackfillChapterStatuses(db: DatabaseSync, projectId: string)
         : record.status
     return {
       chapterId: chapter.id,
-      chapterTitle: chapter.title || `第 ${index + 1} 章`,
-      chapterIndex: chapter.sortOrder,
-      chapterNumber: index + 1,
+      chapterTitle: chapter.title || `第 ${chapter.chapterIndex + 1} 章`,
+      chapterIndex: chapter.chapterIndex,
+      chapterNumber: chapter.chapterIndex + 1,
       contentHash,
       status,
       attemptCount: record?.attempt_count ?? 0,
