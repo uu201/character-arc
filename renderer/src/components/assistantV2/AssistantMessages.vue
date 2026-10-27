@@ -8,12 +8,14 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleAlert,
+  CircleStop,
   Copy,
   ClipboardCheck,
   FileText,
   GitFork,
   Image as ImageIcon,
   Layers3,
+  LoaderCircle,
   Maximize2,
   Pencil,
   SearchCheck,
@@ -375,10 +377,21 @@ function evidenceLabel(t: AssistantToolCallView): string {
   return t.toolName
 }
 
-function toolStatusText(t: AssistantToolCallView): string {
-  if (t.status === 'running') return '进行中'
+function toolStatusText(t: AssistantToolCallView, status: AssistantMessageView['status']): string {
+  if (t.status === 'running') {
+    if (status === 'canceled') return '已停止'
+    if (status === 'error') return '已中断'
+    return status === 'streaming' ? '进行中' : '未完成'
+  }
   if (t.status === 'error') return '失败'
   return '完成'
+}
+
+function messageStatusText(message: AssistantMessageView): string {
+  if (message.status === 'streaming') return message.activityText || '正在生成'
+  if (message.status === 'canceled') return '已停止'
+  if (message.status === 'error') return '生成失败'
+  return '已完成'
 }
 
 function skillStateText(state: AssistantMessageView['skillReceipt'][number]['state']): string {
@@ -391,10 +404,14 @@ function commandLabel(t: AssistantToolCallView): string {
   return isEvidenceTool(t.toolName) ? evidenceLabel(t) : describeToolAction(t)
 }
 
-function commandSummary(calls: AssistantToolCallView[]): string {
+function commandSummary(calls: AssistantToolCallView[], status: AssistantMessageView['status']): string {
   const running = calls.filter((c) => c.status === 'running').length
   const failed = calls.filter((c) => c.status === 'error').length
-  if (running > 0) return `正在运行 ${running} 条命令`
+  if (running > 0) {
+    if (status === 'canceled') return `${running} 条命令已停止`
+    if (status === 'error') return `${running} 条命令已中断`
+    return status === 'streaming' ? `正在运行 ${running} 条命令` : `${running} 条命令未完成`
+  }
   if (failed > 0) return `已运行 ${calls.length} 条命令，${failed} 条失败`
   return `已运行 ${calls.length} 条命令`
 }
@@ -419,6 +436,15 @@ function shouldExpandCommands(calls: AssistantToolCallView[]): boolean {
 function isActiveReasoningBlock(message: AssistantMessageView, blockId: string): boolean {
   return message.status === 'streaming'
     && message.flowBlocks[message.flowBlocks.length - 1]?.id === blockId
+}
+
+function reasoningStatusText(message: AssistantMessageView, blockId: string): string {
+  if (isActiveReasoningBlock(message, blockId)) return '进行中'
+  if (message.flowBlocks.at(-1)?.id === blockId) {
+    if (message.status === 'canceled') return '已停止'
+    if (message.status === 'error') return '已中断'
+  }
+  return '已完成'
 }
 
 const editingIndex = computed(() =>
@@ -492,6 +518,7 @@ const hasContent = computed(() => props.messages.length > 0)
 </script>
 
 <template>
+  <div class="messages-viewport">
   <div ref="scrollRef" class="messages arc-scrollbar" @scroll.passive="handleScroll">
     <!-- 骨架屏：初始加载中 -->
     <div v-if="props.isInitializing && !hasContent" class="skeleton">
@@ -671,8 +698,14 @@ const hasContent = computed(() => props.messages.length > 0)
             <Sparkles :size="12" :stroke-width="2" />
           </span>
           <span class="assistant-name">{{ props.assistantName ?? '全局助手' }}</span>
-          <time class="message-time" :datetime="msg.createdAt">{{ formatMessageTime(msg.createdAt) }}</time>
-          <span v-if="msg.status === 'streaming'" class="assistant-state">{{ msg.activityText || '处理中' }}</span>
+          <span class="assistant-state" :class="msg.status" role="status" :title="messageStatusText(msg)">
+            <LoaderCircle v-if="msg.status === 'streaming'" class="status-spinner" :size="12" aria-hidden="true" />
+            <CheckCircle2 v-else-if="msg.status === 'done'" :size="12" aria-hidden="true" />
+            <CircleStop v-else-if="msg.status === 'canceled'" :size="12" aria-hidden="true" />
+            <CircleAlert v-else :size="12" aria-hidden="true" />
+            <span>{{ messageStatusText(msg) }}</span>
+          </span>
+          <time class="message-time assistant-time" :datetime="msg.createdAt">{{ formatMessageTime(msg.createdAt) }}</time>
         </div>
 
       <template v-if="msg.flowBlocks.length > 0">
@@ -685,7 +718,7 @@ const hasContent = computed(() => props.messages.length > 0)
             <summary class="section-summary">
               <Brain :size="14" />
               <span>分析过程</span>
-              <em>{{ isActiveReasoningBlock(msg, block.id) ? '进行中' : '已完成' }}</em>
+              <em>{{ reasoningStatusText(msg, block.id) }}</em>
             </summary>
             <div class="section-body assistant-copy reasoning-copy markdown-body" v-html="renderMarkdown(block.content, `${msg.turnId}:${block.id}`)" />
           </details>
@@ -698,7 +731,7 @@ const hasContent = computed(() => props.messages.length > 0)
             <summary class="section-summary command-summary">
               <component :is="commandSectionIcon(block.commands)" class="summary-icon" :size="15" :stroke-width="1.75" />
               <span>{{ commandSectionLabel(block.commands) }}</span>
-              <em>{{ commandSummary(block.commands) }}</em>
+              <em>{{ commandSummary(block.commands, msg.status) }}</em>
             </summary>
 
             <div class="command-details">
@@ -706,13 +739,13 @@ const hasContent = computed(() => props.messages.length > 0)
                 v-for="item in block.commands"
                 :key="item.toolUseId"
                 class="command-item"
-                :class="item.status"
+                :class="item.status === 'running' && msg.status !== 'streaming' ? 'interrupted' : item.status"
               >
                 <div class="command-item-head">
                   <span class="command-state" />
                   <span class="command-title">{{ commandLabel(item) }}</span>
                   <span class="command-meta">
-                    {{ toolStatusText(item) }}
+                    {{ toolStatusText(item, msg.status) }}
                   </span>
                   <button
                     v-if="canOpenKnowledge(item)"
@@ -750,16 +783,11 @@ const hasContent = computed(() => props.messages.length > 0)
 
           <section
             v-else
-            class="message-section result-section"
+            class="assistant-reply assistant-copy markdown-body"
+            aria-label="助手回复"
           >
-            <header class="result-head">
-              <CheckCircle2 :size="14" />
-              <span>{{ msg.toolCalls.some((call) => /audit|check|review/i.test(call.toolName)) ? '审计结果' : '助手回复' }}</span>
-            </header>
-            <div class="section-body assistant-copy markdown-body">
-              <div v-html="renderMarkdown(block.content, `${msg.turnId}:${block.id}`)" />
-              <span v-if="msg.status === 'streaming' && block.id === msg.flowBlocks[msg.flowBlocks.length - 1]?.id" class="cursor">▍</span>
-            </div>
+            <div v-html="renderMarkdown(block.content, `${msg.turnId}:${block.id}`)" />
+            <span v-if="msg.status === 'streaming' && block.id === msg.flowBlocks[msg.flowBlocks.length - 1]?.id" class="cursor">▍</span>
           </section>
         </template>
       </template>
@@ -776,8 +804,6 @@ const hasContent = computed(() => props.messages.length > 0)
           <div class="error-body">{{ msg.error }}</div>
         </div>
       </div>
-
-      <div v-if="msg.status === 'canceled'" class="status-tag">已取消</div>
 
       <div v-if="msg.skillMode === 'off' || msg.skillReceipt.length > 0" class="skill-receipt">
         <Sparkles :size="13" />
@@ -798,6 +824,7 @@ const hasContent = computed(() => props.messages.length > 0)
       </div>
       </template>
     </article>
+  </div>
   </div>
 
   <NModal
@@ -837,6 +864,14 @@ const hasContent = computed(() => props.messages.length > 0)
 </template>
 
 <style scoped>
+.messages-viewport {
+  container: assistant-messages / inline-size;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 .messages {
   flex: 1;
   overflow-y: auto;
@@ -1335,6 +1370,10 @@ const hasContent = computed(() => props.messages.length > 0)
   font-size: 12px;
   font-weight: 600;
 }
+.section-summary:focus-visible {
+  outline: 2px solid var(--arc-primary);
+  outline-offset: -2px;
+}
 .section-summary::-webkit-details-marker { display: none; }
 .section-summary::marker { content: ''; }
 .section-summary em {
@@ -1349,24 +1388,18 @@ const hasContent = computed(() => props.messages.length > 0)
   padding: 11px 12px 13px;
   border-top: 1px solid var(--arc-border);
 }
-.result-section {
-  border-color: color-mix(in srgb, var(--arc-primary) 22%, var(--arc-border));
+.assistant-reply {
+  min-width: 0;
 }
-.result-head {
-  min-height: 34px;
-  padding: 0 11px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--arc-primary);
-  font-size: 12px;
-  font-weight: 600;
-  background: color-mix(in srgb, var(--arc-primary) 5%, var(--arc-bg-surface));
+.assistant-reply :deep(:is(h1, h2, h3, h4):first-child) {
+  margin-top: 0;
 }
 .assistant-head {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
+  min-width: 0;
 }
 .assistant-mark {
   display: inline-flex;
@@ -1384,15 +1417,46 @@ const hasContent = computed(() => props.messages.length > 0)
   font-weight: 600;
   letter-spacing: 0.01em;
 }
+.assistant-time {
+  margin-left: auto;
+}
 .assistant-state {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: min(100%, 320px);
   padding: 1px 8px;
   border-radius: 999px;
   background: var(--arc-primary-soft);
-  color: var(--arc-primary);
-  font-family: var(--v2-mono);
-  font-size: 10.5px;
+  color: color-mix(in srgb, var(--arc-primary) 75%, var(--arc-text-primary));
+  font-size: 11px;
+  line-height: 1.7;
+}
+.assistant-state svg {
+  flex: 0 0 auto;
+}
+.assistant-state > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-state.done {
+  color: var(--arc-success, var(--arc-primary));
+}
+.assistant-state.canceled {
+  color: var(--arc-text-secondary);
+  background: var(--arc-bg-weak);
+}
+.assistant-state.error {
+  color: var(--arc-danger, var(--v2-danger));
+  background: var(--v2-danger-soft);
+}
+.status-spinner {
+  animation: status-spin 1s linear infinite;
+}
+@keyframes status-spin {
+  to { transform: rotate(360deg); }
 }
 .thinking-copy {
   display: inline-flex;
@@ -1707,10 +1771,6 @@ const hasContent = computed(() => props.messages.length > 0)
   font-weight: 600;
   padding: 0;
 }
-.status-tag {
-  color: var(--arc-text-hint);
-  font-size: 12px;
-}
 .skill-receipt {
   display: flex;
   align-items: center;
@@ -1835,7 +1895,7 @@ const hasContent = computed(() => props.messages.length > 0)
   margin-left: auto;
 }
 
-@media (max-width: 720px) {
+@container assistant-messages (max-width: 560px) {
   .messages {
     padding: 18px 16px 14px;
     gap: 22px;
@@ -1850,26 +1910,72 @@ const hasContent = computed(() => props.messages.length > 0)
     line-height: 1.72;
   }
   .command-details {
-    margin-left: 22px;
+    padding: 9px 10px 11px;
+  }
+  .section-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 8px 10px;
+    row-gap: 2px;
+  }
+  .section-summary em {
+    grid-column: 2;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .command-item-head {
-    grid-template-columns: 8px minmax(0, 1fr);
+    grid-template-columns: 8px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 5px 7px;
   }
   .command-title {
     white-space: normal;
+    overflow-wrap: anywhere;
   }
-  .command-meta,
+  .command-meta {
+    grid-column: 3;
+    grid-row: 1;
+  }
   .tool-open {
     grid-column: 2;
     justify-self: start;
   }
+  .assistant-head {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+    gap: 5px 7px;
+  }
+  .assistant-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .assistant-state {
+    max-width: 160px;
+  }
+  .assistant-time {
+    grid-column: 2 / -1;
+    margin-left: 0;
+  }
   .user-entry {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 7px 9px;
+  }
+  .user-avatar {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .user-content {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .user-time {
+    grid-column: 2;
+    margin-bottom: 0;
   }
   .user-actions {
     position: static;
-    flex-basis: calc(100% - 36px);
-    margin-left: 36px;
+    grid-column: 2;
+    justify-self: start;
     padding: 0;
     border: 0;
     box-shadow: none;
@@ -1889,6 +1995,16 @@ const hasContent = computed(() => props.messages.length > 0)
   .document-thumbnail {
     height: 104px;
   }
+  .staged-copy {
+    overflow-wrap: anywhere;
+  }
+  .turn-editor-head em,
+  .turn-editor-foot > span {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
   .image-preview-frame {
     min-height: 180px;
     padding: 10px;
@@ -1901,9 +2017,14 @@ const hasContent = computed(() => props.messages.length > 0)
     padding: 14px 15px;
     font-size: 12px;
   }
-  .turn-editor-head em,
-  .turn-editor-foot > span {
-    display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-spinner,
+  .thinking-dots i,
+  .command-item.running .command-state,
+  .cursor {
+    animation: none;
   }
 }
 </style>
