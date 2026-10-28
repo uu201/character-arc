@@ -698,13 +698,6 @@ const hasContent = computed(() => props.messages.length > 0)
             <Sparkles :size="12" :stroke-width="2" />
           </span>
           <span class="assistant-name">{{ props.assistantName ?? '全局助手' }}</span>
-          <span class="assistant-state" :class="msg.status" role="status" :title="messageStatusText(msg)">
-            <LoaderCircle v-if="msg.status === 'streaming'" class="status-spinner" :size="12" aria-hidden="true" />
-            <CheckCircle2 v-else-if="msg.status === 'done'" :size="12" aria-hidden="true" />
-            <CircleStop v-else-if="msg.status === 'canceled'" :size="12" aria-hidden="true" />
-            <CircleAlert v-else :size="12" aria-hidden="true" />
-            <span>{{ messageStatusText(msg) }}</span>
-          </span>
           <time class="message-time assistant-time" :datetime="msg.createdAt">{{ formatMessageTime(msg.createdAt) }}</time>
         </div>
 
@@ -803,6 +796,16 @@ const hasContent = computed(() => props.messages.length > 0)
           <div class="error-title">失败原因</div>
           <div class="error-body">{{ msg.error }}</div>
         </div>
+      </div>
+
+      <div class="assistant-status-line">
+        <span class="assistant-state" :class="msg.status" role="status" :title="messageStatusText(msg)">
+          <LoaderCircle v-if="msg.status === 'streaming'" class="status-spinner" :size="12" aria-hidden="true" />
+          <CheckCircle2 v-else-if="msg.status === 'done'" :size="12" aria-hidden="true" />
+          <CircleStop v-else-if="msg.status === 'canceled'" :size="12" aria-hidden="true" />
+          <CircleAlert v-else :size="12" aria-hidden="true" />
+          <span>{{ messageStatusText(msg) }}</span>
+        </span>
       </div>
 
       <div v-if="msg.skillMode === 'off' || msg.skillReceipt.length > 0" class="skill-receipt">
@@ -1420,37 +1423,40 @@ const hasContent = computed(() => props.messages.length > 0)
 .assistant-time {
   margin-left: auto;
 }
+.assistant-status-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
 .assistant-state {
   display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  align-items: flex-start;
+  gap: 6px;
   min-width: 0;
-  max-width: min(100%, 320px);
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--arc-primary-soft);
-  color: color-mix(in srgb, var(--arc-primary) 75%, var(--arc-text-primary));
+  max-width: 100%;
+  color: var(--arc-text-secondary);
   font-size: 11px;
   line-height: 1.7;
 }
 .assistant-state svg {
   flex: 0 0 auto;
+  margin-top: 3px;
 }
 .assistant-state > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.assistant-state.streaming {
+  color: var(--arc-primary);
 }
 .assistant-state.done {
-  color: var(--arc-success, var(--arc-primary));
+  color: var(--arc-text-hint);
 }
-.assistant-state.canceled {
-  color: var(--arc-text-secondary);
-  background: var(--arc-bg-weak);
+.assistant-state.done svg {
+  color: var(--arc-success, var(--arc-primary));
 }
 .assistant-state.error {
   color: var(--arc-danger, var(--v2-danger));
-  background: var(--v2-danger-soft);
 }
 .status-spinner {
   animation: status-spin 1s linear infinite;
@@ -1947,9 +1953,6 @@ const hasContent = computed(() => props.messages.length > 0)
   .assistant-name {
     min-width: 0;
     overflow-wrap: anywhere;
-  }
-  .assistant-state {
-    max-width: 160px;
   }
   .assistant-time {
     grid-column: 2 / -1;

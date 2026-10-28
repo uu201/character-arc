@@ -6,6 +6,7 @@ import type { AiRunUsage, AppSettings, AiAgentStreamHandlers, ToolCallTrace } fr
 import type { Tool, ToolContext } from './tools/types'
 import { stripReasoningMarkup } from '../reasoning'
 import { isAiStreamIdleTimeoutError } from '../sse'
+import { isAiConnectionInterruptedError } from '../error-message'
 import { resolveSamplingOptions } from '../request-options'
 import { isCodexCliProvider } from '@shared/ai-provider-catalog'
 import { runCodexToolAgent } from './codex-tool-bridge'
@@ -206,7 +207,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
   let result: ReturnType<typeof startStream> | null = null
 
-  // 免费 API 偶尔会在 reasoning 阶段留下半开 SSE。连续无数据时仅在尚未产生
+  // API 偶尔会在 reasoning 阶段超时或断流。仅在尚未产生
   // 正文或工具调用的前提下重试一次，避免重复执行工具或拼接两份正文。
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let streamError: unknown = null
@@ -258,7 +259,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
       break
     } catch (error) {
       const canRetry = attempt === 0
-        && isAiStreamIdleTimeoutError(error)
+        && (isAiStreamIdleTimeoutError(error) || isAiConnectionInterruptedError(error))
         && !params.ctx.signal.aborted
         && !fullText
         && toolCalls.length === 0

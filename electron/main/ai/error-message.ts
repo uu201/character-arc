@@ -6,6 +6,29 @@ function asRecord(value: unknown): ErrorRecord | null {
   return value && typeof value === 'object' ? value as ErrorRecord : null
 }
 
+/** 识别 fetch 读取响应时的断流，包括 SDK 包装后的 cause；用户取消不算断流。 */
+export function isAiConnectionInterruptedError(error: unknown): boolean {
+  let current = error
+  let interrupted = false
+  const visited = new Set<unknown>()
+  for (let depth = 0; depth < 4 && current && !visited.has(current); depth += 1) {
+    visited.add(current)
+    if (typeof current === 'string') {
+      return interrupted || current.trim().toLowerCase() === 'terminated'
+    }
+    const record = asRecord(current)
+    if (!record) break
+    if (record.name === 'AbortError') return false
+    const message = typeof record.message === 'string' ? record.message.trim().toLowerCase() : ''
+    interrupted ||= message === 'terminated'
+      || record.code === 'UND_ERR_SOCKET'
+      || record.code === 'ECONNRESET'
+      || record.code === 'ERR_STREAM_PREMATURE_CLOSE'
+    current = record.cause
+  }
+  return interrupted
+}
+
 function trimDetail(value: string): string {
   const normalized = value.replace(/\s+/g, ' ').trim()
   if (normalized.length <= MAX_ERROR_DETAIL_LENGTH) return normalized
@@ -46,6 +69,9 @@ function parseBody(value: unknown): string {
  * `[object Object]`，也会把这个文本持久化到助手会话里。
  */
 export function formatUnknownError(error: unknown, fallback = ''): string {
+  if (isAiConnectionInterruptedError(error)) {
+    return 'AI 连接在响应完成前中断，可能与网络、代理或接口服务有关。请稍后重试；若反复出现，请检查代理或更换接口线路。'
+  }
   if (typeof error === 'string') return trimDetail(error) || fallback
   if (error instanceof Error) {
     const message = error.message.trim()
