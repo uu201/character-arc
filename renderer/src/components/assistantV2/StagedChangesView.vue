@@ -3,7 +3,13 @@ import { computed, ref, watch } from 'vue'
 import { NButton } from 'naive-ui'
 import { AlertTriangle, RotateCcw } from 'lucide-vue-next'
 import type { StagedChange, StagedChangeCommitResult } from '@shared/assistant-runtime'
-import { visibleStagedChanges, type StagedChangeFilter } from '@/features/assistant/stagedChangeList'
+import {
+  formatStagedChangeForDisplay,
+  visibleStagedChanges,
+  type OutlineReferenceLabels,
+  type StagedChangeFilter
+} from '@/features/assistant/stagedChangeList'
+import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{
   changes: StagedChange[]
@@ -22,7 +28,16 @@ const emit = defineEmits<{
 
 const activeFilter = ref<StagedChangeFilter>('all')
 
-const filtered = computed(() => visibleStagedChanges(props.changes, activeFilter.value))
+const appStore = useAppStore()
+const referenceLabels = computed<OutlineReferenceLabels>(() => ({
+  角色: new Map(appStore.characters.map((item) => [item.id, item.name])),
+  组织: new Map(appStore.organizations.map((item) => [item.id, item.name])),
+  设定: new Map(appStore.worldviewEntries.map((item) => [item.id, item.title]))
+}))
+const filtered = computed(() =>
+  visibleStagedChanges(props.changes, activeFilter.value)
+    .map((change) => formatStagedChangeForDisplay(change, referenceLabels.value))
+)
 const deletedCount = computed(() => props.changes.filter((c) => c.status === 'rejected').length)
 
 const pendingCount = computed(() =>
