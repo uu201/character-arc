@@ -4,6 +4,7 @@
  */
 
 import type { SpiralSeedResult, SpiralExpandResult, SpiralValidateResult } from './spiral/types'
+import type { AssistantExecutionSettings } from '../../shared/assistant-execution-settings'
 
 /** AI 供应商标识。支持预设值或自定义字符串。 */
 export type ProviderName =
@@ -23,7 +24,7 @@ export type ProviderName =
  * AI 模块的全局设置。
  * 聊天和图片生成共用同一组 provider/model/key，embedding 和图片可单独配置。
  */
-export type AppSettings = {
+export type AppSettings = AssistantExecutionSettings & {
   provider: string
   model: string
   apiKey: string

@@ -1,6 +1,7 @@
 import type { ReferenceStyleMetric } from './referenceAnalysis'
 import type { SkillUsePolicy } from '../shared/assistant-runtime'
 import { normalizeChapterOrder } from '../shared/chapter-order'
+import { normalizeAssistantExecutionSettings, type AssistantExecutionSettings } from '../shared/assistant-execution-settings'
 
 export type KnowledgeDocumentSourceType =
   | 'reference-summary'
@@ -324,7 +325,7 @@ export type WorkspacePayload = {
       }>
     }
   >
-  appSettings: {
+  appSettings: AssistantExecutionSettings & {
     provider: string
     model: string
     apiKey: string
@@ -569,6 +570,7 @@ export function normalizeAppSettings(
 
   return {
     provider: activeProfile?.provider || settings?.provider || 'openai-compatible',
+    ...normalizeAssistantExecutionSettings(settings),
     model: activeProfile?.model ?? settings?.model ?? '',
     apiKey: activeProfile?.apiKey ?? settings?.apiKey ?? '',
     baseUrl: activeProfile?.baseUrl ?? settings?.baseUrl ?? '',

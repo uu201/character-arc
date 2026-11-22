@@ -59,6 +59,7 @@ export type ResolveTurnExecutionPlan = (params: {
   tools: Tool[] | ToolFactory
   settings: AppSettings
   maxOutputTokens?: number
+  maxSteps?: number
   runtimePlan: AssistantRuntimePlan
   evidenceLedger: EvidenceLedger
   skillPlan: { mode: SkillUseMode; items: SkillExecutionReceiptItem[] }
@@ -389,7 +390,7 @@ function registerTurnHandlers(): void {
           tools: plan.tools,
           settings: plan.settings,
           signal: controller.signal,
-          maxSteps: payload.surface.maxSteps,
+          maxSteps: plan.maxSteps ?? payload.surface.maxSteps,
           maxOutputTokens: plan.maxOutputTokens,
           onTurnCreated: (turnId) => {
             activeTurn.turnId = turnId

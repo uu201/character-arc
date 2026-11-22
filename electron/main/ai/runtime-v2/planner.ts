@@ -1,4 +1,5 @@
 import type { ContextProviderId, SurfaceDefinition, TurnSendRequest } from '@shared/assistant-runtime'
+import { normalizeAssistantExecutionSettings, type AssistantExecutionSettings } from '../../../shared/assistant-execution-settings'
 
 export type AssistantPlanIntent = 'chat' | 'audit' | 'correct' | 'ingest' | 'edit' | 'entity-edit'
 export type AssistantContextMode = 'minimal' | 'targeted' | 'chapter'
@@ -64,7 +65,9 @@ function buildVagueEditNote(): string {
 export function createRuntimePlan(params: {
   surface: SurfaceDefinition
   request: TurnSendRequest
+  settings?: AssistantExecutionSettings
 }): AssistantRuntimePlan {
+  const limits = normalizeAssistantExecutionSettings(params.settings)
   const intent = resolveIntent(params.request, params.surface)
   const enforceToolBudgets = params.surface.scope !== 'project'
   const requiresBatching = enforceToolBudgets && shouldBatch(params.request.userMessage, intent)
@@ -81,8 +84,8 @@ export function createRuntimePlan(params: {
     intent,
     contextMode: isChapterSurface ? 'chapter' : intent === 'chat' || intent === 'ingest' ? 'minimal' : 'targeted',
     contextProviders: resolveContextProviders(intent, params.surface),
-    maxReadToolCalls: requiresBatching ? 5 : 4,
-    maxSearchToolCalls: 2,
+    maxReadToolCalls: limits.assistantMaxReadToolCalls,
+    maxSearchToolCalls: limits.assistantMaxSearchToolCalls,
     maxStageChanges: intent === 'ingest' || intent === 'correct' || isEdit ? 5 : 2,
     defaultReadLimit: requiresBatching ? 5 : 3,
     allowFullChapterRead: isEdit || params.surface.scope === 'selection' || params.surface.scope === 'project',
@@ -91,7 +94,7 @@ export function createRuntimePlan(params: {
     requiresBatching,
     continuationLabel: requiresBatching ? '继续分析下一批' : '继续补充证据',
     continuationPrompt: buildContinuationPrompt(intent),
-    guidance: buildGuidance(intent, requiresBatching, enforceToolBudgets) + vagueEditNote
+    guidance: buildGuidance(intent, requiresBatching, enforceToolBudgets, limits) + vagueEditNote
   }
 }
 
@@ -170,20 +173,21 @@ function buildContinuationPrompt(intent: AssistantPlanIntent): string {
 function buildGuidance(
   intent: AssistantPlanIntent,
   requiresBatching: boolean,
-  enforceToolBudgets: boolean
+  enforceToolBudgets: boolean,
+  limits: Required<AssistantExecutionSettings>
 ): string {
   const executionMode = !enforceToolBudgets
-    ? '项目级助手不设置读取、搜索或暂存次数预算；请在当前请求内按需完成任务，证据充分后停止读取。'
+    ? '项目级助手不设置暂存次数预算；请在当前请求内按需完成任务，证据充分后停止读取。'
     : requiresBatching
-    ? '本次按分批任务处理：先完成第一批证据读取与阶段结论，必要时提示用户继续下一批。'
+    ? '本次任务可分段分析并在当前请求内连续推进；仅在暂存达到上限或缺少用户决策时提示继续。'
     : '本次按轻量任务处理：证据足够后立即停止读取。'
   return [
     executionMode,
     `识别意图：${intent}。`,
-    '默认先读索引/摘要；只有目标明确且必须核对原文时才读全文。',
-    enforceToolBudgets
-      ? '每批读取预算有限，读完后必须总结已确认事实、证据来源和下一步缺口。'
-      : '按需持续读取相关资料，完成后总结已确认事实、证据来源和仍存在的缺口。',
+    `本次模型最多运行 ${limits.assistantMaxSteps} 轮；读取${limits.assistantMaxReadToolCalls > 0 ? `最多 ${limits.assistantMaxReadToolCalls} 次` : '不单独限次'}，搜索${limits.assistantMaxSearchToolCalls > 0 ? `最多 ${limits.assistantMaxSearchToolCalls} 次` : '不单独限次'}。`,
+    '默认先读索引/摘要；目标和资料 ID 已明确时直接精读，避免重复索引或搜索。',
+    '互不依赖的工具读取尽量在同一轮一起调用，减少模型往返；不要用相同参数重复读取已有结果。',
+    '在当前请求内完成必要的读取和分析，不要仅因已读取四五次就要求用户发送下一轮；完成后总结已确认事实、证据来源和仍存在的缺口。',
     intent === 'entity-edit'
       ? '实体设定修改任务：若目标实体和改动方向已在当前或最近对话中明确，不要继续列问题拖延；基于项目框架补足合理细节，给出2-3个可选方案，或在用户已选方向时直接调用对应 stage_* 产出暂存变更。用户说"根据已有框架给建议"时，只围绕上一轮目标实体给建议，不要转成全项目审计。'
       : ''

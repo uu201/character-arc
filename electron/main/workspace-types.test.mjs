@@ -5,6 +5,9 @@ import test from 'node:test'
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith('@shared/')) {
+      return nextResolve(new URL(`../shared/${specifier.slice(8)}.ts`, import.meta.url).href, context)
+    }
     if (specifier.startsWith('.') && context.parentURL) {
       const candidate = new URL(`${specifier}.ts`, context.parentURL)
       if (existsSync(candidate)) return nextResolve(candidate.href, context)
@@ -54,6 +57,60 @@ test('采样惩罚参数按 -2 到 2 规范化，缺失值保持为空', () => {
   assert.equal(normalized.presencePenalty, 2)
   assert.equal(normalized.frequencyPenalty, -2)
   assert.equal(normalizeAppSettings({}).presencePenalty, undefined)
+})
+
+test('助手执行设置在主进程重新规范化后仍保留', () => {
+  const limits = { assistantMaxSteps: 40, assistantMaxReadToolCalls: 18, assistantMaxSearchToolCalls: 7 }
+  const restored = normalizeAppSettings(normalizeAppSettings(limits))
+  for (const [key, value] of Object.entries(limits)) assert.equal(restored[key], value)
+  assert.equal(normalizeAppSettings({}).assistantMaxSteps, 16)
+  assert.equal(normalizeAppSettings({}).assistantMaxReadToolCalls, 0)
+})
+
+test('助手执行预算在数据库保存、完整快照和重启后保留，兼容旧表迁移', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { ensureWorkspaceDb, closeWorkspaceDbForRollback, readWorkspaceSnapshot, writeWorkspaceSnapshot, writeAppSettingsRow } = await import('./workspace-store.ts')
+  const workspaceDir = await mkdtemp(join(tmpdir(), 'characterarc-assistant-limits-'))
+  const previousDir = process.env.CHARACTERARC_WORKSPACE_DIR
+  process.env.CHARACTERARC_WORKSPACE_DIR = workspaceDir
+  const limits = { assistantMaxSteps: 32, assistantMaxReadToolCalls: 20, assistantMaxSearchToolCalls: 8 }
+  const assertLimits = (settings) => {
+    for (const [key, value] of Object.entries(limits)) assert.equal(settings[key], value)
+  }
+  try {
+    let db = await ensureWorkspaceDb()
+    writeAppSettingsRow(db, limits, { theme: 'ocean', selectedProjectId: '' })
+    assertLimits(readWorkspaceSnapshot(db).appSettings)
+
+    const snapshot = normalizeWorkspacePayload({
+      theme: 'ocean',
+      projects: [{ id: 'project-1', title: '测试项目' }],
+      selectedProjectId: 'project-1',
+      workspaces: {},
+      appSettings: limits
+    })
+    writeWorkspaceSnapshot(db, snapshot)
+    assertLimits(readWorkspaceSnapshot(db).appSettings)
+    closeWorkspaceDbForRollback()
+    db = await ensureWorkspaceDb()
+    assertLimits(readWorkspaceSnapshot(db).appSettings)
+
+    db.exec('ALTER TABLE app_settings DROP COLUMN assistant_execution_json')
+    closeWorkspaceDbForRollback()
+    db = await ensureWorkspaceDb()
+    const migrated = readWorkspaceSnapshot(db)
+    assert.equal(migrated.projects[0].title, '测试项目')
+    assert.equal(migrated.appSettings.assistantMaxSteps, 16)
+    assert.equal(migrated.appSettings.assistantMaxReadToolCalls, 0)
+    assert.equal(migrated.appSettings.assistantMaxSearchToolCalls, 0)
+  } finally {
+    closeWorkspaceDbForRollback()
+    if (previousDir === undefined) delete process.env.CHARACTERARC_WORKSPACE_DIR
+    else process.env.CHARACTERARC_WORKSPACE_DIR = previousDir
+    await rm(workspaceDir, { recursive: true, force: true })
+  }
 })
 
 test('保存 AI 设置时刷新内存快照并保留未落盘的工作区数据', () => {

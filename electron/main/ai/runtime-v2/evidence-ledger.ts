@@ -70,12 +70,12 @@ export function wrapToolsWithRuntimeBudget(
       const args = normalizeArgs(input)
       const kind = classifyTool(tool.definition.name)
       if (kind === 'read') {
-        if (plan.enforceToolBudgets && ledger.readCalls >= plan.maxReadToolCalls) {
+        if (plan.maxReadToolCalls > 0 && ledger.readCalls >= plan.maxReadToolCalls) {
           return stopForBudget(ledger, `本批读取次数已达上限（${plan.maxReadToolCalls} 次）。请基于已有证据给出阶段结论，并说明下一批需要继续读取什么。`)
         }
         ledger.readCalls += 1
       } else if (kind === 'search') {
-        if (plan.enforceToolBudgets && ledger.searchCalls >= plan.maxSearchToolCalls) {
+        if (plan.maxSearchToolCalls > 0 && ledger.searchCalls >= plan.maxSearchToolCalls) {
           return stopForBudget(ledger, `本批搜索次数已达上限（${plan.maxSearchToolCalls} 次）。请停止搜索并整理阶段结论。`)
         }
         ledger.searchCalls += 1
@@ -113,7 +113,7 @@ function coerceLightweightArgs(
   const next = { ...args }
   if (toolName === 'search_project') {
     const max = typeof next.max_results === 'number' ? next.max_results : plan.defaultReadLimit
-    next.max_results = Math.max(1, Math.min(Math.floor(max), plan.defaultReadLimit))
+    next.max_results = Number.isFinite(max) ? Math.max(1, Math.floor(max)) : plan.defaultReadLimit
   }
   if (toolName === 'read_project_data') {
     const hasPreciseTarget = Boolean(String(next.entity_id ?? '').trim() || String(next.doc_key ?? '').trim())

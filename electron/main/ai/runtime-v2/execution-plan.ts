@@ -22,6 +22,7 @@ import { createSkillTools } from '../agent/tools/skill-tools'
 import { getAllSkills, getSkillById, resolveSkillEnabledOverrides, resolveTaskSkills } from '../skills'
 import type { SkillDefinition, SkillStageId } from '../skills'
 import { normalizeSettings, validateSettings } from '../settings'
+import { normalizeAssistantExecutionSettings } from '../../../shared/assistant-execution-settings'
 import { assembleContextBlock, contextBuilder, estimateTokens } from './context-builder'
 import { filterToolsBySurface, isToolAllowed, resolveAllowedMatchers } from './permission'
 import { buildAssistantSystemPrompt } from './system-prompt'
@@ -76,7 +77,8 @@ export function createExecutionPlanner(
     validateSettings(settings)
 
     // 1. Planner：先决定本轮是轻量对话、审计、修正还是分批任务。
-    const runtimePlan = createRuntimePlan({ surface, request })
+    const { assistantMaxSteps: maxSteps } = normalizeAssistantExecutionSettings(settings)
+    const runtimePlan = createRuntimePlan({ surface, request, settings })
     const evidenceLedger = createEvidenceLedger()
     const activeScopeRef = request.scopeRef ?? session.scopeRef
 
@@ -237,6 +239,7 @@ export function createExecutionPlanner(
       tools: toolFactory,
       settings,
       maxOutputTokens,
+      maxSteps,
       runtimePlan,
       evidenceLedger,
       skillPlan: {

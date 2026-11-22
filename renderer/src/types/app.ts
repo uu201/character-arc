@@ -1,4 +1,5 @@
 import type { SkillUsePolicy } from '@shared/assistant-runtime'
+import type { AssistantExecutionSettings } from '@shared/assistant-execution-settings'
 
 export type { SkillUsePolicy } from '@shared/assistant-runtime'
 
@@ -909,7 +910,7 @@ export interface AiProfile {
 
 export type EditorFont = 'clear-mono' | 'modern-sans' | 'classic-serif' | 'relaxed-kai' | 'system'
 
-export interface AppSettings {
+export interface AppSettings extends AssistantExecutionSettings {
   /** AI 供应商标识 */
   provider: string
   /** AI 模型名称 */

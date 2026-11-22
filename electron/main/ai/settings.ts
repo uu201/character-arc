@@ -1,4 +1,5 @@
 import type { AiTaskName, AiTaskPayload, AppSettings, ProviderName } from './shared-types'
+import { normalizeAssistantExecutionSettings } from '../../shared/assistant-execution-settings'
 import {
   getAiProviderCatalogEntry,
   normalizeAiProtocolPreference,
@@ -62,7 +63,8 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     imageModel: settings.imageModel?.trim() || '',
     imageApiKey: settings.imageApiKey?.trim() || '',
     imageBaseUrl: settings.imageBaseUrl?.trim() || '',
-    aiTimeoutSeconds: normalizeOptionalNumber(settings.aiTimeoutSeconds, 30, 600) ?? 180
+    aiTimeoutSeconds: normalizeOptionalNumber(settings.aiTimeoutSeconds, 30, 600) ?? 180,
+    ...normalizeAssistantExecutionSettings(settings)
   }
 }
 

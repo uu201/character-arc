@@ -18,7 +18,7 @@ registerHooks({
 })
 const { AgentLoopCore } = await import('./agent-loop-core.ts')
 import { createEvidenceLedger, wrapToolsWithRuntimeBudget } from './evidence-ledger.ts'
-import { createRuntimePlan } from './planner.ts'
+const { createRuntimePlan } = await import('./planner.ts')
 import { StagedChangesStore } from './staged-changes-store.ts'
 import { normalizeTurnAttachments } from '../../../shared/assistant-runtime.ts'
 
@@ -341,6 +341,75 @@ test('项目级全局助手不设置工具次数预算或自动续批', async ()
   assert.doesNotMatch(plan.guidance, /每批读取预算有限/)
   assert.equal(ledger.snapshot().readCalls, 10)
   assert.equal(ledger.snapshot().budgetExhausted, false)
+})
+
+test('章节助手默认可连续读取和搜索，超过旧版四次读取与两次搜索限制', async () => {
+  const surface = { id: 'chapter-panel', scope: 'chapter', autoCommit: false, maxSteps: 6 }
+  const plan = createRuntimePlan({ surface, request: { surface, userMessage: '润色当前章节' } })
+  const ledger = createEvidenceLedger()
+  const tools = wrapToolsWithRuntimeBudget(['read_chapter', 'search_project'].map((name) => ({
+    definition: { name },
+    handler: async () => ({ content: 'ok' })
+  })), plan, ledger)
+  for (let index = 0; index < 12; index += 1) {
+    for (const tool of tools) assert.equal((await tool.handler({}, {})).content, 'ok')
+  }
+  assert.equal(ledger.snapshot().readCalls, 12)
+  assert.equal(ledger.snapshot().searchCalls, 12)
+  assert.equal(ledger.snapshot().budgetExhausted, false)
+  assert.match(plan.guidance, /同一轮一起调用/)
+})
+
+for (const scope of ['project', 'chapter', 'selection']) {
+  test(`${scope} 场景遵守自定义读取和搜索上限，二者独立计数`, async () => {
+    const surface = { id: 'global-page', scope, autoCommit: false, maxSteps: 8 }
+    const plan = createRuntimePlan({
+      surface,
+      request: { surface, userMessage: '分析已有资料' },
+      settings: { assistantMaxSteps: 28, assistantMaxReadToolCalls: 6, assistantMaxSearchToolCalls: 3 }
+    })
+    const ledger = createEvidenceLedger()
+    const calls = { read_project_data: 0, search_project: 0 }
+    const [read, search] = wrapToolsWithRuntimeBudget(Object.keys(calls).map((name) => ({
+      definition: { name },
+      handler: async () => { calls[name] += 1; return { content: 'ok' } }
+    })), plan, ledger)
+    for (let index = 0; index < 6; index += 1) assert.equal((await read.handler({}, {})).content, 'ok')
+    assert.match((await read.handler({}, {})).content, /读取次数已达上限（6 次）/)
+    for (let index = 0; index < 3; index += 1) assert.equal((await search.handler({}, {})).content, 'ok')
+    assert.match((await search.handler({}, {})).content, /搜索次数已达上限（3 次）/)
+    assert.deepEqual(calls, { read_project_data: 6, search_project: 3 })
+    assert.equal(ledger.snapshot().budgetExhausted, true)
+    assert.match(plan.guidance, /最多运行 28 轮/)
+  })
+}
+
+test('放开读取不会放开章节助手原有的暂存预算', async () => {
+  const surface = { id: 'chapter-panel', scope: 'chapter', autoCommit: false, maxSteps: 6 }
+  const plan = createRuntimePlan({ surface, request: { surface, userMessage: '润色当前章节' } })
+  const ledger = createEvidenceLedger()
+  let calls = 0
+  const [stage] = wrapToolsWithRuntimeBudget([{
+    definition: { name: 'stage_chapter_edit' },
+    handler: async () => { calls += 1; return { content: 'ok' } }
+  }], plan, ledger)
+  for (let index = 0; index < plan.maxStageChanges; index += 1) assert.equal((await stage.handler({}, {})).content, 'ok')
+  assert.match((await stage.handler({}, {})).content, /暂存变更数量已达上限/)
+  assert.equal(calls, plan.maxStageChanges)
+})
+
+test('搜索保留明确请求的结果数量，避免被固定压到三条后反复请求', async () => {
+  const surface = { id: 'global-page', scope: 'project', autoCommit: false, maxSteps: 8 }
+  const plan = createRuntimePlan({ surface, request: { surface, userMessage: '查找相关设定' } })
+  const received = []
+  const [tool] = wrapToolsWithRuntimeBudget([{
+    definition: { name: 'search_project' },
+    handler: async (args) => { received.push(args); return { content: 'ok' } }
+  }], plan, createEvidenceLedger())
+  await tool.handler({ query: '主角', max_results: 12 }, {})
+  await tool.handler({ query: '主角' }, {})
+  assert.equal(received[0].max_results, 12)
+  assert.equal(received[1].max_results, plan.defaultReadLimit)
 })
 
 test('项目级全局助手允许完整读取章节正文', async () => {

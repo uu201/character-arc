@@ -1,6 +1,7 @@
 import { toRaw } from 'vue'
 import { normalizeSkillUsePolicy } from '@shared/assistant-runtime'
 import { normalizeChapterOrder } from '@shared/chapter-order'
+import { DEFAULT_ASSISTANT_EXECUTION_SETTINGS, normalizeAssistantExecutionSettings } from '@shared/assistant-execution-settings'
 import { createDefaultWorkflowDocuments, normalizeWorkflowDocuments } from '@/features/novelWorkflow/documents'
 import { createDefaultNovelWorkflowStages, normalizeNovelWorkflowStages } from '@/features/novelWorkflow/stages'
 import { DEFAULT_CHAPTER_WORD_TARGET, normalizeChapterWordTarget } from '@/features/chapters/wordTarget'
@@ -256,7 +257,8 @@ export const defaultAppSettings: AppSettings = {
   workspaceMenuOrder: normalizeWorkbenchMenuOrder(),
   darkMode: false,
   darkModeStyle: 'nord',
-  aiTimeoutSeconds: 180
+  aiTimeoutSeconds: 180,
+  ...DEFAULT_ASSISTANT_EXECUTION_SETTINGS
 }
 
 // 合并用户设置与默认设置，uiScale 限制在 0.75-1.75 的合理范围内
@@ -436,6 +438,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     workspaceMenuOrder: normalizeWorkbenchMenuOrder(source.workspaceMenuOrder),
     darkMode: typeof source.darkMode === 'boolean' ? source.darkMode : defaultAppSettings.darkMode,
     darkModeStyle: source.darkModeStyle === 'nord' ? 'nord' : defaultAppSettings.darkModeStyle,
+    ...normalizeAssistantExecutionSettings(source),
     aiTimeoutSeconds:
       typeof source.aiTimeoutSeconds === 'number' && Number.isFinite(source.aiTimeoutSeconds)
         ? Math.min(600, Math.max(30, source.aiTimeoutSeconds))

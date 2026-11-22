@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { ArrowDown, ArrowUp, Copy, Cpu, DatabaseBackup, Download, GripVertical, Image, MonitorCog, Moon, Network, Palette, PlugZap, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, ChevronDown, Copy, Cpu, DatabaseBackup, Download, GripVertical, Image, MonitorCog, Moon, Network, Palette, PlugZap, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-vue-next'
 import { NButton, NFormItem, NInput, NInputNumber, NModal, NSelect, NSwitch, useMessage } from 'naive-ui'
 import { autoSaveOptions } from '@/features/settings/autoSave'
 import { getProviderPreset, providerOptions, resolveProviderDefaults } from '@/features/settings/providerPresets'
@@ -19,6 +19,7 @@ import { darkModePresets, themePresets } from '@/theme/presets'
 import { toIpcPayload } from '@/utils/ipcPayload'
 import type { AiProfile, AppSettings, DarkModeStyle, ThemeName } from '@/types/app'
 import { isCodexCliProvider, isOpenAIChatProtocol, resolveAiProviderProtocol } from '@shared/ai-provider-catalog'
+import { DEFAULT_ASSISTANT_EXECUTION_SETTINGS, normalizeAssistantExecutionSettings } from '@shared/assistant-execution-settings'
 import DatabaseBackupSettings from './DatabaseBackupSettings.vue'
 
 const props = defineProps<{
@@ -90,7 +91,8 @@ const draftSettings = reactive<AppSettings>({
   workspaceMenuOrder: [...DEFAULT_WORKBENCH_MENU_ORDER],
   darkMode: false,
   darkModeStyle: 'nord',
-  aiTimeoutSeconds: 180
+  aiTimeoutSeconds: 180,
+  ...DEFAULT_ASSISTANT_EXECUTION_SETTINGS
 })
 const draftTheme = ref<ThemeName>('ocean')
 const editingProfileId = ref<string>('')
@@ -196,6 +198,7 @@ const hasPendingChanges = computed(() =>
   || draftSettings.darkMode !== appStore.appSettings.darkMode
   || draftSettings.darkModeStyle !== appStore.appSettings.darkModeStyle
   || draftSettings.aiTimeoutSeconds !== appStore.appSettings.aiTimeoutSeconds
+  || JSON.stringify(normalizeAssistantExecutionSettings(draftSettings)) !== JSON.stringify(normalizeAssistantExecutionSettings(appStore.appSettings))
 )
 
 function syncDraftFromStore(): void {
@@ -225,6 +228,7 @@ function syncDraftFromStore(): void {
   draftSettings.darkMode = appStore.appSettings.darkMode
   draftSettings.darkModeStyle = appStore.appSettings.darkModeStyle
   draftSettings.aiTimeoutSeconds = appStore.appSettings.aiTimeoutSeconds
+  Object.assign(draftSettings, normalizeAssistantExecutionSettings(appStore.appSettings))
   draftTheme.value = appStore.theme
 }
 
@@ -531,6 +535,7 @@ async function saveSettings(): Promise<void> {
   const activeProfile = draftSettings.aiProfiles.find(p => p.id === draftSettings.activeAiProfileId)
   const nextSettings: AppSettings = {
     ...draftSettings,
+    ...normalizeAssistantExecutionSettings(draftSettings),
     aiProfiles: draftSettings.aiProfiles.map((profile) => ({ ...profile })),
     workspaceMenuOrder: normalizeWorkbenchMenuOrder(draftSettings.workspaceMenuOrder),
     activeAiProfileId: draftSettings.activeAiProfileId,
@@ -717,7 +722,17 @@ async function saveSettings(): Promise<void> {
               />
             </n-form-item>
             <details v-else class="advanced-settings">
-              <summary>API 高级设置</summary>
+              <summary>
+                <span class="advanced-settings-label">
+                  <strong>API 高级设置</strong>
+                  <span>协议选择与模型采样参数</span>
+                </span>
+                <span class="advanced-settings-toggle">
+                  <span class="advanced-settings-expand">展开</span>
+                  <span class="advanced-settings-collapse">收起</span>
+                  <ChevronDown :size="16" class="advanced-settings-chevron" aria-hidden="true" />
+                </span>
+              </summary>
               <div class="advanced-settings-body">
                 <n-form-item label="API 协议">
                   <n-select
@@ -782,15 +797,61 @@ async function saveSettings(): Promise<void> {
                 </p>
               </div>
             </details>
-            <div class="section-actions">
-              <n-button round strong secondary :disabled="isTestingAiConnection" @click="handleTestAiConnection">
-                <template #icon>
-                  <PlugZap :size="16" />
-                </template>
-                {{ isTestingAiConnection ? '测试中...' : '测试模型连接' }}
-              </n-button>
-            </div>
           </template>
+          <details class="advanced-settings">
+            <summary>
+              <span class="advanced-settings-label">
+                <strong>助手执行上限</strong>
+                <span>全局与章节助手共用</span>
+              </span>
+              <span class="advanced-settings-toggle">
+                <span class="advanced-settings-expand">展开</span>
+                <span class="advanced-settings-collapse">收起</span>
+                <ChevronDown :size="16" class="advanced-settings-chevron" aria-hidden="true" />
+              </span>
+            </summary>
+            <div class="advanced-settings-body">
+              <div class="settings-grid">
+                <n-form-item label="单次发送的工具推理轮数上限">
+                  <n-input-number
+                    v-model:value="draftSettings.assistantMaxSteps"
+                    :min="2"
+                    :max="100"
+                    :precision="0"
+                    :placeholder="String(DEFAULT_ASSISTANT_EXECUTION_SETTINGS.assistantMaxSteps)"
+                  />
+                </n-form-item>
+                <n-form-item label="资料读取次数上限（0 为不限）">
+                  <n-input-number
+                    v-model:value="draftSettings.assistantMaxReadToolCalls"
+                    :min="0"
+                    :max="200"
+                    :precision="0"
+                    placeholder="0"
+                  />
+                </n-form-item>
+                <n-form-item label="搜索次数上限（0 为不限）">
+                  <n-input-number
+                    v-model:value="draftSettings.assistantMaxSearchToolCalls"
+                    :min="0"
+                    :max="200"
+                    :precision="0"
+                    placeholder="0"
+                  />
+                </n-form-item>
+              </div>
+              <p class="advanced-settings-hint">默认最多运行 16 轮工具推理，读取和搜索不单独限次，仍受推理轮数约束。设置对所有接口配置共用，下一次发送生效。</p>
+              <p class="advanced-settings-hint">一次发送可能包含多次 API 请求；每轮工具结果通常需要再次请求模型，最终整理和异常重试也可能额外请求。提高上限可减少手动续问，但不会把多轮合并为一次计费，也不控制模型思考长度；按次计费时可适当降低轮数，并明确本次需要读取的资料范围。</p>
+            </div>
+          </details>
+          <div v-if="editingProfile" class="section-actions">
+            <n-button round strong secondary :disabled="isTestingAiConnection" @click="handleTestAiConnection">
+              <template #icon>
+                <PlugZap :size="16" />
+              </template>
+              {{ isTestingAiConnection ? '测试中...' : '测试模型连接' }}
+            </n-button>
+          </div>
         </section>
 
         <section id="sec-network" class="settings-section">
@@ -1409,24 +1470,94 @@ async function saveSettings(): Promise<void> {
 .advanced-settings {
   margin: 0 0 16px;
   border: 1px solid var(--arc-border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--arc-bg-surface);
 }
 
-.advanced-settings summary {
+.advanced-settings > summary {
   display: flex;
   align-items: center;
-  min-height: 42px;
-  padding: 0 14px;
-  color: var(--arc-text-secondary);
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 62px;
+  padding: 10px 14px;
+  border-radius: inherit;
+  background: var(--arc-bg-weak);
+  color: var(--arc-text-primary);
   cursor: pointer;
+  list-style: none;
   font-size: 13px;
-  font-weight: 650;
   user-select: none;
+  transition: background 0.15s ease;
+}
+
+.advanced-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-settings > summary:hover {
+  background: var(--arc-bg-surface-hover);
+}
+
+.advanced-settings > summary:focus-visible {
+  outline: 2px solid var(--arc-primary);
+  outline-offset: 3px;
+}
+
+.advanced-settings[open] > summary {
+  border-radius: 10px 10px 0 0;
+}
+
+.advanced-settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  line-height: 1.5;
+}
+
+.advanced-settings-label strong {
+  font-weight: 650;
+}
+
+.advanced-settings-label > span {
+  color: var(--arc-text-hint);
+  font-size: 12px;
+}
+
+.advanced-settings-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--arc-primary) 8%, var(--arc-bg-surface));
+  color: var(--arc-primary);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.advanced-settings-collapse,
+.advanced-settings[open] > summary .advanced-settings-expand {
+  display: none;
+}
+
+.advanced-settings[open] > summary .advanced-settings-collapse {
+  display: inline;
+}
+
+.advanced-settings-chevron {
+  transition: transform 0.15s ease;
+}
+
+.advanced-settings[open] > summary .advanced-settings-chevron {
+  transform: rotate(180deg);
 }
 
 .advanced-settings-body {
-  padding: 0 14px 14px;
+  padding: 16px 14px 14px;
+  border-top: 1px solid var(--arc-border);
 }
 
 .advanced-settings :deep(.n-input-number) {
@@ -1822,7 +1953,9 @@ async function saveSettings(): Promise<void> {
   .menu-order-actions,
   .menu-order-reset,
   .menu-drag-handle,
-  .menu-order-action {
+  .menu-order-action,
+  .advanced-settings > summary,
+  .advanced-settings-chevron {
     transition: none;
   }
 }

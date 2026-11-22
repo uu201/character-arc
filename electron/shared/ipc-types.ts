@@ -1,3 +1,5 @@
+import type { AssistantExecutionSettings } from './assistant-execution-settings'
+
 export interface IpcResult<T = void> {
   success: boolean
   error?: string
@@ -10,7 +12,7 @@ export interface IpcPayloadResult<T = unknown> {
   payload?: T
 }
 
-export interface AppSettingsPayload {
+export interface AppSettingsPayload extends AssistantExecutionSettings {
   provider: string
   model: string
   apiKey: string
