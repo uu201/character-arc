@@ -81,6 +81,7 @@ export async function runAiTask(
   knowledgeContext?: AiTaskKnowledgeContext,
   signal?: AbortSignal
 ): Promise<AiTaskResponse> {
+  signal?.throwIfAborted()
   const handler = getTaskHandler(task.task)
   // 白名单内的任务直接尝试走 agent loop，不预判 provider 能力。
   // 如果模型不支持 tool_use，运行时会抛错，在 catch 中降级或提示用户。
@@ -90,10 +91,10 @@ export async function runAiTask(
   const usesAgentRoute = AGENT_TASK_WHITELIST.has(task.task)
     && !isCodexCliProvider(settingsForRouting.provider)
   if (usesAgentRoute) {
-    await enrichTaskContextForGeneration(task, settingsForRouting)
     try {
-      return await runAgentTask(task, knowledgeContext)
+      return await runAgentTask(task, knowledgeContext, signal)
     } catch (error) {
+      signal?.throwIfAborted()
       if (isToolUseNotSupportedError(error)) {
         if (task.task === 'reference-deep-analyze') {
           throw new Error('深度拆书需要模型支持 tool_use（工具调用）。当前模型不支持此功能，请切换到支持工具调用的模型后重试。')

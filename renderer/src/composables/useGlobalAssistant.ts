@@ -3,8 +3,8 @@ import type { MaybeRefOrGetter } from 'vue'
 import { BookMarked, FileCheck2, Globe2, Network, Users } from 'lucide-vue-next'
 import { useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
-import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { ASSISTANT_MARKDOWN_SANITIZE_OPTIONS, parseAssistantMarkdown } from '@/features/assistant/markdown'
 import type { AssistantToolCall, ChapterEditProposal, ChatMessage, GlobalAssistantProposal, PanelName } from '@/types/app'
 import { resolveOutlineReferenceIds } from '@/features/ai/outlineReferences'
 import { useAppStore } from '@/stores/app'
@@ -49,18 +49,6 @@ export interface UseGlobalAssistantOptions {
   activeViewLabel?: MaybeRefOrGetter<string>
 }
 
-marked.setOptions({
-  breaks: true,
-  gfm: true
-})
-
-const MARKDOWN_ALLOWED_TAGS = [
-  'p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote',
-  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th',
-  'td', 'a', 'span', 'del', 'hr'
-]
-const MARKDOWN_ALLOWED_ATTR = ['class', 'href', 'target', 'rel']
-
 const AI_TASK_KEY = 'global-assistant-chat'
 const PROPOSAL_TASK_KEY = 'global-assistant-proposal'
 
@@ -86,11 +74,8 @@ const GLOBAL_ASSISTANT_MODE_OPTIONS: Array<{ id: AssistantMode; label: string; d
 
 /** 渲染助手消息 Markdown（纯函数，可模块级共享） */
 export function renderMarkdown(content: string): string {
-  const html = marked.parse(content || '', { async: false }) as string
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: MARKDOWN_ALLOWED_TAGS,
-    ALLOWED_ATTR: MARKDOWN_ALLOWED_ATTR
-  })
+  const html = parseAssistantMarkdown(content || '')
+  return DOMPurify.sanitize(html, ASSISTANT_MARKDOWN_SANITIZE_OPTIONS)
 }
 
 function formatToolArgs(args: Record<string, unknown>): string {

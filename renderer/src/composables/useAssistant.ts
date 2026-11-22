@@ -36,6 +36,7 @@ import {
   ASSISTANT_DOCUMENT_MIME_TYPES,
   ASSISTANT_IMAGE_LIMITS,
   ASSISTANT_IMAGE_MIME_TYPES,
+  getAssistantTerminalDelta,
   getTurnDocumentAttachments,
   getTurnFileAttachments,
   getTurnImageAttachments,
@@ -435,11 +436,14 @@ export function useAssistant(options: UseAssistantOptions) {
           skillReceipt = evt.items.map((item) => ({ ...item }))
           break
         case 'done':
-          if (evt.content && !assistantMessage) {
-            assistantMessage = evt.content
-            appendTextBlock('assistant', evt.seq, evt.content)
+        case 'canceled': {
+          const delta = getAssistantTerminalDelta(assistantMessage, evt.content)
+          if (delta) {
+            assistantMessage += delta
+            appendTextBlock('assistant', evt.seq, delta)
           }
           break
+        }
         case 'error':
           finalError = formatAssistantError(evt.error)
           break

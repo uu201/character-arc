@@ -635,3 +635,8 @@ export interface AssistantEventPush {
   turnId: string
   event: TurnEvent
 }
+
+/** 补齐终态携带的未刷出正文；重复终态不会重复追加或覆盖已有回复。 */
+export function getAssistantTerminalDelta(streamedText: string, terminalText?: string): string {
+  return terminalText?.startsWith(streamedText) ? terminalText.slice(streamedText.length) : ''
+}

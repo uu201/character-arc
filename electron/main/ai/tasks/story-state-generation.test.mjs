@@ -4,6 +4,7 @@ import test from 'node:test'
 
 const taskContextSource = readFileSync(new URL('../runtime/task-context.ts', import.meta.url), 'utf8')
 const orchestratorSource = readFileSync(new URL('../runtime/orchestrator.ts', import.meta.url), 'utf8')
+const agentTaskSource = readFileSync(new URL('../agent/index.ts', import.meta.url), 'utf8')
 const firstDraftContextSource = readFileSync(new URL('../../../../renderer/src/features/ai/chapterAssistantContext.ts', import.meta.url), 'utf8')
 const firstDraftFlowSource = readFileSync(new URL('../../../../renderer/src/components/chapterWorkspace/useChapterFirstDraft.ts', import.meta.url), 'utf8')
 const chapterMetaDialogSource = readFileSync(new URL('../../../../renderer/src/components/chapterWorkspace/ChapterMetaDialog.vue', import.meta.url), 'utf8')
@@ -51,13 +52,15 @@ test('相关生成提示词会实际消费世界状态', () => {
   }
 })
 
-test('世界状态在 Agent 路由前完成注入', () => {
-  const enrichIndex = orchestratorSource.indexOf('await enrichTaskContextForGeneration(task, settingsForRouting)')
-  const agentRunIndex = orchestratorSource.indexOf('return await runAgentTask(task, knowledgeContext)')
+test('Agent 在构建提示词前完成一次世界状态注入，路由层不重复补全', () => {
+  const enrichIndex = agentTaskSource.indexOf('await enrichTaskContextForGeneration(task, settings)')
+  const promptIndex = agentTaskSource.indexOf('const input = buildPromptInput(')
 
   assert.ok(enrichIndex >= 0)
-  assert.ok(agentRunIndex >= 0)
-  assert.ok(enrichIndex < agentRunIndex)
+  assert.ok(promptIndex > enrichIndex)
+  assert.equal(agentTaskSource.match(/await enrichTaskContextForGeneration\(/g)?.length, 1)
+  assert.doesNotMatch(orchestratorSource, /enrichTaskContextForGeneration\(task, settingsForRouting\)/)
+  assert.match(orchestratorSource, /runAgentTask\(task, knowledgeContext, signal\)/)
 })
 
 test('相关界面请求会携带当前项目 ID', () => {

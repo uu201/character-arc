@@ -124,7 +124,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
 
   // 记录已执行过的「工具+参数」指纹及其结果，命中重复时直接回灌旧结果，
   // 避免模型反复读同一份数据空烧步数。
-  const seenToolResults = new Map<string, string>()
+  const seenToolResults = new Map<string, Promise<string>>()
   const toolObservations: Array<{ tool: string; args: Record<string, unknown>; content: string }> = []
 
   const sdkTools: Record<string, ReturnType<typeof dynamicTool>> = {}
@@ -137,16 +137,27 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
         const fingerprint = `${t.definition.name}:${stableStringify(args)}`
         const cached = seenToolResults.get(fingerprint)
         if (cached !== undefined) {
-          return `（此调用「${t.definition.name}」已用相同参数执行过，结果见上文，无需重复调用。请基于已有结果继续。）\n\n${cached}`
+          return `（此调用「${t.definition.name}」已用相同参数执行过，结果见上文，无需重复调用。请基于已有结果继续。）\n\n${await cached}`
         }
-        const result = await t.handler(args, params.ctx)
-        if (result.isError) {
-          toolObservations.push({ tool: t.definition.name, args, content: `工具执行失败：${result.content}` })
-          throw new Error(result.content)
+        // 在执行结束前缓存 Promise，同轮并发的重复调用也只执行一次。
+        const execution = (async () => {
+          params.ctx.signal.throwIfAborted()
+          const result = await t.handler(args, params.ctx)
+          if (result.isError) {
+            toolObservations.push({ tool: t.definition.name, args, content: `工具执行失败：${result.content}` })
+            throw new Error(result.content)
+          }
+          toolObservations.push({ tool: t.definition.name, args, content: result.content })
+          return result.content
+        })()
+        seenToolResults.set(fingerprint, execution)
+        try {
+          return await execution
+        } catch (error) {
+          // 失败不是有效证据，允许模型修正参数或再次尝试。
+          seenToolResults.delete(fingerprint)
+          throw error
         }
-        seenToolResults.set(fingerprint, result.content)
-        toolObservations.push({ tool: t.definition.name, args, content: result.content })
-        return result.content
       }
     })
   }

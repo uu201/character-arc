@@ -4,10 +4,23 @@ import test from 'node:test'
 import {
   formatTurnPromptWithDocuments,
   formatTurnUserMessage,
+  getAssistantTerminalDelta,
   getTurnDocumentAttachments,
   getTurnImageAttachments,
   normalizeTurnAttachments
 } from './assistant-runtime.ts'
+
+test('终态补齐取消前未刷出的尾部，重复推送和回放不会重复追加', () => {
+  let text = '已刷出的第一段'
+  const finalText = '已刷出的第一段，尚未刷出的第二段'
+  text += getAssistantTerminalDelta(text, finalText)
+  assert.equal(text, finalText)
+  text += getAssistantTerminalDelta(text, finalText)
+  assert.equal(text, finalText)
+  assert.equal(getAssistantTerminalDelta('', finalText), finalText)
+  assert.equal(getAssistantTerminalDelta(text, undefined), '')
+  assert.equal(getAssistantTerminalDelta(text, '其他回复'), '')
+})
 
 test('AI 助理接受受限图片附件并按真实字节数归一化', () => {
   const attachments = normalizeTurnAttachments([{

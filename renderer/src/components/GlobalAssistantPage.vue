@@ -1216,7 +1216,8 @@ watch(
 .ga-msg__body :deep(li) {
   margin: 4px 0;
 }
-.ga-msg__body :deep(h1), .ga-msg__body :deep(h2), .ga-msg__body :deep(h3) {
+.ga-msg__body :deep(h1), .ga-msg__body :deep(h2), .ga-msg__body :deep(h3),
+.ga-msg__body :deep(h4), .ga-msg__body :deep(h5), .ga-msg__body :deep(h6) {
   margin: 16px 0 8px;
   font-weight: 700;
   line-height: 1.4;
@@ -1225,6 +1226,7 @@ watch(
 .ga-msg__body :deep(h1) { font-size: 1.25em; }
 .ga-msg__body :deep(h2) { font-size: 1.15em; }
 .ga-msg__body :deep(h3) { font-size: 1.05em; }
+.ga-msg__body :deep(h4), .ga-msg__body :deep(h5), .ga-msg__body :deep(h6) { font-size: 1em; }
 .ga-msg__body :deep(code) {
   padding: 2px 6px;
   border-radius: 4px;
@@ -1549,6 +1551,37 @@ watch(
   font-size: 12px;
   line-height: 1.6;
   color: var(--arc-text-secondary, #4b5563);
+}
+
+.ga-msg__body :deep(table) {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 10px 0;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+.ga-msg__body :deep(th), .ga-msg__body :deep(td) {
+  padding: 6px 10px;
+  border: 1px solid var(--arc-border);
+}
+.ga-msg__body :deep(th) {
+  background: var(--arc-bg-weak);
+}
+.ga-msg__body :deep(input[type='checkbox']) {
+  margin: 0 6px 0 0;
+  transform: translateY(1px);
+}
+.ga-msg__body :deep(a) {
+  color: var(--arc-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ga-msg__body :deep(hr) {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--arc-border);
 }
 
 /* 状态条 */

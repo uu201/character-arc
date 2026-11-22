@@ -1257,7 +1257,9 @@ watch(
 .global-markdown-body :deep(h1),
 .global-markdown-body :deep(h2),
 .global-markdown-body :deep(h3),
-.global-markdown-body :deep(h4) {
+.global-markdown-body :deep(h4),
+.global-markdown-body :deep(h5),
+.global-markdown-body :deep(h6) {
   margin: 12px 0 6px;
   color: var(--arc-text-primary);
   font-weight: 700;
@@ -1268,6 +1270,8 @@ watch(
 .global-markdown-body :deep(h2) { font-size: 1.12em; }
 .global-markdown-body :deep(h3),
 .global-markdown-body :deep(h4) { font-size: 1.04em; }
+.global-markdown-body :deep(h5),
+.global-markdown-body :deep(h6) { font-size: 1em; }
 
 .global-markdown-body :deep(ul),
 .global-markdown-body :deep(ol) {
@@ -1277,6 +1281,11 @@ watch(
 
 .global-markdown-body :deep(li) {
   margin: 3px 0;
+}
+
+.global-markdown-body :deep(input[type='checkbox']) {
+  margin: 0 6px 0 0;
+  transform: translateY(1px);
 }
 
 .global-markdown-body :deep(blockquote) {
@@ -1312,7 +1321,10 @@ watch(
 }
 
 .global-markdown-body :deep(table) {
-  width: 100%;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   margin: 8px 0;
   border-collapse: collapse;
   font-size: 12px;
@@ -1327,6 +1339,12 @@ watch(
 .global-markdown-body :deep(th) {
   background: var(--arc-bg-muted);
   font-weight: 700;
+}
+
+.global-markdown-body :deep(hr) {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--arc-border);
 }
 
 .global-suggest {

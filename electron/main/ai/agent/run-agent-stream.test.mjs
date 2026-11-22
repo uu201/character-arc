@@ -6,12 +6,18 @@ import { formatAiErrorMessage, formatUnknownError, isAiConnectionInterruptedErro
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier === 'electron') {
+      const source = 'export const app = { getAppPath() { throw new Error("测试不访问 Electron 应用目录") } }'
+      return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true }
+    }
     if (specifier.startsWith('@shared/')) {
       return nextResolve(new URL(`../../../shared/${specifier.slice(8)}.ts`, import.meta.url).href, context)
     }
     if (specifier.startsWith('.') && context.parentURL && !/\.[cm]?[jt]s$/.test(specifier)) {
       const candidate = new URL(`${specifier}.ts`, context.parentURL)
       if (existsSync(candidate)) return nextResolve(candidate.href, context)
+      const index = new URL(`${specifier}/index.ts`, context.parentURL)
+      if (existsSync(index)) return nextResolve(index.href, context)
     }
     return nextResolve(specifier, context)
   }
@@ -175,4 +181,87 @@ test('用户取消后即使连接中断，也不自动重试', async (t) => {
   await runAgent(run.input).catch(() => {})
   assert.equal(requests, 1)
   assert.equal(run.status.some(message => message.includes('自动重试')), false)
+})
+
+test('同一轮并发重复暂存只执行一次，共享执行中的结果', async (t) => {
+  let requests = 0
+  let toolEffects = 0
+  t.mock.method(globalThis, 'fetch', async () => ++requests === 1
+    ? response([
+        chunk({ tool_calls: [0, 1].map(index => ({ index, id: `call-${index}`, type: 'function',
+          function: { name: 'stage_test', arguments: '{}' } })) }),
+        chunk({}, 'tool_calls'), '[DONE]'
+      ])
+    : response([chunk({ content: '已生成待审阅的变更。' }), chunk({}, 'stop'), '[DONE]']))
+  const run = params({ tools: [{
+    definition: { name: 'stage_test', description: '暂存测试变更',
+      inputSchema: { type: 'object', properties: {} } },
+    handler: async () => {
+      toolEffects++
+      await new Promise(resolve => setImmediate(resolve))
+      return { content: '已暂存一项变更' }
+    }
+  }] })
+  const result = await runAgent(run.input)
+  assert.equal(toolEffects, 1)
+  assert.equal(requests, 2)
+  assert.equal(result.toolCalls.length, 2)
+  assert.equal(result.finalText, '已生成待审阅的变更。')
+})
+
+test('失败的工具结果不进入成功缓存，允许下一轮重新执行', async (t) => {
+  let requests = 0
+  let toolEffects = 0
+  t.mock.method(globalThis, 'fetch', async () => ++requests <= 2
+    ? response([
+        chunk({ tool_calls: [{ index: 0, id: `call-${requests}`, type: 'function',
+          function: { name: 'read_test', arguments: '{}' } }] }),
+        chunk({}, 'tool_calls'), '[DONE]'
+      ])
+    : response([chunk({ content: '已读取资料。' }), chunk({}, 'stop'), '[DONE]']))
+  const run = params({ tools: [{
+    definition: { name: 'read_test', description: '读取测试资料',
+      inputSchema: { type: 'object', properties: {} } },
+    handler: async () => ++toolEffects === 1
+      ? { content: '暂时无法读取', isError: true }
+      : { content: '资料读取成功' }
+  }] })
+  const result = await runAgent(run.input)
+  assert.equal(toolEffects, 2)
+  assert.equal(requests, 3)
+  assert.equal(result.finalText, '已读取资料。')
+})
+
+test('非流式 Agent 沿用调用方的取消信号，不继续发请求', async (t) => {
+  const { runAgentTask } = await import('./index.ts')
+  const controller = new AbortController()
+  let requests = 0
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    requests++
+    controller.abort()
+    options.signal.throwIfAborted()
+    return response([chunk({ content: '{"entries":[]}' }), chunk({}, 'stop'), '[DONE]'])
+  })
+  const task = { task: 'outline-batch', settings: params().input.settings,
+    context: { skillPolicy: { mode: 'off', skillIds: [] } } }
+  await assert.rejects(runAgentTask(task, undefined, controller.signal), error => error.aiRunMeta?.status === 'canceled')
+  assert.equal(requests, 1)
+})
+
+test('非流式 Agent 结构化修复也遵守同一取消信号', async (t) => {
+  const { runAgentTask } = await import('./index.ts')
+  const controller = new AbortController()
+  let requests = 0
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    requests++
+    if (requests > 1) {
+      controller.abort()
+      options.signal.throwIfAborted()
+    }
+    return response([chunk({ content: '{"entries":[]}' }), chunk({}, 'stop'), '[DONE]'])
+  })
+  const task = { task: 'outline-batch', settings: params().input.settings,
+    context: { skillPolicy: { mode: 'off', skillIds: [] } } }
+  await assert.rejects(runAgentTask(task, undefined, controller.signal), error => error.aiRunMeta?.status === 'canceled')
+  assert.equal(requests, 2)
 })

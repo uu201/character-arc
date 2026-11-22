@@ -142,8 +142,9 @@ export class AgentLoopCore {
     turnId: string,
     toolCalls: ToolCallTrace[],
     signal: AbortSignal
-  ): { handlers: AiAgentStreamHandlers; flush: () => void } {
+  ): { handlers: AiAgentStreamHandlers; flush: () => void; getText: () => string } {
     const toolArgs = new Map<string, Record<string, unknown>>()
+    let streamedText = ''
     let pending: { kind: 'chunk' | 'reasoning'; delta: string } | null = null
     let flushTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -172,6 +173,8 @@ export class AgentLoopCore {
 
     const handlers: AiAgentStreamHandlers = {
       onTextDelta: (delta) => {
+        if (!delta || signal.aborted) return
+        streamedText += delta
         queueDelta('chunk', delta)
       },
       onReasoningDelta: (delta) => {
@@ -221,7 +224,7 @@ export class AgentLoopCore {
       onEditApplied: () => {},
       onEditProposed: () => {}
     }
-    return { handlers, flush }
+    return { handlers, flush, getText: () => streamedText }
   }
 
   /** 订阅 StagedChangesStore：本轮 turn 内的变更 → staged_change 事件双写。 */
@@ -380,10 +383,14 @@ export class AgentLoopCore {
         content: finalText
       })
     } catch (e) {
+      // runAgent 抛错或被取消时没有返回值，仍需保存已接收的正文。
+      finalText = stream.getText() || finalText
       stream.flush()
       if (options.signal.aborted) {
         status = 'canceled'
-        if (this.conversation.getTurn(turnId)?.status === 'streaming') {
+        const persistedTurn = this.conversation.getTurn(turnId)
+        if (persistedTurn?.status === 'streaming'
+          || (finalText && persistedTurn?.assistantMessage !== finalText)) {
           this.dispatch(sessionId, turnId, {
             kind: 'canceled',
             seq: 0,

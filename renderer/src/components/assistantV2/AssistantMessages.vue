@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
-import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { NModal, useMessage } from 'naive-ui'
 import {
@@ -28,64 +27,16 @@ import {
 } from 'lucide-vue-next'
 import type { AssistantMessageView, AssistantToolCallView } from '@/composables/useAssistant'
 import { parseSelectionPrompt } from '@/features/assistant/selectionPrompt'
+import { ASSISTANT_MARKDOWN_SANITIZE_OPTIONS, parseAssistantMarkdown } from '@/features/assistant/markdown'
 import type { StagedChange, TurnFileAttachment } from '@shared/assistant-runtime'
-
-const MD_ALLOWED_TAGS = [
-  'p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote',
-  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th',
-  'td', 'a', 'span', 'del', 'hr', 'input'
-]
-const MD_ALLOWED_ATTR = ['class', 'href', 'target', 'rel', 'type', 'checked', 'disabled']
-
-marked.setOptions({
-  breaks: true,
-  gfm: true
-})
-
-function splitTableCells(line: string): string[] {
-  const trimmed = line.trim()
-  if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) return []
-  return trimmed.slice(1, -1).split('|').map((cell) => cell.trim())
-}
-
-function isTableSeparator(line: string): boolean {
-  const cells = splitTableCells(line)
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell))
-}
-
-function normalizeMarkdownTables(content: string): string {
-  const lines = content.split('\n')
-  let inFence = false
-
-  return lines.map((line, index) => {
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence
-      return line
-    }
-    if (inFence || !isTableSeparator(line) || index === 0) return line
-
-    const headerCells = splitTableCells(lines[index - 1])
-    const separatorCells = splitTableCells(line)
-    if (headerCells.length <= separatorCells.length) return line
-
-    const normalizedCells = [
-      ...separatorCells,
-      ...Array.from({ length: headerCells.length - separatorCells.length }, () => '------')
-    ]
-    return `| ${normalizedCells.join(' | ')} |`
-  }).join('\n')
-}
 
 const markdownCache = new Map<string, { content: string; html: string }>()
 
 function renderMarkdown(content: string, cacheKey: string): string {
   const cached = markdownCache.get(cacheKey)
   if (cached?.content === content) return cached.html
-  const html = marked.parse(normalizeMarkdownTables(content || ''), { async: false }) as string
-  const sanitized = DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: MD_ALLOWED_TAGS,
-    ALLOWED_ATTR: MD_ALLOWED_ATTR
-  })
+  const html = parseAssistantMarkdown(content || '')
+  const sanitized = DOMPurify.sanitize(html, ASSISTANT_MARKDOWN_SANITIZE_OPTIONS)
   markdownCache.set(cacheKey, { content, html: sanitized })
   return sanitized
 }
@@ -1497,7 +1448,9 @@ const hasContent = computed(() => props.messages.length > 0)
 .markdown-body :deep(h1),
 .markdown-body :deep(h2),
 .markdown-body :deep(h3),
-.markdown-body :deep(h4) {
+.markdown-body :deep(h4),
+.markdown-body :deep(h5),
+.markdown-body :deep(h6) {
   font-weight: 600;
   margin: 14px 0 7px;
   color: var(--arc-text-primary);
@@ -1506,6 +1459,8 @@ const hasContent = computed(() => props.messages.length > 0)
 .markdown-body :deep(h2) { font-size: 16.5px; }
 .markdown-body :deep(h3) { font-size: 15px; }
 .markdown-body :deep(h4) { font-size: 14px; }
+.markdown-body :deep(h5),
+.markdown-body :deep(h6) { font-size: 14px; }
 .markdown-body :deep(ul),
 .markdown-body :deep(ol) {
   margin: 4px 0 10px;

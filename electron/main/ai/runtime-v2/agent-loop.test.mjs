@@ -592,3 +592,47 @@ test('模型在取消后迟到的成功结果不会把 turn 改回完成', async
     finalText: ''
   }])
 })
+
+test('断流时保留已输出的正文并以错误状态落盘', async () => {
+  const { loop, conversation, pushedEvents } = makeLoop(async ({ handlers }) => {
+    handlers.onTextDelta('已完成第一部分')
+    handlers.onTextDelta('，第二部分尚未完成。')
+    throw new Error('连接中断')
+  })
+  const result = await loop.run(makeOptions(new AbortController().signal))
+  assert.equal(result.status, 'error')
+  assert.equal(result.finalText, '已完成第一部分，第二部分尚未完成。')
+  assert.equal(conversation.statusUpdates.at(-1).finalText, result.finalText)
+  assert.equal(pushedEvents.at(-1).event.kind, 'error')
+})
+
+test('取消时连尚未刷出的正文也保留，且忽略取消后的迟到增量', async () => {
+  const controller = new AbortController()
+  const { loop, conversation, pushedEvents } = makeLoop(async ({ handlers }) => {
+    handlers.onTextDelta('取消前已收到的正文')
+    controller.abort()
+    handlers.onTextDelta('取消后的迟到内容')
+    throw new Error('aborted')
+  })
+  const result = await loop.run(makeOptions(controller.signal))
+  assert.equal(result.status, 'canceled')
+  assert.equal(result.finalText, '取消前已收到的正文')
+  assert.equal(conversation.statusUpdates.at(-1).finalText, result.finalText)
+  assert.equal(pushedEvents.at(-1).event.content, result.finalText)
+})
+
+test('取消通道提前收口后补齐最终正文，不把轮次恢复为完成', async () => {
+  const controller = new AbortController()
+  const { loop, conversation, pushedEvents } = makeLoop(async ({ handlers }) => {
+    handlers.onTextDelta('取消前已收到的正文')
+    conversation.updateTurnStatus('turn-1', 'canceled', '')
+    controller.abort()
+    throw new Error('aborted')
+  })
+  const result = await loop.run(makeOptions(controller.signal))
+  assert.equal(result.status, 'canceled')
+  assert.equal(conversation.statusUpdates.at(-1).finalText, '取消前已收到的正文')
+  assert.equal(pushedEvents.at(-1).event.kind, 'canceled')
+  assert.equal(pushedEvents.at(-1).event.content, result.finalText)
+  assert.equal(pushedEvents.some(({ event }) => event.kind === 'done'), false)
+})

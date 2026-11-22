@@ -60,8 +60,10 @@ const NOOP_AGENT_HANDLERS: AiAgentStreamHandlers = {
 
 export async function runAgentTask(
   task: AiTaskPayload,
-  knowledgeContext?: AiTaskKnowledgeContext
+  knowledgeContext?: AiTaskKnowledgeContext,
+  signal?: AbortSignal
 ): Promise<AiTaskResponse> {
+  signal?.throwIfAborted()
   const settings = normalizeSettings(task.settings)
   validateSettings(settings)
   const startedAt = new Date().toISOString()
@@ -69,8 +71,10 @@ export async function runAgentTask(
 
   const handler = getTaskHandler(task.task)
   const { projectId, skills: candidateSkills, usedSkillIds } = await resolveTaskSkills(task)
+  signal?.throwIfAborted()
   logSelection(task.task, candidateSkills, knowledgeContext?.usedKnowledge ?? [])
   await enrichTaskContextForGeneration(task, settings)
+  signal?.throwIfAborted()
 
   const input = buildPromptInput(task, candidateSkills, knowledgeContext)
   const prompt = handler.buildPrompt(input)
@@ -137,7 +141,7 @@ export async function runAgentTask(
   const projectDataTools = createProjectDataTools()
 
   const tools = [...skillTools, ...knowledgeTools, ...chapterTools, ...projectDataTools]
-  const controller = new AbortController()
+  const taskSignal = signal ?? new AbortController().signal
 
   logPrompt('AGENT_REQUEST', settings, { system: systemPrompt, user: prompt.user }, task.task, usedSkillIds)
   const requestStartedAt = Date.now()
@@ -149,11 +153,12 @@ export async function runAgentTask(
       systemPrompt,
       userPrompt: prompt.user,
       tools,
-      ctx: { signal: controller.signal, projectId },
+      ctx: { signal: taskSignal, projectId },
       handlers: NOOP_AGENT_HANDLERS,
       maxTokens,
       maxSteps: resolveAgentMaxSteps(task.task)
     })
+    taskSignal.throwIfAborted()
     totalUsage = addAiRunUsage(totalUsage, loopResult.usage)
     logResponse('AGENT_REQUEST', settings, task.task, loopResult.finalText, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
 
@@ -171,13 +176,15 @@ export async function runAgentTask(
     if (handler.outputType === 'json' && (normalizeFailed || !handler.validate(result))) {
       const MAX_REPAIR_ATTEMPTS = 2
       for (let attempt = 1; attempt <= MAX_REPAIR_ATTEMPTS; attempt += 1) {
+        taskSignal.throwIfAborted()
         const validationErrors = (!normalizeFailed && handler.describeValidationErrors)
           ? handler.describeValidationErrors(result)
           : ['JSON 解析失败或结构不完整']
         const repairPromptPair = buildRepairPrompt(prompt.system, prompt.user, rawText, validationErrors)
         logPrompt(`AGENT_REPAIR_${attempt}`, settings, repairPromptPair, task.task, usedSkillIds)
         const repairStartedAt = Date.now()
-        const repairResult = await aiGenerateTextWithUsage(settings, repairPromptPair, maxTokens)
+        const repairResult = await aiGenerateTextWithUsage(settings, repairPromptPair, maxTokens, taskSignal)
+        taskSignal.throwIfAborted()
         totalUsage = addAiRunUsage(totalUsage, repairResult.usage)
         rawText = repairResult.text
         logResponse(`AGENT_REPAIR_${attempt}`, settings, task.task, rawText, Date.now() - repairStartedAt, { usedSkills: usedSkillIds })
@@ -220,12 +227,12 @@ export async function runAgentTask(
     const message = formatAiErrorMessage(error, 'AI 调用失败')
     logError('AGENT_REQUEST', settings, task.task, error, Date.now() - requestStartedAt, { usedSkills: usedSkillIds })
     const meta = buildRunMeta(
-      task.task, projectId, chapterId, settings, 'error',
+      task.task, projectId, chapterId, settings, taskSignal.aborted ? 'canceled' : 'error',
       startedAt, finishedAt,
       totalUsage,
       knowledgeContext?.usedKnowledge ?? [], usedSkillIds,
       false, '', message
     )
-    throw Object.assign(new Error(message), { aiRunMeta: meta })
+    throw Object.assign(new Error(message, { cause: error }), { aiRunMeta: meta })
   }
 }
