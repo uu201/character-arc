@@ -44,17 +44,19 @@ const skills = await discovery.scanSkillsFromDisk()
 const byId = new Map(skills.map((skill) => [skill.id, skill]))
 const registry = loadModule('./registry.ts', { './discovery': discovery, './registry-merge': registryMerge })
 await registry.initRegistry()
+const { isSkillAllowedByPolicy } = loadModule('./usage-policy.ts', { './selection-priority': selectionPriority })
 const { pickSkillsFor } = loadModule('./matcher.ts', {
   './registry': registry,
   './loader': loader,
-  '../tasks': { getTaskHandler: () => ({}) },
+  '../tasks': { getTaskHandler: (task) => ({ maxSkills: ['global-assistant', 'chapter-assistant'].includes(task) ? 6 : 4 }) },
   './narrative-function-map': narrativeFunctions,
   './selection-priority': selectionPriority
 })
 const { resolveTaskSkills } = loadModule('./task-selection.ts', {
   '../../../shared/assistant-runtime': { normalizeSkillUsePolicy },
   './registry': registry,
-  './matcher': { pickSkillsFor }
+  './matcher': { pickSkillsFor },
+  './usage-policy': { isSkillAllowedByPolicy }
 })
 const { createSkillTools } = loadModule('../agent/tools/skill-tools.ts', {
   '../../skills/loader': loader,
@@ -154,6 +156,90 @@ test('真实匹配与任务策略支持自动选择、手动指定和关闭，�
   assert.deepEqual(manual.skills[0].referenceContents.map((item) => item.file), ['references/fingerprint-schema.md'])
   const off = await resolveTaskSkills({ task: 'chapter-first-draft', context: { skillPolicy: { mode: 'off' } } })
   assert.deepEqual(off.skills, [])
+})
+
+test('助手按当前需求跨阶段推荐，不再让通用任务和阶段加分挤掉世界观技能', async () => {
+  const task = { task: 'chapter-assistant', context: {
+    userPrompt: '检查这一章的世界观和力量体系是否有矛盾', stageId: 'draft', projectNovelLength: 'long'
+  } }
+  for (const stageOverrides of [undefined, new Map(skills.map((skill) => [skill.id, skill.manifest.stages]))]) {
+    const selected = await pickSkillsFor(task, { stageOverrides })
+    const world = selected.find((skill) => skill.id === 'novel-worldbuilding')
+    assert.ok(world)
+    assert.ok(world.scoreBreakdown.trigger > world.scoreBreakdown.task + world.scoreBreakdown.stage)
+    assert.ok(!selected.some((skill) => ['novel-pacing', 'novel-pleasure-points'].includes(skill.id)))
+  }
+})
+
+test('闲聊不为界面阶段凑满候选，后台题材也不能覆盖本轮明确需求', async () => {
+  assert.deepEqual(await pickSkillsFor({ task: 'global-assistant', context: { userPrompt: '你好', stageId: 'setting' } }), [])
+  const selected = await pickSkillsFor({ task: 'chapter-assistant', context: {
+    userPrompt: '只润色这段人物对白，保持事实不变', stageId: 'draft', projectGenre: '升级爽文', chapterSummary: '这是一场激烈的战斗'
+  } })
+  assert.ok(selected.some((skill) => skill.id === 'novel-polishing'))
+  assert.ok(!selected.some((skill) => ['novel-pacing', 'novel-pleasure-points'].includes(skill.id)))
+})
+
+test('大纲请求不误选部署、导入、路由或写作工具，显式空列表保留', async () => {
+  const selected = await pickSkillsFor({ task: 'global-assistant', context: {
+    userPrompt: '帮我规划后面五章的大纲', stageId: 'outline', projectNovelLength: 'long'
+  } })
+  assert.ok(selected.some((skill) => skill.id === 'story-long-write'))
+  for (const id of ['story-setup', 'story-import', 'story', 'novel-tools']) {
+    assert.ok(!selected.some((skill) => skill.id === id), id)
+    assert.deepEqual(byId.get(id).manifest.tasks, [], id)
+  }
+  assert.equal(byId.get('story-setup').compatibility, 'external-only')
+  const explicit = buildFullManifest({ tasks: [], stages: [], triggers: [] }, inferSkillMeta('generic-write', '写作技能'))
+  assert.deepEqual([explicit.tasks, explicit.stages, explicit.triggers], [[], [], []])
+})
+
+test('明确排除和外部技能不能被点名、required 或手动选择绕过', async () => {
+  const selected = await pickSkillsFor({ task: 'global-assistant', context: {
+    userPrompt: '不要使用 story-long-write，只检查人物设定', stageId: 'setting'
+  } })
+  assert.ok(!selected.some((skill) => skill.id === 'story-long-write' || skill.id === 'story'))
+  const enabledOverrides = new Map(skills.map((skill) => [skill.id, true]))
+  assert.deepEqual(await pickSkillsFor({ task: 'global-assistant', context: { userPrompt: '使用 browser-cdp' } }, {
+    enabledOverrides, onlySkillIds: ['browser-cdp']
+  }), [])
+  assert.deepEqual(await pickSkillsFor({ task: 'chapter-assistant', context: { userPrompt: '不要使用 humanizer-zh' } }, {
+    onlySkillIds: ['humanizer-zh']
+  }), [])
+})
+
+test('自动模式能加载初筛外已启用技能，成功返回规范 ID 与回执名称', async () => {
+  const policy = { mode: 'auto', skillIds: [] }
+  const task = { task: 'global-assistant', context: { userPrompt: '整理角色设定', stageId: 'setting' } }
+  const selected = await pickSkillsFor(task)
+  assert.ok(!selected.some((skill) => skill.id === 'style-fingerprint'))
+  const tools = new Map(createSkillTools({
+    resolveSkill: registry.getSkillById,
+    allowSkillUse: (skill) => isSkillAllowedByPolicy(skill, policy, task.context.userPrompt)
+  }).map((tool) => [tool.definition.name, tool]))
+  const loaded = await tools.get('skill_load').handler({ skill_id: 'style-fingerprint' })
+  assert.equal(loaded.isError, undefined)
+  assert.deepEqual(loaded.loadedSkill, { id: 'style-fingerprint', name: byId.get('style-fingerprint').name })
+})
+
+test('only、off、停用、本轮排除和外部兼容性限制覆盖所有技能工具入口', async () => {
+  for (const scenario of [
+    { policy: { mode: 'only', skillIds: ['novel-worldbuilding'] }, id: 'novel-pacing' },
+    { policy: { mode: 'off', skillIds: [] }, id: 'novel-worldbuilding' },
+    { policy: { mode: 'auto', skillIds: [] }, id: 'novel-worldbuilding', enabled: false },
+    { policy: { mode: 'auto', skillIds: [] }, id: 'novel-worldbuilding', prompt: '不要使用 novel-worldbuilding' },
+    { policy: { mode: 'auto', skillIds: [] }, id: 'browser-cdp' }
+  ]) {
+    const tools = createSkillTools({ resolveSkill: registry.getSkillById,
+      resolveSkillEnabled: () => scenario.enabled !== false,
+      allowSkillUse: (skill) => isSkillAllowedByPolicy(skill, scenario.policy, scenario.prompt ?? '')
+    })
+    for (const tool of tools.filter((tool) => tool.definition.name !== 'skill_list')) {
+      const result = await tool.handler({ skill_id: scenario.id, file: 'references/test.md', pattern: '*', script: 'test.js' })
+      assert.equal(result.isError, true, `${scenario.policy.mode}/${scenario.id}/${tool.definition.name}`)
+      assert.equal(result.loadedSkill, undefined)
+    }
+  }
 })
 
 test('真实 Skill 工具能列出清单、加载全部已启用技能并读取其参考文件', async () => {

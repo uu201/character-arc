@@ -4,7 +4,7 @@ import { getAllSkills, getEnabledSkills } from './registry'
 import { loadSkillReferences } from './loader'
 import { getTaskHandler } from '../tasks'
 import { matchNarrativeFunction } from './narrative-function-map'
-import { isSkillExplicitlyMentioned, selectSkillCandidates } from './selection-priority'
+import { isSkillExplicitlyExcluded, isSkillExplicitlyMentioned, selectSkillCandidates } from './selection-priority'
 
 /** 默认最大匹配 skill 数量 */
 const DEFAULT_MAX_SKILLS = 4
@@ -48,10 +48,12 @@ export async function pickSkillsFor(
   }
 
   const projectId = String(task.context.projectId ?? '').trim()
-  const skills = options.enabledOverrides
+  const context = task.context ?? {}
+  const userPrompt = String(context.userPrompt ?? '')
+  const enabledSkills = options.enabledOverrides
     ? getAllSkills(projectId).filter((skill) => options.enabledOverrides?.get(skill.id) === true)
     : getEnabledSkills(projectId)
-  const context = task.context ?? {}
+  const skills = enabledSkills.filter((skill) => skill.compatibility !== 'external-only' && !isSkillExplicitlyExcluded(skill, userPrompt))
 
   if (options.onlySkillIds) {
     const byId = new Map(skills.map((skill) => [skill.id, skill]))
@@ -78,15 +80,13 @@ export async function pickSkillsFor(
     maxSkills = handler.maxSkills
   }
 
-  const stageId = String(context.stageId ?? '').trim()
-  const userPrompt = String(context.userPrompt ?? '')
+  const promptLower = userPrompt.toLowerCase()
+  const promptHasMatches = skills.some((skill) => skill.manifest.triggers.some((trigger) => (
+    trigger.trim().length >= 2 && promptLower.includes(trigger.trim().toLowerCase())
+  )))
   const candidates = skills
-    .filter((skill) => {
-      if (isSkillExplicitlyMentioned(skill, userPrompt)) return true
-      if (!stageId || !options.stageOverrides?.has(skill.id)) return true
-      return options.stageOverrides.get(skill.id)?.includes(stageId as SkillDefinition['manifest']['stages'][number]) === true
-    })
-    .map((skill) => ({ skill, breakdown: computeScore(skill, task, context) }))
+    .map((skill) => ({ skill, breakdown: computeScore(skill, task, context, options.stageOverrides?.get(skill.id), promptHasMatches) }))
+    .filter(({ skill, breakdown }) => breakdown.total > 0 || isSkillExplicitlyMentioned(skill, userPrompt))
   const selected = selectSkillCandidates(candidates, userPrompt, maxSkills, compareCandidates)
 
   return loadSelections(selected, task)
@@ -130,7 +130,9 @@ function compareCandidates(
 function computeScore(
   skill: SkillDefinition,
   task: AiTaskPayload,
-  context: Record<string, unknown>
+  context: Record<string, unknown>,
+  stageOverrides?: SkillDefinition['manifest']['stages'],
+  promptHasMatches = false
 ): ScoreBreakdown {
   const empty: ScoreBreakdown = { total: 0, task: 0, stage: 0, trigger: 0, narrative: 0, length: 0, priority: 0 }
 
@@ -139,41 +141,42 @@ function computeScore(
 
   const manifest = skill.manifest
   const breakdown: ScoreBreakdown = { ...empty }
+  const isAssistant = task.task === 'chapter-assistant' || task.task === 'global-assistant' || task.task === 'global-assistant-proposal'
+  const taskMatches = manifest.tasks.includes(task.task)
+  const userPrompt = String(context.userPrompt ?? '')
+  const explicitlyMentioned = isSkillExplicitlyMentioned(skill, userPrompt)
 
-  // 精确任务匹配：最强信号
-  if (manifest.tasks.length > 0 && manifest.tasks.includes(task.task)) {
-    breakdown.task = 10
+  // 助手是通用入口，任务名只能作辅助信号；专用生成任务保留较强任务映射。
+  if (taskMatches) {
+    breakdown.task = isAssistant ? 2 : 10
   }
 
   // 阶段匹配
   const stageId = String(context.stageId ?? '').trim()
-  if (stageId && manifest.stages.includes(stageId as typeof manifest.stages[number])) {
-    breakdown.stage = 5
+  const stages = stageOverrides ?? manifest.stages
+  const stageMatches = stages.includes(stageId as typeof stages[number])
+  if (stageMatches) {
+    breakdown.stage = isAssistant ? 2 : 5
   }
 
-  // Trigger 关键词匹配：扩大 haystack，命中多个时累加（每个 +1，上限 +5）
-  if (manifest.triggers.length > 0) {
-    const haystack = [
-      String(context.userPrompt ?? ''),
+  // 本轮请求中的明确需求优先；章节背景、题材等只能提供弱相关信号。
+  const triggers = [...new Set(manifest.triggers.map((value) => value.trim().toLowerCase()).filter((value) => value.length >= 2))]
+  const promptLower = userPrompt.toLowerCase()
+  const directHits = triggers.filter((trigger) => promptLower.includes(trigger)).length
+  if (directHits > 0) {
+    breakdown.trigger = 8 + Math.min(directHits - 1, 3) * 2
+  } else {
+    const background = [
       String(context.chapterTitle ?? ''),
       String(context.chapterSummary ?? ''),
-      String(context.quickAction ?? ''),
       String(context.projectGenre ?? ''),
       String(context.focusType ?? '')
     ].join(' ').toLowerCase()
-
-    if (haystack) {
-      let triggerHits = 0
-      for (const trigger of manifest.triggers) {
-        // 要求 trigger 至少 2 字，避免单字误命中
-        if (trigger.length < 2) continue
-        if (haystack.includes(trigger.toLowerCase())) {
-          triggerHits += 1
-        }
-      }
-      breakdown.trigger = Math.min(triggerHits, 5)
-    }
+    breakdown.trigger = Math.min(triggers.filter((trigger) => background.includes(trigger)).length, 2)
   }
+
+  // 阶段绑定仍限制无明确需求的自动推荐；用户本轮明确提出跨阶段需求时可补选。
+  if (stageId && stageOverrides && !stageMatches && directHits === 0 && !explicitlyMentioned) return empty
 
   // 叙事功能匹配：根据章节摘要/大纲冲突推断叙事类型，匹配相关 skill。
   // 既比对英文 id/description 子串（兼容 oh-story 系列），
@@ -195,9 +198,13 @@ function computeScore(
     }
   }
 
-  // 先按以上信号汇总，得到基础分；required 兜底保证不被 total=0 过滤
+  const requiredApplies = manifest.required && (taskMatches || stageMatches || (!manifest.tasks.length && !stages.length))
+  // 通用助手不为阶段、入口名称或背景关键词单独凑满候选名额。
+  if (isAssistant && directHits === 0 && (promptHasMatches || breakdown.narrative === 0) && !requiredApplies && !explicitlyMentioned) return empty
+
+  // required 只在技能适用的任务/阶段生效，避免润色规则污染无关闲聊。
   let core = breakdown.task + breakdown.stage + breakdown.trigger + breakdown.narrative
-  if (manifest.required) {
+  if (requiredApplies) {
     core = Math.max(core, 1)
   }
 

@@ -299,11 +299,12 @@ export class AgentLoopCore {
     // 补生成沿用本轮工具和权限，并携带实际工具结果，避免丢失刚读到的目标信息。
     const observations: string[] = []
     let pendingQuestion: SkillUserInputRequest | undefined
+    const skillItems = new Map((options.skillPlan?.items ?? []).map((item) => [item.id, { ...item }]))
     const workflowSteps = new Map((options.turnInput.workflowSteps ?? []).map((step) => [`${step.skillId}:${step.id}`, step]))
     const interactionTools = availableTools.some((tool) => tool.definition.name === 'skill_load')
       ? createSkillInteractionTools({
           goal: options.turnInput.workflowGoal ?? options.turnInput.userMessage,
-          isSkillAllowed: (id) => !options.skillPlan || options.skillPlan.items.some((item) => item.id === id),
+          isSkillAllowed: (id) => !options.skillPlan || (options.skillPlan.mode !== 'off' && skillItems.has(id)),
           onQuestion: (request) => {
             pendingQuestion = { ...request, decisions: options.turnInput.workflowDecisions ?? [], steps: [...workflowSteps.values()] }
             this.dispatch(sessionId, turnId, { kind: 'user_input_requested', seq: 0, request: pendingQuestion })
@@ -320,6 +321,14 @@ export class AgentLoopCore {
         ctx.signal.throwIfAborted()
         if (pendingQuestion) return { content: '流程已暂停，必须等待用户回答后才能执行后续步骤。', isError: true }
         const result = await tool.handler(args, ctx)
+        if (tool.definition.name === 'skill_load' && !result.isError && result.loadedSkill && options.skillPlan?.mode !== 'off') {
+          const { id, name } = result.loadedSkill
+          if (skillItems.get(id)?.state !== 'loaded') {
+            skillItems.set(id, { id, name, state: 'loaded' })
+            this.dispatch(sessionId, turnId, { kind: 'skill_plan', seq: 0,
+              mode: options.skillPlan?.mode ?? 'auto', items: [...skillItems.values()] })
+          }
+        }
         observations.push(JSON.stringify({ tool: tool.definition.name, args, ...result }).slice(0, 12000))
         if (observations.length > 20) observations.shift()
         return result

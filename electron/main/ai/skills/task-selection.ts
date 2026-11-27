@@ -3,6 +3,7 @@ import { normalizeSkillUsePolicy, type SkillUsePolicy } from '../../../shared/as
 import { getAllSkills, getEnabledSkills, refreshRegistry, resolveCanonicalSkillIds } from './registry'
 import { pickSkillsFor } from './matcher'
 import type { SkillSelection, SkillStageId } from './types'
+import { isSkillAllowedByPolicy } from './usage-policy'
 
 export type ResolvedTaskSkills = {
   projectId: string
@@ -103,7 +104,8 @@ export function isSkillEnabledForTask(
   const canonicalPolicyIds = policy.mode === 'only'
     ? resolveCanonicalSkillIds(projectId, policy.skillIds)
     : []
-  if (policy.mode === 'only' && !canonicalPolicyIds.includes(canonicalSkillId)) return false
+  const skill = getAllSkills(projectId || undefined).find((item) => item.id === canonicalSkillId)
+  if (!skill || !isSkillAllowedByPolicy(skill, { ...policy, skillIds: canonicalPolicyIds }, String(task.context.userPrompt ?? ''))) return false
   const overrides = resolveSkillEnabledOverrides(task, projectId)
   if (overrides?.has(canonicalSkillId)) {
     return overrides.get(canonicalSkillId) === true

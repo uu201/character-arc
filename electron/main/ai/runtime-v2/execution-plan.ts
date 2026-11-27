@@ -19,7 +19,7 @@ import { createChapterTools } from '../agent/tools/chapter-tools'
 import { createProjectDataTools } from '../agent/tools/project-data-tools'
 import { createKnowledgeTools } from '../agent/tools/knowledge-tools'
 import { createSkillTools } from '../agent/tools/skill-tools'
-import { getAllSkills, getSkillById, resolveSkillEnabledOverrides, resolveTaskSkills } from '../skills'
+import { getAllSkills, getSkillById, isSkillAllowedByPolicy, resolveSkillEnabledOverrides, resolveTaskSkills } from '../skills'
 import type { SkillDefinition, SkillStageId } from '../skills'
 import { normalizeSettings, validateSettings } from '../settings'
 import { normalizeAssistantExecutionSettings } from '../../../shared/assistant-execution-settings'
@@ -109,8 +109,12 @@ export function createExecutionPlanner(
     const matchedSkillDefs = selectedSkills
       .map((sel) => getSkillById(sel.id, projectId || undefined))
       .filter((skill): skill is SkillDefinition => Boolean(skill))
-    const skillPromptBlock = buildV2SkillPromptBlock(matchedSkillDefs, surface, skillPolicy.mode === 'only')
-    const allowedSkillIds = new Set(selectedSkills.map((skill) => skill.id))
+    const skillPromptBlock = [
+      skillPolicy.mode === 'auto'
+        ? '## 本轮技能策略：自动\n\n候选仅为推荐，即使未预选出候选也可按需使用 skill_list 查找其他已启用且兼容的技能。执行前先用 skill_load 读取完整流程；不要使用用户本轮明确排除的技能，不要加载无关技能凑数。'
+        : '',
+      buildV2SkillPromptBlock(matchedSkillDefs, surface, skillPolicy.mode === 'only')
+    ].filter(Boolean).join('\n\n')
     const skillEnabledOverrides = resolveSkillEnabledOverrides(skillTask, projectId)
 
     // 2. 拼 system prompt
@@ -152,8 +156,8 @@ export function createExecutionPlanner(
       resolveSkill: (id) => getSkillById(id, session.projectId || undefined),
       listSkills: () => getAllSkills(session.projectId || undefined),
       resolveSkillEnabled: (skill) => skillEnabledOverrides?.get(skill.id) ?? skill.enabled,
-      // 执行计划是唯一授权来源：不在本轮 selected 中的 Skill 无法再被模型按 id 绕过加载。
-      allowSkillUse: (skill) => allowedSkillIds.has(skill.id),
+      // 自动模式允许在已启用、兼容技能中补选；only/off 仍按明确策略限制。
+      allowSkillUse: (skill) => isSkillAllowedByPolicy(skill, skillPolicy, request.userMessage),
       // 只允许 builtin skill 跑脚本，跟旧路径一致
       allowScriptExecution: (skill) => skill.scope === 'builtin'
     })

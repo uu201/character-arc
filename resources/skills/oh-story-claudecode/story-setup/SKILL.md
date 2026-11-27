@@ -4,6 +4,17 @@ source: https://github.com/zenstory-ai/oh-story-claudecode
 version: 1.3.14
 description: "网文写作工具集基础设施部署与检查。为 Claude Code / OpenCode / Codex / Google Antigravity / ZCode / OpenClaw / Reasonix 提供内置适配；Web AI / 通用 Agent 可走 skills + AGENTS.md 文件模式。触发方式：/story-setup、$story-setup、「准备写书」「帮我搭一下环境」「配置写作项目」「检查写作环境」。"
 metadata: {"openclaw":{"source":"https://github.com/zenstory-ai/oh-story-claudecode"}}
+manifest:
+  category: tool
+  tasks: []
+  stages: []
+  triggers:
+    - 配置写作环境
+    - 检查写作环境
+    - 部署写作工具
+  enabled: false
+  compatibility: external-only
+  compatibilityNote: 需要宿主文件系统、安装配置和外部 CLI；当前创作助手只保留为外部部署资料。
 ---
 # story-setup：网文写作工具集基础设施部署
 

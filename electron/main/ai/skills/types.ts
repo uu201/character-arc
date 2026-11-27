@@ -27,8 +27,8 @@ export type SkillManifest = {
   priority: number
   references: SkillReferenceRule[]
   /**
-   * 标记为 required 的 skill 在 agent 路径里会被直接注入 system prompt（不依赖模型自己决定是否加载），
-   * 在传统路径里会无条件进入候选池（即使 score 为 0 也不会被过滤掉）。
+   * 标记为 required 的 skill 在适用任务/阶段被选中后，会在 agent 路径中直接注入 system prompt，
+   * 不依赖模型自己决定是否加载；未绑定任务/阶段时可作为通用必选规则。
    * 用于"去 AI 味"、"项目风格"等用户明确要求必须生效的 skill。
    */
   required?: boolean

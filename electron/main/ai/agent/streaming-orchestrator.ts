@@ -1,7 +1,7 @@
 import type { AiAgentStreamHandlers, AiKnowledgeDocumentDraft, AiTaskKnowledgeContext, AiTaskPayload, AiTaskResponse } from '../shared-types'
 import { normalizeSettings, validateSettings, resolveMaxTokens, shouldOmitMaxTokens } from '../settings'
 import { getTaskHandler } from '../tasks'
-import { resolveTaskSkills, resolveSkillEnabledOverrides, getSkillById, getAllSkills } from '../skills'
+import { resolveTaskSkills, resolveSkillEnabledOverrides, isSkillAllowedByPolicy, getSkillById, getAllSkills } from '../skills'
 import { buildPromptInput } from '../runtime/context-builder'
 import { enrichTaskContextForGeneration } from '../runtime/task-context'
 import { buildRunMeta, buildResponsePreview } from '../runtime/run-meta'
@@ -96,7 +96,6 @@ export async function runStreamingAgentTask(
   const optionalSkillDefs = skillPolicy.mode === 'only'
     ? []
     : candidateSkillDefs.filter((s) => !s.manifest.required)
-  const allowedSkillIds = new Set(candidateSkillDefs.map((skill) => skill.id))
   const skillEnabledOverrides = resolveSkillEnabledOverrides(task, projectId)
   const maxSteps = resolveStreamingAgentMaxSteps(task.task)
 
@@ -263,7 +262,7 @@ export async function runStreamingAgentTask(
     resolveSkill: (id) => getSkillById(id, projectId || undefined),
     listSkills: () => getAllSkills(projectId || undefined),
     resolveSkillEnabled: (skill) => skillEnabledOverrides?.get(skill.id) ?? skill.enabled,
-    allowSkillUse: (skill) => allowedSkillIds.has(skill.id),
+    allowSkillUse: (skill) => isSkillAllowedByPolicy(skill, skillPolicy, String(task.context.userPrompt ?? '')),
     allowScriptExecution: (skill) => skill.scope === 'builtin'
   })
 

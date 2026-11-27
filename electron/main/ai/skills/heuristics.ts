@@ -54,9 +54,9 @@ export function buildFullManifest(
 ): SkillManifest {
   return {
     category: partial?.category ?? heuristic.category,
-    tasks: partial?.tasks?.length ? partial.tasks : heuristic.tasks,
-    stages: partial?.stages?.length ? partial.stages : heuristic.stages,
-    triggers: partial?.triggers?.length ? partial.triggers : heuristic.triggers,
+    tasks: partial?.tasks ?? heuristic.tasks,
+    stages: partial?.stages ?? heuristic.stages,
+    triggers: partial?.triggers ?? heuristic.triggers,
     priority: partial?.priority ?? heuristic.priority,
     references: partial?.references ?? [],
     required: partial?.required ?? false

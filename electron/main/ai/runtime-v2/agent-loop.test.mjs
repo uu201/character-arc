@@ -133,6 +133,59 @@ function makeOptions(signal) {
   }
 }
 
+test('自动补选加载成功后记录规范技能回执，并允许该技能暂停询问用户', async () => {
+  const { loop, conversation } = makeLoop(async (params) => {
+    const load = params.tools.find((tool) => tool.definition.name === 'skill_load')
+    const loaded = await load.handler({ skill_id: '世界观设计' }, params.ctx)
+    assert.equal(loaded.isError, undefined)
+    const progress = params.tools.find((tool) => tool.definition.name === 'skill_workflow')
+    await progress.handler({ skill_id: 'novel-worldbuilding', step_id: 'rules', title: '确认力量体系', status: 'running' }, params.ctx)
+    const ask = params.tools.find((tool) => tool.definition.name === 'skill_ask_user')
+    await ask.handler({ skill_id: 'novel-worldbuilding', step: '确认力量体系', questions: [{
+      id: 'rule', question: '力量的代价是什么？', options: []
+    }] }, params.ctx)
+    return { finalText: '请先确认力量的代价。', toolCalls: [], iterations: 1 }
+  })
+  const options = makeOptions(new AbortController().signal)
+  options.skillPlan = { mode: 'auto', items: [{ id: 'novel-pacing', name: '叙事节奏', state: 'candidate' }] }
+  options.tools = [{
+    definition: { name: 'skill_load', description: '加载已授权技能', inputSchema: { type: 'object', properties: {} } },
+    handler: async () => ({ content: '世界观设计完整流程', loadedSkill: { id: 'novel-worldbuilding', name: '世界观设计' } })
+  }]
+  const result = await loop.run(options)
+  assert.equal(result.status, 'done')
+  assert.equal(result.waitingForUser, true)
+  const plan = conversation.persistedEvents.findLast((event) => event.kind === 'skill_plan')
+  assert.deepEqual(plan.items, [
+    { id: 'novel-pacing', name: '叙事节奏', state: 'candidate' },
+    { id: 'novel-worldbuilding', name: '世界观设计', state: 'loaded' }
+  ])
+  const question = conversation.persistedEvents.find((event) => event.kind === 'user_input_requested')
+  assert.equal(question.request.skillId, 'novel-worldbuilding')
+  assert.ok(conversation.persistedEvents.indexOf(plan) < conversation.persistedEvents.indexOf(question))
+})
+
+test('加载失败或 off 模式不扩展技能回执与交互权限', async () => {
+  for (const mode of ['auto', 'off']) {
+    const { loop, conversation } = makeLoop(async (params) => {
+      const load = params.tools.find((tool) => tool.definition.name === 'skill_load')
+      await load.handler({ skill_id: 'blocked' }, params.ctx)
+      const progress = params.tools.find((tool) => tool.definition.name === 'skill_workflow')
+      await assert.rejects(() => progress.handler({ skill_id: 'blocked', step_id: 'step', title: '未获授权步骤', status: 'running' }, params.ctx), /不在本轮执行计划/)
+      return { finalText: '无法加载该技能。', toolCalls: [], iterations: 1 }
+    })
+    const options = makeOptions(new AbortController().signal)
+    options.skillPlan = { mode, items: [] }
+    options.tools = [{
+      definition: { name: 'skill_load', description: '受限加载', inputSchema: { type: 'object', properties: {} } },
+      handler: async () => ({ content: '拒绝加载', isError: mode === 'auto', loadedSkill: { id: 'blocked', name: '受限技能' } })
+    }]
+    const result = await loop.run(options)
+    assert.equal(result.status, 'done')
+    assert.ok(!conversation.persistedEvents.some((event) => event.kind === 'skill_plan' || event.kind === 'skill_workflow'))
+  }
+})
+
 test('技能请求作者选择后持久化检查点，阻止后续写入且不触发补生成', async () => {
   let writes = 0
   let runs = 0

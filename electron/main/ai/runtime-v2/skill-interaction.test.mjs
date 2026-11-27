@@ -58,6 +58,27 @@ test('数据库回放恢复问题、选项和步骤；用户回答恢复目标�
   assert.deepEqual(resumed.skillPolicy, { mode: 'only', skillIds: ['story-long-write'] })
 })
 
+test('自动补选技能的最新回执随会话保存，刷新后回答仍恢复补选技能', async (t) => {
+  const { db, cm, session, turn } = setup(t)
+  cm.appendEvent(turn.id, { kind: 'skill_plan', seq: 0, mode: 'auto', items: [
+    { id: 'story-long-write', name: '长篇写作', state: 'candidate' },
+    { id: 'novel-worldbuilding', name: '世界观设计', state: 'loaded' }
+  ] })
+  const tools = createSkillInteractionTools({ goal: turn.userMessage,
+    isSkillAllowed: (id) => id === 'novel-worldbuilding',
+    onQuestion: (request) => cm.appendEvent(turn.id, { kind: 'user_input_requested', seq: 0, request }),
+    onStep: () => {}
+  })
+  await tools[0].handler({ ...questionInput, skill_id: 'novel-worldbuilding' })
+  cm.updateTurnStatus(turn.id, 'done', '等待选择')
+  const reloaded = new ConversationManager(db)
+  const request = getRequest(reloaded, turn.id)
+  const resumed = resolveSkillUserInput(reloaded, session.id, { turnId: turn.id, requestId: request.id, answers: { genre: '玄幻' } })
+  assert.deepEqual(resumed.skillPolicy, { mode: 'only', skillIds: ['story-long-write', 'novel-worldbuilding'] })
+  assert.match(resumed.context, /技能：novel-worldbuilding/)
+  assert.match(resumed.context, /用户回答：玄幻/)
+})
+
 test('跨会话、缺答、过期、重复回答和未授权技能均不会推进流程', async (t) => {
   const { cm, session, turn, ask } = setup(t)
   await ask.handler(questionInput)

@@ -94,6 +94,7 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
   function resolveSkillOrError(skillId: string): SkillDefinition | { error: string } {
     const skill = opts.resolveSkill(skillId)
     if (!skill) return { error: `skill 未找到：${skillId}` }
+    if (skill.compatibility === 'external-only') return { error: `当前宿主不支持执行 skill：${skillId}` }
     const enabled = opts.resolveSkillEnabled?.(skill) ?? skill.enabled
     const allowed = opts.allowSkillUse?.(skill) ?? enabled
     if (!enabled || !allowed) return { error: `当前执行策略不允许使用 skill：${skillId}` }
@@ -173,7 +174,7 @@ export function createSkillTools(opts: SkillToolFactoryOptions): Tool[] {
         const skillId = requireString(input, 'skill_id')
         const result = resolveSkillOrError(skillId)
         if ('error' in result) return err(result.error)
-        return ok(result.content)
+        return { content: result.content, loadedSkill: { id: result.id, name: result.name } }
       } catch (error) {
         return err(error instanceof Error ? error.message : String(error))
       }

@@ -18,6 +18,8 @@ export type ToolContext = {
 export type ToolHandlerResult = {
   content: string
   isError?: boolean
+  /** 仅技能加载工具返回，用于记录规范 ID、补选回执与后续流程授权。 */
+  loadedSkill?: { id: string; name: string }
 }
 
 export type ToolHandler = (

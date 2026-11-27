@@ -10,17 +10,36 @@ export type PrioritizedSkillCandidate = {
 }
 
 function normalizeMention(value: string): string {
-  return value.normalize('NFKC').toLocaleLowerCase('zh-CN').replace(/\s+/g, '')
+  return value.normalize('NFKC').toLocaleLowerCase('zh-CN').replace(/[ \t]+/g, ' ').trim()
 }
 
-/** 用户在自然语言中明确写出 Skill ID 或显示名称时，视为主动点名。 */
-export function isSkillExplicitlyMentioned(skill: CandidateSkill, userPrompt: string): boolean {
+function resolveSkillMention(skill: Pick<CandidateSkill, 'id' | 'name'>, userPrompt: string): 'include' | 'exclude' | undefined {
   const prompt = normalizeMention(userPrompt)
-  if (!prompt) return false
-  return [skill.id, skill.name]
-    .map(normalizeMention)
-    .filter((value) => value.length >= 2)
-    .some((value) => prompt.includes(value))
+  const mentions: Array<{ index: number; excluded: boolean }> = []
+  for (const alias of new Set([skill.id, skill.name].map(normalizeMention).filter((value) => value.length >= 2))) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // 英文 ID 必须完整命中，避免 story 匹配到 story-long-write。
+    const before = /^[a-z0-9_-]/.test(alias) ? '(?<![a-z0-9_-])' : ''
+    const after = /[a-z0-9_-]$/.test(alias) ? '(?![a-z0-9_-])' : ''
+    for (const match of prompt.matchAll(new RegExp(`${before}${escaped}${after}`, 'g'))) {
+      const prefix = prompt.slice(0, match.index).split(/[，,。；;！!？?\r\n]/).at(-1) ?? ''
+      const directive = prefix.split(/(?:改用|而是(?:使用|用)?|但(?:是)?(?:请)?(?:使用|用)|but use|instead use)/).at(-1) ?? ''
+      const excluded = /(?:不要|请勿|别|禁止|不再|无需|不必)(?:再)?(?:使用|调用|加载|启用|选用|选择|用)|不用|禁用|停用|排除|\b(?:without|avoid|(?:do not|don['’]t|never)\s+(?:use|load|enable))\b/.test(directive)
+        || /(?:不要|别选|不选)\s*[`'"“”‘’]*$/.test(directive)
+      mentions.push({ index: match.index, excluded })
+    }
+  }
+  const last = mentions.sort((a, b) => a.index - b.index).at(-1)
+  return last ? (last.excluded ? 'exclude' : 'include') : undefined
+}
+
+/** 用户点名时识别完整 ID/名称，并尊重同一请求中的否定与后续改口。 */
+export function isSkillExplicitlyMentioned(skill: Pick<CandidateSkill, 'id' | 'name'>, userPrompt: string): boolean {
+  return resolveSkillMention(skill, userPrompt) === 'include'
+}
+
+export function isSkillExplicitlyExcluded(skill: Pick<CandidateSkill, 'id' | 'name'>, userPrompt: string): boolean {
+  return resolveSkillMention(skill, userPrompt) === 'exclude'
 }
 
 /**
@@ -33,7 +52,7 @@ export function selectSkillCandidates<T extends PrioritizedSkillCandidate>(
   maxSkills: number,
   compare: (a: T, b: T) => number
 ): T[] {
-  const decorated = entries.map((entry) => ({
+  const decorated = entries.filter((entry) => !isSkillExplicitlyExcluded(entry.skill, userPrompt)).map((entry) => ({
     entry,
     pinned: entry.skill.manifest.required === true || isSkillExplicitlyMentioned(entry.skill, userPrompt)
   }))

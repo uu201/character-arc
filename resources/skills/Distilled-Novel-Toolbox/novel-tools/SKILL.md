@@ -8,6 +8,19 @@ metadata:
   audience: novel-writers
   version: 1.0.0
 version: 1.0.0
+manifest:
+  category: tool
+  tasks: []
+  stages: []
+  triggers:
+    - 写作工具
+    - 提示词
+    - 工作流
+    - 码字工具
+    - 发布策略
+    - 数据分析
+  enabled: true
+  compatibility: native
 ---
 
 # 创作工具与生产流程
