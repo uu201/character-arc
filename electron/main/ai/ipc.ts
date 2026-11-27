@@ -473,7 +473,7 @@ export function registerAiIpcHandlers(injectedDeps: AiIpcDeps): void {
       const id = String(projectId ?? '').trim()
       if (!id) throw new Error('缺少 projectId。')
       const db = await ensureWorkspaceDb()
-      const context = buildStoryStateContext(db, id, [])
+      const context = buildStoryStateContext(db, id, [], { foreshadowingLimit: null })
       return { success: true, result: context }
     } catch (error) {
       return { success: false, error: formatAiErrorMessage(error, '读取世界状态失败') }

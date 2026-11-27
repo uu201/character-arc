@@ -201,3 +201,43 @@ test('同一章节状态增量重复写入不会重复累积数组字段', () =>
   assert.deepEqual(JSON.parse(relationship.tension_points_json), ['互不信任'])
   assert.deepEqual(JSON.parse(foreshadowing.clues_json), [{ chapter: 3, clue: '火漆印', method: '特写' }])
 })
+
+test('状态面板读取全部活跃伏笔，删除后数量准确减少，AI 上下文仍默认限制 30 条', (t) => {
+  const db = new DatabaseSync(':memory:')
+  t.after(() => db.close())
+  initStoryStateSchema(db)
+  for (let index = 0; index < 127; index += 1) {
+    applyStateDelta(db, 'p1', index, normalizeStateDelta({
+      foreshadowing_delta: {
+        planted: [{ id: `伏笔-${index}`, type: '暗线', description: `线索-${index}`, method: '道具' }]
+      }
+    }))
+  }
+  db.exec(`
+    UPDATE story_foreshadowing SET status = 'advanced' WHERE foreshadowing_id = '伏笔-124';
+    UPDATE story_foreshadowing SET status = 'resolved' WHERE foreshadowing_id = '伏笔-125';
+    UPDATE story_foreshadowing SET status = 'abandoned' WHERE foreshadowing_id = '伏笔-126';
+  `)
+  applyStateDelta(db, 'p2', 0, normalizeStateDelta({
+    foreshadowing_delta: {
+      planted: [{ id: '其他项目伏笔', type: '暗线', description: '其他项目线索', method: '道具' }]
+    }
+  }))
+
+  const readPanel = () => buildStoryStateContext(db, 'p1', [], { foreshadowingLimit: null }).activeForeshadowing
+  const expectedIds = Array.from({ length: 125 }, (_, index) => `伏笔-${index}`)
+  assert.deepEqual(readPanel().map((item) => item.foreshadowingId), expectedIds)
+  assert.equal(readPanel().at(-1).status, 'advanced')
+  assert.equal(buildStoryStateContext(db, 'p1', []).activeForeshadowing.length, 30)
+  assert.equal(buildStoryStateContext(db, 'p1', [], { foreshadowingLimit: 10 }).activeForeshadowing.length, 10)
+
+  const remove = db.prepare('DELETE FROM story_foreshadowing WHERE project_id = ? AND foreshadowing_id = ?')
+  remove.run('p1', '伏笔-0')
+  assert.deepEqual(readPanel().map((item) => item.foreshadowingId), expectedIds.slice(1))
+  for (let index = 1; index < 100; index += 1) remove.run('p1', `伏笔-${index}`)
+  assert.deepEqual(readPanel().map((item) => item.foreshadowingId), expectedIds.slice(100))
+  for (let index = 100; index < 125; index += 1) remove.run('p1', `伏笔-${index}`)
+  assert.deepEqual(readPanel(), [])
+  assert.equal(buildStoryStateContext(db, 'p2', []).activeForeshadowing.length, 1)
+  assert.equal(db.prepare('SELECT COUNT(*) AS total FROM story_foreshadowing WHERE project_id = ?').get('p1').total, 2)
+})

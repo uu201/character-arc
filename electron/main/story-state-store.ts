@@ -459,7 +459,7 @@ export function getAllCharacterIds(db: DatabaseSync, projectId: string): string[
 export function getActiveForeshadowing(
   db: DatabaseSync,
   projectId: string,
-  limit = 30
+  limit: number | null = 30
 ): Foreshadowing[] {
   const stmt = db.prepare(`
     SELECT * FROM story_foreshadowing
@@ -467,7 +467,8 @@ export function getActiveForeshadowing(
     ORDER BY planted_chapter ASC
     LIMIT ?
   `)
-  const rows = stmt.all(projectId, limit) as Array<Record<string, unknown>>
+  // null 表示读取全部活跃伏笔；默认上限仅用于 AI 上下文。
+  const rows = stmt.all(projectId, limit ?? -1) as Array<Record<string, unknown>>
   return rows.map((row) => ({
     foreshadowingId: String(row.foreshadowing_id),
     type: String(row.type),
@@ -753,7 +754,8 @@ export function applyStateDelta(
 export function buildStoryStateContext(
   db: DatabaseSync,
   projectId: string,
-  involvedCharacterIds: string[]
+  involvedCharacterIds: string[],
+  options: { foreshadowingLimit?: number | null } = {}
 ): StoryStateContext {
   const allCharIds = involvedCharacterIds.length
     ? involvedCharacterIds
@@ -761,7 +763,7 @@ export function buildStoryStateContext(
 
   return {
     characterStates: getLatestCharacterStates(db, projectId, allCharIds),
-    activeForeshadowing: getActiveForeshadowing(db, projectId),
+    activeForeshadowing: getActiveForeshadowing(db, projectId, options.foreshadowingLimit),
     relationships: getRelationships(db, projectId, allCharIds),
     recentTimeline: getRecentTimeline(db, projectId, 5),
     worldRules: getWorldRules(db, projectId),
