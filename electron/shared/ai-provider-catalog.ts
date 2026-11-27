@@ -16,6 +16,7 @@ export interface AiProviderCatalogEntry {
 export const AI_PROVIDER_CATALOG: readonly AiProviderCatalogEntry[] = [
   { label: 'Codex CLI（本机）', value: 'codex-cli', transport: 'codex-cli', protocol: 'openai-responses', baseUrl: '', model: 'default', customBaseUrl: false, supportsEmbedding: false, hint: '复用本机 Codex CLI 的登录状态，无需 API Key。请先在终端执行 codex login。' },
   { label: 'OpenAI', value: 'openai', protocol: 'openai-responses', baseUrl: 'https://api.openai.com/v1', model: '', customBaseUrl: false, supportsEmbedding: true, hint: '官方接口，填写 API Key 后即可使用，也可拉取账号可用模型。' },
+  { label: 'Atlas Cloud', value: 'atlascloud', protocol: 'openai-chat', baseUrl: 'https://api.atlascloud.ai/v1', model: '', customBaseUrl: false, supportsEmbedding: false, hint: 'Atlas Cloud OpenAI 兼容接口，填写 API Key 后可拉取账号可用模型。' },
   { label: 'Anthropic', value: 'anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', model: '', customBaseUrl: false, supportsEmbedding: false, hint: 'Claude 官方接口，使用 Anthropic Messages 协议。' },
   { label: 'DeepSeek', value: 'deepseek', protocol: 'openai-chat', baseUrl: 'https://api.deepseek.com/v1', model: '', customBaseUrl: false, supportsEmbedding: false, hint: 'DeepSeek 官方接口，支持 deepseek-chat 和 deepseek-reasoner。' },
   { label: '阿里云百炼（通义千问）', value: 'qwen', protocol: 'openai-chat', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: '', customBaseUrl: false, supportsEmbedding: true, hint: '阿里云百炼 OpenAI 兼容接口。' },
