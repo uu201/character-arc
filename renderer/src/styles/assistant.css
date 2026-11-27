@@ -1,0 +1,59 @@
+/* 助手界面共用的中性色主题；只作用于助手区域，跟随应用明暗主题。 */
+.assistant-ui {
+  --assistant-surface: var(--arc-bg-surface);
+  --assistant-subtle: color-mix(in srgb, var(--arc-text-primary) 4%, var(--arc-bg-surface));
+  --assistant-hover: color-mix(in srgb, var(--arc-text-primary) 7%, var(--arc-bg-surface));
+  --assistant-border: color-mix(in srgb, var(--arc-text-primary) 12%, transparent);
+  --assistant-action-bg: var(--arc-text-primary);
+  --assistant-action-fg: var(--arc-bg-surface);
+  --arc-primary: var(--arc-text-primary);
+  --arc-primary-hover: var(--arc-text-secondary);
+  --arc-primary-pressed: var(--arc-text-primary);
+  --arc-primary-soft: var(--assistant-subtle);
+  --v2-accent-line: var(--assistant-border);
+  --v2-warn: var(--arc-warning);
+  --v2-warn-soft: color-mix(in srgb, var(--arc-warning) 7%, transparent);
+  --v2-danger: var(--arc-danger);
+  --v2-danger-soft: color-mix(in srgb, var(--arc-danger) 7%, transparent);
+  --v2-add: var(--arc-success);
+  --v2-add-bg: color-mix(in srgb, var(--arc-success) 9%, transparent);
+  --v2-del: var(--arc-danger);
+  --v2-del-bg: color-mix(in srgb, var(--arc-danger) 8%, transparent);
+  --v2-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  --v2-radius-card: 12px;
+  --v2-radius-btn: 7px;
+  color: var(--arc-text-primary);
+  font-family: inherit;
+  -webkit-font-smoothing: antialiased;
+}
+
+.assistant-ui .n-button--primary-type {
+  --n-color: var(--assistant-action-bg) !important;
+  --n-color-hover: var(--arc-text-secondary) !important;
+  --n-color-pressed: var(--assistant-action-bg) !important;
+  --n-text-color: var(--assistant-action-fg) !important;
+  --n-text-color-hover: var(--assistant-action-fg) !important;
+  --n-text-color-pressed: var(--assistant-action-fg) !important;
+  --n-text-color-focus: var(--assistant-action-fg) !important;
+  --n-color-focus: var(--assistant-action-bg) !important;
+  --n-color-disabled: var(--assistant-hover) !important;
+  --n-text-color-disabled: var(--arc-text-hint) !important;
+  --n-border: 1px solid transparent !important;
+  --n-border-hover: 1px solid transparent !important;
+  --n-border-pressed: 1px solid transparent !important;
+  --n-border-focus: 1px solid var(--assistant-border) !important;
+  --n-border-disabled: 1px solid transparent !important;
+}
+
+.assistant-ui button:focus-visible,
+.assistant-ui summary:focus-visible {
+  outline: 2px solid var(--arc-text-secondary);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-ui *, .assistant-ui *::before, .assistant-ui *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}

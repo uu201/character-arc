@@ -234,7 +234,7 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
 </script>
 
 <template>
-  <section class="v2-dock chapter-dock" @mousedown.capture="handlePanelMouseDown">
+  <section class="v2-dock chapter-dock assistant-ui" @mousedown.capture="handlePanelMouseDown">
     <header class="dock-head">
       <div class="dock-brand">
         <span class="brand-mark"><Sparkles :size="15" /></span>
@@ -327,6 +327,7 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
         :is-mutating="assistant.isTruncating.value"
         :staged-changes="assistant.stagedChanges.value"
         @continue="assistant.continueWithPrompt"
+        @answer-input="assistant.answerUserInput"
         @open-staged="activeTab = 'staged'"
         @edit-start="assistant.startEditingTurn"
         @edit-cancel="assistant.cancelEditing"
@@ -430,22 +431,6 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
 
 <style scoped>
 .v2-dock {
-  --arc-primary: #0d7d5a;
-  --arc-primary-hover: #0a6b4e;
-  --arc-primary-pressed: #085d43;
-  --arc-primary-soft: rgba(13, 125, 90, 0.08);
-  --v2-accent-line: rgba(13, 125, 90, 0.22);
-  --v2-warn: #b45309;
-  --v2-warn-soft: rgba(180, 83, 9, 0.08);
-  --v2-danger: #b91c1c;
-  --v2-danger-soft: rgba(185, 28, 28, 0.06);
-  --v2-add: #047857;
-  --v2-add-bg: rgba(4, 120, 87, 0.09);
-  --v2-del: #b91c1c;
-  --v2-del-bg: rgba(185, 28, 28, 0.07);
-  --v2-mono: 'JetBrains Mono', 'Consolas', 'SF Mono', ui-monospace, Menlo, monospace;
-  --v2-radius-card: 8px;
-  --v2-radius-btn: 8px;
   display: flex;
   width: 100%;
   height: 100%;
@@ -453,7 +438,7 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  background: var(--arc-bg-surface);
+  background: var(--assistant-surface);
   border-left: 2px solid var(--arc-border-strong);
   color: var(--arc-text-primary);
 }
@@ -464,8 +449,8 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
   justify-content: space-between;
   flex-shrink: 0;
   gap: 12px;
-  padding: 14px 14px 10px;
-  border-bottom: 1px solid var(--arc-border);
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--assistant-border);
   background: var(--arc-bg-surface);
 }
 
@@ -478,14 +463,14 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
 
 .brand-mark {
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  background: var(--arc-primary-soft);
-  color: var(--arc-primary);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--arc-text-primary);
 }
 
 .brand-copy {
@@ -498,6 +483,7 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
 .brand-copy strong {
   font-size: 13px;
   color: var(--arc-text-primary);
+  font-weight: 600;
 }
 
 .brand-copy span {
@@ -522,7 +508,7 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--arc-text-secondary);
   cursor: pointer;
@@ -536,14 +522,15 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
 
 .session-strip {
   display: flex;
-  min-height: 34px;
+  min-height: 32px;
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
   gap: 10px;
   padding: 0 14px;
-  border-bottom: 1px solid var(--arc-border);
+  border-bottom: 0;
   background: var(--arc-bg-surface);
+  color: var(--arc-text-hint);
 }
 
 .session-strip span {
@@ -569,9 +556,9 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
   grid-template-columns: repeat(3, minmax(0, 1fr));
   flex-shrink: 0;
   gap: 4px;
-  padding: 8px 10px;
+  padding: 4px 12px 8px;
   border-bottom: 1px solid var(--arc-border);
-  background: var(--arc-bg-surface);
+  background: var(--assistant-surface);
 }
 
 .dock-tabs button {
@@ -582,29 +569,32 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
   justify-content: center;
   gap: 5px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--arc-text-secondary);
   cursor: pointer;
   font-size: 12px;
+  font-weight: 400;
 }
 
 .dock-tabs button.active {
   border-color: var(--v2-accent-line);
-  background: var(--arc-primary-soft);
-  color: var(--arc-primary);
+  background: var(--assistant-subtle);
+  color: var(--arc-text-primary);
   font-weight: 600;
+  box-shadow: none;
 }
 
 .tab-badge {
   min-width: 16px;
   border-radius: 999px;
-  background: var(--arc-primary);
-  color: #fff;
-  font-family: var(--v2-mono);
+  background: var(--assistant-hover);
+  color: var(--arc-text-secondary);
+  font-family: inherit;
   font-size: 10px;
   line-height: 16px;
   padding: 0 5px;
+  font-weight: 500;
 }
 
 .chat-pane,
@@ -626,7 +616,7 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 18px 16px;
+  padding: 32px 24px;
 }
 
 .starter-head {
@@ -635,11 +625,11 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
 
 .starter-kicker {
   margin-bottom: 5px;
-  color: var(--arc-primary);
-  font-family: var(--v2-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--arc-text-hint);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: .02em;
+  text-transform: none;
 }
 
 .starter h3 {
@@ -661,9 +651,10 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
-  border: 1px solid var(--arc-border);
-  border-radius: 8px;
-  background: var(--arc-bg-surface);
+  border: 0;
+  border-radius: 9px;
+  background: var(--assistant-subtle);
+  box-shadow: none;
 }
 
 .mode-switch button {
@@ -677,9 +668,10 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
 }
 
 .mode-switch button.active {
-  background: var(--arc-primary-soft);
-  color: var(--arc-primary);
-  font-weight: 600;
+  background: var(--assistant-surface);
+  color: var(--arc-text-primary);
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
 }
 
 .quick-list {
@@ -691,19 +683,22 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
 
 .quick-list button {
   border: 1px solid var(--arc-border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--arc-bg-surface);
   color: var(--arc-text-primary);
   cursor: pointer;
   font-size: 12.5px;
   line-height: 1.4;
-  padding: 10px 11px;
+  padding: 12px 14px;
   text-align: left;
+  border-color: var(--assistant-border);
+  box-shadow: none;
 }
 
 .quick-list button:hover {
   border-color: var(--arc-primary);
-  background: var(--arc-primary-soft);
+  background: var(--assistant-subtle);
+  transform: none;
 }
 
 .draft-entry {
@@ -805,13 +800,13 @@ defineExpose({ sendPrompt, sendPromptWithAction, triggerDraft })
 .chat-pane :deep(.composer-wrap) {
   flex-shrink: 0;
   padding: 10px 14px 14px;
-  background: linear-gradient(180deg, transparent, var(--arc-bg-body) 35%);
+  background: var(--assistant-surface);
 }
 
 .chat-pane :deep(.composer) {
   max-width: none;
-  border-radius: 12px;
-  box-shadow: var(--arc-shadow-sm);
+  border-radius: 16px;
+  box-shadow: 0 2px 9px rgb(0 0 0 / 3%);
 }
 
 .chat-pane :deep(.composer .foot) {

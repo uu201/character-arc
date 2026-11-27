@@ -20,6 +20,9 @@ import type {
   PersistedTurnEvent,
   SkillExecutionReceiptItem,
   SkillUseMode,
+  SkillUserInputRequest,
+  SkillUserInputResponse,
+  SkillWorkflowStep,
   StagedChange,
   StagedChangeCommitResult,
   SurfaceDefinition,
@@ -95,6 +98,8 @@ export interface AssistantMessageView {
   activityText?: string
   skillReceipt: SkillExecutionReceiptItem[]
   skillMode?: SkillUseMode
+  userInput?: { request: SkillUserInputRequest; answers?: Record<string, string> }
+  workflowSteps: SkillWorkflowStep[]
   createdAt: string
 }
 
@@ -112,6 +117,7 @@ export interface UseAssistantOptions {
 }
 
 export interface AssistantSendOptions {
+  userInputResponse?: SkillUserInputResponse
   intentHint?: string
   attachments?: TurnAttachment[]
 }
@@ -322,6 +328,8 @@ export function useAssistant(options: UseAssistantOptions) {
     activityText?: string
     skillReceipt: SkillExecutionReceiptItem[]
     skillMode?: SkillUseMode
+    userInput?: AssistantMessageView['userInput']
+    workflowSteps: SkillWorkflowStep[]
   } {
     let assistantMessage = ''
     let reasoning = ''
@@ -334,6 +342,8 @@ export function useAssistant(options: UseAssistantOptions) {
     let activityText: string | undefined
     let skillReceipt: SkillExecutionReceiptItem[] = []
     let skillMode: SkillUseMode | undefined
+    let userInput: AssistantMessageView['userInput']
+    const workflowSteps = new Map<string, SkillWorkflowStep>()
     let forceNewCommandBlock = false
 
     function appendTextBlock(kind: 'reasoning' | 'assistant', seq: number, delta: string): void {
@@ -435,6 +445,15 @@ export function useAssistant(options: UseAssistantOptions) {
           skillMode = evt.mode
           skillReceipt = evt.items.map((item) => ({ ...item }))
           break
+        case 'user_input_requested':
+          userInput = { request: evt.request }
+          break
+        case 'user_input_answered':
+          if (userInput?.request.id === evt.requestId) userInput.answers = evt.answers
+          break
+        case 'skill_workflow':
+          workflowSteps.set(`${evt.step.skillId}:${evt.step.id}`, evt.step)
+          break
         case 'done':
         case 'canceled': {
           const delta = getAssistantTerminalDelta(assistantMessage, evt.content)
@@ -460,7 +479,7 @@ export function useAssistant(options: UseAssistantOptions) {
         ? { ...item, state: 'loaded' }
         : item
     ))
-    return { assistantMessage, reasoning, toolCalls, flowBlocks, stagedChangeIds, resumable, finalError, activityText, skillReceipt, skillMode }
+    return { assistantMessage, reasoning, toolCalls, flowBlocks, stagedChangeIds, resumable, finalError, activityText, skillReceipt, skillMode, userInput, workflowSteps: [...workflowSteps.values()] }
   }
 
   const messages = computed<AssistantMessageView[]>(() => {
@@ -491,6 +510,8 @@ export function useAssistant(options: UseAssistantOptions) {
         activityText: status === 'streaming' ? folded.activityText : undefined,
         skillReceipt: folded.skillReceipt,
         skillMode: folded.skillMode,
+        userInput: folded.userInput,
+        workflowSteps: folded.workflowSteps,
         createdAt: turn.createdAt
       }
     })
@@ -1040,7 +1061,8 @@ export function useAssistant(options: UseAssistantOptions) {
         userMessage: trimmedText,
         intentHint: sendOptions.intentHint,
         attachments: outgoingAttachments,
-        skillPolicy: skillPolicy.value
+        skillPolicy: skillPolicy.value,
+        userInputResponse: sendOptions.userInputResponse
       }))
       // 事件流已经在 handler 里做了乐观 turn 的替换 + 状态更新，
       // 这里只兜底：若乐观 turn 依然存在（没有任何事件推来），清理掉。
@@ -1074,6 +1096,20 @@ export function useAssistant(options: UseAssistantOptions) {
     await sendText(prompt, {
       intentHint: `assistant-v2:continue`
     })
+  }
+
+  let isAnsweringUserInput = false
+  async function answerUserInput(response: SkillUserInputResponse): Promise<void> {
+    if (isStreaming.value || isAnsweringUserInput) return
+    const message = messages.value.find((item) => item.turnId === response.turnId)
+    if (!message?.userInput || message.userInput.answers || message.userInput.request.id !== response.requestId) return
+    const lines = message.userInput.request.questions.map((question) => `${question.question}\n${response.answers[question.id] ?? ''}`)
+    isAnsweringUserInput = true
+    try {
+      await sendText(lines.join('\n\n'), { userInputResponse: response })
+    } finally {
+      isAnsweringUserInput = false
+    }
   }
 
   async function cancel(): Promise<void> {
@@ -1404,6 +1440,7 @@ export function useAssistant(options: UseAssistantOptions) {
     renameSession,
     send,
     continueWithPrompt,
+    answerUserInput,
     cancel,
     startEditingTurn,
     startEditingLastTurn,

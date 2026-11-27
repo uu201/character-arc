@@ -119,6 +119,9 @@ export type TurnEvent =
   | { kind: 'staged_change_updated'; seq: number; changeId: string; status: StagedChangeStatus }
   | { kind: 'agent_status'; seq: number; message: string }
   | { kind: 'skill_plan'; seq: number; mode: SkillUseMode; items: SkillExecutionReceiptItem[] }
+  | { kind: 'user_input_requested'; seq: number; request: SkillUserInputRequest }
+  | { kind: 'user_input_answered'; seq: number; requestId: string; answers: Record<string, string>; responseTurnId: string }
+  | { kind: 'skill_workflow'; seq: number; step: SkillWorkflowStep }
   | { kind: 'resumable'; seq: number; label: string; prompt: string; reason?: string }
   | { kind: 'done'; seq: number; content: string }
   | { kind: 'canceled'; seq: number; content?: string }
@@ -371,6 +374,39 @@ export interface TurnSendRequest {
   resumeOfTurnId?: string
   /** 当前对话/本轮覆盖后的 Skill 使用策略。缺省时采用项目默认值。 */
   skillPolicy?: SkillUsePolicy
+  /** 回答技能流程中的问题，后端验证所属会话并从原步骤继续。 */
+  userInputResponse?: SkillUserInputResponse
+}
+
+export interface SkillUserInputQuestion {
+  id: string
+  question: string
+  options: Array<{ label: string; description: string }>
+}
+
+export interface SkillUserInputRequest {
+  id: string
+  skillId: string
+  step: string
+  goal: string
+  questions: SkillUserInputQuestion[]
+  /** 后续阶段保留此前已确认的决定与步骤，不依赖模型重新猜测。 */
+  decisions?: Array<{ question: string; answer: string }>
+  steps?: SkillWorkflowStep[]
+}
+
+export interface SkillUserInputResponse {
+  turnId: string
+  requestId: string
+  answers: Record<string, string>
+}
+
+export interface SkillWorkflowStep {
+  skillId: string
+  id: string
+  title: string
+  status: 'running' | 'completed'
+  summary?: string
 }
 
 export const ASSISTANT_IMAGE_MIME_TYPES = [

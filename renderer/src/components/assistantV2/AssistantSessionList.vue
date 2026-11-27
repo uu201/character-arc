@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { PanelLeftClose } from 'lucide-vue-next'
+import { PanelLeftClose, Plus } from 'lucide-vue-next'
 import type { AssistantSession } from '@shared/assistant-runtime'
 
 const props = defineProps<{
@@ -65,16 +65,15 @@ const grouped = computed(() => {
     <div class="head">
       <div class="brand">
         <span class="dot" />
-        <span>全局助理</span>
-        <span class="ver">v2</span>
+        <span>AI 助手</span>
       </div>
       <button class="collapse-side" title="收起对话记录" @click="emit('collapse')">
         <PanelLeftClose :size="16" />
       </button>
     </div>
 
-    <button class="new-btn" @click="emit('create')">
-      <span class="plus">+</span>
+    <button type="button" class="new-btn" @click="emit('create')">
+      <Plus :size="16" :stroke-width="2" aria-hidden="true" />
       <span>新建对话</span>
     </button>
     <div class="cleanup-row">
@@ -117,20 +116,21 @@ const grouped = computed(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--arc-bg-surface);
-  border-right: 1px solid var(--arc-border);
+  background: var(--assistant-subtle, var(--arc-bg-body));
+  border-right: 1px solid var(--assistant-border, var(--arc-border));
 }
 .head {
-  padding: 16px 12px 10px 14px;
+  padding: 18px 16px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-height: 54px;
 }
 .collapse-side {
   border: none;
   background: transparent;
-  color: var(--arc-text-hint);
+  color: var(--arc-text-secondary);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -153,42 +153,34 @@ const grouped = computed(() => {
   color: var(--arc-text-primary);
 }
 .brand .dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
-  background: var(--arc-primary);
-  box-shadow: 0 0 0 3px var(--arc-primary-soft);
-}
-.brand .ver {
-  font-family: var(--v2-mono);
-  font-size: 10.5px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--arc-bg-weak);
-  color: var(--arc-text-hint);
-  font-weight: 500;
-  letter-spacing: 0;
+  background: var(--arc-text-secondary);
+  box-shadow: none;
 }
 .new-btn {
-  margin: 4px 12px 14px;
-  padding: 8px 10px;
+  margin: 6px 12px 14px;
+  min-height: 40px;
+  padding: 10px 14px;
   border-radius: 9px;
-  background: var(--arc-text-primary);
-  color: var(--arc-bg-body);
-  border: none;
-  font-size: 12.5px;
-  font-weight: 500;
+  background: var(--assistant-action-bg, var(--arc-text-primary));
+  color: var(--assistant-action-fg, var(--arc-bg-surface));
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
+  flex-shrink: 0;
   cursor: pointer;
-  transition: transform 0.16s ease;
+  transition: background .15s, transform .15s;
   font-family: inherit;
 }
-.new-btn:hover { transform: translateY(-1px); }
-.new-btn:active { transform: translateY(0); }
-.new-btn .plus { font-size: 14px; line-height: 1; }
+.new-btn:hover { background: var(--arc-text-secondary); }
+.new-btn:active { transform: translateY(1px); }
+.new-btn svg { flex-shrink: 0; }
 .list {
   flex: 1;
   overflow-y: auto;
@@ -208,7 +200,7 @@ const grouped = computed(() => {
   height: 28px;
   border: 1px solid var(--arc-border);
   border-radius: 6px;
-  background: var(--arc-bg-body);
+  background: var(--arc-bg-surface);
   color: var(--arc-text-secondary);
   font: inherit;
   font-size: 11px;
@@ -217,12 +209,13 @@ const grouped = computed(() => {
 .cleanup-btn { padding: 0 9px; cursor: pointer; }
 .cleanup-btn:hover { color: var(--arc-primary); border-color: var(--arc-primary); }
 .group-label {
-  padding: 12px 10px 4px;
-  font-size: 10.5px;
-  color: var(--arc-text-hint);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-family: var(--v2-mono);
+  padding: 18px 12px 7px;
+  font-size: 11px;
+  color: var(--arc-text-secondary);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: inherit;
 }
 .empty {
   padding: 24px 12px;
@@ -239,38 +232,54 @@ const grouped = computed(() => {
   color: var(--arc-text-hint);
 }
 .item {
-  padding: 9px 10px;
+  position: relative;
+  padding: 10px 12px;
+  border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
+  flex-shrink: 0;
 }
-.item:hover { background: var(--arc-bg-weak); }
-.item.active { background: var(--arc-primary-soft); }
-.item.active .title { color: var(--arc-primary); }
+.item:hover { background: var(--assistant-hover, var(--arc-bg-surface-hover)); }
+.item.active {
+  background: color-mix(in srgb, var(--arc-text-primary) 12%, var(--arc-bg-surface));
+  border-color: color-mix(in srgb, var(--arc-text-primary) 18%, transparent);
+}
+.item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--arc-text-primary);
+}
+.item.active .title { color: var(--arc-text-primary); font-weight: 600; }
 .title {
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--arc-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.35;
+  line-height: 1.5;
 }
 .meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 10.5px;
-  color: var(--arc-text-hint);
-  font-family: var(--v2-mono);
+  font-size: 11px;
+  color: var(--arc-text-secondary);
+  font-family: inherit;
 }
 .del {
   border: none;
   background: transparent;
-  color: var(--arc-text-hint);
+  color: var(--arc-text-secondary);
   cursor: pointer;
   font-size: 11px;
   padding: 1px 5px;
@@ -279,6 +288,6 @@ const grouped = computed(() => {
   transition: all 0.15s ease;
   line-height: 1;
 }
-.item:hover .del { opacity: 1; }
+.item:hover .del, .item:focus-within .del { opacity: 1; }
 .del:hover { color: var(--v2-danger); background: var(--v2-danger-soft); }
 </style>

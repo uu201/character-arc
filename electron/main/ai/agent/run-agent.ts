@@ -22,6 +22,8 @@ export type RunAgentParams = {
   maxTokens?: number
   maxSteps?: number
   disableTools?: boolean
+  /** 宿主因用户决策暂停后，不再进入下一步或自动收尾。 */
+  shouldStop?: () => boolean
 }
 
 export type RunAgentResult = {
@@ -208,7 +210,7 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
     system: buildSystemPrompt(params.settings, params.systemPrompt),
     prompt: buildUserPrompt(params.userPrompt, params.imageAttachments),
     ...resolveSamplingOptions(params.settings),
-    ...(params.disableTools ? {} : { tools: sdkTools, stopWhen: stepCountIs(maxSteps) }),
+    ...(params.disableTools ? {} : { tools: sdkTools, stopWhen: [stepCountIs(maxSteps), () => Boolean(params.shouldStop?.())] }),
     abortSignal: params.ctx.signal,
     onError: ({ error }) => captureError(error),
     experimental_onToolCallStart: onToolCallStart,
@@ -305,6 +307,9 @@ export async function runAgent(params: RunAgentParams): Promise<RunAgentResult> 
   const finalStepHasToolCalls = (finalStep?.toolCalls.length ?? 0) > 0
 
   let usage: AiRunUsage = toUsage(await result.totalUsage)
+  if (params.shouldStop?.()) {
+    return { finalText: fullText, toolCalls, iterations: stepCount, usage }
+  }
   // 部分中转站在带 tools 时会返回工具结果和 output tokens，却丢失最终 text delta，
   // 且 finishReason 不一定是 tool-calls。最后一步仍在调工具或没有正文时，就禁用工具收尾。
   // 收尾只传纯文本工具结果，避免再次触发 Responses / Chat 工具消息转换兼容问题。

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { NButton, NCheckbox, NPopover, NRadio, NRadioGroup } from 'naive-ui'
-import { ChevronDown, FileText, Paperclip, Sparkles, Square, Undo2, X } from 'lucide-vue-next'
+import { NCheckbox, NPopover, NRadio, NRadioGroup } from 'naive-ui'
+import { ArrowUp, ChevronDown, FileText, Paperclip, Sparkles, Square, Undo2, X } from 'lucide-vue-next'
 import type {
   SkillUseMode,
   SkillUsePolicy,
@@ -207,20 +207,13 @@ watch(
         ref="textareaRef"
         :value="props.modelValue"
         :disabled="props.isEditing"
-        :placeholder="props.isEditing ? '正在编辑历史提问' : '继续追问，或让助理动手。Enter 发送 · Shift+Enter 换行'"
+        :placeholder="props.isEditing ? '正在编辑历史提问' : '描述你的想法，或让助手动手…'"
+        aria-label="发送给 AI 助手的消息"
         @input="handleInput"
         @keydown="handleKeydown"
         @paste="handlePaste"
       />
       <div class="foot">
-        <div class="hint">
-          <span v-if="props.modeLabel" class="mode-chip">{{ props.modeLabel }}</span>
-          <span v-if="props.isEditing">正在编辑历史提问</span>
-          <span v-else-if="props.isStreaming" class="streaming-hint">
-            <span class="streaming-dot" />AI 正在回答<template v-if="props.streamingCharCount && props.streamingCharCount > 0"> · 已生成 {{ props.streamingCharCount }} 字</template>
-          </span>
-          <span v-else>AI的修改会显示在暂存区，需要你逐条确认。</span>
-        </div>
         <div class="actions">
           <input
             ref="fileInputRef"
@@ -240,6 +233,7 @@ watch(
           >
             <Paperclip :size="14" />
           </button>
+          <span v-if="props.modeLabel" class="mode-chip">{{ props.modeLabel }}</span>
           <NPopover trigger="click" placement="top-end" :show-arrow="false" :disabled="props.isStreaming || props.isEditing">
             <template #trigger>
               <button
@@ -253,8 +247,8 @@ watch(
                 <ChevronDown :size="12" />
               </button>
             </template>
-            <div class="skill-policy-popover">
-              <strong>本对话 Skill 规则</strong>
+            <div class="skill-policy-popover assistant-ui">
+              <strong>本对话技能规则</strong>
               <NRadioGroup :value="props.skillPolicy.mode" @update:value="setSkillMode">
                 <div class="skill-mode-list">
                   <NRadio value="auto">自动匹配</NRadio>
@@ -263,7 +257,7 @@ watch(
                 </div>
               </NRadioGroup>
               <div v-if="props.skillPolicy.mode === 'only'" class="skill-only-list">
-                <span v-if="props.availableSkills.length === 0" class="skill-empty">当前项目没有已启用的可用 Skill。</span>
+                <span v-if="props.availableSkills.length === 0" class="skill-empty">当前项目没有已启用的可用技能。</span>
                 <template v-else>
                   <NCheckbox
                     v-for="skill in props.availableSkills"
@@ -274,33 +268,41 @@ watch(
                 </template>
               </div>
               <small v-if="props.skillPolicy.mode === 'only' && props.skillPolicy.skillIds.length === 0" class="skill-warning">
-                请至少选择一个 Skill 后再发送。
+                请至少选择一个技能后再发送。
               </small>
               <small v-else class="skill-policy-note">该选择保留在当前对话中，不会修改项目默认规则。</small>
             </div>
           </NPopover>
-          <NButton
+          <button
             v-if="props.isStreaming"
-            size="small"
-            type="error"
-            secondary
+            type="button"
+            class="send-button stop-button"
+            :title="props.isCanceling ? '正在停止生成' : '停止生成'"
+            :aria-label="props.isCanceling ? '正在停止生成' : '停止生成'"
             :disabled="props.isCanceling"
             @click="emit('cancel')"
           >
-            <template #icon><Square :size="13" fill="currentColor" /></template>
-            {{ props.isCanceling ? '停止中' : '停止生成' }}
-          </NButton>
-          <NButton
+            <Square :size="12" fill="currentColor" />
+          </button>
+          <button
             v-else
-            size="small"
-            type="primary"
+            type="button"
+            class="send-button"
+            title="发送消息"
+            aria-label="发送消息"
             :disabled="sendDisabled"
             @click="emit('send')"
           >
-            发送
-          </NButton>
+            <ArrowUp :size="17" :stroke-width="2.2" />
+          </button>
         </div>
       </div>
+    </div>
+    <div class="composer-caption">
+      <span v-if="props.isEditing">正在编辑历史提问</span>
+      <span v-else-if="props.isStreaming">正在回答<template v-if="props.streamingCharCount"> · {{ props.streamingCharCount }} 字</template></span>
+      <span v-else>修改会先进入暂存区，经你确认后写回</span>
+      <span class="keyboard-hint">Enter 发送 <span>·</span> Shift + Enter 换行</span>
     </div>
   </div>
 </template>
@@ -308,26 +310,26 @@ watch(
 <style scoped>
 .composer-wrap {
   container-type: inline-size;
-  padding: 12px 32px 22px;
-  background: linear-gradient(180deg, transparent, var(--arc-bg-body) 30%);
+  padding: 14px clamp(16px, 4cqi, 40px) 16px;
+  background: var(--assistant-surface, var(--arc-bg-surface));
 }
 
 .composer {
-  max-width: 720px;
+  max-width: 760px;
   margin: 0 auto;
   background: var(--arc-bg-surface);
-  border: 1px solid var(--arc-border-strong);
-  border-radius: 16px;
-  padding: 12px 14px 10px;
-  box-shadow: var(--arc-shadow-md);
+  border: 1px solid var(--assistant-border, var(--arc-border));
+  border-radius: 18px;
+  padding: 14px 14px 10px;
+  box-shadow: 0 2px 9px rgb(0 0 0 / 3%);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  gap: 12px;
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
 .composer.streaming {
-  border-color: rgba(13, 125, 90, 0.4);
-  box-shadow: 0 0 0 3px rgba(13, 125, 90, 0.06), var(--arc-shadow-md);
+  border-color: var(--arc-border-strong);
+  box-shadow: 0 2px 9px rgb(0 0 0 / 3%);
 }
 .composer.editing {
   opacity: 0.56;
@@ -347,7 +349,7 @@ watch(
   border-radius: 999px;
   background: var(--arc-primary-soft);
   color: var(--arc-primary);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 10.5px;
 }
 .restored-draft span {
@@ -379,10 +381,10 @@ textarea {
   background: transparent;
   font: inherit;
   color: var(--arc-text-primary);
-  min-height: 40px;
+  min-height: 48px;
   max-height: 180px;
-  line-height: 1.5;
-  padding: 0;
+  line-height: 1.7;
+  padding: 0 2px;
   font-size: 14px;
 }
 textarea:disabled {
@@ -456,9 +458,10 @@ textarea::placeholder {
   align-items: center;
   gap: 8px;
   padding: 7px 28px 7px 8px;
-  border: 1px solid var(--arc-border);
+  border: 1px solid var(--assistant-border, var(--arc-border));
   border-radius: 10px;
   background: var(--arc-bg-body);
+  box-shadow: none;
 }
 .document-icon {
   width: 32px;
@@ -484,7 +487,7 @@ textarea::placeholder {
 }
 .document-copy small {
   color: var(--arc-text-hint);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 9px;
 }
 .document-chip button {
@@ -515,15 +518,6 @@ textarea::placeholder {
   justify-content: space-between;
   gap: 8px;
 }
-.hint {
-  font-size: 11.5px;
-  color: var(--arc-text-hint);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-}
 .mode-chip {
   flex: 0 1 auto;
   max-width: 160px;
@@ -531,67 +525,40 @@ textarea::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 2px 7px;
+  padding: 3px 7px;
   border-radius: 999px;
-  background: var(--arc-primary-soft);
-  color: var(--arc-primary);
+  background: transparent;
+  color: var(--arc-text-hint);
   font-size: 11px;
-  font-weight: 600;
-}
-.hint > span:not(.mode-chip):not(.streaming-hint) {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 1;
-}
-.streaming-hint {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 5px;
-  overflow: hidden;
-  color: var(--arc-primary);
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.streaming-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--arc-primary);
-  animation: streamPulse 1.4s ease-in-out infinite;
-}
-@keyframes streamPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  font-weight: 400;
 }
 .actions {
   display: flex;
   min-width: 0;
-  flex-shrink: 0;
+  flex-shrink: 1;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  width: 100%;
 }
 .image-file-input {
   display: none;
 }
 .attach-trigger {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border: 1px solid var(--arc-border);
+  border: 0;
   border-radius: 8px;
-  background: var(--arc-bg-surface);
+  background: transparent;
   color: var(--arc-text-secondary);
   cursor: pointer;
 }
 .attach-trigger:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--arc-primary) 50%, var(--arc-border));
-  color: var(--arc-primary);
+  color: var(--arc-text-primary);
+  background: var(--assistant-subtle, var(--arc-bg-weak));
 }
 .attach-trigger:disabled {
   cursor: not-allowed;
@@ -600,16 +567,16 @@ textarea::placeholder {
 .skill-policy-trigger {
   min-width: 0;
   max-width: 170px;
-  height: 28px;
+  height: 30px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 0 8px;
-  border: 1px solid var(--arc-border);
-  border-radius: 8px;
-  background: var(--arc-bg-surface);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
   color: var(--arc-text-secondary);
-  font-size: 11px;
+  font-size: 11.5px;
   cursor: pointer;
 }
 .skill-policy-trigger span {
@@ -619,7 +586,8 @@ textarea::placeholder {
 }
 .skill-policy-trigger:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--arc-primary) 50%, var(--arc-border));
-  color: var(--arc-primary);
+  color: var(--arc-text-primary);
+  background: var(--assistant-subtle, var(--arc-bg-weak));
 }
 .skill-policy-trigger:disabled {
   cursor: not-allowed;
@@ -667,11 +635,6 @@ textarea::placeholder {
     align-items: stretch;
   }
 
-  .hint {
-    width: 100%;
-    min-height: 18px;
-  }
-
   .actions {
     width: 100%;
   }
@@ -682,4 +645,25 @@ textarea::placeholder {
     justify-content: center;
   }
 }
+
+.composer:focus-within {
+  border-color: var(--arc-border-strong);
+  box-shadow: 0 2px 12px rgb(0 0 0 / 5%);
+}
+
+.send-button { display: grid; place-items: center; width: 32px; height: 32px; margin-left: auto; flex: 0 0 32px; padding: 0; border: 0; border-radius: 50%; background: var(--assistant-action-bg, var(--arc-text-primary)); color: var(--assistant-action-fg, var(--arc-bg-surface)); cursor: pointer; transition: opacity .15s, transform .15s; }
+
+.send-button:hover:not(:disabled) { opacity: .82; }
+
+.send-button:active:not(:disabled) { transform: scale(.94); }
+
+.send-button:disabled { background: var(--assistant-hover, var(--arc-border)); color: var(--arc-text-hint); cursor: not-allowed; }
+
+.composer-caption { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 760px; margin: 9px auto 0; color: var(--arc-text-hint); font-size: 10.5px; line-height: 1.5; }
+
+.keyboard-hint { white-space: nowrap; }
+
+.keyboard-hint > span { margin: 0 3px; }
+
+@container (max-width: 520px) { .keyboard-hint { display: none; } .composer-caption { justify-content: center; font-size: 10px; } .composer-wrap { padding: 10px 12px 12px; } .composer { border-radius: 15px; } }
 </style>

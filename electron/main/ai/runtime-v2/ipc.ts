@@ -44,6 +44,7 @@ import { finalizeCommitBatch } from './commit-result'
 import type { EvidenceLedger } from './evidence-ledger'
 import type { AssistantRuntimePlan } from './planner'
 import { toStageResponse } from './stage-response'
+import { resolveSkillUserInput } from './skill-interaction'
 
 /** Phase 2 才注入的执行计划解析器：把 Surface + user request → prompt + tools。 */
 export type ResolveTurnExecutionPlan = (params: {
@@ -179,7 +180,7 @@ function shouldOfferContinuation(
   ledger: ReturnType<EvidenceLedger['snapshot']>,
   result: AgentLoopRunResult
 ): boolean {
-  return result.status === 'done' && (runtimePlan.requiresBatching || ledger.budgetExhausted)
+  return result.status === 'done' && !result.waitingForUser && (runtimePlan.requiresBatching || ledger.budgetExhausted)
 }
 
 function persistTurnRuntimeState(params: {
@@ -189,11 +190,12 @@ function persistTurnRuntimeState(params: {
   runtimePlan: AssistantRuntimePlan
   ledger: ReturnType<EvidenceLedger['snapshot']>
   resumable: boolean
+  waitingForUser?: boolean
 }): void {
   params.conversation.upsertTurnState({
     turnId: params.turnId,
     sessionId: params.sessionId,
-    phase: params.resumable ? 'awaiting-continue' : 'done',
+    phase: params.waitingForUser ? 'awaiting-user-input' : params.resumable ? 'awaiting-continue' : 'done',
     planJson: JSON.stringify(params.runtimePlan),
     ledgerJson: JSON.stringify(params.ledger),
     resumable: params.resumable,
@@ -342,13 +344,16 @@ function registerTurnHandlers(): void {
     async (event, payload: TurnSendRequest) => {
       const controller = new AbortController()
       const activeTurn: ActiveTurn = { controller, sessionId: payload.sessionId }
+      if ([...activeTurns.values()].some((item) => item.sessionId === payload.sessionId)) {
+        throw new Error('当前会话已有正在执行的任务，请等待完成后再提交。')
+      }
       const activeKeys = new Set<string>()
       const registerActiveKey = (key?: string): void => {
         if (!key) return
         activeTurns.set(key, activeTurn)
         activeKeys.add(key)
       }
-      registerActiveKey(payload.clientRequestId)
+      registerActiveKey(payload.clientRequestId ?? randomUUID())
 
       try {
         const resolvePlan = requireDep('resolveTurnExecutionPlan')
@@ -360,6 +365,13 @@ function registerTurnHandlers(): void {
           ...payload,
           attachments: normalizeTurnAttachments(payload.attachments)
         }
+        const userInput = normalizedPayload.userInputResponse
+          ? resolveSkillUserInput(cm, session.id, normalizedPayload.userInputResponse)
+          : undefined
+        if (userInput) {
+          normalizedPayload.skillPolicy = userInput.skillPolicy
+          normalizedPayload.resumeOfTurnId = normalizedPayload.userInputResponse!.turnId
+        }
 
         // 组装执行计划（Phase 2 实现），拿到 systemPrompt + tools + settings
         const plan = await resolvePlan({
@@ -367,6 +379,9 @@ function registerTurnHandlers(): void {
           surface: normalizedPayload.surface,
           request: normalizedPayload
         })
+        if (userInput && !plan.skillPlan.items.some((item) => item.id === userInput.request.skillId)) {
+          throw new Error('原技能已停用或不可用，请重新启用后再继续该流程。')
+        }
 
         // Emitter：把 TurnEvent 通过 EVENT_STREAM 通道 push 到发起方 window
         const emitter = (evt: AssistantEventPush): void => {
@@ -384,14 +399,18 @@ function registerTurnHandlers(): void {
           turnInput: {
             userMessage: normalizedPayload.userMessage,
             intentHint: normalizedPayload.intentHint,
-            attachments: normalizedPayload.attachments
+            attachments: normalizedPayload.attachments,
+            workflowGoal: userInput?.request.goal,
+            workflowDecisions: userInput?.decisions,
+            workflowSteps: userInput?.steps
           },
-          systemPrompt: plan.systemPrompt,
+          systemPrompt: [plan.systemPrompt, userInput?.context].filter(Boolean).join('\n\n'),
           tools: plan.tools,
           settings: plan.settings,
           signal: controller.signal,
           maxSteps: plan.maxSteps ?? payload.surface.maxSteps,
           maxOutputTokens: plan.maxOutputTokens,
+          skillPlan: plan.skillPlan,
           onTurnCreated: (turnId) => {
             activeTurn.turnId = turnId
             registerActiveKey(turnId)
@@ -401,6 +420,12 @@ function registerTurnHandlers(): void {
               mode: plan.skillPlan.mode,
               items: plan.skillPlan.items
             })
+            if (userInput && normalizedPayload.userInputResponse) {
+              appendRuntimeEvent(cm, emitter, session.id, normalizedPayload.userInputResponse.turnId, {
+                kind: 'user_input_answered', seq: 0, requestId: userInput.request.id,
+                answers: userInput.answers, responseTurnId: turnId
+              })
+            }
           }
         })
         const ledgerSnapshot = plan.evidenceLedger.snapshot()
@@ -411,7 +436,8 @@ function registerTurnHandlers(): void {
           turnId: result.turnId,
           runtimePlan: plan.runtimePlan,
           ledger: ledgerSnapshot,
-          resumable
+          resumable,
+          waitingForUser: result.waitingForUser
         })
         if (resumable) {
           appendRuntimeEvent(cm, emitter, session.id, result.turnId, {

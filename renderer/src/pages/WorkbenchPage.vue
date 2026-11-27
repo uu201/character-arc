@@ -87,7 +87,7 @@ const sidebarItemPresentation = {
   chapters: { description: '进入正文草稿与章节推进流程', icon: FileText, color: '#3b82f6' },
   inspiration: { description: '收集标题、桥段、转折与人物动机', icon: Lightbulb, color: '#f59e0b' },
   'project-knowledge': { description: '一致性审计与从已有章节补录状态', icon: FileCheck2, color: '#14b8a6' },
-  'global-assistant-v2': { description: 'Runtime v2 · 多轮对话 + 暂存变更审阅', icon: Sparkles, color: '#0d7d5a' }
+  'global-assistant-v2': { description: '创作对话 · 技能协作 · 变更审阅', icon: Sparkles, color: '#52525b' }
 } satisfies Record<WorkbenchMenuId, { description: string; icon: Component; color: string }>
 
 const sidebarItemCatalog = WORKBENCH_MENU_DEFINITIONS.map((item) => ({
@@ -408,7 +408,7 @@ watch(searchKeyword, (value) => {
             round
             :type="isGlobalAssistantOpen ? 'primary' : 'default'"
             class="assistant-toggle"
-            title="打开全局助手 v2"
+            title="打开 AI 助手"
             @click="toggleGlobalAssistant"
           >
             AI助手

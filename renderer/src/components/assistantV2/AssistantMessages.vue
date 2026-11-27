@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CircleAlert,
   CircleStop,
+  CornerDownRight,
   Copy,
   ClipboardCheck,
   FileText,
@@ -28,7 +29,8 @@ import {
 import type { AssistantMessageView, AssistantToolCallView } from '@/composables/useAssistant'
 import { parseSelectionPrompt } from '@/features/assistant/selectionPrompt'
 import { ASSISTANT_MARKDOWN_SANITIZE_OPTIONS, parseAssistantMarkdown } from '@/features/assistant/markdown'
-import type { StagedChange, TurnFileAttachment } from '@shared/assistant-runtime'
+import type { StagedChange, TurnFileAttachment, SkillUserInputResponse } from '@shared/assistant-runtime'
+import AssistantUserInput from './AssistantUserInput.vue'
 
 const markdownCache = new Map<string, { content: string; html: string }>()
 
@@ -77,6 +79,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: 'open-knowledge', documentId?: string): void
   (e: 'continue', prompt: string): void
+  (e: 'answer-input', response: SkillUserInputResponse): void
   (e: 'open-staged'): void
   (e: 'edit-start', turnId: string): void
   (e: 'edit-cancel'): void
@@ -342,6 +345,7 @@ function messageStatusText(message: AssistantMessageView): string {
   if (message.status === 'streaming') return message.activityText || '正在生成'
   if (message.status === 'canceled') return '已停止'
   if (message.status === 'error') return '生成失败'
+  if (message.userInput && !message.userInput.answers) return '等待你的选择'
   return '已完成'
 }
 
@@ -648,7 +652,7 @@ const hasContent = computed(() => props.messages.length > 0)
           <span class="assistant-mark">
             <Sparkles :size="12" :stroke-width="2" />
           </span>
-          <span class="assistant-name">{{ props.assistantName ?? '全局助手' }}</span>
+          <span class="assistant-name">{{ props.assistantName ?? 'AI 助手' }}</span>
           <time class="message-time assistant-time" :datetime="msg.createdAt">{{ formatMessageTime(msg.createdAt) }}</time>
         </div>
 
@@ -674,8 +678,11 @@ const hasContent = computed(() => props.messages.length > 0)
           >
             <summary class="section-summary command-summary">
               <component :is="commandSectionIcon(block.commands)" class="summary-icon" :size="15" :stroke-width="1.75" />
-              <span>{{ commandSectionLabel(block.commands) }}</span>
-              <em>{{ commandSummary(block.commands, msg.status) }}</em>
+              <span class="command-summary-copy">
+                <span class="command-summary-label">{{ commandSectionLabel(block.commands) }}</span>
+                <em>{{ commandSummary(block.commands, msg.status) }}</em>
+              </span>
+              <ChevronRight class="command-chevron" :size="13" aria-hidden="true" />
             </summary>
 
             <div class="command-details">
@@ -749,6 +756,18 @@ const hasContent = computed(() => props.messages.length > 0)
         </div>
       </div>
 
+      <ol v-if="msg.workflowSteps.length" class="skill-workflow" aria-label="技能执行步骤">
+        <li v-for="step in msg.workflowSteps" :key="`${step.skillId}:${step.id}`" :class="step.status">
+          <CheckCircle2 v-if="step.status === 'completed'" :size="14" aria-hidden="true" />
+          <CornerDownRight v-else :size="14" aria-hidden="true" />
+          <div><strong>{{ step.title }}</strong><small v-if="step.summary">{{ step.summary }}</small></div>
+          <span>{{ step.status === 'completed' ? '已完成' : (msg.userInput && !msg.userInput.answers ? '等待选择' : '进行中') }}</span>
+        </li>
+      </ol>
+      <AssistantUserInput v-if="msg.userInput" :key="msg.userInput.request.id" :request="msg.userInput.request"
+        :answers="msg.userInput.answers" :disabled="isStreaming || msg.status !== 'done' || msg.turnId !== messages[messages.length - 1]?.turnId"
+        @submit="(answers) => emit('answer-input', { turnId: msg.turnId, requestId: msg.userInput!.request.id, answers })" />
+
       <div class="assistant-status-line">
         <span class="assistant-state" :class="msg.status" role="status" :title="messageStatusText(msg)">
           <LoaderCircle v-if="msg.status === 'streaming'" class="status-spinner" :size="12" aria-hidden="true" />
@@ -818,6 +837,13 @@ const hasContent = computed(() => props.messages.length > 0)
 </template>
 
 <style scoped>
+.skill-workflow { list-style: none; padding: 0; margin: 8px 0; border-top: 0; }
+.skill-workflow li { display: flex; gap: 8px; align-items: flex-start; padding: 7px 0; font-size: 12px; color: var(--arc-text-secondary); border-bottom: 0; }
+.skill-workflow li > svg { flex-shrink: 0; margin-top: 2px; }
+.skill-workflow li.completed > svg { color: var(--arc-success, #4f7f78); }
+.skill-workflow strong { font-weight: 500; color: var(--arc-text-primary); }
+.skill-workflow small { display: block; margin-top: 4px; line-height: 1.6; white-space: pre-wrap; }
+.skill-workflow li > span { flex-shrink: 0; margin-left: auto; font-size: 11px; }
 .messages-viewport {
   container: assistant-messages / inline-size;
   display: flex;
@@ -832,12 +858,13 @@ const hasContent = computed(() => props.messages.length > 0)
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   overflow-anchor: none;
-  padding: 24px 28px 18px;
+  padding: 28px clamp(16px, 4cqi, 48px) 24px;
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 32px;
   min-width: 0;
   min-height: 0;
+  background: var(--assistant-surface, var(--arc-bg-surface));
 }
 /* ── Skeleton 加载占位 ── */
 .skeleton {
@@ -907,13 +934,14 @@ const hasContent = computed(() => props.messages.length > 0)
   color: var(--arc-text-hint);
 }
 .turn-entry {
-  width: min(100%, 900px);
+  width: min(100%, 760px);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   min-width: 0;
-  padding-top: 30px;
-  border-top: 1px solid var(--arc-border);
+  padding-top: 8px;
+  border-top: 0;
+  margin-inline: auto;
 }
 .turn-entry.is-first {
   padding-top: 0;
@@ -931,6 +959,8 @@ const hasContent = computed(() => props.messages.length > 0)
   display: flex;
   align-items: flex-start;
   gap: 10px;
+  justify-content: flex-end;
+  margin-bottom: 6px;
 }
 .load-more {
   display: block;
@@ -948,7 +978,7 @@ const hasContent = computed(() => props.messages.length > 0)
 .load-more:disabled { opacity: 0.6; cursor: wait; }
 .message-time {
   color: var(--arc-text-hint);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 10px;
   font-weight: 400;
   white-space: nowrap;
@@ -956,22 +986,24 @@ const hasContent = computed(() => props.messages.length > 0)
 .user-time {
   align-self: flex-end;
   margin-bottom: 2px;
+  display: none;
 }
 .user-actions {
   position: absolute;
-  top: -13px;
+  top: auto;
   right: 0;
   display: flex;
   gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--arc-border);
-  border-radius: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
   background: var(--arc-bg-surface);
-  box-shadow: var(--arc-shadow-md);
+  box-shadow: none;
   opacity: 0;
   pointer-events: none;
   transform: translateY(3px);
   transition: opacity 0.16s ease, transform 0.16s ease;
+  bottom: -27px;
 }
 .user-entry:hover .user-actions,
 .user-actions:focus-within {
@@ -1021,7 +1053,7 @@ const hasContent = computed(() => props.messages.length > 0)
   padding: 0 12px;
   border-bottom: 1px solid var(--arc-border);
   color: var(--arc-primary);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 11px;
 }
 .turn-editor-head em {
@@ -1054,7 +1086,7 @@ const hasContent = computed(() => props.messages.length > 0)
   align-items: center;
   gap: 6px;
   color: var(--v2-warn);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 11px;
 }
 .edit-impact ul {
@@ -1084,7 +1116,7 @@ const hasContent = computed(() => props.messages.length > 0)
 .turn-editor-foot > span {
   margin-right: auto;
   color: var(--arc-text-hint);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 10px;
 }
 .turn-editor-foot button {
@@ -1109,10 +1141,10 @@ const hasContent = computed(() => props.messages.length > 0)
 .edit-resend {
   border: 1px solid var(--arc-primary);
   background: var(--arc-primary);
-  color: #fff;
+  color: var(--assistant-action-fg, var(--arc-bg-surface));
 }
 .user-avatar {
-  display: inline-flex;
+  display: none;
   flex: 0 0 auto;
   width: 26px;
   height: 26px;
@@ -1127,15 +1159,19 @@ const hasContent = computed(() => props.messages.length > 0)
 .user-content,
 .assistant-copy {
   color: var(--arc-text-primary);
-  font-size: 15px;
-  line-height: 1.8;
+  font-size: 14px;
+  line-height: 1.85;
   word-break: break-word;
 }
 .user-content {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   white-space: pre-wrap;
-  font-weight: 500;
+  font-weight: 400;
+  max-width: min(88%, 640px);
+  background: var(--assistant-subtle, var(--arc-bg-weak));
+  padding: 11px 16px;
+  border-radius: 16px;
 }
 .user-attachment-gallery {
   width: min(100%, 560px);
@@ -1156,10 +1192,11 @@ const hasContent = computed(() => props.messages.length > 0)
   border-radius: 9px;
   background: var(--arc-bg-surface);
   color: var(--arc-text-primary);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 10%);
+  box-shadow: none;
   cursor: zoom-in;
   text-align: left;
   transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+  border-color: var(--assistant-border, var(--arc-border));
 }
 .user-attachment:hover,
 .user-attachment:focus-visible {
@@ -1191,7 +1228,7 @@ const hasContent = computed(() => props.messages.length > 0)
   border: 1px solid color-mix(in srgb, var(--arc-primary) 28%, var(--arc-border));
   border-radius: 4px;
   background: var(--arc-bg-surface);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1236,7 +1273,7 @@ const hasContent = computed(() => props.messages.length > 0)
 }
 .attachment-size {
   color: var(--arc-text-hint);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 9.5px;
   font-weight: 400;
 }
@@ -1282,7 +1319,7 @@ const hasContent = computed(() => props.messages.length > 0)
   flex: 0 0 auto;
   margin-left: auto;
   color: var(--arc-text-hint);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 10px;
   font-style: normal;
 }
@@ -1301,28 +1338,28 @@ const hasContent = computed(() => props.messages.length > 0)
 .assistant-block {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
 }
 .message-section {
   min-width: 0;
-  border: 1px solid var(--arc-border);
-  border-radius: 6px;
-  background: var(--arc-bg-surface);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
   overflow: hidden;
 }
 .section-summary {
-  min-height: 36px;
-  padding: 0 11px;
+  min-height: 30px;
+  padding: 3px 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   color: var(--arc-text-secondary);
   cursor: pointer;
   list-style: none;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
 }
 .section-summary:focus-visible {
   outline: 2px solid var(--arc-primary);
@@ -1332,7 +1369,7 @@ const hasContent = computed(() => props.messages.length > 0)
 .section-summary::marker { content: ''; }
 .section-summary em {
   color: var(--arc-text-hint);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 10.5px;
   font-style: normal;
   font-weight: 400;
@@ -1352,11 +1389,13 @@ const hasContent = computed(() => props.messages.length > 0)
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
+  min-height: 18px;
+  margin-bottom: 0;
 }
 .assistant-mark {
-  display: inline-flex;
+  display: none;
   width: 20px;
   height: 20px;
   align-items: center;
@@ -1366,18 +1405,21 @@ const hasContent = computed(() => props.messages.length > 0)
   color: var(--arc-primary);
 }
 .assistant-name {
-  color: var(--arc-text-secondary);
-  font-size: 12.5px;
-  font-weight: 600;
+  color: var(--arc-text-hint);
+  font-size: 11px;
+  font-weight: 500;
   letter-spacing: 0.01em;
 }
 .assistant-time {
   margin-left: auto;
+  opacity: 0;
+  transition: opacity .15s;
 }
 .assistant-status-line {
   display: flex;
   align-items: center;
   min-width: 0;
+  padding: 2px 0 0;
 }
 .assistant-state {
   display: inline-flex;
@@ -1404,7 +1446,7 @@ const hasContent = computed(() => props.messages.length > 0)
   color: var(--arc-text-hint);
 }
 .assistant-state.done svg {
-  color: var(--arc-success, var(--arc-primary));
+  color: var(--arc-text-hint);
 }
 .assistant-state.error {
   color: var(--arc-danger, var(--v2-danger));
@@ -1440,8 +1482,8 @@ const hasContent = computed(() => props.messages.length > 0)
 }
 .reasoning-copy {
   color: var(--arc-text-secondary);
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: 13px;
+  line-height: 1.8;
 }
 .markdown-body :deep(p) { margin: 0 0 10px; }
 .markdown-body :deep(p:last-child) { margin-bottom: 0; }
@@ -1538,10 +1580,45 @@ const hasContent = computed(() => props.messages.length > 0)
 }
 .command-block {
   display: block;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition: border-color .15s ease, background .15s ease;
 }
-.command-summary {
+.command-block > .command-summary {
   width: 100%;
+  min-height: 28px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 9px;
   user-select: none;
+}
+.command-summary-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-width: 0;
+  line-height: 1.6;
+}
+.command-summary-label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.command-summary-copy em {
+  grid-column: auto;
+  color: color-mix(in srgb, var(--arc-text-secondary) 85%, var(--arc-bg-surface));
+  font-size: 11px;
+}
+.command-chevron {
+  flex-shrink: 0;
+  color: var(--arc-text-secondary);
+  transition: transform .15s ease;
+}
+.command-block:hover {
+  background: var(--assistant-subtle, var(--arc-bg-weak));
 }
 .command-summary::-webkit-details-marker,
 .command-preview summary::-webkit-details-marker {
@@ -1551,20 +1628,30 @@ const hasContent = computed(() => props.messages.length > 0)
 .command-preview summary::marker {
   content: '';
 }
+.command-block[open] {
+  width: 100%;
+  border-color: var(--assistant-border, var(--arc-border));
+  background: var(--assistant-subtle, var(--arc-bg-weak));
+}
 .command-block[open] > .command-summary {
-  color: var(--arc-text-secondary);
+  color: var(--arc-text-primary);
+}
+.command-block[open] > .command-summary .command-chevron {
+  transform: rotate(90deg);
 }
 .summary-icon {
   flex: 0 0 auto;
   color: currentColor;
 }
 .command-details {
-  margin: 0;
-  padding: 10px 12px 12px;
-  border-top: 1px solid var(--arc-border);
+  margin: 3px 12px 12px 15px;
+  padding: 2px 0 2px 14px;
+  border-top: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  border-left: 1px solid var(--assistant-border, var(--arc-border));
+  background: transparent;
 }
 .staged-block {
   width: 100%;
@@ -1575,11 +1662,13 @@ const hasContent = computed(() => props.messages.length > 0)
   gap: 10px;
   padding: 8px 11px;
   border: 1px solid color-mix(in srgb, var(--arc-warning) 32%, var(--arc-border));
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--arc-warning) 5%, var(--arc-bg-surface));
+  border-radius: 10px;
+  background: var(--assistant-subtle, var(--arc-bg-weak));
   color: var(--arc-text-secondary);
   text-align: left;
   cursor: pointer;
+  border-color: var(--assistant-border, var(--arc-border));
+  box-shadow: none;
 }
 .staged-block:hover {
   border-color: var(--arc-warning);
@@ -1613,6 +1702,10 @@ const hasContent = computed(() => props.messages.length > 0)
   color: var(--arc-text-secondary);
   font-size: 12.5px;
   line-height: 1.5;
+  padding: 7px 0;
+  border-bottom: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .command-item-head {
   display: grid;
@@ -1647,7 +1740,7 @@ const hasContent = computed(() => props.messages.length > 0)
 }
 .command-meta {
   color: var(--arc-text-hint);
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 11px;
   white-space: nowrap;
 }
@@ -1736,20 +1829,22 @@ const hasContent = computed(() => props.messages.length > 0)
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 7px;
   color: var(--arc-text-hint);
-  font-size: 11px;
+  font-size: 10.5px;
 }
 .skill-receipt > span {
   color: var(--arc-text-secondary);
   font-weight: 600;
 }
 .skill-receipt em {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--arc-primary-soft);
-  color: var(--arc-primary);
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--assistant-subtle, var(--arc-bg-weak));
+  color: var(--arc-text-secondary);
   font-style: normal;
+  font-size: 10.5px;
+  border: 0;
 }
 
 :global(.assistant-image-preview.n-card) {
@@ -1863,7 +1958,7 @@ const hasContent = computed(() => props.messages.length > 0)
   }
   .turn-entry {
     gap: 14px;
-    padding-top: 22px;
+    padding-top: 6px;
   }
   .user-content,
   .assistant-copy {
@@ -1875,7 +1970,7 @@ const hasContent = computed(() => props.messages.length > 0)
   }
   .section-summary {
     grid-template-columns: auto minmax(0, 1fr);
-    padding: 8px 10px;
+    padding: 4px 0;
     row-gap: 2px;
   }
   .section-summary em {
@@ -1901,9 +1996,9 @@ const hasContent = computed(() => props.messages.length > 0)
     justify-self: start;
   }
   .assistant-head {
-    display: grid;
+    display: flex;
     grid-template-columns: 20px minmax(0, 1fr) auto;
-    gap: 5px 7px;
+    gap: 8px;
   }
   .assistant-name {
     min-width: 0;
@@ -1911,12 +2006,14 @@ const hasContent = computed(() => props.messages.length > 0)
   }
   .assistant-time {
     grid-column: 2 / -1;
-    margin-left: 0;
+    margin-left: auto;
   }
   .user-entry {
-    display: grid;
+    display: flex;
     grid-template-columns: 26px minmax(0, 1fr);
-    gap: 7px 9px;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
   .user-avatar {
     grid-column: 1;
@@ -1925,6 +2022,7 @@ const hasContent = computed(() => props.messages.length > 0)
   .user-content {
     grid-column: 2;
     grid-row: 1;
+    max-width: 92%;
   }
   .user-time {
     grid-column: 2;
@@ -1940,9 +2038,11 @@ const hasContent = computed(() => props.messages.length > 0)
     opacity: 1;
     pointer-events: auto;
     transform: none;
+    flex-basis: 100%;
+    justify-content: flex-end;
   }
   .user-actions button {
-    border: 1px solid var(--arc-border);
+    border: 0;
   }
   .user-attachment-gallery {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1985,4 +2085,6 @@ const hasContent = computed(() => props.messages.length > 0)
     animation: none;
   }
 }
+
+.assistant-block:hover .assistant-time { opacity: 1; }
 </style>

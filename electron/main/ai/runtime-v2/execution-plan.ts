@@ -285,11 +285,11 @@ function buildV2SkillPromptBlock(
   if (requiredSkills.length > 0) {
     sections.push([
       forceInject
-        ? '## 本轮仅使用的 SKILLS（已直接注入，不得加载或混用其他 Skill）'
+        ? '## 本轮仅使用的 SKILLS（完整流程已直接注入，不得混用其他 Skill）'
         : '## 强制生效的 SKILLS（已直接注入，无需调用 skill_load）',
       '',
       ...requiredSkills.map((skill) => {
-        const body = stripSkillFrontmatter(skill.content).trim().slice(0, 2000)
+        const body = stripSkillFrontmatter(skill.content).trim()
         return `### ${skill.name}\n${body}`
       })
     ].join('\n'))

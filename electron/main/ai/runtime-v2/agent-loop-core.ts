@@ -16,7 +16,11 @@ import type {
   SurfaceDefinition,
   TurnAttachment,
   TurnEvent,
-  TurnStatus
+  TurnStatus,
+  SkillUserInputRequest,
+  SkillExecutionReceiptItem,
+  SkillUseMode,
+  SkillWorkflowStep
 } from '@shared/assistant-runtime'
 import {
   formatTurnPromptWithDocuments,
@@ -35,6 +39,7 @@ import type { ConversationManager } from './conversation-manager'
 import type { StagedChangesStore } from './staged-changes-store'
 import { formatUnknownError } from '../error-message'
 import { claimsStagedChanges, STAGING_RECOVERY_INSTRUCTION } from './staging-outcome'
+import { createSkillInteractionTools } from './skill-interaction'
 
 export interface AgentLoopRunOptions {
   session: AssistantSession
@@ -43,6 +48,9 @@ export interface AgentLoopRunOptions {
     userMessage: string
     intentHint?: string
     attachments?: TurnAttachment[]
+    workflowGoal?: string
+    workflowDecisions?: SkillUserInputRequest['decisions']
+    workflowSteps?: SkillWorkflowStep[]
   }
   /** 已由 ContextBuilder + 规则模板拼装好的 system prompt。 */
   systemPrompt: string
@@ -63,6 +71,7 @@ export interface AgentLoopRunOptions {
    * IPC 层用它把 AbortController 注册到 activeTurns，实现 TURN_CANCEL。
    */
   onTurnCreated?: (turnId: string) => void
+  skillPlan?: { mode: SkillUseMode; items: SkillExecutionReceiptItem[] }
 }
 
 export interface AgentLoopRunResult {
@@ -73,6 +82,7 @@ export interface AgentLoopRunResult {
   toolCalls: ToolCallTrace[]
   agentIterations: number
   error?: string
+  waitingForUser?: boolean
 }
 
 /** 向渲染进程推送 TurnEvent 的回调（IPC 层实现）。 */
@@ -288,9 +298,27 @@ export class AgentLoopCore {
 
     // 补生成沿用本轮工具和权限，并携带实际工具结果，避免丢失刚读到的目标信息。
     const observations: string[] = []
-    const tools = availableTools.map((tool): Tool => ({
+    let pendingQuestion: SkillUserInputRequest | undefined
+    const workflowSteps = new Map((options.turnInput.workflowSteps ?? []).map((step) => [`${step.skillId}:${step.id}`, step]))
+    const interactionTools = availableTools.some((tool) => tool.definition.name === 'skill_load')
+      ? createSkillInteractionTools({
+          goal: options.turnInput.workflowGoal ?? options.turnInput.userMessage,
+          isSkillAllowed: (id) => !options.skillPlan || options.skillPlan.items.some((item) => item.id === id),
+          onQuestion: (request) => {
+            pendingQuestion = { ...request, decisions: options.turnInput.workflowDecisions ?? [], steps: [...workflowSteps.values()] }
+            this.dispatch(sessionId, turnId, { kind: 'user_input_requested', seq: 0, request: pendingQuestion })
+          },
+          onStep: (step) => {
+            workflowSteps.set(`${step.skillId}:${step.id}`, step)
+            this.dispatch(sessionId, turnId, { kind: 'skill_workflow', seq: 0, step })
+          }
+        })
+      : []
+    const tools = [...availableTools, ...interactionTools].map((tool): Tool => ({
       ...tool,
       handler: async (args, ctx) => {
+        ctx.signal.throwIfAborted()
+        if (pendingQuestion) return { content: '流程已暂停，必须等待用户回答后才能执行后续步骤。', isError: true }
         const result = await tool.handler(args, ctx)
         observations.push(JSON.stringify({ tool: tool.definition.name, args, ...result }).slice(0, 12000))
         if (observations.length > 20) observations.shift()
@@ -321,11 +349,14 @@ export class AgentLoopCore {
         },
         handlers: stream.handlers,
         maxTokens: options.maxOutputTokens,
-        maxSteps: options.maxSteps ?? options.surface.maxSteps
+        maxSteps: options.maxSteps ?? options.surface.maxSteps,
+        shouldStop: () => Boolean(pendingQuestion)
       }
       let result = await this.runAgentImpl(params)
       if (options.signal.aborted) throw new Error('aborted')
-      finalText = result.finalText
+      finalText = pendingQuestion
+        ? [stream.getText().trim(), `流程已暂停，请完成「${pendingQuestion.step}」中的选择，提交后将继续执行。`].filter(Boolean).join('\n\n')
+        : result.finalText
       usage = result.usage
       agentIterations = result.iterations
       if (toolCalls.length === 0 && result.toolCalls.length > 0) {
@@ -334,7 +365,7 @@ export class AgentLoopCore {
 
       // 不凭模型文字判断暂存成功。没有本轮记录且声称已暂存时，最多自动补生成一次。
       // 已拒绝/已写回的记录也算实际产出，避免用户处理后被自动重新创建。
-      if (this.staged.list({ turnId }, sessionId).length === 0
+      if (!pendingQuestion && this.staged.list({ turnId }, sessionId).length === 0
         && claimsStagedChanges(finalText)) {
         if (!tools.some((tool) => tool.definition.name.startsWith('stage_'))) {
           throw new Error('当前场景没有可用的暂存工具，本轮没有实际生成暂存变更。')
@@ -421,7 +452,8 @@ export class AgentLoopCore {
       usage,
       toolCalls,
       agentIterations,
-      error: errorMessage
+      error: errorMessage,
+      waitingForUser: Boolean(pendingQuestion)
     }
   }
 }

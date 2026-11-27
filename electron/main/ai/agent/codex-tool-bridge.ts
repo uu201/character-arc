@@ -24,6 +24,7 @@ export type RunCodexToolAgentParams = {
   handlers: AiAgentStreamHandlers
   maxSteps: number
   disableTools?: boolean
+  shouldStop?: () => boolean
 }
 
 export type CodexToolAgentResult = {
@@ -277,6 +278,7 @@ export async function runCodexToolAgent(
 
     let stepHasError = false
     for (const [index, call] of envelope.toolCalls.entries()) {
+      if (params.shouldStop?.()) break
       const toolUseId = `codex-${step}-${index + 1}`
       const startedAt = Date.now()
       params.handlers.onToolUseStart(toolUseId, call.name, call.arguments)
@@ -324,6 +326,8 @@ export async function runCodexToolAgent(
       observations.push({ tool: call.name, arguments: call.arguments, content, isError })
       stepHasError ||= isError
     }
+
+    if (params.shouldStop?.()) return { finalText: '', toolCalls: traces, iterations: step, usage }
 
     // 兼容少数模型在同一协议响应中同时给出成功工具调用和最终说明。
     if (envelope.finalText && !stepHasError) {

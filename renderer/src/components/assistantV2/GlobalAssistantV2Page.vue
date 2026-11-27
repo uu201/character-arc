@@ -320,7 +320,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
 
 <template>
   <div
-    class="v2-page"
+    class="v2-page assistant-ui"
     :class="{
       'stage-collapsed': stageCollapsed,
       'session-collapsed': sessionCollapsed,
@@ -379,6 +379,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
         :staged-changes="assistant.stagedChanges.value"
         @open-knowledge="openKnowledgeDocument"
         @continue="assistant.continueWithPrompt"
+        @answer-input="assistant.answerUserInput"
         @open-staged="reopenStagePanel"
         @edit-start="assistant.startEditingTurn"
         @edit-cancel="assistant.cancelEditing"
@@ -391,7 +392,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
       <div v-else class="starter">
         <div class="starter-inner">
           <div class="starter-head">
-            <div class="starter-kicker">Global Assistant v2</div>
+            <div class="starter-kicker">项目创作</div>
             <h2>需要我做点什么？</h2>
             <p class="starter-sub">{{ currentMode.description }}</p>
           </div>
@@ -514,23 +515,6 @@ async function handleCommit(ids?: string[]): Promise<void> {
 
 <style scoped>
 .v2-page {
-  /* Runtime v2 专属主题覆盖：强制 emerald accent，与旧 v1 的主题色区分 */
-  --arc-primary: #0d7d5a;
-  --arc-primary-hover: #0a6b4e;
-  --arc-primary-pressed: #085d43;
-  --arc-primary-soft: rgba(13, 125, 90, 0.08);
-  --v2-accent-line: rgba(13, 125, 90, 0.22);
-  --v2-warn: #b45309;
-  --v2-warn-soft: rgba(180, 83, 9, 0.08);
-  --v2-danger: #b91c1c;
-  --v2-danger-soft: rgba(185, 28, 28, 0.06);
-  --v2-add: #047857;
-  --v2-add-bg: rgba(4, 120, 87, 0.09);
-  --v2-del: #b91c1c;
-  --v2-del-bg: rgba(185, 28, 28, 0.07);
-  --v2-mono: 'JetBrains Mono', 'Consolas', 'SF Mono', ui-monospace, Menlo, monospace;
-  --v2-radius-card: 14px;
-  --v2-radius-btn: 8px;
   --session-col-width: 220px;
   --stage-col-width: 380px;
   letter-spacing: -0.005em;
@@ -542,7 +526,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--arc-bg-body);
+  background: var(--assistant-surface);
   color: var(--arc-text-primary);
 }
 .session-col,
@@ -581,7 +565,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
   writing-mode: vertical-rl;
   font-size: 12px;
   letter-spacing: 0.08em;
-  font-family: var(--v2-mono);
+  font-family: inherit;
 }
 .col-resizer {
   position: absolute;
@@ -620,6 +604,7 @@ async function handleCommit(ids?: string[]): Promise<void> {
   min-height: 0;
   min-width: 0;
   position: relative;
+  background: var(--assistant-surface);
 }
 .starter {
   flex: 1;
@@ -628,31 +613,32 @@ async function handleCommit(ids?: string[]): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 32px;
+  padding: 32px 24px;
 }
 .starter-inner {
-  width: min(720px, 100%);
+  width: min(680px, 100%);
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 24px;
 }
 .starter-head {
   text-align: center;
 }
 .starter-kicker {
-  font-family: var(--v2-mono);
+  font-family: inherit;
   font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--arc-primary);
+  letter-spacing: .02em;
+  text-transform: none;
+  color: var(--arc-text-hint);
   margin-bottom: 8px;
 }
 .starter h2 {
   margin: 0;
   color: var(--arc-text-primary);
-  font-size: 30px;
-  line-height: 1.15;
-  font-weight: 700;
+  font-size: 28px;
+  line-height: 1.4;
+  font-weight: 550;
+  letter-spacing: -.04em;
 }
 .starter-sub {
   margin: 8px 0 0;
@@ -665,10 +651,10 @@ async function handleCommit(ids?: string[]): Promise<void> {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
-  border: 1px solid var(--arc-border);
-  border-radius: 12px;
-  background: var(--arc-bg-surface);
-  box-shadow: var(--arc-shadow-sm);
+  border: 0;
+  border-radius: 9px;
+  background: var(--assistant-subtle);
+  box-shadow: none;
 }
 .mode-switch button {
   border: none;
@@ -685,9 +671,10 @@ async function handleCommit(ids?: string[]): Promise<void> {
   transition: background 0.15s ease, color 0.15s ease;
 }
 .mode-switch button.active {
-  background: var(--arc-primary-soft);
-  color: var(--arc-primary);
-  font-weight: 600;
+  background: var(--assistant-surface);
+  color: var(--arc-text-primary);
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
 }
 .asset-strip {
   display: flex;
@@ -696,24 +683,26 @@ async function handleCommit(ids?: string[]): Promise<void> {
   justify-content: center;
 }
 .asset-pill {
-  border: 1px solid var(--arc-border);
-  background: var(--arc-bg-surface);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--arc-text-secondary);
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 6px 8px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   cursor: pointer;
   transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  font-size: 12px;
 }
 .asset-pill:hover {
-  border-color: var(--arc-primary);
+  border-color: transparent;
   color: var(--arc-primary);
-  transform: translateY(-1px);
+  transform: none;
+  background: var(--assistant-subtle);
 }
 .asset-pill span {
-  font-family: var(--v2-mono);
+  font-family: inherit;
   color: var(--arc-text-primary);
 }
 .asset-pill em {
@@ -726,22 +715,23 @@ async function handleCommit(ids?: string[]): Promise<void> {
   gap: 10px;
 }
 .quick-card {
-  min-height: 58px;
+  min-height: 64px;
   border: 1px solid var(--arc-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--arc-bg-surface);
   color: var(--arc-text-primary);
   text-align: left;
   padding: 12px 13px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.35;
   transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  border-color: var(--assistant-border);
 }
 .quick-card:hover {
-  border-color: var(--arc-primary);
-  background: var(--arc-primary-soft);
-  transform: translateY(-1px);
+  border-color: var(--arc-border-strong);
+  background: var(--assistant-subtle);
+  transform: none;
 }
 .stream-strip {
   position: absolute;
@@ -809,16 +799,17 @@ async function handleCommit(ids?: string[]): Promise<void> {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-left: 1px solid var(--arc-border);
-  background: var(--arc-bg-surface);
+  border-left: 1px solid var(--assistant-border);
+  background: var(--assistant-surface);
 }
 .stage-col-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--arc-border);
+  padding: 0 18px;
+  border-bottom: 1px solid var(--assistant-border);
   flex-shrink: 0;
+  min-height: 52px;
 }
 .stage-col-title {
   font-size: 12px;
@@ -869,15 +860,15 @@ async function handleCommit(ids?: string[]): Promise<void> {
   writing-mode: vertical-rl;
   font-size: 12px;
   letter-spacing: 0.08em;
-  font-family: var(--v2-mono);
+  font-family: inherit;
 }
 .stage-mini-badge {
   font-size: 10px;
-  font-family: var(--v2-mono);
+  font-family: inherit;
   padding: 2px 6px;
   border-radius: 999px;
   background: var(--arc-primary);
-  color: #fff;
+  color: var(--assistant-action-fg);
   font-weight: 600;
 }
 @media (max-width: 980px) {

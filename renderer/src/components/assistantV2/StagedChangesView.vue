@@ -486,7 +486,8 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
   flex-direction: column;
   min-height: 0;
   background: var(--arc-bg-surface);
-  border-left: 1px solid var(--arc-border);
+  border-left: 0;
+  min-width: 0;
 }
 .review {
   flex: 1;
@@ -534,7 +535,7 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
   flex-direction: column;
   gap: 8px;
   border-bottom: 1px solid var(--arc-border);
-  background: var(--arc-bg-weak);
+  background: var(--assistant-subtle);
 }
 .review-meta div {
   display: flex;
@@ -547,7 +548,7 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
   flex: 0 0 auto;
   color: var(--arc-text-hint);
   font-size: 11px;
-  font-family: var(--v2-mono, monospace);
+  font-family: inherit;
 }
 .review-meta strong {
   min-width: 0;
@@ -579,7 +580,7 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
 .target-head {
   margin-bottom: 7px;
   color: var(--arc-text-hint);
-  font-family: var(--v2-mono, monospace);
+  font-family: inherit;
   font-size: 10.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -628,7 +629,7 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
 }
 .review-section-head,
 .compare-head {
-  font-family: var(--v2-mono, monospace);
+  font-family: inherit;
   color: var(--arc-text-hint);
   font-size: 10.5px;
   letter-spacing: 0.06em;
@@ -643,7 +644,7 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
 .review-diff-line {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
-  font-family: var(--v2-mono, monospace);
+  font-family: inherit;
   font-size: 11.5px;
   line-height: 1.55;
   border-top: 1px solid var(--arc-border);
@@ -704,12 +705,12 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
   line-height: 1.6;
 }
 .compare-col.after pre {
-  border-color: rgba(4, 120, 87, 0.22);
-  background: rgba(4, 120, 87, 0.055);
+  border-color: color-mix(in srgb, var(--v2-add) 25%, transparent);
+  background: var(--v2-add-bg);
 }
 .compare-col.before pre {
-  border-color: rgba(185, 28, 28, 0.16);
-  background: rgba(185, 28, 28, 0.04);
+  border-color: color-mix(in srgb, var(--v2-del) 25%, transparent);
+  background: var(--v2-del-bg);
 }
 .review-actions {
   padding: 12px 16px 16px;
@@ -719,11 +720,11 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
   gap: 8px;
 }
 .head {
-  padding: 16px 20px 12px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border-bottom: 1px solid var(--arc-border);
+  border-bottom: 1px solid var(--assistant-border);
 }
 .title-row {
   display: flex;
@@ -737,7 +738,7 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
   color: var(--arc-text-primary);
 }
 .count {
-  font-family: monospace;
+  font-family: inherit;
   color: var(--arc-text-hint);
   font-size: 12px;
 }
@@ -753,9 +754,9 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
   flex-wrap: wrap;
   gap: 4px;
   padding: 3px;
-  background: var(--arc-bg-weak);
+  background: var(--assistant-subtle);
   border-radius: 8px;
-  border: 1px solid var(--arc-border);
+  border: 0;
 }
 .filter button {
   flex: 1;
@@ -768,29 +769,31 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
   color: var(--arc-text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
-  font-family: monospace;
+  font-family: inherit;
 }
 .filter button.active {
   background: var(--arc-bg-surface);
   color: var(--arc-text-primary);
-  box-shadow: var(--arc-shadow-sm);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
 }
 .list {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 16px 16px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  min-height: 0;
 }
 .empty {
   margin: 40px 8px;
-  padding: 22px 20px;
-  border: 1px dashed var(--arc-border-strong);
+  padding: 24px 12px;
+  border: 0;
   border-radius: 14px;
   text-align: center;
   color: var(--arc-text-hint);
   font-size: 12.5px;
+  line-height: 1.7;
 }
 .empty-title {
   color: var(--arc-text-primary);
@@ -799,10 +802,10 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
   margin-bottom: 4px;
 }
 .change {
-  border: 1px solid var(--arc-border);
-  border-radius: var(--v2-radius-card, 14px);
-  padding: 12px 14px;
-  transition: border-color 0.18s ease, transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid var(--assistant-border);
+  border-radius: 12px;
+  padding: 14px;
+  transition: border-color .15s ease;
   background: var(--arc-bg-surface);
   animation: cardIn 0.32s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -834,27 +837,19 @@ function commitResult(changeId: string): StagedChangeCommitResult | undefined {
   margin-bottom: 6px;
 }
 .kind {
-  font-family: var(--v2-mono, monospace);
+  font-family: inherit;
   font-size: 10px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   padding: 2px 6px;
   border-radius: 4px;
-  background: var(--arc-bg-weak);
+  background: var(--assistant-subtle);
   color: var(--arc-text-secondary);
   text-transform: uppercase;
 }
-.kind.chapter { background: var(--arc-primary-soft); color: var(--arc-primary); }
-.kind.worldview { background: rgba(180, 83, 9, 0.1); color: #b45309; }
-.kind.character { background: rgba(30, 64, 175, 0.1); color: #1e40af; }
-.kind.organization { background: rgba(37, 99, 235, 0.1); color: #2563eb; }
-.kind.outline { background: rgba(126, 34, 206, 0.1); color: #7e22ce; }
-.kind.constraint { background: rgba(24, 24, 27, 0.08); color: var(--arc-text-primary); }
-.kind.plot_thread { background: rgba(219, 39, 119, 0.1); color: #db2777; }
-.kind.workflow_document { background: rgba(5, 150, 105, 0.1); color: #059669; }
 .action-line {
   font-size: 10.5px;
   color: var(--arc-text-hint);
-  font-family: var(--v2-mono, monospace);
+  font-family: inherit;
   margin-bottom: 4px;
 }
 .action-line.action-delete {
@@ -873,14 +868,14 @@ strong.action-create {
 .status-pill {
   flex: 0 0 auto;
   font-size: 10px;
-  font-family: var(--v2-mono, monospace);
+  font-family: inherit;
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--arc-bg-weak);
   color: var(--arc-text-hint);
   letter-spacing: 0.02em;
 }
-.status-pill.pending { background: rgba(180, 83, 9, 0.1); color: #b45309; }
+.status-pill.pending { background: var(--assistant-subtle); color: var(--arc-text-secondary); }
 .status-pill.accepted { background: var(--arc-primary-soft); color: var(--arc-primary); }
 .status-pill.rejected { background: var(--arc-bg-weak); color: var(--arc-text-hint); }
 .status-pill.streaming { background: var(--v2-warn-soft, rgba(180, 83, 9, 0.08)); color: var(--v2-warn, #b45309); }
@@ -986,7 +981,7 @@ strong.action-create {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   margin-bottom: 4px;
-  font-family: monospace;
+  font-family: inherit;
 }
 .side-body {
   padding: 6px 8px;
@@ -1006,8 +1001,8 @@ strong.action-create {
   gap: 6px;
 }
 .foot {
-  padding: 12px 16px 16px;
-  border-top: 1px solid var(--arc-border);
+  padding: 14px 16px;
+  border-top: 1px solid var(--assistant-border);
   display: flex;
   flex-direction: column;
   gap: 8px;

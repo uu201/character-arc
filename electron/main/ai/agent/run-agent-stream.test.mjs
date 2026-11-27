@@ -209,6 +209,27 @@ test('同一轮并发重复暂存只执行一次，共享执行中的结果', as
   assert.equal(result.finalText, '已生成待审阅的变更。')
 })
 
+test('用户输入暂停会终止 SDK 步骤，不发送下一轮请求或自动整理最终答案', async (t) => {
+  let requests = 0
+  let waiting = false
+  t.mock.method(globalThis, 'fetch', async () => {
+    requests++
+    assert.equal(requests, 1, '等待用户时不应继续请求模型')
+    return response([
+      chunk({ tool_calls: [{ index: 0, id: 'ask-1', type: 'function', function: { name: 'skill_ask_user', arguments: '{}' } }] }),
+      chunk({}, 'tool_calls'), '[DONE]'
+    ])
+  })
+  const run = params({ shouldStop: () => waiting, tools: [{
+    definition: { name: 'skill_ask_user', description: '询问用户并暂停', inputSchema: { type: 'object', properties: {} } },
+    handler: async () => { waiting = true; return { content: '等待作者选择。' } }
+  }] })
+  const result = await runAgent(run.input)
+  assert.equal(requests, 1)
+  assert.equal(result.toolCalls.length, 1)
+  assert.equal(result.iterations, 1)
+})
+
 test('失败的工具结果不进入成功缓存，允许下一轮重新执行', async (t) => {
   let requests = 0
   let toolEffects = 0

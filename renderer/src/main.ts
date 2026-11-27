@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import './styles/global.css'
+import './styles/assistant.css'
 import { useAppStore } from '@/stores/app'
 
 /**

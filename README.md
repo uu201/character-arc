@@ -363,6 +363,8 @@ CharacterArc/
 
 2026-11-27 已核对并同步第三方仓库默认分支：Oh Story `0.12.1`、Distilled Novel Toolbox `2.0.0`、Humanizer-zh `2026-09-23` 修订。精确提交、来源目录和本地适配记录见 [`resources/skills/upstream-lock.json`](resources/skills/upstream-lock.json)。同步时保留 CharacterArc 的 manifest 任务映射和启用策略；`style-fingerprint`、`style-fusion` 为本地维护技能，保留原样。Humanizer-zh 的小说替换词库仅作措辞参考，以新版技能的语义保留约束为准。
 
+在全局助手或章节助手中，可以要求“按这个 Skill 的流程引导我”。助手通过 `skill_workflow` 记录步骤，遇到尚未决定的选题、方案或关键方向时，通过 `skill_ask_user` 展示选择卡片并暂停。可选择已有选项或填写自定义回答，确认后从暂停步骤继续；问题、答案和此前已确认的决定会随会话保存。项目成果仍通过现有暂存区审阅写回，原技能的外部 CLI、文件目录和子代理流程需按当前宿主能力执行。
+
 ## 💾 数据存储
 
 应用数据保存在 Electron 用户目录下：

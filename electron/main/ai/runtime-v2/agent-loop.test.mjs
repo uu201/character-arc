@@ -133,6 +133,48 @@ function makeOptions(signal) {
   }
 }
 
+test('技能请求作者选择后持久化检查点，阻止后续写入且不触发补生成', async () => {
+  let writes = 0
+  let runs = 0
+  const { loop, conversation } = makeLoop(async (params) => {
+    runs++
+    const ask = params.tools.find((tool) => tool.definition.name === 'skill_ask_user')
+    const progress = params.tools.find((tool) => tool.definition.name === 'skill_workflow')
+    await progress.handler({ skill_id: 'story-long-write', step_id: 'topic', title: '确认选题', status: 'running' }, params.ctx)
+    await ask.handler({ skill_id: 'story-long-write', step: '确认选题', questions: [{
+      id: 'genre', question: '想写哪一种题材？', options: [{ label: '玄幻', description: '成长冒险' }, { label: '都市', description: '日常故事' }]
+    }] }, params.ctx)
+    assert.equal(params.shouldStop(), true)
+    const blocked = await params.tools.find((tool) => tool.definition.name === 'stage_test').handler({}, params.ctx)
+    assert.equal(blocked.isError, true)
+    return { finalText: '已生成待审阅的修改。', toolCalls: [], iterations: 1 }
+  })
+  const options = makeOptions(new AbortController().signal)
+  options.skillPlan = { mode: 'only', items: [{ id: 'story-long-write', name: '长篇写作', state: 'injected' }] }
+  options.tools = [
+    { definition: { name: 'skill_load' }, handler: async () => ({ content: '技能正文' }) },
+    { definition: { name: 'stage_test' }, handler: async () => { writes++; return { content: '已写入' } } }
+  ]
+  const result = await loop.run(options)
+  assert.equal(result.status, 'done')
+  assert.equal(result.waitingForUser, true)
+  assert.match(result.finalText, /流程已暂停/)
+  assert.equal(writes, 0)
+  assert.equal(runs, 1)
+  const checkpoint = conversation.persistedEvents.find((event) => event.kind === 'user_input_requested')
+  assert.equal(checkpoint.request.goal, '测试请求')
+  assert.equal(checkpoint.request.questions[0].options.length, 2)
+  assert.equal(conversation.persistedEvents.at(-1).kind, 'done')
+})
+
+test('没有技能权限的场景不注入技能交互工具', async () => {
+  const { loop } = makeLoop(async (params) => {
+    assert.ok(!params.tools.some((tool) => tool.definition.name === 'skill_ask_user'))
+    return { finalText: '普通回复', toolCalls: [], iterations: 1 }
+  })
+  await loop.run(makeOptions(new AbortController().signal))
+})
+
 function makeLoop(runAgentImpl) {
   const conversation = makeConversation()
   const pushedEvents = []

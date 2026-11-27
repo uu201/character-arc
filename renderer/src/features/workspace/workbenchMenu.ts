@@ -8,7 +8,7 @@ export const WORKBENCH_MENU_DEFINITIONS = [
   { id: 'chapters', label: '章节创作' },
   { id: 'inspiration', label: '灵感模块' },
   { id: 'project-knowledge', label: '项目知识库' },
-  { id: 'global-assistant-v2', label: '全局助手 v2' }
+  { id: 'global-assistant-v2', label: 'AI 助手' }
 ] as const
 
 export type WorkbenchMenuId = typeof WORKBENCH_MENU_DEFINITIONS[number]['id']
