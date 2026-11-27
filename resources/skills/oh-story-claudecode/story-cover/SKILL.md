@@ -1,288 +1,146 @@
 ---
 name: story-cover
+source: https://github.com/zenstory-ai/oh-story-claudecode
 version: 1.0.0
-description: |
-  小说封面生成。根据书名、作者名自动分析题材风格，调用 GPT-Image-2 直接生成含标题和署名的专业级网文封面。
-  触发方式：/story-cover、/封面、「帮我做个封面」「生成封面图」「做个小说封面」「封面设计」
-metadata:
-  openclaw:
-    requires:
-      env:
-        - GPT_IMAGE_API_KEY
-      bins:
-        - curl
-        - jq
-        - base64
-    primaryEnv: GPT_IMAGE_API_KEY
-    source: https://github.com/worldwonderer/oh-story-claudecode
+description: "小说封面生成与提示词设计。根据书名、作者名和题材构建封面提示词；用户只要提示词时不生图，要求封面图时调用 GPT-Image-2，Codex CLI 优先使用内置 ImageGen。触发方式：/story-cover、/封面、「帮我做个封面」「生成封面图」「封面提示词」「封面设计」。"
+metadata: {"openclaw":{"requires":{"env":["GPT_IMAGE_API_KEY"],"bins":["curl","jq","base64"]},"primaryEnv":"GPT_IMAGE_API_KEY","source":"https://github.com/zenstory-ai/oh-story-claudecode"}}
 ---
-
 # story-cover：小说封面生成
 
-你是小说封面设计师。根据书名和题材，调用 GPT-Image-2 一次性生成包含书名和作者名的完整封面。
+根据书名和题材生成包含书名、笔名的完整封面，让读者一眼看出题材和氛围。
 
-**核心原则：封面是读者的第一印象，一眼传达题材和氛围。**
-
----
-
-## 环境变量
-
-| 变量 | 必填 | 默认 | 说明 |
-|:-----|:----:|:-----|:-----|
-| `GPT_IMAGE_API_KEY` | ✅ | — | OpenAI 或兼容代理的 API Key |
-| `GPT_IMAGE_BASE_URL` | | `https://api.openai.com/v1` | 兼容代理时改这个 |
-| `GPT_IMAGE_MODEL` | | `gpt-image-2` | 仅在测试新模型时覆盖 |
-| `GPT_IMAGE_SIZE` | | `1024x1536` | gpt-image-2 要求两边为 16 倍数、比例 ≤ 3:1 |
-| `BOOK_DIR` | ✅ | — | 输出目录，建议 `./covers/<书名>` |
-| `REF_IMAGE` | | — | 参考图本地路径或 URL；设置后走 `images/edits` 图生图 |
-
-> 备注：`gpt-image-2` 始终返回 base64，请求体不要带 `response_format`（旧 DALL-E 参数，gpt-image 系列不支持）。
+**仅提示词模式**：用户只要提示词，或 `story-publish` 选了仅提示词时，只做 Step 1-3，交付完整提示词，不需要生图工具、API Key 或输出目录；要封面图才继续 Step 4-6。由 `story-publish` 调用时，它传来的已确认书名、简介、笔名、平台和题材不再重问；结束时返回完整提示词原文，生图成功再附图片路径和质量检查结果，失败就说明原因。
 
 ---
+
+## 生成通路
+
+- **内置生图（优先）**：当前会话可调 Codex `$imagegen` / `image_gen` 或 Antigravity `generate_image` / `image-generator` 时，直接调用生成并保存，无需 `OPENAI_API_KEY` 或 `GPT_IMAGE_API_KEY`，不跑 `curl`。
+- **API 回退**：仅在无内置工具或用户指定 API 时使用，需 `GPT_IMAGE_API_KEY`；变量和命令见 [references/api-fallback.md](references/api-fallback.md)，走该通路再读。工具缺失不等于订阅不支持生图；内置失败先报错，不会不经提示切到收费 API。
 
 ## 生成流程
 
 ### Step 1：收集信息
 
-必填：书名、作者名（笔名）、目标平台、输出目录 `BOOK_DIR`（建议 `./covers/<书名>`，调用前 export）
-选填：参考图 `REF_IMAGE`（本地路径或 URL，设置后切换到图生图）、风格偏好、尺寸（默认竖版 1024x1536）
+先找当前书：项目根 `.active-book` 指向项目内现有目录时就是当前书；否则从项目根往下最多 4 层找（跳过 `.` 开头的目录、`node_modules`、`拆文库/`、`对标/`），含 `追踪/`、`正文/`、`设定/` 子目录，或含 `正文.md`，或同时含 `设定.md` 与 `小节大纲.md` 的是书目录，找到多本时请作者选择。有 `正文/` 或 `设定/` 子目录的是长篇，其余为短篇。找到后读：
 
-**根据目标平台确定封面风格**，加载 [references/cover-styles.md](references/cover-styles.md) 获取详细平台和题材风格。
+- 长篇：`设定/题材定位.md`「基本信息」的书名、题材类型、目标平台、核心梗；
+- 短篇：`设定.md`「基本信息」的标题、目标平台、目标情绪，以及「一句话梗概」「这篇用的套路」（旧书叫「题材招式」）。
 
-### Step 1.5：题材判定
+已有或调用方传入的已确认字段不再问；笔名没有明确提供时才问。没有书目录或缺项时，用宿主可用的提问方式一次问齐缺少的书名、笔名、目标平台。
 
-扫描书名（必要时简介）中的关键词，对照 [references/cover-styles.md](references/cover-styles.md) 的「题材推断规则」表选定题材。
+> **书名和笔名是封面必需信息**：缺任一时先请作者补全，不得编造或留空。
 
-- 单题材命中 → 直接采用
-- 多题材命中 → 按优先级取一：仙侠 > 西幻 > 古言 > 现言 > 都市 > 悬疑 > 科幻 > 历史 > 灵异 > 轻小说
-- 零命中 → 默认 `都市`
+选填：参考图 `REF_IMAGE`（本地路径或 URL）、风格偏好；参考图的用法见 Step 4。
 
-### Step 2：构建提示词
+**保存位置**：有书目录时存到 `{书目录}/封面/`，不用问；没有书目录时用 `./covers/{书名}/封面/`。下文 `BOOK_DIR` 指 `封面/` 的上一层。
 
-提示词 = **文字层** + **风格层** + **画面层**，全部用英文编写。
+**按目标平台定比例和上传尺寸**：番茄、起点、七猫常用 600×800（**3:4**），晋江常用 200×280（约 **5:7**），未说明规格的平台按竖版 **3:4** 或 **2:3** 交付；作者给出上传像素时按该尺寸导出，避免二次裁剪切掉书名或笔名。平台画风见 [references/cover-styles.md](references/cover-styles.md)「平台风格」。
 
-#### 文字层：书名 + 作者名字体设计
+### Step 2：题材判定
 
-在提示词中直接包含中文书名和作者名，GPT-Image-2 可直接渲染。**重点描述字体风格**：
+在 [references/cover-styles.md](references/cover-styles.md) 的「风格库」里选一个题材：
 
-```
-Title text '书名' at top center in [书名字体风格].
-Author name '作者名' at bottom center in [作者名字体风格].
-```
+仅提示词模式没有题材依据时先问作者，不用下面第 2 条的「都市」兜底。
 
-#### 书名字体风格
+1. 有「题材类型」（长篇）或梗概、套路（短篇）时，按内容选风格库中最接近的一节。
+2. 没有，或对不上风格库任何一节（如年代、种田、无限流、电竞）时，用书名（必要时简介）对照「题材推断规则」：只命中一个题材就用它；命中多个按该表下方的优先级取一；都没命中先用「都市」。
+3. 第 2 条推断出的题材，在 Step 4 给作者看方案时一并说出来，作者可以改。
 
-| 题材 | 描述关键词 |
-|:-----|:-----------|
-| 玄幻/仙侠 | `bold golden brush calligraphy with metallic glow and sharp strokes` |
-| 都市 | `modern bold sans-serif with metallic silver finish` |
-| 古言/宫斗 | `elegant golden traditional Kai script with ornate decoration` |
-| 现言/甜宠 | `soft rounded handwritten style in white with pink glow` |
-| 悬疑/推理 | `distorted bold cracked letters in blood red` |
-| 科幻/末世 | `neon glowing futuristic font in electric blue` |
-| 西幻 | `metallic embossed fantasy lettering with glow effect` |
-| 历史/军事 | `heavy stone-carved seal script in deep red` |
-| 灵异/恐怖 | `eerie dripping handwritten font in sickly green` |
-| 轻小说 | `colorful cartoon outlined bubbly font` |
+### Step 3：构建提示词
 
-#### 作者名字体风格（重点：作者名必须精心设计，不能只是"小字"）
+提示词 = **文字层** + **风格层** + **画面层**。设计指令用英文，书名和笔名保留作者提供的原文。所选题材的字体、标签、色彩、人物、背景、光效都在「风格库」同一节里查。
 
-作者名虽小，但是封面专业感的关键。必须指定：**字体 + 颜色 + 装饰元素**，让作者名与书名风格呼应但不抢焦点。
+**文字层**：GPT-Image-2 可直接渲染中文。书名在上方居中，用该题材的书名字体；笔名在下方居中，用该题材的笔名字体。笔名要和书名风格呼应、清晰可读而不抢焦点：
 
-| 题材 | 作者名风格提示词 |
-|:-----|:----------------|
-| 玄幻/仙侠 | `small refined white serif text with faint golden glow, flanked by delicate cloud-scroll ornaments on both sides, resting on a thin horizontal gold line` |
-| 都市 | `small clean white modern text with subtle drop shadow, positioned above a thin silver horizontal divider line` |
-| 古言/宫斗 | `small elegant dark red traditional text inside a thin golden rectangular border frame with corner decorations` |
-| 现言/甜宠 | `small soft pink-white handwritten text with a tiny heart motif on the left side, light sparkle effect` |
-| 悬疑/推理 | `small pale grey text with slight blur effect, almost hidden in the shadows, a thin cracked line underneath` |
-| 科幻/末世 | `small crisp white monospace text with subtle cyan scanline overlay, flanked by small geometric brackets` |
-| 西幻 | `small bronze medieval script text with aged parchment texture, enclosed in a small decorative shield or banner shape` |
-| 历史/军事 | `small dignified white Song typeface text above a double horizontal line in dark red` |
-| 灵异/恐怖 | `small faded grey-green text slightly tilted, with a thin dripping ink line above` |
-| 轻小说 | `small playful rounded white text with pastel color outline, tiny star decorations on both sides` |
+- 大小用 `small`；位置 `at bottom center`，与画面底部留出间距；
+- 可加克制的细线、边框或微光衬托（极简风可不加装饰，免得底部杂乱）；
+- 颜色与背景形成对比但不刺眼。
 
-**作者名通用规则**：
-- 大小：`small`（不能太大抢书名焦点，也不能太小看不清）
-- 位置：`at bottom center`，与画面底部保持适当间距
-- 必须有装饰元素：线条/边框/小图标/光效中至少一种
-- 颜色与背景形成对比但不刺眼
+**风格层**：目标平台在「平台风格」表里有对应时，取它的关键词串；没有对应（如黑岩、点众小程序）时省掉这一层，只靠题材风格。
 
-#### 风格层：平台风格
+**画面层**：题材的风格标签、人物、背景、色彩、光效，加上一种构图（见「构图变体」）。
 
-平台风格的描述关键词统一来自 [references/cover-styles.md](references/cover-styles.md) 的「平台风格」节，按目标平台直接取对应关键词串使用，不在本文件维护副本以免与参考文件漂移。
-
-#### 画面层：题材 + 构图
-
-从 [references/cover-styles.md](references/cover-styles.md) 读取题材对应的风格标签、色彩、人物、背景描述。
-
-构图变体（首次输出 2-3 个方案）：
-
-| 方案 | 构图 | 适合题材 |
-|:-----|:-----|:---------|
-| A | 人物特写 + 场景 | 全题材通用 |
-| B | 全身像 + 动态姿势 | 玄幻、都市、西幻 |
-| C | 纯场景/氛围图 | 悬疑、科幻、历史 |
-
-#### 完整提示词模板
+完整提示词模板（唯一一份，示例和改版都按它拼）：
 
 ```
 Chinese web novel cover design, [平台风格].
-Title text '{书名}' at top center in [书名字体风格].
-Author name '{作者名}' at bottom center in [作者名字体风格 — 从上表选择].
-[题材风格标签]. [人物描述]. [背景描述].
+Title text '{书名}' at top center in [书名字体].
+Author name '{笔名}' at bottom center in [笔名字体].
+[题材风格标签]. [构图关键词]. [人物描述]. [背景描述].
 [色彩指令]. [光效指令].
-Professional book cover, high detail digital painting, portrait 2:3 ratio, no watermark
+Professional book cover, high detail digital painting, portrait [平台比例：如 3:4 / 5:7 / 2:3] ratio, keep title and author name inside the central safe area away from edges (inner ~85%), no watermark
 ```
 
-#### 提示词技巧（实测验证）
+仅提示词模式在这里交付 1-3 个完整提示词方案后结束；还没确认的画面细节写成可选方向，不当成小说里的事实。
 
-- 人物描述越具体越好：服饰、姿态、发型、表情、道具每个维度都指定
-- 背景分层：前景（人物）→ 中景（场景）→ 远景（氛围）
-- 光效是指定光源方向 + 颜色（如 `dramatic golden light from above`）
-- 用 `digital painting style` 而非 `photo`，避免真人照片感
+写法要点：
+- 人物描述写清服饰、姿态、发型、表情、道具，不要只写 `a man`；
+- 背景分三层：前景人物或道具，中景场景，远景氛围；
+- 光效写清光源方向和颜色，如 `dramatic golden light from above`；
+- 用 `digital painting style`，不用 `photo`，避免真人照片感。
 
-### Step 3：调用 API 并保存
+### Step 4：选方案并生成
 
-`gpt-image-2` 始终返回 base64，请求体不要带 `response_format`。`$PROMPT` 为 Step 2 拼出的完整提示词。
+先从「构图变体」里挑 2-3 种适合本题材的构图，每种用一句话描述画面（构图、主色、书名字体），连同 Step 2 定的题材一起给作者挑。作者选定后只生成那一张；作者说「都出」时每个方案单独生成一次。
 
-两种调用方式二选一：未设置 `REF_IMAGE` → 走「文生图」；设置了 → 走「图生图」。
+#### 内置生图（Codex / Antigravity，优先）
 
-#### 文生图（默认）
+1. 用 Step 3 的完整提示词调用 `image_gen`（Codex）或 `generate_image` / `image-generator`（Antigravity）。比例和安全区写进提示词，不传 `GPT_IMAGE_MODEL`、`GPT_IMAGE_SIZE`、`response_format` 等 API 参数。
+2. 有 `REF_IMAGE` 时，本地文件先载入会话（或传给 `image-generator`）；URL 先下载再载入。说明是编辑目标还是风格参考，并列出须保持的内容。
+3. 先创建 `BOOK_DIR/封面/`，把生成的图片复制为 `封面_vN.png`（`N` 自增不覆盖旧版）；保留 `$CODEX_HOME/generated_images/` 等原文件，并存同名 `.prompt.txt`（有参考图再存 `.ref.txt`）。确认可读后把原图绝对路径交给 Step 5。
+
+#### API 回退
+
+读 [references/api-fallback.md](references/api-fallback.md)，按其中的环境变量和命令生成；没有参考图走文生图，有参考图走图生图。生成后把原图绝对路径交给 Step 5。
+
+### Step 5：导出平台上传尺寸（平台有固定像素时）
+
+平台有固定上传像素（番茄 600×800）时，把原图**居中裁剪+缩放**到精确尺寸，保持画面比例，原图保留并另存 `_上传` 版。`SRC` 填 Step 4 的原图绝对路径，`TARGET` 填 Step 1 的上传尺寸，不依赖上一段 shell 的临时变量：
 
 ```bash
-set -euo pipefail
-: "${GPT_IMAGE_API_KEY:?请设置 export GPT_IMAGE_API_KEY=你的key}"
-: "${PROMPT:?请先 export PROMPT=Step 2 拼好的完整提示词}"
-BASE_URL="${GPT_IMAGE_BASE_URL:-https://api.openai.com/v1}"
-MODEL="${GPT_IMAGE_MODEL:-gpt-image-2}"
-SIZE="${GPT_IMAGE_SIZE:-1024x1536}"
-BOOK_DIR="${BOOK_DIR:?请先 export BOOK_DIR=./covers/<书名>}"
-
-mkdir -p "$BOOK_DIR/封面"
-
-# 自增版本号，避免覆盖之前生成的封面
-i=1
-while [ -f "$BOOK_DIR/封面/封面_v${i}.png" ]; do i=$((i+1)); done
-OUT="$BOOK_DIR/封面/封面_v${i}.png"
-RESP=$(mktemp)
-trap 'rm -f "$RESP"' EXIT
-
-# 用 jq 拼 JSON 体，避免 PROMPT 里的引号/换行/中文把 shell 字符串撑破
-BODY=$(jq -n \
-  --arg m "$MODEL" \
-  --arg p "$PROMPT" \
-  --arg s "$SIZE" \
-  '{model:$m, prompt:$p, size:$s}')
-
-curl -fsS --max-time 180 --retry 2 --retry-delay 5 \
-  "$BASE_URL/images/generations" \
-  -H "Authorization: Bearer $GPT_IMAGE_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "$BODY" > "$RESP"
-
-# API 出错时早退，避免把 error JSON 当成 base64 写成损坏 PNG
-if jq -e '.error' "$RESP" >/dev/null 2>&1; then
-  echo "API error:" >&2
-  jq '.error' "$RESP" >&2
-  exit 1
+SRC='<Step 4 生成的原图绝对路径>'
+TARGET='<Step 1 确定的平台上传尺寸；无则留空>'
+[ -f "$SRC" ] || { echo "封面原图不存在: $SRC" >&2; exit 1; }
+if [ -n "$TARGET" ] && [ -f "$SRC" ]; then
+  UP="${SRC%.png}_上传.png"; W="${TARGET%x*}"; H="${TARGET#*x}"
+  if command -v magick >/dev/null 2>&1; then M=magick
+  elif command -v convert >/dev/null 2>&1; then M=convert; else M=""; fi
+  if [ -n "$M" ]; then
+    "$M" "$SRC" -resize "${W}x${H}^" -gravity center -extent "${W}x${H}" "$UP"  # 缩放填满后居中裁
+  elif command -v sips >/dev/null 2>&1; then
+    cp "$SRC" "$UP"
+    sw=$(sips -g pixelWidth "$UP" | awk '/pixelWidth/{print $NF}')
+    sh=$(sips -g pixelHeight "$UP" | awk '/pixelHeight/{print $NF}')
+    if [ $((sw*H)) -ge $((sh*W)) ]; then sips --resampleHeight "$H" "$UP" >/dev/null
+    else sips --resampleWidth "$W" "$UP" >/dev/null; fi
+    sips -c "$H" "$W" "$UP" >/dev/null   # sips -c 是 高 宽，居中裁
+  else
+    echo "无 magick/convert/sips，跳过；手动把 $SRC 居中裁剪+缩放到 $TARGET 再上传" >&2
+  fi
+  [ -f "$UP" ] && file "$UP"
 fi
-
-# `// empty` 让缺失字段输出空串而非 "null"，配合下面的 -s 检查避免写出 3 字节假 PNG
-jq -er '.data[0].b64_json // empty' "$RESP" | base64 --decode > "$OUT"
-[ -s "$OUT" ] || { echo "empty or malformed output: $OUT" >&2; head -c 300 "$RESP" >&2; exit 1; }
-
-# 落地提示词副本，方便迭代时基于上一次微调
-printf '%s\n' "$PROMPT" > "${OUT%.png}.prompt.txt"
-
-file "$OUT"
-ls -lt "$BOOK_DIR/封面/"
 ```
 
-#### 图生图（提供参考图时）
+> 提示词中的中心安全区用于减少裁切风险；导出后仍按 Step 6 检查书名和笔名是否完整。
 
-`/v1/images/edits` 走 `multipart/form-data`，**不能** 用 `Content-Type: application/json`。文本字段用 `--form-string`（避免 `@` 被误判为文件引用），图片字段用 `-F image=@path`。
-
-```bash
-set -euo pipefail
-: "${GPT_IMAGE_API_KEY:?请设置 export GPT_IMAGE_API_KEY=你的key}"
-: "${PROMPT:?请先 export PROMPT=Step 2 拼好的完整提示词}"
-BASE_URL="${GPT_IMAGE_BASE_URL:-https://api.openai.com/v1}"
-MODEL="${GPT_IMAGE_MODEL:-gpt-image-2}"
-SIZE="${GPT_IMAGE_SIZE:-1024x1536}"
-BOOK_DIR="${BOOK_DIR:?请先 export BOOK_DIR=./covers/<书名>}"
-REF_IMAGE="${REF_IMAGE:?请先 export REF_IMAGE=本地路径或 URL}"
-
-mkdir -p "$BOOK_DIR/封面"
-
-# 自增版本号
-i=1
-while [ -f "$BOOK_DIR/封面/封面_v${i}.png" ]; do i=$((i+1)); done
-OUT="$BOOK_DIR/封面/封面_v${i}.png"
-RESP=$(mktemp)
-REF_TMP=""
-trap '[ -n "$REF_TMP" ] && rm -f "$REF_TMP"; rm -f "$RESP"' EXIT
-
-# URL 先下载到临时文件，本地路径直接用。用裸 mktemp 以保证 macOS/Linux 行为一致。
-case "$REF_IMAGE" in
-  http://*|https://*)
-    REF_TMP=$(mktemp)
-    curl -fsSL --max-time 60 -o "$REF_TMP" "$REF_IMAGE"
-    REF_LOCAL="$REF_TMP"
-    ;;
-  *)
-    [ -f "$REF_IMAGE" ] || { echo "参考图不存在: $REF_IMAGE" >&2; exit 1; }
-    REF_LOCAL="$REF_IMAGE"
-    ;;
-esac
-
-curl -fsS --max-time 240 --retry 2 --retry-delay 5 \
-  "$BASE_URL/images/edits" \
-  -H "Authorization: Bearer $GPT_IMAGE_API_KEY" \
-  --form-string "model=$MODEL" \
-  --form-string "size=$SIZE" \
-  --form-string "prompt=$PROMPT" \
-  -F "image=@$REF_LOCAL" > "$RESP"
-
-if jq -e '.error' "$RESP" >/dev/null 2>&1; then
-  echo "API error:" >&2
-  jq '.error' "$RESP" >&2
-  exit 1
-fi
-
-# `// empty` 让缺失字段输出空串而非 "null"，配合 -s 检查避免写出 3 字节假 PNG
-jq -er '.data[0].b64_json // empty' "$RESP" | base64 --decode > "$OUT"
-[ -s "$OUT" ] || { echo "empty or malformed output: $OUT" >&2; head -c 300 "$RESP" >&2; exit 1; }
-
-printf '%s\n' "$PROMPT"    > "${OUT%.png}.prompt.txt"
-printf '%s\n' "$REF_IMAGE" > "${OUT%.png}.ref.txt"
-
-file "$OUT"
-ls -lt "$BOOK_DIR/封面/"
-```
-
-### Step 4：质量检查 + 迭代
+### Step 6：质量检查 + 迭代
 
 | 检查项 | 标准 |
 |:-------|:-----|
-| 文字渲染 | 书名清晰可辨，字体风格匹配题材 |
-| 题材匹配 | 视觉风格与书名题材一致 |
+| 文字渲染 | 书名、笔名清晰可辨，字体风格匹配题材 |
+| 题材匹配 | 视觉风格与本书题材一致 |
 | 构图合理 | 主体突出，文字不遮挡核心画面 |
-| 平台适配 | 符合目标平台的封面风格调性 |
+| 平台适配 | 符合目标平台的封面风格 |
+| 平台尺寸 | 比例与平台一致；缩放到上传尺寸后书名、笔名完整可见、未被裁切 |
 
-不满意时调整方向：更换构图、调整色调、换字体风格、换平台风格。
+未达标或作者希望调整时，可更换构图、色调、字体或平台风格重出；生僻字多次渲染仍错笔时，可征询作者改出无字底图再自行加字。
 
----
+交付时这样告诉作者；命令、环境变量和接口报错不贴给作者，失败时用一句话说原因和办法（如「生图接口没配好，需要先设置 API Key」）：
 
-## 参考资料
-
-| 文件 | 何时加载 |
-|:-----|:---------|
-| [references/cover-styles.md](references/cover-styles.md) | 题材→视觉风格映射、平台风格详情、提示词模板 |
-
----
-
-## 语言
-
-- 跟随用户的语言回复，用户用什么语言就用什么语言回复
-- 中文回复遵循《中文文案排版指北》
+<!-- author-report -->
+```md
+封面做好了：`{封面图路径}`{；{平台}上传版（{上传尺寸}）：`{上传版路径}`}
+这版的思路：{构图 + 色调 + 书名字体，一句话}
+想调的话可以说：{2-3 个具体方向，如「换成人物特写」「书名改成毛笔字」}
+```

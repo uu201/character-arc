@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "syncedAt": "2026-11-27",
+  "sources": [
+    {
+      "directory": "oh-story-claudecode",
+      "repository": "https://github.com/zenstory-ai/oh-story-claudecode",
+      "revision": "941d3878b2ffc78e2c56a75dc56ea853ceff2862",
+      "version": "0.12.1",
+      "sourcePath": "skills",
+      "skillIds": [
+        "browser-cdp",
+        "story",
+        "story-cover",
+        "story-deslop",
+        "story-import",
+        "story-long-analyze",
+        "story-long-scan",
+        "story-long-write",
+        "story-publish",
+        "story-review",
+        "story-setup",
+        "story-short-analyze",
+        "story-short-scan",
+        "story-short-write"
+      ]
+    },
+    {
+      "directory": "Distilled-Novel-Toolbox",
+      "repository": "https://github.com/dama-cyber/Distilled-Novel-Toolbox",
+      "revision": "350f2bd2b23c7400509897742b22d0f2b139338d",
+      "version": "2.0.0",
+      "sourcePath": ".",
+      "skillIds": [
+        "novel-anti-detection",
+        "novel-character-design",
+        "novel-commercialization",
+        "novel-compliance",
+        "novel-emotion",
+        "novel-genres",
+        "novel-innovation",
+        "novel-language-style",
+        "novel-pacing",
+        "novel-pleasure-points",
+        "novel-polishing",
+        "novel-tools",
+        "novel-worldbuilding"
+      ]
+    },
+    {
+      "directory": "community-skills/humanizer-zh",
+      "repository": "https://github.com/op7418/Humanizer-zh",
+      "revision": "f4518a8eab97b8bfebc66a89d34320a89bef6930",
+      "version": "2026-09-23",
+      "sourcePath": ".",
+      "skillIds": [
+        "humanizer-zh"
+      ]
+    }
+  ],
+  "localSkills": [
+    "community-skills/style-fingerprint",
+    "community-skills/style-fusion"
+  ],
+  "adaptations": [
+    "保留已有 CharacterArc manifest 任务映射、阶段、优先级和启用策略。",
+    "将工具箱 metadata.version 同步为顶层 version，供技能面板读取。",
+    "Humanizer-zh 使用上游修订日期展示版本，保留本地小说替换词库作为可选措辞参考。",
+    "上游未提供项目原生工具适配的发布准备技能仅保留为外部资料。",
+    "为第三方技能补充顶层 source，兼容现有扫描器并展示可追溯的仓库来源。"
+  ]
+}

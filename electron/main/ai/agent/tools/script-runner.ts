@@ -78,6 +78,8 @@ export async function runScript(scriptPath: string, opts: ScriptRunOptions): Pro
       if (typeof value === 'string' && env[key] === undefined) env[key] = value
     }
   }
+  // process.execPath 在应用中是 Electron，必须显式切换到 Node 模式执行脚本。
+  env.ELECTRON_RUN_AS_NODE = '1'
 
   const args = ['--no-deprecation', scriptPath, ...(opts.args ?? [])]
   const startedAt = Date.now()

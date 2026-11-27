@@ -2,18 +2,21 @@
 
 一套面向网络小说作者的**全链路创作知识库**。覆盖从构思、写作、润色到发布的全流程，每个模块包含核心方法论（SKILL.md）和深度参考文档（references/）。
 
+> **v2.0** — `novel-anti-detection` 与 `novel-polishing` 已升级为可执行级去AI腔操作体系。详见 [CHANGELOG](./CHANGELOG.md)。
+
 ---
 
 ## 用自然语言触发
 
 需要什么，直接说。以下是你可能会说的——每个说法对应一个模块。
 
-### 🛡️ 反AI检测 · novel-anti-detection
+### 🛡️ 反AI检测 · novel-anti-detection [v2.0]
 
 > "AI 写的文怎么才能不被检测出来？"
 > "平台现在对 AI 写作是什么政策？"
 > "怎么设计 AI + 人工混合创作的流程？"
 > "AIGC 检测的原理是什么？"
+> "AI 文本有哪些特征模式？怎么避免误判人类写作？"
 
 ### 👤 人设与群像 · novel-character-design
 
@@ -78,12 +81,13 @@
 > "装逼打脸的桥段怎么写不腻？"
 > "爽点太密会审美疲劳吗？怎么控制密度？"
 
-### 🧹 润色与去AI味 · novel-polishing
+### 🧹 润色与去AI味 · novel-polishing [v2.0]
 
 > "AI 写的文怎么改才像人写的？"
 > "对话太生硬了，怎么润色？"
 > "怎么注入个人风格？"
 > "有没有具体的润色指令模板？"
+> "怎么给 AI 写去 AI 腔的 prompt？评分标准是什么？"
 
 ### 🛠️ 工具与工作流 · novel-tools
 
@@ -170,7 +174,7 @@ AI 生成初稿（40-60%）→ 人工改写润色（40-60%）→ 风格统一 �
 
 ```
 Distilled-Novel-Toolbox/
-├── novel-anti-detection/         # 反AI检测与风控
+├── novel-anti-detection/         # 反AI检测与风控（v2升级：39条规则+特征群判定）
 │   ├── SKILL.md
 │   └── references/
 │       ├── bypass-strategies.md
@@ -268,13 +272,15 @@ Distilled-Novel-Toolbox/
 │       ├── revenge-abuse.md
 │       ├── sign-in-system.md
 │       └── steady-flow.md
-├── novel-polishing/              # 润色与去AI味
+├── novel-polishing/              # 润色与去AI味（v2升级：39条规则+评分+流程）
 │   ├── SKILL.md
 │   └── references/
 │       ├── before-after-examples.md
 │       ├── de-ai-techniques.md
 │       ├── index.md
+│       ├── phrases.md
 │       ├── polishing-commands.md
+│       ├── structures.md
 │       └── style-enhancement.md
 ├── novel-tools/                  # 创作工具与生产流程
 │   ├── SKILL.md
@@ -319,7 +325,7 @@ novel-xxx/
 |--------|---------------|
 | 第一次写网文的新手 | 从头通读，每个模块的 SKILL.md 就是入门指引 |
 | 遇到瓶颈的进阶写手 | 按需加载——节奏拖沓？看 novel-pacing。角色扁平？看 novel-character-design |
-| 用 AI 辅助写作的作者 | 优先看 novel-polishing（去 AI 味）和 novel-anti-detection（防检测） |
+| 用 AI 辅助写作的作者 | 优先看 novel-polishing（v2：39条规则+评分系统+端到端流程）和 novel-anti-detection（v2：特征群检测+误报防护） |
 | 准备签约/换平台的作者 | 直接看 novel-commercialization，对比各平台风格和收入模型 |
 
 ---

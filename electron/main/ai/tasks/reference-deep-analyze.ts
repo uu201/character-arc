@@ -7,7 +7,7 @@ import type { AiTaskResult, ChapterAssistantResult } from '../shared-types'
  *
  * 不像 `reference-style-analysis` 单次产出一份 JSON，本 task 走 agent loop：
  *   1. 模型先用 skill_load("story-long-analyze") 拿拆书方法论
- *   2. 按需 skill_read_reference 拉模板（output-templates.md / material-decomposition.md）
+ *   2. 按需 skill_read_reference 拉阶段说明（stage1-golden-chapters.md / stage4-characters-settings.md）
  *   3. 对用户提供的参考小说原文逐维度拆解，每个维度（总纲 / 角色 / 故事线 / 场景）调一次
  *      knowledge_save_document 落库
  *   4. 全部存完后给一句确认文案就结束
@@ -40,7 +40,7 @@ const handler: TaskHandler = {
 
 1. **优先调用** \`skill_load("story-long-analyze")\` 加载拆书方法论。如果返回错误说该 skill 不存在，
    再 fallback 到你自己掌握的网文拆书框架。
-2. 按需 \`skill_read_reference("story-long-analyze", "references/output-templates.md")\` 等加载模板。
+2. 按需 \`skill_read_reference("story-long-analyze", "references/stage1-golden-chapters.md")\` 等加载阶段说明。
    不要一次性把所有 reference 都拉下来，只拉你接下来一步要用的。
 3. 对当前任务给出的"参考小说原文"逐**维度**拆解。**每完成一个维度立即调用
    \`knowledge_save_document\` 落库**，不要堆到最后才一次性产出。

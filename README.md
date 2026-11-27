@@ -320,11 +320,11 @@ CharacterArc/
 
 ## 🧰 内置 Skill 包
 
-应用当前在 `resources/skills/` 下内置 3 组、共 28 个 Skill。技能面板会按来源分组展示，开发版与打包版使用同一套目录结构。
+应用当前在 `resources/skills/` 下内置 3 组、共 30 个 Skill。技能面板会按来源分组展示，开发版与打包版使用同一套目录结构；外部工具类技能按兼容性标记保留，不一定默认启用。
 
 | 来源 | 数量 | 代表 Skill | 说明 |
 |---|---:|---|---|
-| `oh-story-claudecode` | 12 | `story-long-write`、`story-short-write`、`story-chapter-exec` | 核心网文写作工作流，覆盖长篇、短篇、章节执行、拆文、扫榜、封面、去 AI 味、故事蓝图与番茄排版 |
+| `oh-story-claudecode` | 14 | `story-long-write`、`story-short-write`、`story-review` | 核心网文写作工作流，覆盖长短篇规划、写作、拆文、扫榜、审稿、去 AI 味、封面与发布资料准备 |
 | `community-skills` | 3 | `humanizer-zh`、`style-fingerprint`、`style-fusion` | 通用风格与润色能力，适合中文去 AI 味、风格提取和风格融合 |
 | `Distilled-Novel-Toolbox` | 13 | `novel-pacing`、`novel-worldbuilding`、`novel-commercialization` | 工程化网文知识库，覆盖题材、人设、世界观、节奏、情绪、爽点、润色、平台、合规与反检测 |
 
@@ -332,8 +332,8 @@ CharacterArc/
 
 - `story-long-write`、`story-long-analyze`、`story-long-scan`
 - `story-short-write`、`story-short-analyze`、`story-short-scan`
-- `story-chapter-exec`、`story-chapter-repair`
-- `story-blueprint`、`story-cover`、`story-deslop`、`story-format-tomato`
+- `story`、`story-setup`、`story-import`、`story-review`
+- `story-cover`、`story-deslop`、`story-publish`、`browser-cdp`
 
 ### `community-skills`
 
@@ -361,6 +361,8 @@ CharacterArc/
 >
 > 还可以导入独立的 Skill 包，作用范围仅限该项目。
 
+2026-11-27 已核对并同步第三方仓库默认分支：Oh Story `0.12.1`、Distilled Novel Toolbox `2.0.0`、Humanizer-zh `2026-09-23` 修订。精确提交、来源目录和本地适配记录见 [`resources/skills/upstream-lock.json`](resources/skills/upstream-lock.json)。同步时保留 CharacterArc 的 manifest 任务映射和启用策略；`style-fingerprint`、`style-fusion` 为本地维护技能，保留原样。Humanizer-zh 的小说替换词库仅作措辞参考，以新版技能的语义保留约束为准。
+
 ## 💾 数据存储
 
 应用数据保存在 Electron 用户目录下：
@@ -372,7 +374,7 @@ CharacterArc/
 
 ## 🙏 鸣谢
 
-- [oh-story-claudecode](https://github.com/worldwonderer/oh-story-claudecode) — 提供了核心写作 Skills 的方法论与 prompt 工程基础
+- [oh-story-claudecode](https://github.com/zenstory-ai/oh-story-claudecode) — 提供了核心写作 Skills 的方法论与 prompt 工程基础
 - [dama-cyber/Distilled-Novel-Toolbox](https://github.com/dama-cyber/Distilled-Novel-Toolbox) — 提供了小说工作流与创作辅助方向的参考
 
 ## 🔗 友情链接

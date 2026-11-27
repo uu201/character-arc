@@ -1,4 +1,4 @@
-import type { SkillCompatibility, SkillManifest } from './types'
+import type { SkillCompatibility, SkillManifest, SkillReferenceRule } from './types'
 
 /** 用户在 frontmatter 中显式覆盖的 skill 属性 */
 export type SkillFrontmatterOverrides = {
@@ -125,7 +125,7 @@ function parseManifestBlock(frontmatter: string): {
   if (typeof result.compatibilityNote === 'string') overrides.compatibilityNote = result.compatibilityNote
   if (typeof result.enabled === 'boolean') overrides.enabled = result.enabled
 
-  const manifestKeys = ['category', 'tasks', 'stages', 'triggers', 'priority', 'required']
+  const manifestKeys = ['category', 'tasks', 'stages', 'triggers', 'priority', 'required', 'references']
   const hasManifestField = manifestKeys.some((k) => result[k] !== undefined)
   if (!hasManifestField) return { manifest: null, overrides }
 
@@ -135,10 +135,46 @@ function parseManifestBlock(frontmatter: string): {
     stages: Array.isArray(result.stages) ? result.stages as SkillManifest['stages'] : undefined,
     triggers: Array.isArray(result.triggers) ? result.triggers as string[] : undefined,
     priority: typeof result.priority === 'number' ? result.priority : undefined,
-    required: result.required === true ? true : undefined
+    required: result.required === true ? true : undefined,
+    references: parseReferenceRules(lines)
   }
 
   return { manifest, overrides }
+}
+
+/** 解析 references 的文件列表及可选任务、章节条件。 */
+function parseReferenceRules(lines: string[]): SkillReferenceRule[] | undefined {
+  const start = lines.findIndex((line) => /^  references:[ \t]*$/.test(line))
+  if (start < 0) return undefined
+  const rules: SkillReferenceRule[] = []
+  let current: SkillReferenceRule | undefined
+  let readingCondition = false
+  for (const line of lines.slice(start + 1)) {
+    if (!line.trim()) continue
+    if (!line.startsWith('    ')) break
+    const file = line.match(/^    - file:[ \t]*(.+)$/)
+    if (file) {
+      current = { file: stripYamlScalar(file[1]) }
+      if (current.file) rules.push(current)
+      readingCondition = false
+      continue
+    }
+    if (!current) continue
+    if (/^      loadWhen:[ \t]*$/.test(line)) {
+      readingCondition = true
+      continue
+    }
+    if (!readingCondition) continue
+    const condition = line.match(/^        (task|chapterIndexMax):[ \t]*(.+)$/)
+    if (!condition) continue
+    const value = stripYamlScalar(condition[2])
+    if (condition[1] === 'task' && value) {
+      current.loadWhen = { ...current.loadWhen, task: value as SkillManifest['tasks'][number] }
+    } else if (condition[1] === 'chapterIndexMax' && Number.isInteger(Number(value)) && Number(value) >= 0) {
+      current.loadWhen = { ...current.loadWhen, chapterIndexMax: Number(value) }
+    }
+  }
+  return rules
 }
 
 /** 去除 YAML 标量值两端的引号并 trim */

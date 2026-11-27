@@ -15,7 +15,7 @@
     "test:conversation-scroll": "node --test renderer/src/features/assistant/conversationScrollLifecycle.test.mjs",
     "test:assistant-staging": "set ELECTRON_RUN_AS_NODE=1&& electron --test electron/main/ai/runtime-v2/agent-loop.test.mjs electron/main/ai/runtime-v2/staging-outcome.test.mjs electron/main/ai/runtime-v2/staged-changes-store.test.mjs electron/main/ai/runtime-v2/stage-response.test.mjs electron/main/ai/runtime-v2/tools/stage-chapter-edit-core.test.mjs renderer/src/features/assistant/stagedChangeList.test.mjs",
     "test:project-premise": "set ELECTRON_RUN_AS_NODE=1&& electron --test renderer/src/features/projects/premise.test.mjs electron/main/archive/project-archive.test.mjs",
-    "test:skill-policy": "node --test electron/main/ai/skills/policy.test.mjs electron/main/ai/skills/registry-merge.test.mjs electron/main/ai/skills/selection-priority.test.mjs renderer/src/features/assistant/assistantIpcPayload.test.mjs",
+    "test:skill-policy": "node --test electron/main/ai/skills/policy.test.mjs electron/main/ai/skills/registry-merge.test.mjs electron/main/ai/skills/selection-priority.test.mjs electron/main/ai/skills/builtin-packages.test.mjs electron/main/ai/agent/tools/script-runner.test.mjs renderer/src/features/assistant/assistantIpcPayload.test.mjs",
     "test:ranking": "set ELECTRON_RUN_AS_NODE=1&& electron --test electron/main/ai/tasks/ranking-analysis.test.mjs",
     "typecheck": "vue-tsc --noEmit",
     "build": "pnpm run typecheck && electron-vite build",

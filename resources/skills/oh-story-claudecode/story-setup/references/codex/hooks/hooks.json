@@ -1,0 +1,84 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ROOT=\"${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}\"; [ -d \"$ROOT\" ] || ROOT=\"$PWD\"; ROOT=\"$(cd \"$ROOT\" 2>/dev/null && pwd)\" || exit 0; while [ ! -f \"$ROOT/.codex/hooks/run-story-hook.sh\" ]; do PARENT=\"$(dirname \"$ROOT\")\"; [ \"$PARENT\" != \"$ROOT\" ] || exit 0; ROOT=\"$PARENT\"; done; sh \"$ROOT/.codex/hooks/run-story-hook.sh\" session-start",
+            "timeout": 10,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=$env:CODEX_PROJECT_DIR; if (-not $r) { $r=$env:CLAUDE_PROJECT_DIR }; if (-not $r -or -not (Test-Path -LiteralPath $r -PathType Container)) { $r=(Get-Location).Path }; while ($true) { $launcher=Join-Path $r '.codex\\hooks\\run-story-hook.cmd'; if (Test-Path -LiteralPath $launcher -PathType Leaf) { & $launcher 'session-start'; exit $LASTEXITCODE }; $parent=Split-Path -Parent $r; if (-not $parent -or $parent -eq $r) { exit 0 }; $r=$parent }\"",
+            "statusMessage": "Loading story context"
+          }
+        ],
+        "matcher": "startup|resume|clear|compact"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ROOT=\"${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}\"; [ -d \"$ROOT\" ] || ROOT=\"$PWD\"; ROOT=\"$(cd \"$ROOT\" 2>/dev/null && pwd)\" || exit 0; while [ ! -f \"$ROOT/.codex/hooks/run-story-hook.sh\" ]; do PARENT=\"$(dirname \"$ROOT\")\"; [ \"$PARENT\" != \"$ROOT\" ] || exit 0; ROOT=\"$PARENT\"; done; sh \"$ROOT/.codex/hooks/run-story-hook.sh\" pre-tool-prose-guard",
+            "timeout": 10,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=$env:CODEX_PROJECT_DIR; if (-not $r) { $r=$env:CLAUDE_PROJECT_DIR }; if (-not $r -or -not (Test-Path -LiteralPath $r -PathType Container)) { $r=(Get-Location).Path }; while ($true) { $launcher=Join-Path $r '.codex\\hooks\\run-story-hook.cmd'; if (Test-Path -LiteralPath $launcher -PathType Leaf) { & $launcher 'pre-tool-prose-guard'; exit $LASTEXITCODE }; $parent=Split-Path -Parent $r; if (-not $parent -or $parent -eq $r) { exit 0 }; $r=$parent }\"",
+            "statusMessage": "Checking story outline guard"
+          }
+        ],
+        "matcher": "Bash|apply_patch|Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ROOT=\"${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}\"; [ -d \"$ROOT\" ] || ROOT=\"$PWD\"; ROOT=\"$(cd \"$ROOT\" 2>/dev/null && pwd)\" || exit 0; while [ ! -f \"$ROOT/.codex/hooks/run-story-hook.sh\" ]; do PARENT=\"$(dirname \"$ROOT\")\"; [ \"$PARENT\" != \"$ROOT\" ] || exit 0; ROOT=\"$PARENT\"; done; sh \"$ROOT/.codex/hooks/run-story-hook.sh\" pre-tool-commit-advisory",
+            "timeout": 15,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=$env:CODEX_PROJECT_DIR; if (-not $r) { $r=$env:CLAUDE_PROJECT_DIR }; if (-not $r -or -not (Test-Path -LiteralPath $r -PathType Container)) { $r=(Get-Location).Path }; while ($true) { $launcher=Join-Path $r '.codex\\hooks\\run-story-hook.cmd'; if (Test-Path -LiteralPath $launcher -PathType Leaf) { & $launcher 'pre-tool-commit-advisory'; exit $LASTEXITCODE }; $parent=Split-Path -Parent $r; if (-not $parent -or $parent -eq $r) { exit 0 }; $r=$parent }\"",
+            "statusMessage": "Checking story commit warnings"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ROOT=\"${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}\"; [ -d \"$ROOT\" ] || ROOT=\"$PWD\"; ROOT=\"$(cd \"$ROOT\" 2>/dev/null && pwd)\" || exit 0; while [ ! -f \"$ROOT/.codex/hooks/run-story-hook.sh\" ]; do PARENT=\"$(dirname \"$ROOT\")\"; [ \"$PARENT\" != \"$ROOT\" ] || exit 0; ROOT=\"$PARENT\"; done; sh \"$ROOT/.codex/hooks/run-story-hook.sh\" pre-compact",
+            "timeout": 10,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=$env:CODEX_PROJECT_DIR; if (-not $r) { $r=$env:CLAUDE_PROJECT_DIR }; if (-not $r -or -not (Test-Path -LiteralPath $r -PathType Container)) { $r=(Get-Location).Path }; while ($true) { $launcher=Join-Path $r '.codex\\hooks\\run-story-hook.cmd'; if (Test-Path -LiteralPath $launcher -PathType Leaf) { & $launcher 'pre-compact'; exit $LASTEXITCODE }; $parent=Split-Path -Parent $r; if (-not $parent -or $parent -eq $r) { exit 0 }; $r=$parent }\"",
+            "statusMessage": "Summarizing story context"
+          }
+        ],
+        "matcher": "manual|auto"
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ROOT=\"${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}\"; [ -d \"$ROOT\" ] || ROOT=\"$PWD\"; ROOT=\"$(cd \"$ROOT\" 2>/dev/null && pwd)\" || exit 0; while [ ! -f \"$ROOT/.codex/hooks/run-story-hook.sh\" ]; do PARENT=\"$(dirname \"$ROOT\")\"; [ \"$PARENT\" != \"$ROOT\" ] || exit 0; ROOT=\"$PARENT\"; done; sh \"$ROOT/.codex/hooks/run-story-hook.sh\" post-compact",
+            "timeout": 10,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=$env:CODEX_PROJECT_DIR; if (-not $r) { $r=$env:CLAUDE_PROJECT_DIR }; if (-not $r -or -not (Test-Path -LiteralPath $r -PathType Container)) { $r=(Get-Location).Path }; while ($true) { $launcher=Join-Path $r '.codex\\hooks\\run-story-hook.cmd'; if (Test-Path -LiteralPath $launcher -PathType Leaf) { & $launcher 'post-compact'; exit $LASTEXITCODE }; $parent=Split-Path -Parent $r; if (-not $parent -or $parent -eq $r) { exit 0 }; $r=$parent }\"",
+            "statusMessage": "Restoring story context hint"
+          }
+        ],
+        "matcher": "manual|auto"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ROOT=\"${CODEX_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}\"; [ -d \"$ROOT\" ] || ROOT=\"$PWD\"; ROOT=\"$(cd \"$ROOT\" 2>/dev/null && pwd)\" || exit 0; while [ ! -f \"$ROOT/.codex/hooks/run-story-hook.sh\" ]; do PARENT=\"$(dirname \"$ROOT\")\"; [ \"$PARENT\" != \"$ROOT\" ] || exit 0; ROOT=\"$PARENT\"; done; sh \"$ROOT/.codex/hooks/run-story-hook.sh\" stop",
+            "timeout": 5,
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$r=$env:CODEX_PROJECT_DIR; if (-not $r) { $r=$env:CLAUDE_PROJECT_DIR }; if (-not $r -or -not (Test-Path -LiteralPath $r -PathType Container)) { $r=(Get-Location).Path }; while ($true) { $launcher=Join-Path $r '.codex\\hooks\\run-story-hook.cmd'; if (Test-Path -LiteralPath $launcher -PathType Leaf) { & $launcher 'stop'; exit $LASTEXITCODE }; $parent=Split-Path -Parent $r; if (-not $parent -or $parent -eq $r) { exit 0 }; $r=$parent }\""
+          }
+        ]
+      }
+    ]
+  }
+}
